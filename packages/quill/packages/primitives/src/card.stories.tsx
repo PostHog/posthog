@@ -27,7 +27,7 @@ export const Default: Story = {
                 <p>Card Content</p>
             </CardContent>
             <CardFooter className="flex-col gap-2">
-                <Button type="submit" className="w-full">
+                <Button type="submit" variant="primary" className="w-full">
                     Login
                 </Button>
                 <Button variant="outline" className="w-full">
@@ -46,7 +46,7 @@ export const NoContent: Story = {
                 <CardDescription>Card Description</CardDescription>
             </CardHeader>
             <CardFooter className="flex-col gap-2">
-                <Button type="submit" className="w-full">
+                <Button type="submit" variant="primary" className="w-full">
                     Login
                 </Button>
                 <Button variant="outline" className="w-full">
@@ -64,14 +64,14 @@ export const WithActions: Story = {
                 <CardTitle>Card Title</CardTitle>
                 <CardDescription>Card Description</CardDescription>
                 <CardAction>
-                    <Button variant="ghost">Button 1</Button>
+                    <Button variant="outline">Button 1</Button>
                 </CardAction>
             </CardHeader>
             <CardContent>
                 <p>Card Content</p>
             </CardContent>
             <CardFooter className="flex-col gap-2">
-                <Button type="submit" className="w-full">
+                <Button type="submit" variant="primary" className="w-full">
                     Login
                 </Button>
                 <Button variant="outline" className="w-full">

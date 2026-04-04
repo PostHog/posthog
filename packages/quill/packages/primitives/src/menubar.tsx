@@ -1,8 +1,8 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { Menubar as MenubarPrimitive } from '@base-ui/react/menubar'
-import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
+import { CheckboxIndicator } from './checkbox'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -19,6 +19,7 @@ import {
     DropdownMenuTrigger,
 } from './dropdown-menu'
 import { cn } from './lib/utils'
+import { RadioIndicator } from './radio-group'
 
 function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
     return (
@@ -117,9 +118,10 @@ function MenubarCheckboxItem({
             checked={checked}
             {...props}
         >
-            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center [&_svg:not([class*='size-'])]:size-4">
-                <MenuPrimitive.CheckboxItemIndicator>
-                    <CheckIcon />
+            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
+                <CheckboxIndicator />
+                <MenuPrimitive.CheckboxItemIndicator className="absolute">
+                    <CheckboxIndicator checked />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -149,9 +151,10 @@ function MenubarRadioItem({
             )}
             {...props}
         >
-            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center [&_svg:not([class*='size-'])]:size-4">
-                <MenuPrimitive.RadioItemIndicator>
-                    <CheckIcon />
+            <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
+                <RadioIndicator />
+                <MenuPrimitive.RadioItemIndicator className="absolute">
+                    <RadioIndicator checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}

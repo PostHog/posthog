@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { BadgeCheckIcon, CheckIcon, ChevronRightIcon } from 'lucide-react'
+import { BadgeCheckIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -10,8 +10,12 @@ import {
     DropdownMenuTrigger,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
 } from './dropdown-menu'
-import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemMenuItem } from './item'
+import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemRadio, ItemMenuItem } from './item'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './select'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from './combobox'
 
 const meta = {
     title: 'Primitives/Item',
@@ -106,8 +110,8 @@ export const Group: Story = {
 export const GroupList: Story = {
     render: () => (
         <ItemGroup combined>
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -118,8 +122,8 @@ export const GroupList: Story = {
                     </a>
                 }
             />
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -130,8 +134,8 @@ export const GroupList: Story = {
                     </a>
                 }
             />
-            <Item 
-                variant="pressable" 
+            <Item
+                variant="pressable"
                 size="xs"
                 render={
                     // eslint-disable-next-line react/forbid-elements
@@ -146,7 +150,7 @@ export const GroupList: Story = {
     ),
 } satisfies Story
 
-export const ItemInDropdown: Story = {
+export const DropdownInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
 
@@ -168,7 +172,7 @@ export const ItemInDropdown: Story = {
                                         key={person.username}
                                         render={
                                             <ItemMenuItem size="xs" className="w-full">
-                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                                <ItemContent variant="menuItem">
                                                     <ItemTitle>{person.username}</ItemTitle>
                                                     <ItemDescription className="leading-none">
                                                         {person.email}
@@ -187,7 +191,7 @@ export const ItemInDropdown: Story = {
     },
 } satisfies Story
 
-export const ItemCheckboxInDropdown: Story = {
+export const DropdownCheckboxesInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [checked, setChecked] = useState<Record<string, boolean>>({
@@ -219,20 +223,13 @@ export const ItemCheckboxInDropdown: Story = {
                                         checked={checked[person.username]}
                                         onCheckedChange={() => handleCheckedChange(person.username)}
                                         render={(props) => (
-                                            <ItemCheckbox size="xs" className="w-full" {...props}>
-                                                <ItemContent className="gap-0 py-1 px-1.5">
+                                            <ItemCheckbox size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
                                                     <ItemTitle>{person.username}</ItemTitle>
                                                     <ItemDescription className="leading-none">
                                                         {person.email}
                                                     </ItemDescription>
                                                 </ItemContent>
-                                                <ItemMedia variant="checkbox">
-                                                    {props['aria-checked'] ? (
-                                                        <CheckIcon className="size-4" />
-                                                    ) : (
-                                                        <div className="size-4" />
-                                                    )}
-                                                </ItemMedia>
                                             </ItemCheckbox>
                                         )}
                                     />
@@ -240,6 +237,149 @@ export const ItemCheckboxInDropdown: Story = {
                             </DropdownMenuGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const DropdownRadiosInItem: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [radioValue, setRadioValue] = useState('John Doe')
+
+        return (
+            <Item variant="outline" className="max-w-sm">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <DropdownMenu open={open} onOpenChange={setOpen}>
+                        <DropdownMenuTrigger render={(props) => <Button variant="outline" {...props} />}>
+                            Dropdown Radios
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-auto" align="end">
+                            <DropdownMenuRadioGroup value={radioValue} onValueChange={setRadioValue}>
+                                {people.map((person) => (
+                                    <DropdownMenuRadioItem
+                                        key={person.username}
+                                        value={person.username}
+                                        render={(props) => (
+                                            <ItemRadio size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
+                                                    <ItemTitle>{person.username}</ItemTitle>
+                                                    <ItemDescription className="leading-none">
+                                                        {person.email}
+                                                    </ItemDescription>
+                                                </ItemContent>
+                                            </ItemRadio>
+                                        )}
+                                    />
+                                ))}
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const SelectInItem: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+
+        return (
+            <Item variant="outline" className="max-w-sm mt-32">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <Select
+                        open={open}
+                        onOpenChange={setOpen}
+                        defaultValue={people[0]}
+                        itemToStringLabel={(person: typeof people[number]) => person.username}
+                        itemToStringValue={(person: typeof people[number]) => person.username}
+                    >
+                        <SelectTrigger render={(props) => <Button variant="outline" {...props} className="h-min" />}>
+                            <SelectValue>
+                                {(person: typeof people[number]) => (
+                                    <ItemContent variant="menuItem">
+                                        <ItemTitle>{person.username}</ItemTitle>
+                                        <ItemDescription className="leading-none">
+                                            {person.email}
+                                        </ItemDescription>
+                                    </ItemContent>
+                                )}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="min-w-(--anchor-width)" align="end" sideOffset={8}>
+                            <SelectGroup>
+                                {people.map((person) => (
+                                    <SelectItem
+                                        key={person.username}
+                                        value={person}
+                                        className="py-0"
+                                    >
+                                        <ItemContent variant="menuItem">
+                                            <ItemTitle>{person.username}</ItemTitle>
+                                            <ItemDescription className="leading-none">
+                                                {person.email}
+                                            </ItemDescription>
+                                        </ItemContent>
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const ComboboxInItem: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+
+        return (
+            <Item variant="outline" className="max-w-sm mt-32">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                <Combobox
+                    items={people.filter((person) => person.username !== "")}
+                    itemToStringLabel={(person: (typeof people)[number]) => person.username}
+                    itemToStringValue={(person: (typeof people)[number]) => person.username}
+                    open={open}
+                    onOpenChange={setOpen}
+                >
+                    <ComboboxInput placeholder="Search people..." className="max-w-xs" />
+                    <ComboboxContent>
+                        <ComboboxEmpty>No people found.</ComboboxEmpty>
+                        <ComboboxList>
+                            {(person) => (
+                                <ComboboxItem key={person.username} value={person} className="h-auto">
+                                    <Item size="xs" className="p-0">
+                                        <ItemContent variant="menuItem">
+                                            <ItemTitle className="whitespace-nowrap">
+                                                {person.username}
+                                            </ItemTitle>
+                                            <ItemDescription>
+                                                {person.email}
+                                            </ItemDescription>
+                                        </ItemContent>
+                                    </Item>
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
                 </ItemActions>
             </Item>
         )

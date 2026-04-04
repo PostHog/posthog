@@ -34,7 +34,7 @@ export const Default: Story = {
                 <p>Dialog body content goes here.</p>
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                    <Button>Confirm</Button>
+                    <Button variant="primary">Confirm</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -60,14 +60,14 @@ export const Nested: Story = {
                         </DialogHeader>
                         <DialogFooter>
                             <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                            <Button>Confirm</Button>
+                            <Button variant="primary">Confirm</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
 
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                    <Button>Confirm</Button>
+                    <Button variant="primary">Confirm</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -83,7 +83,7 @@ export const ScrollableContent: Story = {
                     <DialogTitle>Dialog title</DialogTitle>
                     <DialogDescription>This is a description of the dialog content.</DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="-mx-4 max-h-[50vh] px-4">
+                <ScrollArea className="max-h-[50vh]">
                     {Array.from({ length: 10 }).map((_, index) => (
                         <p key={index} className="mb-4 leading-normal">
                             Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut
@@ -96,7 +96,7 @@ export const ScrollableContent: Story = {
                 </ScrollArea>
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                    <Button>Confirm</Button>
+                    <Button variant="primary">Confirm</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

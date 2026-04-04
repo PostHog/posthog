@@ -9,13 +9,12 @@ const buttonVariants = cva(
     {
         variants: {
             variant: {
-                default: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+                default: 'hover:bg-fill-hover hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-fill-hover border-none not-hover:aria-selected:bg-fill-selected not-hover:aria-[checked=true]:bg-fill-selected data-highlighted:bg-fill-hover',
+                primary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
                 outline:
-                    'bg-accent/30 border-foreground/10 dark:border-foreground/15 hover:bg-accent hover:text-foreground dark:hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground data-[popup-open]:bg-input/50',
-                ghost: 'hover:bg-accent/40 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground data-[popup-open]:bg-accent/40 border-none not-hover:aria-[checked=true]:bg-accent/20',
-                menuItem: 'hover:bg-accent/80 hover:text-foreground aria-expanded:bg-muted data-highlighted:bg-muted aria-expanded:text-foreground data-highlighted:text-foreground data-[popup-open]:bg-accent/40 border-none not-hover:[selected=true]:bg-accent/10 not-hover:data-highlighted:bg-accent/80',
+                    'bg-accent/30 border-foreground/10 dark:border-foreground/15 hover:bg-fill-active hover:text-foreground dark:hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-input/50',
                 destructive:
-                    'bg-destructive/50 text-destructive-foreground hover:bg-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive/20 data-[popup-open]:bg-destructive/20',
+                    'bg-destructive/50 text-destructive-foreground hover:bg-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive-foreground/60 data-[popup-open]:bg-destructive/20',
                 link: 'text-primary underline-offset-4 hover:underline data-[popup-open]:underline cursor-pointer',
                 'link-muted': 'text-muted-foreground underline-offset-4 hover:underline data-[popup-open]:underline cursor-pointer',
             },

@@ -1,9 +1,10 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronUpIcon, CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
+import { MenuLabel } from './menuLabel'
 
 const Select = SelectPrimitive.Root
 
@@ -94,10 +95,8 @@ function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Pr
     return (
         <SelectPrimitive.GroupLabel
             data-slot="select-label"
-            className={cn(
-                'px-2 py-1.5 text-muted-foreground/50 uppercase font-semibold text-[0.6875rem] leading-5 tracking-[0.075em]',
-                className
-            )}
+            className={className}
+            render={<MenuLabel />}
             {...props}
         />
     )
@@ -108,7 +107,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
         <SelectPrimitive.Item
             data-slot="select-item"
             className={cn(
-                "relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs/relaxed outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+                "relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs/relaxed outline-hidden select-none focus:bg-fill-hover not-hover:aria-selected:bg-fill-selected focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
                 className
             )}
             {...props}

@@ -3,7 +3,9 @@ import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import { CheckboxIndicator } from './checkbox'
 import { cn } from './lib/utils'
+import { RadioIndicator } from './radio-group'
 import { Separator } from './separator'
 
 function ItemGroup({
@@ -41,7 +43,7 @@ const itemVariants = cva(
                 outline: 'border-border',
                 pressable: 'transition-colors hover:border-secondary/20 hover:shadow hover:z-1 hover:group-data-[combined=true]/item-group:shadow-none hover:group-data-[combined=true]/item-group:border-border',
                 muted: 'border-transparent bg-muted/50',
-                menuItem: 'hover:bg-accent hover:text-foreground border-none'
+                menuItem: 'hover:bg-fill-hover hover:text-foreground border-none'
             },
             size: {
                 default: 'gap-2.5 px-3 py-2.5',
@@ -82,19 +84,23 @@ function Item({
     })
 }
 
-function ItemMenuItem({
-    className,
-    variant = 'default',
-    size = 'default',
-    render,
-    ...props
-}: useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>): React.ReactElement {
+const ItemMenuItem = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemMenuItem(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        ...props
+    },
+    ref
+) {
     return useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
                 className: cn(itemVariants({ variant: 'menuItem', size, className })),
                 role: 'menuitem',
+                ref,
             },
             props
         ),
@@ -105,21 +111,27 @@ function ItemMenuItem({
             size,
         },
     })
-}
+})
 
-function ItemCheckbox({
-    className,
-    variant = 'default',
-    size = 'default',
-    render,
-    ...props
-}: useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>): React.ReactElement {
-    return useRender({
+const ItemCheckbox = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemCheckbox(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        children,
+        ...props
+    },
+    ref
+) {
+    const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
+    const element = useRender({
         defaultTagName: 'button',
         props: mergeProps<'button'>(
             {
                 className: cn(itemVariants({ variant: 'menuItem', size, className })),
                 role: 'checkbox',
+                ref,
             },
             props
         ),
@@ -130,7 +142,40 @@ function ItemCheckbox({
             size,
         },
     })
-}
+    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><CheckboxIndicator checked={checked} /></ItemMedia>, children)
+})
+
+const ItemRadio = React.forwardRef<HTMLButtonElement, useRender.ComponentProps<'button'> & VariantProps<typeof itemVariants>>(function ItemRadio(
+    {
+        className,
+        variant = 'default',
+        size = 'default',
+        render,
+        children,
+        ...props
+    },
+    ref
+) {
+    const checked = props['aria-checked'] === true || props['aria-checked'] === 'true'
+    const element = useRender({
+        defaultTagName: 'button',
+        props: mergeProps<'button'>(
+            {
+                className: cn(itemVariants({ variant: 'menuItem', size, className })),
+                role: 'radio',
+                ref,
+            },
+            props
+        ),
+        render,
+        state: {
+            slot: 'item',
+            variant,
+            size,
+        },
+    })
+    return React.cloneElement(element, {}, <ItemMedia variant="checkbox" className="-mr-2"><RadioIndicator checked={checked} /></ItemMedia>, children)
+})
 
 const itemMediaVariants = cva(
     'flex shrink-0 items-center justify-center gap-2 group-has-data-[slot=item-description]/item:translate-y-0.5 group-has-data-[slot=item-description]/item:self-start [&_svg]:pointer-events-none',
@@ -168,12 +213,31 @@ function ItemMedia({
     )
 }
 
-function ItemContent({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const itemContentVariants = cva(
+    'flex flex-1 flex-col gap-1 group-data-[size=xs]/item:gap-0.5 [&+[data-slot=item-content]]:flex-none',
+    {
+        variants: {
+            variant: {
+                default: '',
+                menuItem: "w-full py-1 px-1.5 has-data-[slot=item-media]:pl-0",
+            },
+        },
+        defaultVariants: {
+            variant: 'default',
+        },
+    }
+)
+
+function ItemContent({ 
+    className, 
+    variant = 'default', 
+    ...props 
+}: React.ComponentProps<'div'> & VariantProps<typeof itemContentVariants>): React.ReactElement {
     return (
         <div
             data-slot="item-content"
             className={cn(
-                'flex flex-1 flex-col gap-1 group-data-[size=xs]/item:gap-0.5 [&+[data-slot=item-content]]:flex-none',
+                itemContentVariants({ variant, className }),
                 className
             )}
             {...props}
@@ -235,7 +299,7 @@ function ItemFooter({ className, ...props }: React.ComponentProps<'div'>): React
 export {
     Item,
     ItemCheckbox,
-    // ItemRadio,
+    ItemRadio,
     ItemMenuItem,
     ItemMedia,
     ItemContent,

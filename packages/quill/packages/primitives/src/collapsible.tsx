@@ -17,7 +17,7 @@ function CollapsibleTrigger({ children, className, ...props }: CollapsiblePrimit
                 `w-full group/collapsible-trigger flex items-center gap-2 text-xs/relaxed **:data-[slot=collapsible-trigger-icon]:size-4 **:data-[slot=collapsible-trigger-icon]:text-muted-foreground justify-start`,
                 className
             )}
-            render={<Button variant="ghost" size="sm" className="px-2" />}
+            render={<Button size="sm" className="px-2" />}
             {...props}
         >
             {children}

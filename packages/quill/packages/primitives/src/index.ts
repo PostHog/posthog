@@ -4,9 +4,10 @@ export { Button, buttonVariants } from './button'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
-export { Checkbox } from './checkbox'
+export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { MenuLabel } from './menuLabel'
 export {
     Combobox,
     ComboboxInput,
@@ -113,6 +114,7 @@ export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGro
 export {
     Item,
     ItemCheckbox,
+    ItemRadio,
     ItemMenuItem,
     ItemMedia,
     ItemContent,
@@ -146,7 +148,7 @@ export {
 } from './menubar'
 export { Popover, PopoverContent, PopoverTrigger } from './popover'
 export { Progress } from './progress'
-export { RadioGroup, RadioGroupItem } from './radio-group'
+export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 export { ScrollArea, ScrollBar } from './scroll-area'
 export {

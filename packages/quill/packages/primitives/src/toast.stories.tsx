@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, Copy } from 'lucide-react'
 import { useRef, useState } from 'react'
 
 import { Button } from './button'
@@ -246,7 +246,7 @@ export const Anchored: Story = {
             <div className="flex items-center justify-center p-20">
                 <Button ref={buttonRef} size="icon" variant="outline" onClick={handleCopy}>
                     <span className="relative flex items-center justify-center">
-                        <CopyIcon
+                        <Copy
                             className="size-3.5 absolute transition-[opacity,filter] duration-150 ease-out"
                             style={{ opacity: copied ? 0 : 1, filter: copied ? 'blur(4px)' : 'blur(0px)' }}
                         />

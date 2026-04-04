@@ -1,5 +1,5 @@
 import { Toast } from '@base-ui/react/toast'
-import { CircleCheckIcon, InfoIcon, OctagonXIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
+import { CircleCheckIcon, InfoIcon, XIcon, TriangleAlertIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
@@ -37,7 +37,7 @@ const toastIconMap: Record<ToastType, React.ReactNode> = {
     success: <CircleCheckIcon className="size-6 bg-success/50 text-success-foreground p-1 rounded-sm" />,
     info: <InfoIcon className="size-6 bg-info/50 text-info-foreground p-1 rounded-sm" />,
     warning: <TriangleAlertIcon className="size-6 bg-warning/50 text-warning-foreground p-1 rounded-sm" />,
-    error: <OctagonXIcon className="size-6 bg-destructive/50 text-destructive-foreground p-1 rounded-sm" />,
+    error: <XIcon className="size-6 bg-destructive/50 text-destructive-foreground p-1 rounded-sm" />,
     loading: <Spinner className="size-6 text-foreground/60 p-1 rounded-sm" />,
 }
 
@@ -58,6 +58,8 @@ type ToastCardProps = React.ComponentPropsWithRef<'div'> & {
 
 const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
     ({ className, toastTitle, toastDescription, icon, action, onDismiss, showGapHitArea, children, ...props }, ref) => {
+        const onlyTitle = toastTitle !== undefined && toastDescription === undefined
+        const onlyDescription = toastDescription !== undefined && toastTitle === undefined
         return (
             <div
                 ref={ref}
@@ -75,7 +77,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         style={{ height: 'calc(var(--gap) + 1px)' }}
                     />
                 )}
-                <div className={cn("flex items-center gap-3", onDismiss && "pr-8")}>
+                <div className={cn("flex items-center gap-3", onDismiss && "pe-8")}>
                     {icon && <span className={cn("shrink-0 self-start mt-1", !toastTitle && toastDescription && 'mt-0')}>{icon}</span>}
                     <div className="flex-1 min-w-0">
                         {toastTitle && (
@@ -99,7 +101,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                     </div>
                 )}
                 {onDismiss && (
-                    <Button variant="ghost" size="icon-sm" className={cn("absolute top-2 right-2", !toastTitle && toastDescription && "top-1.5")} onClick={onDismiss}>
+                    <Button size="icon-sm" className={cn("absolute right-2", (onlyTitle && "top-1.5") || (onlyDescription && "top-1.5") || "top-2")} onClick={onDismiss}>
                         <XIcon className="size-3.5" />
                     </Button>
                 )}

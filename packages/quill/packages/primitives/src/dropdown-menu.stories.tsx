@@ -16,6 +16,7 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuRadioItem,
     DropdownMenuRadioGroup,
+    DropdownMenuLabel,
 } from './dropdown-menu'
 import { Kbd } from './kbd'
 
@@ -37,6 +38,56 @@ export const Default: Story = {
                 <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
                 <DropdownMenuContent>
                     <DropdownMenuGroup>
+                        <DropdownMenuItem>
+                            <Copy />
+                            Copy
+                            <Kbd>⌘C</Kbd>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                            <Pencil />
+                            Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive">
+                            <TrashIcon />
+                            Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub open={subOpen} onOpenChange={setSubOpen}>
+                        <DropdownMenuSubTrigger>
+                            <MoreVertical />
+                            More
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            <DropdownMenuItem>
+                                <Folder />
+                                Open in folder
+                                <Kbd>⌘O</Kbd>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                                <ExpandIcon />
+                                Expand
+                            </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+export const Labels: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [subOpen, setSubOpen] = useState(true)
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>
+                            Group label
+                        </DropdownMenuLabel>
                         <DropdownMenuItem>
                             <Copy />
                             Copy

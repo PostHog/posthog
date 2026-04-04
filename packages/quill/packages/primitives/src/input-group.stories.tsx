@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { CheckIcon, CopyIcon, CreditCardIcon, EyeOffIcon, InfoIcon, LucideArrowUpRight, MailIcon, RefreshCcwIcon, Search, SearchIcon, Star, StarIcon } from 'lucide-react'
+import { CheckIcon, Copy, CreditCardIcon, EyeOffIcon, InfoIcon, LucideArrowUpRight, MailIcon, RefreshCcwIcon, SearchIcon, Star, StarIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './field'
 import { Input } from './input'
@@ -23,7 +23,7 @@ export const Default: Story = {
         <InputGroup className="max-w-xs">
             <InputGroupInput placeholder="Search..." />
             <InputGroupAddon>
-                <Search />
+                <SearchIcon />
             </InputGroupAddon>
             <InputGroupAddon align="inline-end">12 results</InputGroupAddon>
         </InputGroup>
@@ -80,7 +80,7 @@ export const InlineBlockEnd: Story = {
                         />
                         <InputGroupAddon align="block-end">
                             <InputGroupText>0/280</InputGroupText>
-                            <InputGroupButton variant="default" className="ml-auto">
+                            <InputGroupButton variant="primary" className="ml-auto">
                                 Post
                             </InputGroupButton>
                         </InputGroupAddon>
@@ -149,7 +149,7 @@ export const Buttons: Story = {
                                 setIsCopied(true)
                             }}
                         >
-                            {isCopied ? <CheckIcon /> : <CopyIcon />}
+                            {isCopied ? <CheckIcon /> : <Copy />}
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>
@@ -158,7 +158,7 @@ export const Buttons: Story = {
                     <Popover>
                         <InputGroupAddon>
                             <PopoverTrigger render={
-                                <InputGroupButton variant="ghost" size="icon-xs">
+                                <InputGroupButton size="icon-xs">
                                     <InfoIcon />
                                 </InputGroupButton>
                             } />
@@ -193,7 +193,7 @@ export const Buttons: Story = {
                 <InputGroup>
                     <InputGroupInput placeholder="Type to search..." />
                     <InputGroupAddon align="inline-end">
-                        <InputGroupButton variant="default">Search</InputGroupButton>
+                        <InputGroupButton variant="primary">Search</InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>
             </div>
@@ -236,7 +236,7 @@ export const Invalid: Story = {
                     />
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
-                        <InputGroupButton size="sm" className="ml-auto" variant="default">
+                        <InputGroupButton size="sm" className="ml-auto" variant="primary">
                             Run <LucideArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
@@ -285,7 +285,7 @@ export const Textarea: Story = {
                     />
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
-                        <InputGroupButton size="sm" className="ml-auto" variant="default">
+                        <InputGroupButton size="sm" className="ml-auto" variant="primary">
                             Run <LucideArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
@@ -299,7 +299,7 @@ export const Textarea: Story = {
                     />
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
                         <InputGroupText>Line 1, Column 1</InputGroupText>
-                        <InputGroupButton size="sm" className="ml-auto" variant="default">
+                        <InputGroupButton size="sm" className="ml-auto" variant="primary">
                             Run <LucideArrowUpRight />
                         </InputGroupButton>
                     </InputGroupAddon>
@@ -311,8 +311,8 @@ export const Textarea: Story = {
                         <InputGroupButton className="ml-auto" size="icon-xs">
                             <RefreshCcwIcon />
                         </InputGroupButton>
-                        <InputGroupButton variant="ghost" size="icon-xs">
-                            <CopyIcon />
+                        <InputGroupButton size="icon-xs">
+                            <Copy />
                         </InputGroupButton>
                     </InputGroupAddon>
                 </InputGroup>

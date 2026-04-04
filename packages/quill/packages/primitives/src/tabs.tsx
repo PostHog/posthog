@@ -75,7 +75,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.Re
                 className
             )}
             {...props}
-            render={(props) => <Button variant="ghost" {...props} />}
+            render={(props) => <Button {...props} />}
         />
     )
 }

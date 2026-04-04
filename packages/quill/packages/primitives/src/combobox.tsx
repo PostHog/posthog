@@ -6,6 +6,7 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { Button } from './button'
+import { MenuLabel } from './menuLabel'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -47,7 +48,7 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props): 
     return (
         <ComboboxPrimitive.Clear
             data-slot="combobox-clear"
-            render={<InputGroupButton variant="ghost" size="icon-xs" />}
+            render={<InputGroupButton size="icon-xs" />}
             className={cn(className)}
             {...props}
         >
@@ -78,7 +79,6 @@ function ComboboxInput({
             {showTrigger && (
               <InputGroupButton
                 size="icon-xs"
-                variant="ghost"
                 render={<ComboboxTrigger />}
                 data-slot="input-group-button"
                 className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
@@ -150,11 +150,10 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
         <ComboboxPrimitive.Item
             data-slot="combobox-item"
             className={cn(
-                "relative flex min-h-8 w-full cursor-default items-center gap-2 rounded-md outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
-                "[&>.item]:border-0",
+                "w-full font-normal not-data-[variant=destructive]:data-highlighted:**:text-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&>.item]:border-0",
                 className
             )}
-            render={<Button variant="menuItem" left/>}
+            render={<Button left />}
             {...props}
         >
             {children}
@@ -175,7 +174,8 @@ function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Pro
     return (
         <ComboboxPrimitive.GroupLabel
             data-slot="combobox-label"
-            className={cn('px-2 py-1.5 text-xs text-muted-foreground', className)}
+            className={className}
+            render={<MenuLabel />}
             {...props}
         />
     )
@@ -234,7 +234,7 @@ function ComboboxChip({
 }): React.ReactElement {
     return (
         <ComboboxPrimitive.Chip
-            render={<Chip variant="outline" className="pr-0" />}
+            render={<Chip className="pe-0" />}
             data-slot="combobox-chip"
             className={cn(className)}
             {...props}

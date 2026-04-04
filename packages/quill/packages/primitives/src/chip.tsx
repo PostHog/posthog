@@ -34,7 +34,6 @@ const ChipClose = React.forwardRef<
         <Button
             ref={ref}
             data-slot="chip-close"
-            variant="ghost"
             size="icon-xs"
             className={cn('opacity-50 hover:opacity-100', className)}
             {...props}

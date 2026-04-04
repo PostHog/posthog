@@ -4,6 +4,21 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 
+function CheckboxIndicator({ checked, className }: { checked?: boolean; className?: string }): React.ReactElement {
+    return (
+        <span
+            data-slot="checkbox-indicator"
+            className={cn(
+                'flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input',
+                checked && 'border-primary bg-primary text-primary-foreground',
+                className
+            )}
+        >
+            {checked && <CheckIcon className="size-3" />}
+        </span>
+    )
+}
+
 function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props): React.ReactElement {
     return (
         <CheckboxPrimitive.Root
@@ -15,13 +30,13 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props): React.
             {...props}
         >
             <CheckboxPrimitive.Indicator
-                data-slot="checkbox-indicator"
-                className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+                data-slot="checkbox-primitive-indicator"
+                className="grid place-content-center text-current transition-none"
             >
-                <CheckIcon />
+                <CheckboxIndicator checked className="border-none bg-transparent" />
             </CheckboxPrimitive.Indicator>
         </CheckboxPrimitive.Root>
     )
 }
 
-export { Checkbox }
+export { Checkbox, CheckboxIndicator }

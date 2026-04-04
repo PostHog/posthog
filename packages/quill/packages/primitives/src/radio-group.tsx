@@ -4,6 +4,23 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 
+function RadioIndicator({ checked, className }: { checked?: boolean; className?: string }): React.ReactElement {
+    return (
+        <span
+            data-slot="radio-indicator"
+            className={cn(
+                'relative flex size-4 shrink-0 rounded-full border border-input',
+                checked && 'border-primary bg-primary text-primary-foreground',
+                className
+            )}
+        >
+            {checked && (
+                <span className="absolute top-1/2 start-1/2 size-2 -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-foreground" />
+            )}
+        </span>
+    )
+}
+
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props): React.ReactElement {
     return <RadioGroupPrimitive data-slot="radio-group" className={cn('grid w-full gap-3', className)} {...props} />
 }
@@ -28,4 +45,4 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props): Rea
     )
 }
 
-export { RadioGroup, RadioGroupItem }
+export { RadioGroup, RadioGroupItem, RadioIndicator }

@@ -54,6 +54,7 @@ function DialogContent({
                     'fixed top-[calc(50%+1.25rem*var(--nested-dialogs))] start-1/2 z-50 grid w-full max-w-[calc(100vw-3rem)] -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 scale-[calc(1-0.1*var(--nested-dialogs))] gap-4 rounded-xl bg-background p-4 text-xs/relaxed ring-1 ring-foreground/10 outline-none transition-all duration-150 sm:max-w-sm',
                     'data-[starting-style]:scale-90 data-[starting-style]:opacity-0 data-[ending-style]:scale-90 data-[ending-style]:opacity-0',
                     'data-[nested-dialog-open]:after:absolute data-[nested-dialog-open]:after:inset-0 data-[nested-dialog-open]:after:rounded-[inherit] data-[nested-dialog-open]:after:bg-black/5',
+                    '[&>[data-slot=scroll-area]]:-mx-[calc((var(--spacing)*4)-var(--spacing)))] [&>[data-slot=scroll-area]]:px-4 [&>[data-slot=scroll-area]]:rounded [&>[data-slot=scroll-area]]:overflow-hidden',
                     className
                 )}
                 {...props}
@@ -62,7 +63,7 @@ function DialogContent({
                 {showCloseButton && (
                     <DialogPrimitive.Close
                         data-slot="dialog-close"
-                        render={<Button variant="ghost" className="absolute top-2 end-2" size="icon-sm" />}
+                        render={<Button className="absolute top-2 end-2" size="icon-sm" />}
                     >
                         <XIcon />
                         <span className="sr-only">Close</span>

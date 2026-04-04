@@ -1,9 +1,12 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { ChevronRightIcon, CheckIcon } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
+import { CheckboxIndicator } from './checkbox'
 import { cn } from './lib/utils'
+import { MenuLabel } from './menuLabel'
+import { RadioIndicator } from './radio-group'
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -68,7 +71,8 @@ function DropdownMenuLabel({
         <MenuPrimitive.GroupLabel
             data-slot="dropdown-menu-label"
             data-inset={inset}
-            className={cn('px-2 py-1.5 text-xs text-muted-foreground data-inset:ps-7.5', className)}
+            className={cn('data-inset:ps-7.5', className)}
+            render={<MenuLabel />}
             {...props}
         />
     )
@@ -77,11 +81,11 @@ function DropdownMenuLabel({
 function DropdownMenuItem({
     className,
     inset,
-    variant = 'ghost',
+    variant = 'default',
     ...props
 }: MenuPrimitive.Item.Props & {
     inset?: boolean
-    variant?: 'ghost' | 'destructive'
+    variant?: 'default' | 'destructive'
 }): React.ReactElement {
     return (
         <MenuPrimitive.Item
@@ -105,12 +109,10 @@ function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props): React.R
 function DropdownMenuSubTrigger({
     className,
     inset,
-    variant = 'ghost',
     children,
     ...props
 }: MenuPrimitive.SubmenuTrigger.Props & {
     inset?: boolean
-    variant?: 'ghost'
 }): React.ReactElement {
     return (
         <MenuPrimitive.SubmenuTrigger
@@ -120,7 +122,7 @@ function DropdownMenuSubTrigger({
                 "flex cursor-default items-center text-xs outline-hidden select-none data-inset:ps-7.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
-            render={<Button variant={variant} className="w-full font-normal" left />}
+            render={<Button className="w-full font-normal" left />}
             {...props}
         >
             {children}
@@ -167,19 +169,20 @@ function DropdownMenuCheckboxItem({
             data-slot="dropdown-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center pe-8 ps-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             checked={checked}
-            render={<Button variant="ghost" className="w-full font-normal" left />}
+            render={<Button className="w-full font-normal" left />}
             {...props}
         >
             <span
-                className="pointer-events-none absolute end-2 flex items-center justify-center"
+                className="pointer-events-none absolute start-2 flex items-center justify-center"
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
-                <MenuPrimitive.CheckboxItemIndicator>
-                    <CheckIcon />
+                <CheckboxIndicator />
+                <MenuPrimitive.CheckboxItemIndicator className="absolute">
+                    <CheckboxIndicator checked />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -204,18 +207,19 @@ function DropdownMenuRadioItem({
             data-slot="dropdown-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex min-h-7 cursor-default items-center pe-8 ps-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "relative flex min-h-7 cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
-            render={<Button variant="ghost" className="w-full font-normal" left />}
+            render={<Button className="w-full font-normal" left />}
             {...props}
         >
             <span
-                className="pointer-events-none absolute end-2 flex items-center justify-center"
+                className="pointer-events-none absolute start-2 flex items-center justify-center"
                 data-slot="dropdown-menu-radio-item-indicator"
             >
-                <MenuPrimitive.RadioItemIndicator>
-                    <CheckIcon />
+                <RadioIndicator />
+                <MenuPrimitive.RadioItemIndicator className="absolute">
+                    <RadioIndicator checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}

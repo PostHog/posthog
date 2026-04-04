@@ -11,7 +11,7 @@ const meta = {
     argTypes: {
         variant: {
             control: 'select',
-            options: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link'],
+            options: ['default', 'primary', 'outline', 'destructive', 'link', 'link-muted'],
         },
         size: {
             control: 'select',
@@ -27,10 +27,10 @@ type Story = StoryObj<typeof meta>
 export const Default = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Button variant="default">Default</Button>
+            <Button>Default</Button>
+            <Button variant="primary">Primary</Button>
             <Button variant="outline">Outline</Button>
             <Button variant="destructive">Destructive</Button>
-            <Button variant="ghost">Ghost</Button>
             <Button variant="link">Link</Button>
         </div>
     ),
@@ -39,17 +39,17 @@ export const Default = {
 export const WithIcons = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Button variant="default">
+            <Button>
                 <TrashIcon /> Default
+            </Button>
+            <Button variant="primary">
+                <TrashIcon /> Primary
             </Button>
             <Button variant="outline">
                 <TrashIcon /> Outline
             </Button>
             <Button variant="destructive">
                 <TrashIcon /> Destructive
-            </Button>
-            <Button variant="ghost">
-                <TrashIcon /> Ghost
             </Button>
             <Button variant="link">
                 <TrashIcon /> Link
@@ -60,20 +60,20 @@ export const WithIcons = {
 export const WithKBD = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Button variant="default">
+            <Button>
                 Default
                 <Kbd>⌘A</Kbd>
             </Button>
+            <Button variant="primary">
+                Primary
+                <Kbd>⌘B</Kbd>
+            </Button>
             <Button variant="outline">
                 Outline
-                <Kbd>⌘B</Kbd>
+                <Kbd>⌘C</Kbd>
             </Button>
             <Button variant="destructive">
                 Destructive
-                <Kbd>⌘C</Kbd>
-            </Button>
-            <Button variant="ghost">
-                Ghost
                 <Kbd>⌘D</Kbd>
             </Button>
             <Button variant="link">
@@ -87,16 +87,16 @@ export const WithKBD = {
 export const IconOnly = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Button variant="default" size="icon">
+            <Button size="icon">
+                <TrashIcon />
+            </Button>
+            <Button variant="primary" size="icon">
                 <TrashIcon />
             </Button>
             <Button variant="outline" size="icon">
                 <TrashIcon />
             </Button>
             <Button variant="destructive" size="icon">
-                <TrashIcon />
-            </Button>
-            <Button variant="ghost" size="icon">
                 <TrashIcon />
             </Button>
             <Button variant="link" size="icon">
@@ -151,8 +151,11 @@ export const Sizes = {
 export const Disabled = {
     render: () => (
         <div className="flex items-center gap-2">
-            <Button variant="default" disabled>
+            <Button disabled>
                 Default
+            </Button>
+            <Button variant="primary" disabled>
+                Primary
             </Button>
             <Button variant="outline" disabled>
                 Outline
@@ -160,12 +163,19 @@ export const Disabled = {
             <Button variant="destructive" disabled>
                 Destructive
             </Button>
-            <Button variant="ghost" disabled>
-                Ghost
-            </Button>
             <Button variant="link" disabled>
                 Link
             </Button>
+        </div>
+    ),
+} satisfies Story
+
+
+export const Misc = {
+    render: () => (
+        <div className="max-w-sm">
+            <Button left className="w-full">Aligned left</Button>
+            <Button left className="w-full"><TrashIcon /> Aligned left</Button>
         </div>
     ),
 } satisfies Story

@@ -85,7 +85,7 @@ const InputGroupButton = React.forwardRef<
         VariantProps<typeof inputGroupButtonVariants> & {
             type?: 'button' | 'submit' | 'reset'
         }
->(({ className, type = 'button', variant = 'ghost', size = 'sm', ...props }, ref) => {
+>(({ className, type = 'button', variant, size = 'sm', ...props }, ref) => {
     return (
         <Button
             ref={ref}

@@ -47,9 +47,9 @@ export const WithIconAndClose: Story = {
 export const Variants: Story = {
     render: () => (
         <div className="flex flex-wrap gap-2">
-            <Chip variant="default">Default</Chip>
+            <Chip variant="primary">Primary</Chip>
             <Chip variant="outline">Outline</Chip>
-            <Chip variant="ghost">Ghost</Chip>
+            <Chip>Default</Chip>
             <Chip variant="destructive">
                 Destructive
                 <ChipClose />
