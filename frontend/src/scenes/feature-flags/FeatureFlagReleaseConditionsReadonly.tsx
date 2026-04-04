@@ -135,7 +135,11 @@ export function FeatureFlagReleaseConditionsReadonly({
                                 OR
                             </div>
                         )}
-                        <ConditionSetCard group={group} index={index} aggregationTargetName={aggregationTargetName} />
+                        <ConditionSetCard
+                            group={group}
+                            index={index}
+                            aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                        />
                     </div>
                 ))}
 
@@ -270,12 +274,13 @@ export function FeatureFlagSuperConditionsReadonly({
                             <div className="text-sm">
                                 {group.properties?.length ? (
                                     <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
+                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
+                                        value set on <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match{' '}
+                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
                                     </>
                                 )}
                             </div>

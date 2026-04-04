@@ -573,18 +573,11 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
 }
 
 function BatchScheduleSection(): JSX.Element {
-    const { setPendingSchedule } = useActions(workflowLogic)
-    const { currentSchedule, pendingSchedule } = useValues(workflowLogic)
-
     return (
         <>
             <LemonDivider />
             <LemonLabel>Schedule</LemonLabel>
-            <RecurringSchedulePicker
-                key={currentSchedule?.id ?? 'new'}
-                schedule={pendingSchedule !== false ? pendingSchedule : (currentSchedule ?? null)}
-                onChange={(schedule) => setPendingSchedule(schedule)}
-            />
+            <RecurringSchedulePicker />
         </>
     )
 }

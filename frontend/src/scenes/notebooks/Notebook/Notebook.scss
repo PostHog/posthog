@@ -586,22 +586,14 @@
     }
 
     .NotebookComment {
-        --notebook-comment-background-opacity: 0.25;
-
-        position: relative;
-        transform-style: preserve-3d;
+        padding: 0.1em 0;
+        margin: 0 -0.05em;
+        background: color-mix(in oklab, var(--color-accent) 25%, transparent);
+        border-radius: 2px;
+        box-decoration-break: clone;
 
         &:hover {
-            --notebook-comment-background-opacity: 0.5;
-        }
-
-        &::after {
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            content: '';
-            background: var(--color-accent);
-            opacity: var(--notebook-comment-background-opacity);
+            background: color-mix(in oklab, var(--color-accent) 50%, transparent);
         }
     }
 

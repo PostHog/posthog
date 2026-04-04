@@ -4396,6 +4396,7 @@ class TaxonomicFilterGroupType(StrEnum):
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
     RECENT_FILTERS = "recent_filters"
+    PINNED_FILTERS = "pinned_filters"
     EMPTY = "empty"
 
 
