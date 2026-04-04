@@ -43,6 +43,14 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
+# Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
+# process with a single event loop — all async activities share it, so this
+# module-level semaphore gates every activity on the same worker. With 5 workers
+# per region and a ClickHouse user limit of 50 concurrent queries, 10 per worker
+# keeps us at the regional cap.
+MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
+_clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
+
 
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
@@ -261,7 +269,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_clickhouse_client(enable_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -323,7 +331,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with get_clickhouse_client(enable_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
@@ -370,7 +378,10 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client:
+    async with (
+        _clickhouse_query_semaphore,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client,
+    ):
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
