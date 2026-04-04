@@ -242,9 +242,9 @@ export const CustomItems: Story = {
                         <ComboboxEmpty>No countries found.</ComboboxEmpty>
                         <ComboboxList>
                             {(country) => (
-                                <ComboboxItem key={country.code} value={country}>
+                                <ComboboxItem key={country.code} value={country} className="h-auto">
                                     <Item size="xs" className="p-0">
-                                        <ItemContent>
+                                        <ItemContent variant="menuItem">
                                             <ItemTitle className="whitespace-nowrap">
                                                 {country.label}
                                             </ItemTitle>

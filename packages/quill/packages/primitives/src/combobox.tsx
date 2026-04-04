@@ -233,7 +233,7 @@ function ComboboxChip({
 }): React.ReactElement {
     return (
         <ComboboxPrimitive.Chip
-            render={<Chip variant="outline" className="pr-0" />}
+            render={<Chip className="pe-0" />}
             data-slot="combobox-chip"
             className={cn(className)}
             {...props}

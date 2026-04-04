@@ -15,6 +15,7 @@ import {
 } from './dropdown-menu'
 import { Item, ItemContent, ItemDescription, ItemTitle, ItemActions, ItemMedia, ItemGroup, ItemCheckbox, ItemRadio, ItemMenuItem } from './item'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './select'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from './combobox'
 
 const meta = {
     title: 'Primitives/Item',
@@ -149,7 +150,7 @@ export const GroupList: Story = {
     ),
 } satisfies Story
 
-export const ItemInDropdown: Story = {
+export const DropdownInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
 
@@ -190,7 +191,7 @@ export const ItemInDropdown: Story = {
     },
 } satisfies Story
 
-export const ItemCheckboxInDropdown: Story = {
+export const DropdownCheckboxesInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [checked, setChecked] = useState<Record<string, boolean>>({
@@ -242,7 +243,7 @@ export const ItemCheckboxInDropdown: Story = {
     },
 } satisfies Story
 
-export const ItemRadiosInDropdown: Story = {
+export const DropdownRadiosInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [radioValue, setRadioValue] = useState('John Doe')
@@ -285,7 +286,7 @@ export const ItemRadiosInDropdown: Story = {
     },
 } satisfies Story
 
-export const ItemInSelect: Story = {
+export const SelectInItem: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
 
@@ -334,6 +335,51 @@ export const ItemInSelect: Story = {
                             </SelectGroup>
                         </SelectContent>
                     </Select>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const ComboboxInItem: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+
+        return (
+            <Item variant="outline" className="max-w-sm mt-32">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>A simple item with title and description.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                <Combobox
+                    items={people.filter((person) => person.username !== "")}
+                    itemToStringLabel={(person: (typeof people)[number]) => person.username}
+                    itemToStringValue={(person: (typeof people)[number]) => person.username}
+                    open={open}
+                    onOpenChange={setOpen}
+                >
+                    <ComboboxInput placeholder="Search people..." className="max-w-xs" />
+                    <ComboboxContent>
+                        <ComboboxEmpty>No people found.</ComboboxEmpty>
+                        <ComboboxList>
+                            {(person) => (
+                                <ComboboxItem key={person.username} value={person} className="h-auto">
+                                    <Item size="xs" className="p-0">
+                                        <ItemContent variant="menuItem">
+                                            <ItemTitle className="whitespace-nowrap">
+                                                {person.username}
+                                            </ItemTitle>
+                                            <ItemDescription>
+                                                {person.email}
+                                            </ItemDescription>
+                                        </ItemContent>
+                                    </Item>
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
                 </ItemActions>
             </Item>
         )
