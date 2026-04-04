@@ -36,28 +36,30 @@ const meta: Meta<TaxonomicFilterProps> = {
 type Story = StoryObj<TaxonomicFilterProps>
 export default meta
 
+function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
+    useMountedLogic(actionsModel)
+
+    const { setIndex } = useActions(
+        infiniteListLogic({
+            ...args,
+            taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+    )
+
+    // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
+    // - we do want to show the definition popover here too
+    useDelayedOnMountEffect(() => setIndex(1))
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+
 export const EventsFree: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
-        // - we do want to show the definition popover here too
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+    render: EventsStoryRender,
     args: {
         taxonomicFilterLogicKey: 'events-free',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
@@ -188,25 +190,7 @@ export const NumericalProperties: Story = {
  * The layout switches from horizontal tabs to a vertical/columnar layout to better organize the many categories.
  */
 export const Columnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+    render: EventsStoryRender,
     args: {
         taxonomicFilterLogicKey: 'columnar-five-groups',
         taxonomicGroupTypes: [
@@ -231,25 +215,7 @@ export const Columnar: Story = {
  * This is done by setting the `useVerticalLayout` prop to true.
  */
 export const ForceColumnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+    render: EventsStoryRender,
     args: {
         taxonomicFilterLogicKey: 'force-columnar-three-groups',
         taxonomicGroupTypes: [
@@ -273,25 +239,7 @@ export const ForceColumnar: Story = {
  * This is done by setting the `useVerticalLayout` prop to false.
  */
 export const ForceNonColumnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+    render: EventsStoryRender,
     args: {
         taxonomicFilterLogicKey: 'force-non-columnar-six-groups',
         taxonomicGroupTypes: [
@@ -310,6 +258,33 @@ export const ForceNonColumnar: Story = {
                 story: 'Forces horizontal layout even with 6 group types by setting useVerticalLayout to false.',
             },
         },
+    },
+}
+
+export const ThreeGroupsDefaultLayout: Story = {
+    render: EventsStoryRender,
+    args: {
+        taxonomicFilterLogicKey: 'three-groups-default-layout',
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.Actions,
+            TaxonomicFilterGroupType.EventProperties,
+        ],
+    },
+}
+
+export const SixGroupsDefaultLayout: Story = {
+    render: EventsStoryRender,
+    args: {
+        taxonomicFilterLogicKey: 'six-groups-default-layout',
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.Actions,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.Elements,
+        ],
     },
 }
 
