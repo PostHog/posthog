@@ -145,12 +145,30 @@ describe('useChartInteraction — tooltip pinning', () => {
         hoverAndPin(result)
     })
 
-    it('clears tooltip on Escape when pinned', () => {
+    it.each<[string, () => void]>([
+        ['Escape key', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))],
+        ['window scroll', () => window.dispatchEvent(new Event('scroll'))],
+        [
+            'nested element scroll (capture phase)',
+            () => {
+                const scrollContainer = document.createElement('div')
+                refs.wrapperRef.current!.appendChild(scrollContainer)
+                scrollContainer.dispatchEvent(new Event('scroll'))
+            },
+        ],
+        [
+            'click outside',
+            () => {
+                jest.runAllTimers()
+                document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+            },
+        ],
+    ])('clears pinned tooltip on %s', (_name, trigger) => {
         const { result } = renderInteraction()
         hoverAndPin(result)
 
         act(() => {
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+            trigger()
         })
 
         expect(result.current.tooltipCtx).toBeNull()
@@ -167,21 +185,6 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 
-    it('clears tooltip on click outside', () => {
-        const { result } = renderInteraction()
-        hoverAndPin(result)
-
-        act(() => {
-            jest.runAllTimers()
-        })
-
-        act(() => {
-            document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        })
-
-        expect(result.current.tooltipCtx).toBeNull()
-    })
-
     it('keeps tooltip on click inside wrapper', () => {
         const { result } = renderInteraction()
         hoverAndPin(result)
@@ -195,31 +198,6 @@ describe('useChartInteraction — tooltip pinning', () => {
         })
 
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
-    })
-
-    it('clears tooltip on scroll', () => {
-        const { result } = renderInteraction()
-        hoverAndPin(result)
-
-        act(() => {
-            window.dispatchEvent(new Event('scroll'))
-        })
-
-        expect(result.current.tooltipCtx).toBeNull()
-    })
-
-    it('clears tooltip on nested element scroll (capture phase)', () => {
-        const scrollContainer = document.createElement('div')
-        refs.wrapperRef.current!.appendChild(scrollContainer)
-
-        const { result } = renderInteraction()
-        hoverAndPin(result)
-
-        act(() => {
-            scrollContainer.dispatchEvent(new Event('scroll'))
-        })
-
-        expect(result.current.tooltipCtx).toBeNull()
     })
 
     it('unpins on second click on chart', () => {
