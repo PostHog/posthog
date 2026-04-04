@@ -1387,8 +1387,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
-    /** @default false */
-    showBoxPlotOutliers?: boolean
+    /** @default true */
+    excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
 }
@@ -1413,7 +1413,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
-    'showBoxPlotOutliers',
+    'excludeBoxPlotOutliers',
     'hideWeekends',
 ])
 

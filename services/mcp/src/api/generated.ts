@@ -2412,6 +2412,8 @@ export namespace Schemas {
       /** @nullable */
       showAlertThresholdLines?: boolean | null;
       /** @nullable */
+      excludeBoxPlotOutliers?: boolean | null;
+      /** @nullable */
       showConfidenceIntervals?: boolean | null;
       /** @nullable */
       showLabelsOnSeries?: boolean | null;

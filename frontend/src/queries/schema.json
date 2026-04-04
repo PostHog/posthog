@@ -35751,6 +35751,10 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"
                 },
+                "excludeBoxPlotOutliers": {
+                    "default": true,
+                    "type": "boolean"
+                },
                 "formula": {
                     "deprecated": "Use formulaNodes instead.",
                     "type": "string"
@@ -35818,10 +35822,6 @@
                     "description": "Customizations for the appearance of result datasets."
                 },
                 "showAlertThresholdLines": {
-                    "default": false,
-                    "type": "boolean"
-                },
-                "showBoxPlotOutliers": {
                     "default": false,
                     "type": "boolean"
                 },

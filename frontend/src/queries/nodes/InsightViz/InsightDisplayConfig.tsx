@@ -130,24 +130,23 @@ export function InsightDisplayConfig(): JSX.Element {
                                         <LemonCheckbox
                                             label={
                                                 <span className="font-normal">
-                                                    Show outliers{' '}
-                                                    <Tooltip title="When enabled, the y-axis extends to show extreme values beyond the whiskers. When disabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles.">
+                                                    Exclude outliers{' '}
+                                                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
                                                         <IconInfo className="relative top-0.5 text-lg text-secondary" />
                                                     </Tooltip>
                                                 </span>
                                             }
                                             className="p-1 px-2"
                                             size="small"
-                                            checked={!!trendsFilter?.showBoxPlotOutliers}
+                                            checked={trendsFilter?.excludeBoxPlotOutliers !== false}
                                             onChange={(checked) => {
                                                 if (isTrendsQuery(querySource)) {
-                                                    updateQuerySource({
-                                                        ...querySource,
-                                                        trendsFilter: {
-                                                            ...trendsFilter,
-                                                            showBoxPlotOutliers: checked,
-                                                        },
-                                                    })
+                                                    const newQuery = { ...querySource }
+                                                    newQuery.trendsFilter = {
+                                                        ...trendsFilter,
+                                                        excludeBoxPlotOutliers: checked,
+                                                    }
+                                                    updateQuerySource(newQuery)
                                                 }
                                             }}
                                         />

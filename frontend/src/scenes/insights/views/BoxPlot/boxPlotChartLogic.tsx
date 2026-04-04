@@ -49,7 +49,7 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
         seriesGroups: [
             (s) => [s.boxplotData, s.trendsFilter],
             (boxplotData: BoxPlotDatum[], trendsFilter): BoxPlotSeriesData[] => {
-                const showOutliers = !!trendsFilter?.showBoxPlotOutliers
+                const excludeOutliers = trendsFilter?.excludeBoxPlotOutliers !== false
                 const groupMap = new Map<number, { label: string; data: BoxPlotDatum[] }>()
 
                 for (const d of boxplotData) {
@@ -76,8 +76,8 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
                                 q3: d.p75,
                                 max: d.max,
                                 mean: d.mean,
-                                whiskerMin: showOutliers ? d.min : Math.max(d.min, d.p25 - 1.5 * iqr),
-                                whiskerMax: showOutliers ? d.max : Math.min(d.max, d.p75 + 1.5 * iqr),
+                                whiskerMin: excludeOutliers ? Math.max(d.min, d.p25 - 1.5 * iqr) : d.min,
+                                whiskerMax: excludeOutliers ? Math.min(d.max, d.p75 + 1.5 * iqr) : d.max,
                             }
                         }),
                     }))
