@@ -22,7 +22,7 @@ export interface LineChartProps {
     labels: string[]
     config?: LineChartConfig
     theme: ChartTheme
-    tooltip?: React.ComponentType<TooltipContext>
+    tooltip?: (ctx: TooltipContext) => React.ReactNode
     onPointClick?: (data: PointClickData) => void
     className?: string
     children?: React.ReactNode
