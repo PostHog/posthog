@@ -57,7 +57,15 @@ import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOv
 import { playerSettingsLogic } from './playerSettingsLogic'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { BuiltLogging, makeLogger, makeNoOpLogger } from './utils/player-logging'
+import {
+    addAssetError,
+    DoctorDiagnostics,
+    emptyGroupedAssetErrors,
+    formatGroupedAssetErrors,
+    GroupedAssetErrors,
+    ResourceErrorDetails,
+} from './utils/asset-error-grouping'
+import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
 import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
@@ -68,12 +76,7 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
 
-export interface ResourceErrorDetails {
-    resourceType: string
-    resourceUrl: string
-    message: string
-    error?: any
-}
+export type { ResourceErrorDetails, GroupedAssetErrors, DoctorDiagnostics } from './utils/asset-error-grouping'
 
 export interface PlayerTimeTracking {
     state: 'buffering' | 'playing' | 'paused' | 'errored' | 'ended' | 'unknown'
@@ -423,6 +426,30 @@ function registerErrorListeners({
     }
 }
 
+function scheduleDiagnosticsFlush(
+    cache: Record<string, any>,
+    actions: { flushDoctorDiagnostics: (d: DoctorDiagnostics) => void }
+): void {
+    if (!cache.diagnosticsFlushTimer) {
+        cache.diagnosticsFlushTimer = setTimeout(() => {
+            cache.diagnosticsFlushTimer = null
+            const grouped = cache.groupedAssetErrors as GroupedAssetErrors | null
+            actions.flushDoctorDiagnostics({
+                assetErrors: grouped ? formatGroupedAssetErrors(grouped) : {},
+                assetErrorTotal: grouped?.total ?? 0,
+                assetErrorTypeNames: grouped
+                    ? Object.keys(grouped.byType)
+                          .map((t) => (t === 'csp' ? 'CSP violations' : `${t} errors`))
+                          .join(', ')
+                          .toLowerCase()
+                    : '',
+                rrwebWarningCount: cache.rrwebWarningCount || 0,
+                rrwebWarningSummary: cache.rrwebWarningSummary ? { ...cache.rrwebWarningSummary } : {},
+            })
+        }, 2000)
+    }
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -512,8 +539,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
-        incrementWarningCount: (count: number = 1) => ({ count }),
         caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
+        flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
         deleteRecording: true,
@@ -731,7 +758,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
-        warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
+        doctorDiagnostics: [
+            null as DoctorDiagnostics | null,
+            {
+                flushDoctorDiagnostics: (_: any, { diagnostics }: { diagnostics: DoctorDiagnostics }) => diagnostics,
+                initializePlayerFromStart: () => null,
+            },
+        ],
         endReached: [
             false,
             {
@@ -1117,8 +1150,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
-            // eslint-disable-next-line no-console
-            console.log('caughtAssetErrorFromIframe', errorDetails)
+            if (!cache.groupedAssetErrors) {
+                cache.groupedAssetErrors = emptyGroupedAssetErrors()
+            }
+            addAssetError(cache.groupedAssetErrors, errorDetails)
+            scheduleDiagnosticsFlush(cache, actions)
         },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             const mode = props.mode ?? SessionRecordingPlayerMode.Standard
@@ -1232,17 +1268,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // outside of standard mode, we swallow the logs completely
             const logging =
                 props.mode === SessionRecordingPlayerMode.Standard
-                    ? makeLogger(actions.incrementWarningCount)
+                    ? makeLogger((category) => {
+                          cache.rrwebWarningCount = (cache.rrwebWarningCount || 0) + 1
+                          if (!cache.rrwebWarningSummary) {
+                              cache.rrwebWarningSummary = {}
+                          }
+                          cache.rrwebWarningSummary[category] = (cache.rrwebWarningSummary[category] || 0) + 1
+                          scheduleDiagnosticsFlush(cache, actions)
+                      })
                     : makeNoOpLogger()
 
             cache.disposables.add(
                 () => {
                     return () => {
-                        Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                            if (timer) {
-                                clearTimeout(timer)
-                            }
-                        })
                         ;(window as any)[`__posthog_player_logs`] = undefined
                         ;(window as any)[`__posthog_player_warnings`] = undefined
                     }
@@ -1480,6 +1518,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         initializePlayerFromStart: () => {
+            cache.groupedAssetErrors = null
+            cache.rrwebWarningSummary = null
+            cache.rrwebWarningCount = 0
+            if (cache.diagnosticsFlushTimer) {
+                clearTimeout(cache.diagnosticsFlushTimer)
+                cache.diagnosticsFlushTimer = null
+            }
+
             const initialSegment = values.sessionPlayerData?.segments[0]
             if (initialSegment) {
                 // Check for the "t" search param in the url on first load
@@ -2238,7 +2284,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? Math.floor(now().diff(values.sessionPlayerData.start, 'millisecond') ?? 0)
                     : undefined,
             recording_retention_period_days: values.sessionPlayerData.sessionRetentionPeriodDays ?? undefined,
-            rrweb_warning_count: values.warningCount,
+            rrweb_warning_count: cache.rrwebWarningCount || 0,
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
             avg_fps:

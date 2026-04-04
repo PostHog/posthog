@@ -281,11 +281,13 @@ describe('ErrorTrackingPipeline', () => {
 
         pipelineConfig = {
             outputs: new IngestionOutputs({
-                events: { topic: 'clickhouse_events_json_test', producer: mockKafkaProducer },
-                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer },
-                dlq: { topic: 'error_tracking_dlq', producer: mockKafkaProducer },
-                overflow: { topic: 'error_tracking_overflow', producer: mockKafkaProducer },
-                tophog: { topic: 'clickhouse_tophog_test', producer: mockKafkaProducer },
+                events: [{ topic: 'clickhouse_events_json_test', producer: mockKafkaProducer, producerName: 'test' }],
+                ingestion_warnings: [
+                    { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                ],
+                dlq: [{ topic: 'error_tracking_dlq', producer: mockKafkaProducer, producerName: 'test' }],
+                overflow: [{ topic: 'error_tracking_overflow', producer: mockKafkaProducer, producerName: 'test' }],
+                tophog: [{ topic: 'clickhouse_tophog_test', producer: mockKafkaProducer, producerName: 'test' }],
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,

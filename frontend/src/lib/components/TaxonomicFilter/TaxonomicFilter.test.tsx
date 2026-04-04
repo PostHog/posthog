@@ -87,14 +87,14 @@ describe('TaxonomicFilter', () => {
             })
         })
 
-        it('does not render category tabs when only one group type is provided', async () => {
+        it('renders category tabs even with one explicit group type due to auto-injected meta groups', async () => {
             renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(screen.getByText('Categories')).toBeInTheDocument()
         })
 
         it('renders category tabs when multiple group types are provided', async () => {
@@ -524,8 +524,8 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-wildcard-0')).toBeInTheDocument()
             })
 
-            expect(screen.getByText('custom_wildcard_1')).toBeInTheDocument()
-            expect(screen.getByText('custom_wildcard_2')).toBeInTheDocument()
+            expect(screen.getAllByText('custom_wildcard_1').length).toBeGreaterThanOrEqual(1)
+            expect(screen.getAllByText('custom_wildcard_2').length).toBeGreaterThanOrEqual(1)
         })
 
         it('selecting an option from props calls onChange correctly', async () => {

@@ -54,15 +54,21 @@ jest.setTimeout(30000)
 
 function createPersonOutputs(hub: Hub): PersonOutputs {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: hub.kafkaProducer },
-        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer },
-        [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer },
+        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
+        [PERSON_DISTINCT_IDS_OUTPUT]: [
+            { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
+        ],
+        [INGESTION_WARNINGS_OUTPUT]: [
+            { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
+        ],
     })
 }
 
 function createIngestionWarningsOutputs(hub: Hub) {
     return new IngestionOutputs({
-        [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer },
+        [INGESTION_WARNINGS_OUTPUT]: [
+            { topic: KAFKA_INGESTION_WARNINGS, producer: hub.kafkaProducer, producerName: 'test' },
+        ],
     })
 }
 

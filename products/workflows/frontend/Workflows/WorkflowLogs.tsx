@@ -48,19 +48,15 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
 
-                <Tooltip
-                    title={`${job.scheduled_at ? 'Scheduled' : 'Triggered'} by ${job.created_by?.email || 'unknown user'}`}
-                >
-                    <div>
-                        <ProfilePicture
-                            user={{
-                                email: job.created_by?.email || '',
-                            }}
-                            showName
-                            size="sm"
-                        />
-                    </div>
-                </Tooltip>
+                {job.created_by ? (
+                    <Tooltip title={`Triggered by ${job.created_by.email}`}>
+                        <div>
+                            <ProfilePicture user={{ email: job.created_by.email }} showName size="sm" />
+                        </div>
+                    </Tooltip>
+                ) : (
+                    <span className="text-muted text-sm">Scheduled run</span>
+                )}
             </div>
         </div>
     )

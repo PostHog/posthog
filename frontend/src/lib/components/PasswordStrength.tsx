@@ -35,25 +35,22 @@ export function validatePassword(password: string = ''): ValidatedPasswordResult
         }
     }
 
+    if (password.length > 0 && password.length < 8) {
+        return {
+            score: 2,
+            feedback: 'Must be at least 8 characters long',
+        }
+    }
+
     if (!zxcvbnFn) {
         // Return basic length-based validation while zxcvbn is loading
         if (!password) {
             return { score: 0 }
         }
-        if (password.length < 8) {
-            return { score: 2, feedback: 'Must be at least 8 characters long' }
-        }
         return { score: 3, feedback: '' }
     }
 
     const result = zxcvbnFn(password)
-
-    if (result.score > 3 && password.length < 8) {
-        return {
-            score: 3,
-            feedback: 'Must be at least 8 characters long',
-        }
-    }
 
     return {
         score: password ? result.score + 1 : 0,

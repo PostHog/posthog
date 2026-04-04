@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
+use k8s_awareness::K8sAwareness;
 use kafka_assigner::assigner::{Assigner, AssignerConfig};
 use kafka_assigner::config::Config;
 use kafka_assigner::consumer_registry::ConsumerRegistry;
@@ -39,9 +40,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry = Arc::new(ConsumerRegistry::new());
     let cancel = CancellationToken::new();
 
+    // K8s awareness (optional)
+    let k8s_awareness = if config.k8s_awareness_enabled {
+        let namespace = config
+            .resolve_k8s_namespace()
+            .map_err(|e| format!("k8s awareness enabled but namespace resolution failed: {e}"))?;
+        let client = kube::Client::try_default()
+            .await
+            .map_err(|e| format!("failed to create K8s client: {e}"))?;
+        tracing::info!(%namespace, "K8s awareness enabled");
+        Some(Arc::new(K8sAwareness::new(
+            client,
+            namespace,
+            cancel.child_token(),
+        )))
+    } else {
+        tracing::info!("K8s awareness disabled");
+        None
+    };
+
     // gRPC server
-    let service =
-        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
+    let service = KafkaAssignerService::from_config(
+        Arc::clone(&store),
+        Arc::clone(&registry),
+        &config,
+        k8s_awareness.clone(),
+    );
     let bind_addr = config.bind_address();
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!(addr = %bind_addr, "gRPC server listening");
@@ -69,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let strategy = config
         .build_strategy()
         .map_err(|e| format!("invalid strategy config: {e}"))?;
-    let assigner = Assigner::new(Arc::clone(&store), assigner_config, strategy);
+    let assigner = Assigner::new(Arc::clone(&store), assigner_config, strategy, k8s_awareness);
     let assigner_cancel = cancel.child_token();
     let assigner_handle = tokio::spawn(async move {
         if let Err(e) = assigner.run(assigner_cancel).await {

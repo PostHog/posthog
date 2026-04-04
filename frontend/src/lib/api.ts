@@ -97,6 +97,7 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
@@ -1336,8 +1337,16 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
+    public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
+    }
+
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    public dataWarehouseSavedQueryFolder(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueryFolders(teamId).addPathComponent(id)
     }
 
     public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
@@ -1580,8 +1589,12 @@ export class ApiRequest {
     }
 
     // Queries
-    public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+    public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
+        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        if (queryKind) {
+            return apiRequest.addPathComponent(queryKind)
+        }
+        return apiRequest
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -3610,7 +3623,6 @@ const api = {
             auth_type: string
             api_key?: string
             description?: string
-            oauth_provider_kind?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
@@ -4722,7 +4734,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
+            data: Partial<DataWarehouseSavedQuery> & { types?: string[][]; edited_history_id?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -4772,6 +4784,24 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataWarehouseSavedQueryFolders: {
+        async list(): Promise<DataWarehouseSavedQueryFolder[]> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().get()
+        },
+        async create(data: Pick<DataWarehouseSavedQueryFolder, 'name'>): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().create({ data })
+        },
+        async update(
+            folderId: DataWarehouseSavedQueryFolder['id'],
+            data: Pick<DataWarehouseSavedQueryFolder, 'name'>
+        ): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).update({ data })
+        },
+        async delete(folderId: DataWarehouseSavedQueryFolder['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).delete()
         },
     },
 
@@ -4986,6 +5016,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async cancel(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('cancel').create()
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
@@ -5540,8 +5573,8 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleFullUrl(true)
+    queryURL: (queryKind?: string): string => {
+        return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -5553,6 +5586,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
+            queryKind?: string
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5561,7 +5595,14 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({
+        const bodyKind = (query as { kind?: string }).kind
+        const pathKind = queryOptions?.queryKind
+
+        if (pathKind && pathKind !== bodyKind) {
+            throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
+        }
+
+        return await new ApiRequest().query(undefined, bodyKind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -5584,6 +5625,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+            queryKind?: string
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -5592,7 +5634,13 @@ const api = {
             query,
             tags,
         })
-        return await new ApiRequest().query().create({
+        if (queryOptions?.queryKind && queryOptions.queryKind !== hogQLQuery.kind) {
+            throw new Error(
+                `Query kind mismatch: path kind "${queryOptions.queryKind}" does not match body kind "${hogQLQuery.kind}".`
+            )
+        }
+
+        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
