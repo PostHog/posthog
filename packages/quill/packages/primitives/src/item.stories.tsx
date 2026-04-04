@@ -321,17 +321,14 @@ export const ItemInSelect: Story = {
                                     <SelectItem
                                         key={person.username}
                                         value={person}
-                                        render={(props) => (
-                                            <ItemMenuItem size="xs" className="w-full p-0" {...props}>
-                                                <ItemContent className="gap-0">
-                                                    <ItemTitle>{person.username}</ItemTitle>
-                                                    <ItemDescription className="leading-none">
-                                                        {person.email}
-                                                    </ItemDescription>
-                                                </ItemContent>
-                                            </ItemMenuItem>
-                                        )}
-                                    />
+                                    >
+                                        <ItemContent className="gap-0">
+                                            <ItemTitle>{person.username}</ItemTitle>
+                                            <ItemDescription className="leading-none">
+                                                {person.email}
+                                            </ItemDescription>
+                                        </ItemContent>
+                                    </SelectItem>
                                 ))}
                             </SelectGroup>
                         </SelectContent>
