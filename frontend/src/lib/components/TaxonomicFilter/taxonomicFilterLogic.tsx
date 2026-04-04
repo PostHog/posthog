@@ -1180,7 +1180,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             if (key === 'visited_page') {
                                 return (
                                     `api/environments/${teamId}/events/values/?key=` +
-                                    'api/event/values/?key=' +
                                     encodeURIComponent('$current_url') +
                                     '&event_name=' +
                                     encodeURIComponent('$pageview')
