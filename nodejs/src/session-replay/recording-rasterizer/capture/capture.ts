@@ -59,16 +59,38 @@ export async function capturePlayback(
         }
     })
 
+    // Log the actual rejection reason when a frame capture fails. This fires
+    // with the original error from frame.evaluate() or beginFrame before
+    // captureStopped is emitted.
+    recorder.on('frameCaptureFailed', (reason: unknown) => {
+        log.error({ err: reason, frames: frameCount }, 'frame capture failed')
+    })
+
+    // Monitor page lifecycle events that can terminate capture.
+    // These only matter while capture is in progress — the finally block sets captureDone.
+    let captureDone = false
+    page.on('close', () => {
+        if (!captureDone) {
+            log.error({ frames: frameCount }, 'page closed during capture')
+        }
+    })
+    page.on('error', (err) => {
+        if (!captureDone) {
+            log.error({ err, frames: frameCount }, 'page error during capture')
+        }
+    })
+
     // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
     // hangs forever. Listen for captureStopped to break out of the loop.
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
-    recorder.on('captureStopped', () => {
+    const onCaptureStopped = (): void => {
         log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
         const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         captureAborted = err
         captureAbortReject?.(err)
-    })
+    }
+    recorder.on('captureStopped', onCaptureStopped)
 
     let virtualElapsed = 0
     let truncated = false
@@ -119,11 +141,16 @@ export async function capturePlayback(
             truncated = true
         }
     } finally {
+        captureDone = true
         captureAbortReject = null
+        ;(recorder as any).off('captureStopped', onCaptureStopped)
         try {
             await recorder.stop()
-        } catch {
-            // ffmpeg process may already be dead
+        } catch (stopErr) {
+            // recorder.stop() throws the stored _error when capture was
+            // terminated by page close, session disconnect, or ffmpeg crash.
+            // Log it so we can see the actual root cause.
+            log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
         }
     }
 
