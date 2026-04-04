@@ -27,7 +27,7 @@ const meta: Meta<TaxonomicFilterProps> = {
         docs: {
             description: {
                 component:
-                    'Taxonomic Filter allows users to select from various categories of data in PostHog, like events, actions, properties, etc. It supports both horizontal and vertical (columnar) layouts.',
+                    'Taxonomic Filter allows users to select from various categories of data in PostHog, like events, actions, properties, etc.',
             },
         },
     },
@@ -180,82 +180,6 @@ export const NumericalProperties: Story = {
         docs: {
             description: {
                 story: 'TaxonomicFilter showing numerical properties only includes a small icon to indicate.',
-            },
-        },
-    },
-}
-
-/**
- * This story demonstrates the automatic columnar layout that's triggered when there are more than 4 group types.
- * The layout switches from horizontal tabs to a vertical/columnar layout to better organize the many categories.
- */
-export const Columnar: Story = {
-    render: EventsStoryRender,
-    args: {
-        taxonomicFilterLogicKey: 'columnar-five-groups',
-        taxonomicGroupTypes: [
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-        ],
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Automatically switches to columnar/vertical layout when there are 5 or more group types.',
-            },
-        },
-    },
-}
-
-/**
- * This story demonstrates forcing the columnar/vertical layout even when there are fewer than 5 group types.
- * This is done by setting the `useVerticalLayout` prop to true.
- */
-export const ForceColumnar: Story = {
-    render: EventsStoryRender,
-    args: {
-        taxonomicFilterLogicKey: 'force-columnar-three-groups',
-        taxonomicGroupTypes: [
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.EventProperties,
-        ],
-        useVerticalLayout: true,
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Forces columnar/vertical layout even with only 3 group types by setting useVerticalLayout to true.',
-            },
-        },
-    },
-}
-
-/**
- * This story demonstrates forcing a horizontal layout even when there are many group types.
- * This is done by setting the `useVerticalLayout` prop to false.
- */
-export const ForceNonColumnar: Story = {
-    render: EventsStoryRender,
-    args: {
-        taxonomicFilterLogicKey: 'force-non-columnar-six-groups',
-        taxonomicGroupTypes: [
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.Elements,
-        ],
-        useVerticalLayout: false,
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Forces horizontal layout even with 6 group types by setting useVerticalLayout to false.',
             },
         },
     },
