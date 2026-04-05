@@ -44,6 +44,10 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
     return (
         <div
             ref={refs.setFloating}
+            // Marker so the interaction hook can distinguish scroll events that originate
+            // inside the tooltip (e.g. scrollable long content) from chart/page scrolls,
+            // which should dismiss a pinned tooltip.
+            data-hog-charts-tooltip=""
             style={{
                 ...floatingStyles,
                 pointerEvents: context.isPinned ? 'auto' : 'none',

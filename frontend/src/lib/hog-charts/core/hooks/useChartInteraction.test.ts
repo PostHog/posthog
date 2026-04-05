@@ -185,6 +185,27 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 
+    it('does not clear pinned tooltip on scroll inside the tooltip element', () => {
+        const { result } = renderInteraction()
+        hoverAndPin(result)
+
+        // Simulate a scrollable element rendered inside the tooltip (it carries
+        // the data-hog-charts-tooltip marker applied by the Tooltip overlay).
+        const tooltipEl = document.createElement('div')
+        tooltipEl.setAttribute('data-hog-charts-tooltip', '')
+        const scrollableChild = document.createElement('div')
+        tooltipEl.appendChild(scrollableChild)
+        document.body.appendChild(tooltipEl)
+
+        act(() => {
+            scrollableChild.dispatchEvent(new Event('scroll', { bubbles: true }))
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+
+        document.body.removeChild(tooltipEl)
+    })
+
     it('keeps tooltip on click inside wrapper', () => {
         const { result } = renderInteraction()
         hoverAndPin(result)

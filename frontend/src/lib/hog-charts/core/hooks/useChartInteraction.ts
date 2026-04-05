@@ -75,7 +75,13 @@ export function useChartInteraction({
             }
         }
 
-        const handleScroll = (): void => {
+        const handleScroll = (e: Event): void => {
+            // Ignore scrolls that originate inside the tooltip itself — users
+            // should be able to scroll long pinned content without dismissing it.
+            const target = e.target as Element | null
+            if (target && typeof target.closest === 'function' && target.closest('[data-hog-charts-tooltip]')) {
+                return
+            }
             clearTooltip()
         }
 
