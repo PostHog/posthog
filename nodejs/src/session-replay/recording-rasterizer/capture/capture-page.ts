@@ -137,17 +137,20 @@ export class CapturePage {
                     await waitForRequestsSettled()
 
                     let timedOut = false
-                    const timeout = new Promise<never>((_, reject) =>
-                        setTimeout(() => {
+                    let timeoutHandle: ReturnType<typeof setTimeout>
+                    const timeout = new Promise<never>((_, reject) => {
+                        timeoutHandle = setTimeout(() => {
                             timedOut = true
                             reject(new Error('beginFrame timeout (30s)'))
                         }, 30_000)
-                    )
+                    })
                     try {
-                        return await Promise.race([originalSend(method as any, params), timeout])
+                        const result = await Promise.race([originalSend(method as any, params), timeout])
+                        clearTimeout(timeoutHandle!)
+                        return result
                     } catch (err) {
                         if (timedOut) {
-                            log.warn({ params }, 'beginFrame timed out, detaching CDP session')
+                            log.error({ params }, 'beginFrame timed out, detaching CDP session')
                             try {
                                 await session.detach()
                             } catch {

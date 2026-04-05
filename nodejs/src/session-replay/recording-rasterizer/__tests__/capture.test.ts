@@ -56,6 +56,7 @@ function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfi
 const mockPage = {
     viewport: jest.fn().mockReturnValue({ width: 1920, height: 1080 }),
     on: jest.fn(),
+    off: jest.fn(),
 } as any
 
 function mockPlayer(overrides: Partial<Record<keyof PlayerController, any>> = {}): PlayerController {
@@ -271,5 +272,27 @@ describe('capturePlayback', () => {
             'something broke'
         )
         expect(mockRecorder.stop).toHaveBeenCalled()
+    })
+
+    it('removes captureStopped listener and page listeners in finally block', async () => {
+        const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
+
+        await capturePlayback(player, baseCaptureConfig(), outputPath, jest.fn())
+
+        expect(mockRecorder.off).toHaveBeenCalledWith('captureStopped', expect.any(Function))
+        expect(mockPage.off).toHaveBeenCalledWith('close', expect.any(Function))
+        expect(mockPage.off).toHaveBeenCalledWith('error', expect.any(Function))
+    })
+
+    it('removes listeners even when capture throws', async () => {
+        const player = mockPlayer({
+            startPlayback: jest.fn().mockRejectedValue(new Error('boom')),
+        })
+
+        await expect(capturePlayback(player, baseCaptureConfig(), outputPath, jest.fn())).rejects.toThrow('boom')
+
+        expect(mockRecorder.off).toHaveBeenCalledWith('captureStopped', expect.any(Function))
+        expect(mockPage.off).toHaveBeenCalledWith('close', expect.any(Function))
+        expect(mockPage.off).toHaveBeenCalledWith('error', expect.any(Function))
     })
 })

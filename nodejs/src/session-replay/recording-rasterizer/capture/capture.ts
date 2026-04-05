@@ -67,18 +67,21 @@ export async function capturePlayback(
     })
 
     // Monitor page lifecycle events that can terminate capture.
-    // These only matter while capture is in progress — the finally block sets captureDone.
+    // Named functions so we can remove them in the finally block — the page
+    // is pooled and reused, so anonymous listeners would accumulate.
     let captureDone = false
-    page.on('close', () => {
+    const onPageClose = (): void => {
         if (!captureDone) {
             log.error({ frames: frameCount }, 'page closed during capture')
         }
-    })
-    page.on('error', (err) => {
+    }
+    const onPageError = (err: Error): void => {
         if (!captureDone) {
             log.error({ err, frames: frameCount }, 'page error during capture')
         }
-    })
+    }
+    page.on('close', onPageClose)
+    page.on('error', onPageError)
 
     // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
     // hangs forever. Listen for captureStopped to break out of the loop.
@@ -148,6 +151,10 @@ export async function capturePlayback(
     } finally {
         captureDone = true
         captureAbortReject = null
+        page.off('close', onPageClose)
+        page.off('error', onPageError)
+        // puppeteer-capture's PuppeteerCapture extends EventEmitter but only
+        // declares `on` in its type — `off` exists at runtime.
         ;(recorder as any).off('captureStopped', onCaptureStopped)
         try {
             await recorder.stop()
