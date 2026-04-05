@@ -64,7 +64,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
     try:
         return posthoganalytics.feature_enabled(
             FEATURE_FLAG,
-            str(team.uuid),
+            str(team.pk),
             groups={
                 "organization": str(team.organization_id),
                 "project": str(team.id),
