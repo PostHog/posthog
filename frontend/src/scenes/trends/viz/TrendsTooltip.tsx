@@ -1,5 +1,3 @@
-import { IconX } from '@posthog/icons'
-
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -8,6 +6,35 @@ import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insig
 
 import { BreakdownFilter, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CurrencyCode, IntervalType } from '~/types'
+
+interface TrendsSeriesMeta {
+    action?: ActionFilter
+    breakdown_value?: string | number | string[]
+    compare_label?: SeriesDatum['compare_label']
+    days?: string[]
+    order?: number
+    filter?: SeriesDatum['filter']
+}
+
+function extractMeta(raw: Record<string, unknown> | undefined): TrendsSeriesMeta {
+    if (!raw) {
+        return {}
+    }
+    const action = typeof raw.action === 'object' && raw.action !== null ? (raw.action as ActionFilter) : undefined
+    const breakdown_value =
+        typeof raw.breakdown_value === 'string' ||
+        typeof raw.breakdown_value === 'number' ||
+        Array.isArray(raw.breakdown_value)
+            ? (raw.breakdown_value as string | number | string[])
+            : undefined
+    const compare_label =
+        typeof raw.compare_label === 'string' ? (raw.compare_label as SeriesDatum['compare_label']) : undefined
+    const days = Array.isArray(raw.days) ? (raw.days as string[]) : undefined
+    const order = typeof raw.order === 'number' ? raw.order : undefined
+    const filter =
+        typeof raw.filter === 'object' && raw.filter !== null ? (raw.filter as SeriesDatum['filter']) : undefined
+    return { action, breakdown_value, compare_label, days, order, filter }
+}
 
 interface TrendsTooltipProps {
     context: TooltipContext
@@ -41,32 +68,29 @@ export function TrendsTooltip({
     groupTypeLabel,
     formatCompareLabel,
 }: TrendsTooltipProps): React.ReactElement {
-    const seriesData: SeriesDatum[] = context.seriesData
-        .map((entry, idx) => {
-            const meta = entry.series.meta ?? {}
-            const days = meta.days as string[] | undefined
+    // TODO: CI bands and moving-average datasets aren't yet built in the hog-charts path. When they
+    // are, the bridge (or TrendsLineChartD3) will need to mark them as non-tooltip rows — legacy
+    // Chart.js path used a `hideTooltip: true` flag on the dataset for this.
+    const seriesData: SeriesDatum[] = context.seriesData.map((entry, idx) => {
+        const meta = extractMeta(entry.series.meta)
+        return {
+            id: idx,
+            dataIndex: context.dataIndex,
+            datasetIndex: idx,
+            order: meta.order ?? idx,
+            label: entry.series.label,
+            color: entry.color,
+            count: entry.value,
+            action: meta.action,
+            breakdown_value: meta.breakdown_value,
+            compare_label: meta.compare_label,
+            date_label: meta.days?.[context.dataIndex],
+            filter: meta.filter,
+        }
+    })
 
-            return {
-                id: idx,
-                dataIndex: context.dataIndex,
-                datasetIndex: idx,
-                order: typeof meta.order === 'number' ? meta.order : idx,
-                label: entry.series.label,
-                color: entry.color,
-                count: entry.value,
-                action: meta.action as ActionFilter | undefined,
-                breakdown_value: meta.breakdown_value as string | number | string[] | undefined,
-                compare_label: meta.compare_label as SeriesDatum['compare_label'],
-                date_label: days?.[context.dataIndex],
-                filter: meta.filter as SeriesDatum['filter'],
-                hideTooltip: meta.hideTooltip === true,
-            }
-        })
-        .filter((s) => !s.hideTooltip)
-
-    const meta = context.seriesData[0]?.series.meta ?? {}
-    const days = meta.days as string[] | undefined
-    const date = days?.[context.dataIndex]
+    const firstMeta = extractMeta(context.seriesData[0]?.series.meta)
+    const date = firstMeta.days?.[context.dataIndex]
 
     const renderCount = (value: number): string => {
         if (showPercentView) {
@@ -80,51 +104,41 @@ export function TrendsTooltip({
     }
 
     return (
-        <div className="relative">
-            {context.isPinned && context.onUnpin && (
-                <button
-                    type="button"
-                    className="absolute top-2 right-2 z-10 p-0.5 leading-none rounded cursor-pointer hover:bg-fill-button-tertiary-hover"
-                    onClick={context.onUnpin}
-                >
-                    <IconX className="!w-3 !h-3" />
-                </button>
-            )}
-            <InsightTooltip
-                date={date}
-                timezone={timezone}
-                seriesData={seriesData}
-                breakdownFilter={breakdownFilter}
-                interval={interval}
-                dateRange={dateRange}
-                formatCompareLabel={formatCompareLabel}
-                groupTypeLabel={groupTypeLabel}
-                renderSeries={(value, datum) => {
-                    const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
-                    const hasMultipleSeries = seriesData.length > 1
+        <InsightTooltip
+            date={date}
+            timezone={timezone}
+            seriesData={seriesData}
+            breakdownFilter={breakdownFilter}
+            interval={interval}
+            dateRange={dateRange}
+            formatCompareLabel={formatCompareLabel}
+            groupTypeLabel={groupTypeLabel}
+            onClose={context.isPinned ? context.onUnpin : undefined}
+            renderSeries={(value, datum) => {
+                const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+                const hasMultipleSeries = seriesData.length > 1
 
-                    if (hasBreakdown && !hasMultipleSeries) {
-                        const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                        return <div className="datum-label-column">{title}</div>
-                    }
+                if (hasBreakdown && !hasMultipleSeries) {
+                    const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+                    return <div className="datum-label-column">{title}</div>
+                }
 
-                    return (
-                        <div className="datum-label-column">
-                            {!formula && (
-                                <SeriesLetter
-                                    className="mr-2"
-                                    hasBreakdown={hasBreakdown}
-                                    seriesIndex={datum.action?.order ?? datum.id}
-                                    seriesColor={datum.color}
-                                />
-                            )}
-                            {value}
-                        </div>
-                    )
-                }}
-                renderCount={renderCount}
-                hideInspectActorsSection
-            />
-        </div>
+                return (
+                    <div className="datum-label-column">
+                        {!formula && (
+                            <SeriesLetter
+                                className="mr-2"
+                                hasBreakdown={hasBreakdown}
+                                seriesIndex={datum.action?.order ?? datum.id}
+                                seriesColor={datum.color}
+                            />
+                        )}
+                        {value}
+                    </div>
+                )
+            }}
+            renderCount={renderCount}
+            hideInspectActorsSection
+        />
     )
 }
