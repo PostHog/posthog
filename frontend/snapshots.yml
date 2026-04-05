@@ -823,13 +823,13 @@ snapshots:
     components-property-key-info--property-key-info--light:
         hash: v1.k794b7964.209b5c6ed30ec090249ca9036bb151b02765f23cf6eba2bb8417ac9297651bf6.FT9wC3m6u9L-NqbgWhg3YnEnnyhjjSzdHh740vfswDQ
     components-search--default--dark:
-        hash: v1.k794b7964.73826a2e599512c6dbdcb0efb19e0669bc4b7a375b2ee2da6de2786230d2c5f4.6vn-QWG-AUfO0eYPJ9sJLsUo5yUa8Z16fHh0C_A4aLQ
+        hash: v1.k794b7964.d017f6c4cdb67f03c03bcec319020908f16952072caa53c88e2bbad41f9a511b.aAl0Ng1k4o2-mEYUfimFACRI3Bbx0UelD7T6AnMiM_A
     components-search--default--light:
-        hash: v1.k794b7964.224278eb616c2f1ec5e01224679115a8c677172947e4ad2b609504f53cbcf16f.ROskoV2KPX9u0bpPUvRUjdkwAzbPpReYUnDHIo8R6Cs
+        hash: v1.k794b7964.0791c3e9602f97b6f71a78648d22caab809026f667ec39d80c3cbea52c4955c1.VeN2gzjhECosu2GBHe8OqoUpH8K9zZDLypQdS6j_NE0
     components-search--searching--dark:
-        hash: v1.k794b7964.f9fe8be1d2c4b167617a46d9ea0a08c29148f00bd692a60ff922ceb568669ef8.7-hhgZpM6jP2QsWO-6yQ-PJNdYsBYcdLFIoBQ6GC00k
+        hash: v1.k794b7964.0cd9157ad3ddc5ede0338ab6421e1b694ba623e3445a35cb3b5e818d53ce7097.5jrjzfKcssFdUw1e4Q9bTqLiujM31pAuiheDsfMa274
     components-search--searching--light:
-        hash: v1.k794b7964.6dcddbc3f5c7a31452a64e9ffdaecf3b03b0a78e73e33d816a5229415c323f6b.AXx6K2JuHE_rpOS-R8CY76MWfNAmpBhAm2k4Zpp_ONo
+        hash: v1.k794b7964.a6c7fdb5a429aba5a08f3eebe1dd9ea8110a1335acbd88375c50f7bdc26bac21.oilmL3ED6AalmR2VCYk6ezUoX_nYtj87ZhOx9GfDvEE
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.9d72ed5224f75be3f53f1ba8edc2547978e519aa46a57cc97eef9087b403cb7d.3yHHiA7NW-p6vVSlM-2nPx7Nbk7wuTr5SA9Av2nW--g
     components-sentencelist--full-sentence--light:
@@ -5409,7 +5409,7 @@ snapshots:
     scenes-app-posthog-ai--welcome-with-latest-conversations--light:
         hash: v1.k794b7964.03cd5a313bcc951cd84c2d229b1db2452bde3911bcdcde5faad32a9875d67dc9.wN1GJjg2VqEeSsZTR1El6AzSZNYJ-uTDC-mBtvtxOhI
     scenes-app-project-homepage--no-primary-dashboard--dark:
-        hash: v1.k794b7964.cedaed4fb8cf46a4dbef9fe89336a893096b681c97a16d9cb58479c827d55930.x-q4TLH6nkaiRCC_DOi9wEeyQhG77cYcRuyMMLymrfM
+        hash: v1.k794b7964.96fec43d361cc791bcb44454c6b284c906f0f608b61f928bd7165edf4e0c5457.dA4Fx14aHD_jH1o6EWhFdDNohMGLb0a_IfKQm4m6ajA
     scenes-app-project-homepage--no-primary-dashboard--light:
         hash: v1.k794b7964.f5eb5be7b8e8de7ddf63830a02976ee9d99975fa343f84bc5a87ac11bfb3bc2f.hqBHrX-J0ggqhwIlXeqVPOPuTlhH0iPDJMhoWJuw0-0
     scenes-app-project-homepage--project-homepage--dark:
