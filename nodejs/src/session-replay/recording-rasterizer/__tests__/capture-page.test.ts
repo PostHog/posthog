@@ -206,7 +206,7 @@ describe('capture-page', () => {
             expect(result).toEqual({ data: 'frame-screenshot' })
         })
 
-        it('throws and detaches CDP session when beginFrame exceeds 30s', async () => {
+        it('throws and detaches CDP session when beginFrame exceeds 15s', async () => {
             jest.useFakeTimers()
             const { page, capturePage } = await preparePage()
             originalSend.mockReturnValue(new Promise(() => {})) // never resolves
@@ -217,8 +217,8 @@ describe('capture-page', () => {
 
             // Attach the rejection handler before advancing timers so Jest
             // doesn't see an unhandled rejection.
-            const rejection = expect(sendPromise).rejects.toThrow('beginFrame timeout (30s) — compositor deadlock')
-            await jest.advanceTimersByTimeAsync(30_001)
+            const rejection = expect(sendPromise).rejects.toThrow('beginFrame timeout (15s) — compositor deadlock')
+            await jest.advanceTimersByTimeAsync(15_001)
             await rejection
 
             expect(mockSession.detach).toHaveBeenCalled()
@@ -240,7 +240,7 @@ describe('capture-page', () => {
             const sendPromise = session.send('HeadlessExperimental.beginFrame')
 
             const rejection = expect(sendPromise).rejects.toThrow('compositor deadlock')
-            await jest.advanceTimersByTimeAsync(30_001)
+            await jest.advanceTimersByTimeAsync(15_001)
             await rejection
 
             jest.useRealTimers()

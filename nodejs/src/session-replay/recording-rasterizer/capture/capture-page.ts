@@ -141,8 +141,8 @@ export class CapturePage {
                     const timeout = new Promise<never>((_, reject) => {
                         timeoutHandle = setTimeout(() => {
                             timedOut = true
-                            reject(new Error('beginFrame timeout (30s)'))
-                        }, 30_000)
+                            reject(new Error('beginFrame timeout (15s)'))
+                        }, 15_000)
                     })
                     try {
                         const result = await Promise.race([originalSend(method as any, params), timeout])
@@ -156,7 +156,7 @@ export class CapturePage {
                             } catch {
                                 // session may already be disconnected
                             }
-                            throw new Error('beginFrame timeout (30s) — compositor deadlock')
+                            throw new Error('beginFrame timeout (15s) — compositor deadlock')
                         }
                         throw err
                     }

@@ -184,7 +184,7 @@ export class PlayerController {
      * Wait for the player to finish loading and signal started.
      * Times out if no loading_progress arrives within `staleMs`.
      */
-    async waitForStart(playerConfig: PlayerConfig, staleMs = 30000): Promise<void> {
+    async waitForStart(playerConfig: PlayerConfig, staleMs = 15000): Promise<void> {
         const startedPromise = new Promise<void>((resolve) => {
             this.startedResolve = resolve
         })
