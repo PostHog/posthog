@@ -15,7 +15,7 @@ import {
 import { getVariantColor } from '~/scenes/experiments/utils'
 import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
-import { FunnelStep, FunnelStepWithConversionMetrics } from '~/types'
+import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
@@ -38,17 +38,15 @@ interface StepBarCSSProperties extends React.CSSProperties {
  */
 function openExperimentPersonsModalForSeries({
     step,
-    series,
     converted,
     experimentQuery,
 }: {
-    step: FunnelStep
-    series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+    step: FunnelStepWithConversionMetrics
     converted: boolean
     experimentQuery: ExperimentQuery
 }): void {
     const stepNo = step.order + 1
-    const variantKey = series.breakdown_value as string
+    const variantKey = step.breakdown_value as string
 
     // This should only be called for funnel metrics
     if (!isExperimentFunnelMetric(experimentQuery.metric)) {
@@ -135,7 +133,6 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (hasActorsQueryFeature && experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
-                series: step,
                 converted: false, // Dropoffs
                 experimentQuery,
             })
@@ -149,7 +146,6 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (hasActorsQueryFeature && experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
-                series: step,
                 converted: true, // Conversions
                 experimentQuery,
             })
