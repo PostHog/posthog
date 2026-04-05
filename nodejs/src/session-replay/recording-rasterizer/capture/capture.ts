@@ -112,7 +112,7 @@ export async function capturePlayback(
 
         const checkIntervalMs = 250
 
-        while (virtualElapsed < captureConfig.captureTimeoutMs) {
+        while (virtualElapsed < captureConfig.maxVirtualTimeMs) {
             if (captureAborted) {
                 throw captureAborted
             }
@@ -141,10 +141,10 @@ export async function capturePlayback(
             }
         }
 
-        if (virtualElapsed >= captureConfig.captureTimeoutMs) {
+        if (virtualElapsed >= captureConfig.maxVirtualTimeMs) {
             log.warn(
-                { timeout_s: captureConfig.captureTimeoutMs / 1000, frames: frameCount },
-                'capture timeout reached'
+                { max_virtual_s: captureConfig.maxVirtualTimeMs / 1000, frames: frameCount },
+                'max virtual time reached, truncating'
             )
             truncated = true
         }

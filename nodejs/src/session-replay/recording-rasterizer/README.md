@@ -88,7 +88,7 @@ The `rasterize-recording` activity accepts `RasterizeRecordingInput` (see `types
 | `start_timestamp`      | no       | —       | Start playback from this time (ms since epoch) |
 | `end_timestamp`        | no       | —       | Stop playback at this time (ms since epoch)    |
 | `trim`                 | no       | —       | Max output duration in seconds                 |
-| `capture_timeout`      | no       | —       | Max capture time in seconds                    |
+| `max_virtual_time`     | no       | —       | Max virtual time in seconds before stopping    |
 | `viewport_width`       | no       | `1280`  | Capture viewport width                         |
 | `viewport_height`      | no       | `720`   | Capture viewport height                        |
 | `show_metadata_footer` | no       | `false` | Include metadata footer in output              |

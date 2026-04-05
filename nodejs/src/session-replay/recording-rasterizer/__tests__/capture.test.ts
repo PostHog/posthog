@@ -44,7 +44,7 @@ function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfi
         outputFps: 3,
         playbackSpeed: 8,
         trimFrameLimit: Infinity,
-        captureTimeoutMs: Infinity,
+        maxVirtualTimeMs: Infinity,
         ffmpegOutputOpts: [],
         ffmpegVideoFilters: [],
         screenshotFormat: 'jpeg',
@@ -144,7 +144,7 @@ describe('capturePlayback', () => {
 
         mockRecorder.waitForTimeout.mockImplementation(() => {})
 
-        const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
+        const config = baseCaptureConfig({ maxVirtualTimeMs: 3000 })
         await capturePlayback(player, config, outputPath, jest.fn())
 
         expect(mockRecorder.stop).toHaveBeenCalled()
@@ -213,7 +213,7 @@ describe('capturePlayback', () => {
         const player = mockPlayer()
         mockRecorder.waitForTimeout.mockImplementation(() => {})
 
-        const config = baseCaptureConfig({ captureTimeoutMs: 3000 })
+        const config = baseCaptureConfig({ maxVirtualTimeMs: 3000 })
         const result = await capturePlayback(player, config, outputPath, jest.fn())
         expect(result.truncated).toBe(true)
     })
