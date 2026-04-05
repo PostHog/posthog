@@ -292,11 +292,11 @@ export function ResultDetails({
 
     // Construct ExperimentQuery for actors query
     const experimentQuery: ExperimentQuery | undefined = experiment.id
-        ? {
+        ? ({
               kind: NodeKind.ExperimentQuery,
               experiment_id: experiment.id,
               metric,
-          }
+          } as ExperimentQuery)
         : undefined
 
     return (
