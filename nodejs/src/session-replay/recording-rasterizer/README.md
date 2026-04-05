@@ -41,11 +41,15 @@ recording-rasterizer/
 │   ├── activities.ts     ← activity handler (record → upload → cleanup)
 │   └── codec.ts          ← Fernet encryption codec for Temporal payloads
 │
-├── capture/              ← Puppeteer capture pipeline
-│   ├── browser-pool.ts   ← warm Chromium lifecycle manager
-│   ├── recorder.ts       ← orchestrates page setup → player load → capture
-│   ├── player.ts         ← PlayerController + config builder for rrweb player
-│   └── capture.ts        ← frame capture loop, screenshot format override
+├── capture/                  ← Puppeteer capture pipeline
+│   ├── browser-pool.ts       ← warm Chromium lifecycle manager
+│   ├── recorder.ts           ← orchestrates page setup → player load → capture
+│   ├── capture-page.ts       ← viewport, CDP guards, callback error guards
+│   ├── player.ts             ← PlayerController: message bridge, playback lifecycle
+│   ├── capture.ts            ← frame capture loop with abort/timeout handling
+│   ├── request-interceptor.ts ← request interception + stylesheet proxying
+│   ├── block-proxy.ts        ← recording block fetcher (recording-api)
+│   └── config.ts             ← input validation + capture config builder
 │
 └── __tests__/            ← all tests
 ```
