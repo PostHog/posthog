@@ -104,12 +104,16 @@ def _get_shadow_input_objects(
     return (team, node, saved_query)
 
 
+@activity.defn
+async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
+    """Check whether the duckgres shadow flag is enabled for a team."""
+    team = await database_sync_to_async(Team.objects.get)(id=team_id)
+    return await database_sync_to_async(_is_duckgres_shadow_enabled)(team)
+
+
 @database_sync_to_async
 def _resolve_duckgres_job(job_id: str, result: "DuckgresShadowResult") -> None:
     """Update the duckgres job to its terminal state based on the result."""
-    if result.error == "disabled":
-        # no job to resolve — the shadow was skipped entirely
-        return
     job = DataModelingJob.objects.get(id=job_id)
     if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
         return
@@ -137,14 +141,6 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
-
-    if not await database_sync_to_async(_is_duckgres_shadow_enabled)(team):
-        await logger.ainfo("Duckgres shadow disabled for team", extra=inputs.properties_to_log)
-        disabled_result = DuckgresShadowResult(
-            row_count=0, duration_seconds=0.0, schema_name="", table_name="", error="disabled"
-        )
-        await _resolve_duckgres_job(inputs.job_id, disabled_result)
-        return disabled_result
 
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"

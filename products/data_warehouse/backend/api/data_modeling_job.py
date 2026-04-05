@@ -76,9 +76,9 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team_id=self.team_id)
-        if self._is_duckgres_shadow_enabled():
-            return qs.filter(engine=DataModelingJobEngine.DUCKGRES)
-        return qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
+        if not self._is_duckgres_shadow_enabled():
+            qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
+        return qs
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):
