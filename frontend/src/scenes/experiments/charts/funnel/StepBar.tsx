@@ -170,18 +170,43 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 onMouseEnter={() => {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
-                        showTooltip(
-                            [rect.x, rect.y, rect.width],
-                            stepIndex,
-                            step,
-                            !!sessionData || hasActorsQueryFeature
-                        )
+                        // Only show "Click to inspect actors" hint when clicking will actually work:
+                        // - Step 0 (exposure) with new feature enabled: can't use actors query (returns early), so don't show hint
+                        // - Step 0 with legacy: can use sampled sessions, show hint if sessionData exists
+                        // - Step > 0 with new feature: can use actors query, show hint
+                        // - Step > 0 with legacy: can use sampled sessions, show hint if sessionData exists
+                        const hasClickableData = hasActorsQueryFeature ? stepIndex > 0 : !!sessionData
+                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
                     }
                 }}
                 onMouseLeave={() => hideTooltip()}
             >
-                <div className="StepBar__backdrop" onClick={handleDropoffClick} style={{ cursor: 'pointer' }} />
-                <div className="StepBar__fill" onClick={handleConversionClick} style={{ cursor: 'pointer' }} />
+                <div
+                    className="StepBar__backdrop"
+                    onClick={handleDropoffClick}
+                    style={{
+                        cursor: hasActorsQueryFeature
+                            ? stepIndex > 0
+                                ? 'pointer'
+                                : 'default'
+                            : sessionData
+                              ? 'pointer'
+                              : 'default',
+                    }}
+                />
+                <div
+                    className="StepBar__fill"
+                    onClick={handleConversionClick}
+                    style={{
+                        cursor: hasActorsQueryFeature
+                            ? stepIndex > 0
+                                ? 'pointer'
+                                : 'default'
+                            : sessionData
+                              ? 'pointer'
+                              : 'default',
+                    }}
+                />
             </div>
         </>
     )

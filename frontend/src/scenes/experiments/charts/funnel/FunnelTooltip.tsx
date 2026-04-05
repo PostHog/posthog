@@ -60,15 +60,18 @@ function FunnelTooltipContent({
                         <td>{humanFriendlyNumber(series.count)}</td>
                     </tr>
                     {stepIndex > 0 && (
-                        <tr>
-                            <td>Dropped off</td>
-                            <td>{humanFriendlyNumber(series.droppedOffFromPrevious || 0)}</td>
-                        </tr>
+                        <>
+                            <tr>
+                                <td>Dropped off</td>
+                                <td>{humanFriendlyNumber(series.droppedOffFromPrevious || 0)}</td>
+                            </tr>
+
+                            <tr>
+                                <td>Conversion so far</td>
+                                <td>{percentage(series.conversionRates.total || 0, 2, true)}</td>
+                            </tr>
+                        </>
                     )}
-                    <tr>
-                        <td>Conversion so far</td>
-                        <td>{percentage(series.conversionRates.total || 0, 2, true)}</td>
-                    </tr>
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>
