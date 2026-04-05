@@ -1,8 +1,11 @@
+import { useValues } from 'kea'
+
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { dataModelingLogic } from 'scenes/data-warehouse/scene/dataModelingLogic'
 
-import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
+import { DataModelingSyncInterval } from '~/types'
 
 const CREATE_NEW_DAG_VALUE = '__create_new__'
 
@@ -68,16 +71,15 @@ export function openCreateDagDialog({
 }
 
 export function DagSelector({
-    dags,
     selectedDagId,
     onSelectDag,
     onCreateDag,
 }: {
-    dags: DataModelingDAG[]
     selectedDagId: string | null
     onSelectDag: (dagId: string | null) => void
     onCreateDag: (onSelect: (newDagId: string) => void) => void
 }): JSX.Element {
+    const { dags } = useValues(dataModelingLogic)
     const options = [
         ...dags.map((d) => ({ value: d.id, label: d.name })),
         { value: CREATE_NEW_DAG_VALUE, label: '+ Create new DAG' },

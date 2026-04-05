@@ -916,7 +916,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 await dataModelingLogic.asyncActions.loadDags()
             }
 
-            const capturedDags = values.dags
             const isStaff = values.user?.is_staff ?? false
             const folderOptions: { value: string | null; label: string }[] = [
                 { value: null, label: 'No folder' },
@@ -958,7 +957,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     folderId: null,
                     isTest: false,
                     dagId: multiDagEnabled
-                        ? (capturedDags.find((d) => d.id === values.selectedDagId)?.id ?? capturedDags[0]?.id ?? null)
+                        ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                         : undefined,
                 },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
@@ -1009,15 +1008,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     <LemonField name="dagId" label="Add to DAG" className="flex-1">
                                         {({ value: dagId, onChange: setDagId }) => (
                                             <DagSelector
-                                                dags={capturedDags}
                                                 selectedDagId={dagId}
                                                 onSelectDag={setDagId}
                                                 onCreateDag={(onSelect) => {
                                                     openCreateDagDialog({
-                                                        existingNames: new Set(capturedDags.map((d) => d.name)),
+                                                        existingNames: new Set(
+                                                            dataModelingLogic.values.dags.map((d) => d.name)
+                                                        ),
                                                         onSubmit: async (dagData) => {
                                                             const newDag = await api.dataModelingDags.create(dagData)
-                                                            dataModelingLogic.actions.loadDags()
+                                                            await dataModelingLogic.asyncActions.loadDags()
                                                             onSelect(newDag.id)
                                                             lemonToast.success('DAG created')
                                                         },
