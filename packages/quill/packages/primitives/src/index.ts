@@ -67,6 +67,7 @@ export {
     DialogTrigger,
 } from './dialog'
 export { DirectionProvider, useDirection } from './direction'
+export { Dot, dotVariants } from './dot'
 export {
     Drawer,
     DrawerPortal,
