@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_runner import OutputFn
@@ -32,8 +35,9 @@ _MAX_GITHUB_REPOS = 500
 
 def _list_candidate_repos(team_id: int) -> list[str]:
     """Fetch all repositories accessible via the team's GitHub integrations."""
-    from posthog.models.integration import GitHubIntegration, Integration
-
+    # Not cached: it's instant if 1 repo attached (should happen often). Caching the list of repos
+    # doesn't make much sense (as we would need to provide these tokens inside the prompt anyway).
+    # If >1 repo -> the research per-signal can't be cached, as we need to pick one.
     integrations = Integration.objects.filter(team_id=team_id, kind="github")
     repos: set[str] = set()
     for integration in integrations:
@@ -105,9 +109,6 @@ async def select_repository_for_report(
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals."""
-    from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
-    from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
-
     candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(

@@ -13,7 +13,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQuery, OrderBy3, PropertyGroupFilter
+from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -52,8 +52,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
-        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
-            order_by = OrderBy3.LATEST
+        if order_by not in (LogsOrderBy.EARLIEST, LogsOrderBy.LATEST):
+            order_by = LogsOrderBy.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
@@ -61,7 +61,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST:
+                if order_by == LogsOrderBy.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -112,14 +112,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             limit = logs_query_params["limit"]
 
             def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: OrderBy3 | None
+                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: LogsOrderBy | None
             ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
                 """
                 Slices a LogsQueryRunner into two query runners
                 The first one returns just the `slice_length` most recent logs
                 The second one returns the rest of the logs
                 """
-                if orderBy == OrderBy3.LATEST or orderBy is None:
+                if orderBy == LogsOrderBy.LATEST or orderBy is None:
                     slice_query = LogsQuery(
                         **{
                             **query.model_dump(),

@@ -72,7 +72,7 @@ export const InlineMenu = ({
         >
             <div
                 ref={menuRef}
-                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
+                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5 relative z-10"
             >
                 {isLinkActive ? (
                     <>

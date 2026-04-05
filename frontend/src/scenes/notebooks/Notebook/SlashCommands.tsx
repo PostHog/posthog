@@ -442,9 +442,9 @@ order by count() desc
                             {
                                 type: 'tableRow',
                                 content: [
-                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
-                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
-                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
                                 ],
                             },
                             {

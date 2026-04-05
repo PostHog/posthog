@@ -757,6 +757,10 @@ export interface DataWarehouseSavedQueryMinimalApi {
     /** @nullable */
     readonly managed_viewset_kind: string | null
     /** @nullable */
+    readonly folder_id: string | null
+    /** @nullable */
+    readonly folder_name: string | null
+    /** @nullable */
     readonly latest_error: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
@@ -819,6 +823,16 @@ export interface DataWarehouseSavedQueryApi {
     readonly last_run_at: string | null
     /** @nullable */
     readonly managed_viewset_kind: string | null
+    /**
+     * Optional folder ID used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    folder_id?: string | null
+    /**
+     * Folder name used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    readonly folder_name: string | null
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -833,6 +847,11 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /**
+     * Optional DAG to place this view into
+     * @nullable
+     */
+    dag_id?: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -885,6 +904,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly last_run_at?: string | null
     /** @nullable */
     readonly managed_viewset_kind?: string | null
+    /**
+     * Optional folder ID used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    folder_id?: string | null
+    /**
+     * Folder name used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    readonly folder_name?: string | null
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -899,6 +928,11 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /**
+     * Optional DAG to place this view into
+     * @nullable
+     */
+    dag_id?: string | null
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -914,6 +948,30 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at?: string | null
+}
+
+export interface DataWarehouseSavedQueryFolderApi {
+    readonly id: string
+    /**
+     * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+     * @maxLength 128
+     */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly view_count: number
+}
+
+export interface PatchedDataWarehouseSavedQueryFolderApi {
+    readonly id?: string
+    /**
+     * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+     * @maxLength 128
+     */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly view_count?: number
 }
 
 /**

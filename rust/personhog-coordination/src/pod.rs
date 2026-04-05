@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use etcd_client::EventType;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -34,6 +34,10 @@ pub struct PodConfig {
     pub generation: String,
     pub lease_ttl: i64,
     pub heartbeat_interval: Duration,
+    /// How long to wait for partitions to drain before shutting down.
+    /// Should be less than K8s terminationGracePeriodSeconds to allow
+    /// time for lease revocation before SIGKILL.
+    pub drain_timeout: Duration,
 }
 
 impl Default for PodConfig {
@@ -43,6 +47,7 @@ impl Default for PodConfig {
             generation: "blue".to_string(),
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
+            drain_timeout: Duration::from_secs(30),
         }
     }
 }
@@ -53,6 +58,8 @@ pub struct PodHandle {
     handler: Arc<dyn HandoffHandler>,
     /// Partitions this pod has warmed. Used to avoid re-warming on assignment watches.
     owned_partitions: Mutex<HashSet<u32>>,
+    /// Signalled when a partition is released, waking `drain()` without polling.
+    drain_notify: Notify,
 }
 
 impl PodHandle {
@@ -66,6 +73,7 @@ impl PodHandle {
             config,
             handler,
             owned_partitions: Mutex::new(HashSet::new()),
+            drain_notify: Notify::new(),
         }
     }
 
@@ -73,19 +81,45 @@ impl PodHandle {
     ///
     /// 1. Register with etcd (creates lease + key)
     /// 2. Start heartbeat loop
-    /// 3. Watch for handoff events
+    /// 3. Watch for handoff and assignment events
+    /// 4. On cancellation (SIGTERM): transition to Draining, wait for
+    ///    partition handoffs to complete, then revoke lease and exit
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register(lease_id).await?;
 
         tracing::info!(pod = %self.config.pod_name, "registered with etcd");
 
-        let result = self.run_loops(lease_id, cancel.clone()).await;
+        // Heartbeat runs for the entire pod lifetime, including drain phase.
+        // This keeps the lease alive so the coordinator sees a Draining pod
+        // (not a crashed one with an expired lease).
+        let heartbeat_cancel = CancellationToken::new();
+        let heartbeat_handle = {
+            let store = Arc::clone(&self.store);
+            let interval = self.config.heartbeat_interval;
+            let token = heartbeat_cancel.child_token();
+            tokio::spawn(async move {
+                util::run_lease_keepalive(store, lease_id, interval, token).await
+            })
+        };
 
-        // Best-effort unregister on shutdown
-        if !cancel.is_cancelled() {
-            drop(self.store.revoke_lease(lease_id).await);
+        // Phase 1: Normal operation - watch handoffs and assignments until cancelled
+        let result = tokio::select! {
+            r = self.watch_handoff_loop(cancel.clone()) => r,
+            r = self.watch_assignment_loop(cancel.clone()) => r,
+        };
+
+        // Phase 2: If cancelled externally (SIGTERM), drain gracefully
+        if cancel.is_cancelled() {
+            if let Err(e) = self.drain(lease_id).await {
+                tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
+            }
         }
+
+        // Cleanup: stop heartbeat and revoke lease
+        heartbeat_cancel.cancel();
+        drop(heartbeat_handle.await);
+        drop(self.store.revoke_lease(lease_id).await);
 
         result
     }
@@ -102,27 +136,61 @@ impl PodHandle {
         self.store.register_pod(&pod, lease_id).await
     }
 
-    async fn run_loops(&self, lease_id: i64, cancel: CancellationToken) -> Result<()> {
-        let heartbeat_cancel = cancel.child_token();
-        let heartbeat_handle = {
-            let store = Arc::clone(&self.store);
-            let interval = self.config.heartbeat_interval;
-            let token = heartbeat_cancel.clone();
-            tokio::spawn(async move {
-                util::run_lease_keepalive(store, lease_id, interval, token).await
-            })
-        };
+    /// Graceful drain: set status to Draining, then keep processing handoff
+    /// events until all owned partitions have been released or timeout.
+    ///
+    /// The coordinator sees the Draining status, excludes this pod from
+    /// active assignments, and creates handoffs for its partitions. This pod
+    /// continues watching for handoff Complete events to release partitions.
+    async fn drain(&self, lease_id: i64) -> Result<()> {
+        self.store
+            .update_pod_status(&self.config.pod_name, PodStatus::Draining, lease_id)
+            .await?;
 
-        // Run handoff and assignment watches concurrently
-        let result = tokio::select! {
-            r = self.watch_handoff_loop(cancel.clone()) => r,
-            r = self.watch_assignment_loop(cancel.clone()) => r,
-        };
+        tracing::info!(
+            pod = %self.config.pod_name,
+            "set status to Draining, waiting for partition handoffs"
+        );
 
-        heartbeat_cancel.cancel();
-        drop(heartbeat_handle.await);
+        if self.owned_partitions.lock().await.is_empty() {
+            tracing::info!(pod = %self.config.pod_name, "no partitions to drain");
+            return Ok(());
+        }
 
-        result
+        // Keep watching handoffs during drain so we can release partitions
+        // when the coordinator completes them.
+        let drain_cancel = CancellationToken::new();
+
+        tokio::select! {
+            r = self.watch_handoff_loop(drain_cancel.clone()) => {
+                r?;
+            },
+            _ = self.wait_for_drain() => {
+                tracing::info!(pod = %self.config.pod_name, "all partitions drained successfully");
+            },
+            _ = tokio::time::sleep(self.config.drain_timeout) => {
+                let remaining = self.owned_partitions.lock().await.len();
+                tracing::warn!(
+                    pod = %self.config.pod_name,
+                    remaining_partitions = remaining,
+                    "drain timeout exceeded, shutting down"
+                );
+            }
+        }
+
+        drain_cancel.cancel();
+        Ok(())
+    }
+
+    /// Wait until all owned partitions have been released via handoffs.
+    /// Woken reactively by `drain_notify` each time a partition is released.
+    async fn wait_for_drain(&self) {
+        loop {
+            if self.owned_partitions.lock().await.is_empty() {
+                return;
+            }
+            self.drain_notify.notified().await;
+        }
     }
 
     async fn watch_handoff_loop(&self, cancel: CancellationToken) -> Result<()> {
@@ -179,6 +247,7 @@ impl PodHandle {
                 .lock()
                 .await
                 .remove(&handoff.partition);
+            self.drain_notify.notify_one();
         }
 
         Ok(())

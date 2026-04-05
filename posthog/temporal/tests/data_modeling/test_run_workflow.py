@@ -753,12 +753,6 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
-    workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(
-        team_id=ateam.pk,
-        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
-    )
-
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
@@ -786,14 +780,21 @@ async def test_run_workflow_with_minio_bucket(
         ):
             # Ensure the team exists in the DB context before running workflow
             await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
-            await temporal_client.execute_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
+
+            for saved_query in saved_queries:
+                workflow_id = str(uuid.uuid4())
+                inputs = RunWorkflowInputs(
+                    team_id=ateam.pk,
+                    select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
+                )
+                await temporal_client.execute_workflow(
+                    RunWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
 
             tables_and_queries = {}
 
@@ -1356,11 +1357,11 @@ async def test_cleanup_running_jobs_activity(activity_environment, ateam):
     assert old_job.status == DataModelingJob.Status.FAILED
     assert old_job.rows_materialized == 0
     assert old_job.error is not None
-    assert "Job timed out" in old_job.error
+    assert "Preempted" in old_job.error
     assert recent_job.status == DataModelingJob.Status.FAILED
     assert recent_job.rows_materialized == 0
     assert recent_job.error is not None
-    assert "Job timed out" in recent_job.error
+    assert "Preempted" in recent_job.error
     assert completed_job.status == DataModelingJob.Status.COMPLETED
 
 
@@ -1384,7 +1385,7 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert orphaned_job.status == DataModelingJob.Status.FAILED
     assert orphaned_job.rows_materialized == 0
     assert orphaned_job.error is not None
-    assert "Job timed out" in orphaned_job.error
+    assert "Preempted" in orphaned_job.error
 
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"

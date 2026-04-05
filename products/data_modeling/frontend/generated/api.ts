@@ -9,10 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DagApi,
+    DataModelingDagsListParams,
     DataModelingEdgesListParams,
     DataModelingNodesListParams,
     EdgeApi,
     NodeApi,
+    PaginatedDAGListApi,
     PaginatedEdgeListApi,
     PaginatedNodeListApi,
 } from './api.schemas'
@@ -33,6 +36,50 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDataModelingDagsListUrl = (projectId: string, params?: DataModelingDagsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/data_modeling_dags/?${stringifiedParams}`
+        : `/api/environments/${projectId}/data_modeling_dags/`
+}
+
+export const dataModelingDagsList = async (
+    projectId: string,
+    params?: DataModelingDagsListParams,
+    options?: RequestInit
+): Promise<PaginatedDAGListApi> => {
+    return apiMutator<PaginatedDAGListApi>(getDataModelingDagsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataModelingDagsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_modeling_dags/`
+}
+
+export const dataModelingDagsCreate = async (
+    projectId: string,
+    dagApi: NonReadonly<DagApi>,
+    options?: RequestInit
+): Promise<DagApi> => {
+    return apiMutator<DagApi>(getDataModelingDagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dagApi),
+    })
+}
 
 export const getDataModelingEdgesListUrl = (projectId: string, params?: DataModelingEdgesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -123,7 +170,7 @@ export const dataModelingNodesCreate = async (
 }
 
 /**
- * Get all distinct dag_ids for the team's nodes.
+ * Get all distinct DAGs for the team.
  */
 export const getDataModelingNodesDagIdsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/data_modeling_nodes/dag_ids/`
