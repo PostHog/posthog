@@ -76,11 +76,17 @@ export function useChartInteraction({
         }
 
         const handleScroll = (e: Event): void => {
-            // Ignore scrolls that originate inside the tooltip itself — users
-            // should be able to scroll long pinned content without dismissing it.
-            const target = e.target as Element | null
-            if (target && typeof target.closest === 'function' && target.closest('[data-hog-charts-tooltip]')) {
-                return
+            // Ignore scrolls that originate inside the tooltip itself or inside
+            // the chart wrapper — users should be able to scroll long pinned
+            // content (or a nested legend) without dismissing the tooltip.
+            const target = e.target
+            if (target instanceof Element) {
+                if (target.closest('[data-hog-charts-tooltip]')) {
+                    return
+                }
+                if (wrapperRef.current?.contains(target)) {
+                    return
+                }
             }
             clearTooltip()
         }
@@ -120,10 +126,10 @@ export function useChartInteraction({
 
             if (index >= 0 && showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                const ctx = buildTooltipContext(index, series, labels, scales.x, scales.y, canvasBounds, resolveValue)
-                if (ctx) {
-                    setTooltipCtx(ctx)
-                }
+                // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
+                setTooltipCtx(
+                    buildTooltipContext(index, series, labels, scales.x, scales.y, canvasBounds, resolveValue)
+                )
             }
         },
         [scales, dimensions, labels, series, showTooltip, resolveValue, canvasRef, isPinned, clearTooltip]
