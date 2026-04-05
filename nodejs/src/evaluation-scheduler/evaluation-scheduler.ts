@@ -15,7 +15,7 @@ import { KafkaConsumer } from '../kafka/consumer'
 import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
 import { TaggerManagerService } from '../llm-analytics/services/tagger-manager.service'
 import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
-import { Evaluation, EvaluationConditionSet, Tagger } from '../llm-analytics/types'
+import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../llm-analytics/types'
 import { PluginServerService, RawKafkaEvent } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
@@ -176,7 +176,7 @@ export type EvaluationMatchResult =
     | { matched: false; reason: 'no_conditions' | 'disabled' | 'filtered' | 'sampling_excluded' }
 
 export class EvaluationMatcher {
-    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Evaluation): Promise<EvaluationMatchResult> {
+    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Matchable): Promise<EvaluationMatchResult> {
         if (!evaluation.enabled) {
             return { matched: false, reason: 'disabled' }
         }
@@ -363,13 +363,7 @@ async function processEventTaggerMatch(
     evaluationSchedulerEventsProcessed.labels({ status: 'received' }).inc()
 
     // Taggers use the same conditions structure as evaluations
-    const result = await matcher.shouldTriggerEvaluation(event, {
-        ...taggerDefinition,
-        evaluation_type: 'llm_judge',
-        evaluation_config: {},
-        output_type: 'tags',
-        output_config: {},
-    })
+    const result = await matcher.shouldTriggerEvaluation(event, taggerDefinition)
 
     if (!result.matched) {
         evaluationMatchesCounter.labels({ outcome: result.reason }).inc()

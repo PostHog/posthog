@@ -292,8 +292,11 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             actions.loadTagCounts()
         },
         toggleTaggerEnabled: async ({ id }, breakpoint) => {
-            const response = await api.get(`api/environments/@current/taggers/${id}/`)
-            await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !response.enabled })
+            const tagger = values.taggers.find((t) => t.id === id)
+            if (!tagger) {
+                return
+            }
+            await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !tagger.enabled })
             await breakpoint(100)
             actions.loadTaggers()
         },

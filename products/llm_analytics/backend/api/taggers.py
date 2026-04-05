@@ -5,6 +5,7 @@ from django.db.models import Q, QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from pydantic import ValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -113,7 +114,7 @@ class TaggerSerializer(serializers.ModelSerializer):
         if tagger_config:
             try:
                 data["tagger_config"] = validate_tagger_config(tagger_type, tagger_config)
-            except Exception as e:
+            except (ValueError, ValidationError) as e:
                 raise serializers.ValidationError({"tagger_config": str(e)})
         return data
 

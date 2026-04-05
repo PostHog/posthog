@@ -26,6 +26,12 @@ export interface EvaluationConditionSet {
 
 export type EvaluationInfo = Pick<Evaluation, 'id' | 'team_id'>
 
+/** Shared interface for condition matching — used by both evaluations and taggers. */
+export interface Matchable {
+    enabled: boolean
+    conditions: EvaluationConditionSet[]
+}
+
 export interface Tagger {
     id: string
     team_id: number

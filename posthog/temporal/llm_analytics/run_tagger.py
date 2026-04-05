@@ -338,6 +338,15 @@ Output: {output_data}"""
     if max_tags is not None:
         validated_tags = validated_tags[:max_tags]
 
+    if min_tags > 0 and len(validated_tags) < min_tags:
+        logger.warning(
+            "Tagger returned fewer tags than min_tags",
+            tagger_id=tagger["id"],
+            min_tags=min_tags,
+            actual_tags=len(validated_tags),
+            tags=validated_tags,
+        )
+
     usage = response.usage
 
     bind_contextvars(provider=provider, model=model)
