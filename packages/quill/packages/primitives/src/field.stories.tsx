@@ -23,7 +23,7 @@ export const Default: Story = {
 
 export const Horizontal: Story = {
     render: () => (
-        <Field orientation="horizontal">
+        <Field orientation="horizontal" className="max-w-sm">
             <FieldLabel htmlFor="name">Name</FieldLabel>
             <FieldContent>
                 <Input placeholder="Enter your name" id="name" />
