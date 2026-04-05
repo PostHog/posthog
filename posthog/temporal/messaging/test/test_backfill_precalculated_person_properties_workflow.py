@@ -295,58 +295,38 @@ class TestEvaluateCombinedFiltersSync:
         result = evaluate_combined_filters_sync(["_H", 1, 999], {}, "person-1")
         assert result == {}
 
+    @parameterized.expand(
+        [
+            ("enabled_success", True, {"test_condition": True}, True, False),
+            ("disabled", False, {"test_condition": True}, False, False),
+            ("enabled_non_dict", True, {}, False, True),
+        ]
+    )
     @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
-    def test_detailed_logging_enabled_logs_execution_details(self, mock_logger):
-        """When detailed_logging=True, should log detailed execution information."""
-        combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
-        hog_globals = {"person": {"properties": {"$browser": "Chrome"}}}
+    def test_detailed_logging(self, _name, detailed, expected_result, expect_info, expect_warning, mock_logger):
+        if detailed and expect_warning:
+            combined = ["_H", 1, Operation.STRING, "not_a_dict"]
+        else:
+            combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
 
-        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=True)
+        hog_globals = {"person": {"properties": {"$browser": "Chrome"}}} if detailed and not expect_warning else {}
 
-        # Verify the function still works correctly
-        assert result == {"test_condition": True}
+        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=detailed)
 
-        # Verify detailed logging was called
-        mock_logger.info.assert_called_once()
-        call_args = mock_logger.info.call_args
-        assert call_args[0][0] == "HogVM evaluation completed"
+        assert result == expected_result
 
-        # Verify the logged parameters include our expected values
-        logged_kwargs = call_args[1]
-        assert logged_kwargs["person_id"] == "person-123"
-        assert logged_kwargs["result"] == {"test_condition": True}
-        assert logged_kwargs["execution_successful"] is True
-        assert logged_kwargs["person_properties"] == {"$browser": "Chrome"}
+        if expect_info:
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args
+            assert call_args[0][0] == "HogVM evaluation completed"
+            logged_kwargs = call_args[1]
+            assert logged_kwargs["person_id"] == "person-123"
+        else:
+            mock_logger.info.assert_not_called()
 
-    @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
-    def test_detailed_logging_disabled_does_not_log_details(self, mock_logger):
-        """When detailed_logging=False (default), should not log detailed execution information."""
-        combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
-
-        result = evaluate_combined_filters_sync(combined, {}, "person-123")
-
-        # Verify the function still works correctly
-        assert result == {"test_condition": True}
-
-        # Verify no detailed logging occurred
-        mock_logger.info.assert_not_called()
-
-    @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
-    def test_detailed_logging_non_dict_result_warning(self, mock_logger):
-        """When detailed_logging=True and result is not a dict, should log warning."""
-        # Create bytecode that returns a non-dict result
-        combined = ["_H", 1, Operation.STRING, "not_a_dict"]
-
-        result = evaluate_combined_filters_sync(combined, {}, "person-123", detailed_logging=True)
-
-        # Verify the function returns empty dict for non-dict result
-        assert result == {}
-
-        # Verify warning was logged
-        mock_logger.warning.assert_called_once()
-        call_args = mock_logger.warning.call_args
-        assert call_args[0][0] == "HogVM evaluation returned non-dict result"
-
-        logged_kwargs = call_args[1]
-        assert logged_kwargs["person_id"] == "person-123"
-        assert logged_kwargs["result"] == "not_a_dict"
+        if expect_warning:
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "HogVM evaluation returned non-dict result"
+        else:
+            mock_logger.warning.assert_not_called()

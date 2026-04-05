@@ -185,6 +185,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     start_person_id: str = "00000000-0000-0000-0000-000000000000"  # Starting person ID for this batch
     end_person_id: str = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # Ending person ID for this batch
     person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -299,7 +300,7 @@ async def backfill_precalculated_person_properties_activity(
     )
 
     # Enable detailed logging when both cohort_id and person_id are set (single cohort + single person mode)
-    detailed_logging_enabled = inputs.person_id is not None and len(cohort_ids) == 1
+    detailed_logging_enabled = inputs.person_id is not None and inputs.single_cohort_mode
 
     async with Heartbeater(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
@@ -457,7 +458,9 @@ async def backfill_precalculated_person_properties_activity(
                     # Detailed logging for filter results when in single cohort + single person mode
                     if detailed_logging_enabled:
                         person_filter_duration = time.monotonic() - person_filter_start
-                        matching_conditions = [hash for hash, matches in filter_results.items() if matches]
+                        matching_conditions = [
+                            condition_hash for condition_hash, matches in filter_results.items() if matches
+                        ]
                         logger.info(
                             "Filter evaluation results",
                             person_id=person_id,

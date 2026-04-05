@@ -132,6 +132,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     batch_size: int = 1000  # Persons per batch
     concurrent_workflows: int = 5  # Number of concurrent workflows to run
     person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -180,6 +181,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             start_person_id=start_person_id,
             end_person_id=end_person_id,
             person_id=inputs.person_id,
+            single_cohort_mode=inputs.single_cohort_mode,
         )
 
         # Start child workflow

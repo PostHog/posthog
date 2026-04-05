@@ -267,6 +267,7 @@ class Command(BaseCommand):
                 batch_size=batch_size,
                 concurrent_workflows=concurrent_workflows,
                 person_id=person_id,
+                single_cohort_mode=len(cohort_ids) == 1,  # True when exactly one cohort is being processed
             )
 
             # Generate unique workflow ID (one per team, based on timestamp)

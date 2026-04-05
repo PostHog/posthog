@@ -29,9 +29,8 @@ class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
         help_text="Number of concurrent child workflows to run (1-100, default: 5)",
         label="Concurrent workflows",
     )
-    person_id = forms.CharField(
+    person_id = forms.UUIDField(
         required=False,
-        max_length=36,
         help_text="Optional: Specific person ID (UUID) to filter the backfill for. If provided, only processes properties for this person",
         label="Person ID",
     )
