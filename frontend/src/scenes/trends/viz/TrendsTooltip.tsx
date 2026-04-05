@@ -4,8 +4,8 @@ import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
-import { BreakdownFilter, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, CurrencyCode, IntervalType } from '~/types'
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
+import { ActionFilter, IntervalType } from '~/types'
 
 interface TrendsSeriesMeta {
     action?: ActionFilter
