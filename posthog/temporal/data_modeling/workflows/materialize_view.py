@@ -70,6 +70,7 @@ class MaterializeViewWorkflowInputs:
     dag_id: str
     node_id: str
     duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -164,6 +165,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
                     job_id=duckgres_job_id,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=15),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -171,7 +173,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 ),
             )
 
-        if not inputs.duckgres_only:
+        if not inputs.duckgres_only and not inputs.dangerously_execute_raw_sql:
             try:
                 materialize_result = await temporalio.workflow.execute_activity(
                     materialize_view_activity,
