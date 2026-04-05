@@ -45,9 +45,7 @@ DELTA_TABLE_RETENTION_HOURS = 24
 
 # Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
 # process with a single event loop — all async activities share it, so this
-# module-level semaphore gates every activity on the same worker. With 5 workers
-# per region and a ClickHouse user limit of 50 concurrent queries, 10 per worker
-# keeps us at the regional cap.
+# module-level semaphore gates every activity on the same worker.
 MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
 _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
 
