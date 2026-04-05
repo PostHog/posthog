@@ -70,12 +70,8 @@ export function TrendsTooltip({
 
     const renderCount = (value: number): string => {
         if (showPercentView) {
-            // Stickiness percent view: value is already a percentage; show with raw alongside.
-            const series = seriesData.find((s) => s.count === value)
-            if (series) {
-                // Raw value isn't on SeriesDatum here, so just show percent.
-                return `${value.toFixed(1)}%`
-            }
+            // Stickiness percent view: value is already a percentage.
+            return `${value.toFixed(1)}%`
         }
         if (!isPercentStackView) {
             return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
