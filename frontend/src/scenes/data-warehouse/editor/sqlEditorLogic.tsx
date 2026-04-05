@@ -19,7 +19,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -61,15 +61,17 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
-    ExternalDataSource,
     ExportContext,
+    ExternalDataSource,
     LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -260,6 +262,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['database', 'databaseLoading'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
+            dataModelingLogic,
+            ['dags', 'selectedDagId'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -312,19 +316,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             name: string,
             materializeAfterSave = false,
             fromDraft?: string,
-            isTest = false,
-            folderId?: string | null
+            dagId?: string,
+            folderId?: string | null,
+            isTest = false
         ) => ({
-            fromDraft,
             name,
             materializeAfterSave,
-            isTest,
+            fromDraft,
+            dagId,
             folderId,
+            isTest,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
+        saveAsEndpointSubmit: (name: string, description?: string, dagId?: string) => ({ name, description, dagId }),
         updateInsight: true,
         closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
@@ -903,6 +909,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
+
+            // Ensure DAGs are loaded via dataModelingLogic
+            if (multiDagEnabled && values.dags.length === 0) {
+                await dataModelingLogic.asyncActions.loadDags()
+            }
+
             const isStaff = values.user?.is_staff ?? false
             const folderOptions: { value: string | null; label: string }[] = [
                 { value: null, label: 'No folder' },
@@ -939,7 +952,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '', folderId: null, isTest: false },
+                initialValues: {
+                    viewName: values.activeTab?.name || '',
+                    folderId: null,
+                    isTest: false,
+                    dagId: multiDagEnabled
+                        ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
+                        : undefined,
+                },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -956,33 +976,58 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     autoFocus
                                 />
                             </LemonField>
-                            <LemonField name="folderId" label="Folder" className="mt-2">
-                                {({ value, onChange }) => (
-                                    <LemonSelect<string | null>
-                                        value={value}
-                                        onChange={onChange}
-                                        options={[
-                                            ...folderOptions,
-                                            {
-                                                value: '__add_new_folder__',
-                                                label: '+ Add new folder',
-                                                labelInMenu: () => (
-                                                    <button
-                                                        type="button"
-                                                        className="w-full text-left text-primary px-2 py-1.5"
-                                                        onClick={() => createFolderAndSelect(onChange)}
-                                                    >
-                                                        + Add new folder
-                                                    </button>
-                                                ),
-                                            },
-                                        ]}
-                                        disabled={isLoading}
-                                        placeholder="Select a folder"
-                                        fullWidth
-                                    />
+                            <div className="flex gap-2 mt-2">
+                                <LemonField name="folderId" label="Add to folder" className="flex-1">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect<string | null>
+                                            value={value}
+                                            onChange={onChange}
+                                            options={[
+                                                ...folderOptions,
+                                                {
+                                                    value: '__add_new_folder__',
+                                                    label: '+ Add new folder',
+                                                    labelInMenu: () => (
+                                                        <button
+                                                            type="button"
+                                                            className="w-full text-left text-primary px-2 py-1.5"
+                                                            onClick={() => createFolderAndSelect(onChange)}
+                                                        >
+                                                            + Add new folder
+                                                        </button>
+                                                    ),
+                                                },
+                                            ]}
+                                            disabled={isLoading}
+                                            placeholder="Select a folder"
+                                            fullWidth
+                                        />
+                                    )}
+                                </LemonField>
+                                {multiDagEnabled && (
+                                    <LemonField name="dagId" label="Add to DAG" className="flex-1">
+                                        {({ value: dagId, onChange: setDagId }) => (
+                                            <DagSelector
+                                                selectedDagId={dagId}
+                                                onSelectDag={setDagId}
+                                                onCreateDag={(onSelect) => {
+                                                    openCreateDagDialog({
+                                                        existingNames: new Set(
+                                                            dataModelingLogic.values.dags.map((d) => d.name)
+                                                        ),
+                                                        onSubmit: async (dagData) => {
+                                                            const newDag = await api.dataModelingDags.create(dagData)
+                                                            await dataModelingLogic.asyncActions.loadDags()
+                                                            onSelect(newDag.id)
+                                                            lemonToast.success('DAG created')
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
                                 )}
-                            </LemonField>
+                            </div>
                             {isStaff && (
                                 <LemonField name="isTest" className="mt-2">
                                     {({ value, onChange }) => (
@@ -1009,14 +1054,32 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
                               ? 'Name must be valid'
                               : undefined,
+                    dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                 },
-                onSubmit: async ({ viewName, folderId, isTest }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest, folderId)
+                onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(
+                        viewName,
+                        materializeAfterSave,
+                        fromDraft,
+                        dagId,
+                        folderId,
+                        isTest ?? false
+                    )
+                    if (multiDagEnabled && dagId) {
+                        dataModelingLogic.actions.setSelectedDagId(dagId)
+                    }
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false, folderId }) => {
+        saveAsViewSubmit: async ({
+            name,
+            materializeAfterSave = false,
+            fromDraft,
+            dagId,
+            isTest = false,
+            folderId,
+        }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = normalizeRawQuerySource({
@@ -1037,6 +1100,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: queryToSave,
                     types,
                     ...(folderId ? { folder_id: folderId } : {}),
+                    ...(dagId ? { dag_id: dagId } : {}),
                     ...(isTest ? { is_test: true } : {}),
                 })
 
@@ -1050,6 +1114,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (fromDraft) {
                     actions.deleteDraft(fromDraft, savedQuery?.name)
                 }
+
+                // reload DAGs so newly created default DAG appears
+                dataModelingLogic.findMounted()?.actions.loadDags()
             } catch {
                 lemonToast.error('Failed to save view')
             }

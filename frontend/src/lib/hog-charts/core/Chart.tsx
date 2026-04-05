@@ -44,7 +44,7 @@ export interface ChartProps {
     theme: ChartTheme
     createScales: CreateScalesFn
     draw: (args: ChartDrawArgs) => void
-    tooltip?: React.ComponentType<TooltipContext>
+    tooltip?: (ctx: TooltipContext) => React.ReactNode
     onPointClick?: (data: PointClickData) => void
     className?: string
     children?: React.ReactNode
@@ -61,7 +61,7 @@ export function Chart({
     theme,
     createScales: createScalesFn,
     draw,
-    tooltip: TooltipComponent = DefaultTooltip,
+    tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
     children,
@@ -73,6 +73,7 @@ export function Chart({
         hideXAxis = false,
         hideYAxis = false,
         showTooltip = true,
+        pinnableTooltip = false,
         showCrosshair = false,
         goalLines,
     } = config ?? {}
@@ -121,7 +122,9 @@ export function Chart({
         labels,
         series: coloredSeries,
         canvasRef,
+        wrapperRef,
         showTooltip,
+        pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
     })
@@ -189,7 +192,9 @@ export function Chart({
 
                             {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
 
-                            {tooltipCtx && showTooltip && <Tooltip context={tooltipCtx} component={TooltipComponent} />}
+                            {tooltipCtx && showTooltip && (
+                                <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                            )}
 
                             {children}
                         </OverlayLayer>

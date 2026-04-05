@@ -328,6 +328,11 @@ export interface EndpointVersionResponseApi {
     endpoint_is_active: boolean
     /** ISO 8601 timestamp when this version was created. */
     version_created_at: string
+    /**
+     * ISO 8601 timestamp when this version was last updated.
+     * @nullable
+     */
+    version_updated_at: string | null
     /** User who created this version. */
     readonly version_created_by: UserBasicApi | null
 }

@@ -23,7 +23,6 @@ export function SessionRecordingsPlaylist({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -57,7 +56,6 @@ function HorizontalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -109,7 +107,6 @@ function VerticalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
