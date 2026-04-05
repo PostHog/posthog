@@ -142,11 +142,6 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
-
-    if not inputs.dangerously_execute_raw_sql and not await database_sync_to_async(_is_duckgres_shadow_enabled)(team):
-        await logger.ainfo("Duckgres shadow disabled for team", extra=inputs.properties_to_log)
-        return DuckgresShadowResult(row_count=0, duration_seconds=0.0, schema_name="", table_name="", error="disabled")
-
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
     table_name = saved_query.normalized_name

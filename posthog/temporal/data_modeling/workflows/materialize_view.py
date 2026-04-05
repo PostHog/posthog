@@ -144,7 +144,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         )
 
         duckgres_shadow_handle = None
-        if duckgres_enabled:
+        if duckgres_enabled or inputs.duckgres_only:
             duckgres_job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
@@ -173,7 +173,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 ),
             )
 
-        if not inputs.duckgres_only and not inputs.dangerously_execute_raw_sql:
+        if not inputs.duckgres_only:
             try:
                 materialize_result = await temporalio.workflow.execute_activity(
                     materialize_view_activity,
