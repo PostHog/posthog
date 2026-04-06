@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "type": "number"
+        },
+        "is_active": {
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "name": {
+            "type": "string"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

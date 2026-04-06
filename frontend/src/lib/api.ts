@@ -2159,7 +2159,7 @@ const api = {
             }
             return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
-        async listVersions(name: string): Promise<EndpointVersionType[]> {
+        async listVersions(name: string): Promise<CountedPaginatedResponse<EndpointVersionType>> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
     },

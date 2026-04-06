@@ -1479,6 +1479,126 @@
             "readOnlyHint": false
         }
     },
+    "endpoints-get-all": {
+        "description": "Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable API routes. Returns name, description, query, active status, current version, and materialization info for each endpoint.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get all endpoints",
+        "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-get": {
+        "description": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint",
+        "title": "Get endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-create": {
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Create endpoint",
+        "title": "Create endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-update": {
+        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache age, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Update endpoint",
+        "title": "Update endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-delete": {
+        "description": "Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Delete endpoint",
+        "title": "Delete endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-run": {
+        "description": "Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with breakdowns, use the breakdown property name as the key.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Run endpoint",
+        "title": "Run endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-versions": {
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, cache settings, and materialization status at that point in time.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint versions",
+        "title": "Get endpoint versions",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-materialization-status": {
+        "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get materialization status",
+        "title": "Get materialization status",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
