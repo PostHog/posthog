@@ -531,9 +531,13 @@ const BreakdownSeries = ({
                     showCustomColor
                     customColorValue={series.settings?.display?.color}
                     customButton={
-                        <div className="cursor-pointer">
+                        <button
+                            type="button"
+                            className="cursor-pointer"
+                            aria-label={`Select color for series ${series.name ? series.name : '[No value]'}`}
+                        >
                             <LemonColorGlyph color={seriesColor} className="mr-2" />
-                        </div>
+                        </button>
                     }
                 />
                 <span>{series.name ? series.name : '[No value]'}</span>
