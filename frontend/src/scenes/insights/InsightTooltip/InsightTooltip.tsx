@@ -17,10 +17,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import {
-    COL_CUTOFF,
     InsightTooltipProps,
     InvertedSeriesDatum,
-    ROW_CUTOFF,
     SeriesDatum,
     getFormattedDate,
     getTooltipTitle,
@@ -28,23 +26,16 @@ import {
 } from './insightTooltipUtils'
 
 export function ClickToInspectActors({
-    isTruncated,
     inspectLabel,
     groupTypeLabel,
     showShiftKeyHint,
 }: {
-    isTruncated?: boolean
     inspectLabel?: string
     groupTypeLabel: string
     showShiftKeyHint?: boolean
 }): JSX.Element {
     return (
         <div className="table-subtext">
-            {isTruncated && (
-                <div className="table-subtext-truncated">
-                    For readability, <b>not all series are displayed</b>.<br />
-                </div>
-            )}
             {showShiftKeyHint && (
                 <>
                     <div>Hold Shift (⇧) to highlight individual bars</div>
@@ -116,8 +107,8 @@ export function InsightTooltip({
     embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    rowCutoff = ROW_CUTOFF,
-    colCutoff = COL_CUTOFF,
+    rowCutoff,
+    colCutoff,
     showHeader = true,
     inspectLabel,
     groupTypeLabel = 'people',
@@ -166,19 +157,16 @@ export function InsightTooltip({
                 title,
                 sticky: true,
                 render: function renderDatum(_, datum) {
-                    return <div>{datum.datumTitle}</div>
+                    return <div className="whitespace-nowrap">{datum.datumTitle}</div>
                 },
             },
         ]
         const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
-        const isTruncated = numDataPoints > colCutoff || dataSource.length > rowCutoff
 
         if (numDataPoints > 0) {
             const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
-            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData.slice(
-                0,
-                colCutoff
-            )
+            const longestSeriesData = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData
+            const truncatedCols = colCutoff !== undefined ? longestSeriesData.slice(0, colCutoff) : longestSeriesData
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
             truncatedCols.forEach((seriesColumn) => {
                 const colIdx = seriesColumn.order
@@ -243,29 +231,30 @@ export function InsightTooltip({
 
         return (
             <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
-                <LemonTable
-                    dataSource={dataSource.slice(0, rowCutoff)}
-                    columns={columns}
-                    rowKey="id"
-                    uppercaseHeader={false}
-                    rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
-                    showHeader={showHeader}
-                    onRow={
-                        onRowClick && numDataPoints === 1
-                            ? (datum) => ({
-                                  onClick: () => {
-                                      const seriesDatum = datum.seriesData[0]
-                                      if (seriesDatum) {
-                                          onRowClick(seriesDatum)
-                                      }
-                                  },
-                              })
-                            : undefined
-                    }
-                />
+                <div className="InsightTooltip__scrollable">
+                    <LemonTable
+                        dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
+                        columns={columns}
+                        rowKey="id"
+                        uppercaseHeader={false}
+                        rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
+                        showHeader={showHeader}
+                        onRow={
+                            onRowClick && numDataPoints === 1
+                                ? (datum) => ({
+                                      onClick: () => {
+                                          const seriesDatum = datum.seriesData[0]
+                                          if (seriesDatum) {
+                                              onRowClick(seriesDatum)
+                                          }
+                                      },
+                                  })
+                                : undefined
+                        }
+                    />
+                </div>
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
-                        isTruncated={isTruncated}
                         inspectLabel={inspectLabel}
                         groupTypeLabel={groupTypeLabel}
                         showShiftKeyHint={showShiftKeyHint}
@@ -278,7 +267,6 @@ export function InsightTooltip({
     // Itemize tooltip entities as rows
     const dataSource = [...seriesData]
     const columns: LemonTableColumn<SeriesDatum, keyof SeriesDatum | undefined>[] = []
-    const isTruncated = dataSource?.length > rowCutoff
 
     columns.push({
         key: 'datum',
@@ -333,24 +321,25 @@ export function InsightTooltip({
 
     return (
         <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
-            <LemonTable
-                dataSource={dataSource.slice(0, rowCutoff)}
-                columns={columns}
-                rowKey="id"
-                uppercaseHeader={false}
-                rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
-                showHeader={showHeader}
-                onRow={
-                    onRowClick
-                        ? (datum) => ({
-                              onClick: () => onRowClick(datum),
-                          })
-                        : undefined
-                }
-            />
+            <div className="InsightTooltip__scrollable">
+                <LemonTable
+                    dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
+                    columns={columns}
+                    rowKey="id"
+                    uppercaseHeader={false}
+                    rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
+                    showHeader={showHeader}
+                    onRow={
+                        onRowClick
+                            ? (datum) => ({
+                                  onClick: () => onRowClick(datum),
+                              })
+                            : undefined
+                    }
+                />
+            </div>
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
-                    isTruncated={isTruncated}
                     inspectLabel={inspectLabel}
                     groupTypeLabel={groupTypeLabel}
                     showShiftKeyHint={showShiftKeyHint}
