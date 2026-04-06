@@ -163,7 +163,7 @@ class TestFormatEventsPrompt(BaseTest):
     def test_format_events_xml_skips_ignored_events(self, mock_runner_class):
         taxonomy_items = self._create_taxonomy_items(
             [
-                ("$autocapture", 50),
+                ("$autocapture", 50),  # This is ignored_in_assistant
             ]
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
@@ -172,6 +172,8 @@ class TestFormatEventsPrompt(BaseTest):
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
+
+        # Should not contain ignored events that are not in the context
         self.assertNotIn("$autocapture", event_names)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
@@ -184,6 +186,7 @@ class TestFormatEventsPrompt(BaseTest):
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
+        # Add ignored event to context
         events_in_context = self._create_context_events(
             [
                 ("$autocapture", "User interactions"),
@@ -193,6 +196,8 @@ class TestFormatEventsPrompt(BaseTest):
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
+
+        # Should contain the ignored event because it's in context
         self.assertIn("$autocapture", event_names)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")

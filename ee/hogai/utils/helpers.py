@@ -180,7 +180,7 @@ def _process_events_data(
     for item in response.results:
         event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
         if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
-            continue
+            continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}
@@ -202,7 +202,7 @@ def _process_events_data(
             if event_name not in context_event_names and (
                 event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
             ):
-                continue
+                continue  # Skip irrelevant events but keep events the user has added to the context
             if description := event_core_definition.get("description"):
                 if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
                     event_data["description"] = f"{label}. {description}"
