@@ -15,6 +15,7 @@ class Migration(migrations.Migration):
         # the migration safe regardless.
         migrations.RunSQL(
             sql="""
+                -- migration-analyzer: safe reason=posthog_ducklakecatalog has <10 rows (near empty, single-tenant configs only)
                 UPDATE posthog_ducklakecatalog dlc
                 SET organization_id = t.organization_id
                 FROM posthog_team t
@@ -29,6 +30,7 @@ class Migration(migrations.Migration):
         ),
         migrations.RunSQL(
             sql="""
+                -- migration-analyzer: safe reason=posthog_duckgresserver has <10 rows (near empty, single-tenant configs only)
                 UPDATE posthog_duckgresserver ds
                 SET organization_id = t.organization_id
                 FROM posthog_team t
