@@ -5,7 +5,7 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 
 const buttonVariants = cva(
-    "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap transition-all duration-100 outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 active:translate-y-px [&_kbd]:-mr-1 has-data-[slot=dot]:ps-1.5",
+    "group/button cursor-pointer inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap transition-all duration-100 outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 active:translate-y-px [&_kbd]:-mr-1 has-data-[slot=dot]:ps-1.5",
     {
         variants: {
             variant: {
@@ -16,9 +16,9 @@ const buttonVariants = cva(
                     'bg-accent/30 border-foreground/10 dark:border-foreground/15 hover:bg-fill-active hover:text-foreground dark:hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-input/50',
                 destructive:
                     'bg-destructive/50 text-destructive-foreground hover:bg-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive-foreground/60 data-[popup-open]:bg-destructive/20',
-                link: 'text-primary underline-offset-4 hover:underline data-[popup-open]:underline cursor-pointer',
+                link: 'text-primary underline-offset-4 hover:underline data-[popup-open]:underline',
                 'link-muted':
-                    'text-muted-foreground underline-offset-4 hover:underline data-[popup-open]:underline cursor-pointer',
+                    'text-muted-foreground underline-offset-4 hover:underline data-[popup-open]:underline',
             },
             size: {
                 default:
