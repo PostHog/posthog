@@ -295,7 +295,6 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     first_version_created_at = serializers.DateTimeField()
 
 
-
 class LLMPromptDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=255,

@@ -209,7 +209,9 @@ class LLMPromptViewSet(
 
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         queryset = get_latest_prompts_queryset(self.team).annotate(
-            prompt_size_bytes=Func(Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()),
+            prompt_size_bytes=Func(
+                Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
+            ),
         )
 
         search = request.query_params.get("search", "").strip()
