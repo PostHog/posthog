@@ -53,15 +53,17 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         hasChildOfType: (node: RichContentNode, type: string) => !!firstChildOfType(node, type),
         scrollToSelection: () => {
             queueMicrotask(() => {
-                const position = editor.state.selection.$anchor.pos
-                const domEl = editor.view.nodeDOM(position) as HTMLElement
-                domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                editor.commands.scrollIntoView()
             })
         },
         scrollToPosition(position) {
             queueMicrotask(() => {
-                const domEl = editor.view.nodeDOM(position) as HTMLElement
-                domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                const { node } = editor.view.domAtPos(position)
+                const element =
+                    node.nodeType === Node.TEXT_NODE
+                        ? (node.parentElement as HTMLElement | null)
+                        : (node as HTMLElement)
+                element?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
             })
         },
     }

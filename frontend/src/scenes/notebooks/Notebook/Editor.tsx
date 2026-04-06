@@ -221,13 +221,15 @@ function getNodeBeforeActiveNode(editor: TTEditor): RichContentNode | null {
 }
 
 function findCommentPosition(editor: TTEditor, markId: string): number | null {
-    let result = null
+    let result: number | null = null
     const doc = editor.state.doc
     doc.descendants((node, pos) => {
         const mark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === markId)
         if (mark) {
-            result = pos
-            return
+            // Same id can appear on multiple text nodes; use the start of the marked run.
+            if (result === null || pos < result) {
+                result = pos
+            }
         }
     })
     return result

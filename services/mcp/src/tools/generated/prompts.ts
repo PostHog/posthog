@@ -88,6 +88,9 @@ const promptUpdate = (): ToolBase<typeof PromptUpdateSchema, Schemas.LLMPrompt> 
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.edits !== undefined) {
+            body['edits'] = params.edits
+        }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }

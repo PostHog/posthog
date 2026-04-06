@@ -87,6 +87,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -99,6 +100,7 @@ import {
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
+    DataWarehouseProvisioningStatus,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -171,8 +173,8 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
-    PropertyGroupFilter,
     PropertyDefinitionType,
+    PropertyGroupFilter,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -1381,6 +1383,11 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
     }
 
+    // # Data Modeling DAGs
+    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -1589,8 +1596,12 @@ export class ApiRequest {
     }
 
     // Queries
-    public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+    public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
+        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        if (queryKind) {
+            return apiRequest.addPathComponent(queryKind)
+        }
+        return apiRequest
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -4801,9 +4812,22 @@ const api = {
         },
     },
 
+    dataModelingDags: {
+        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
+            return await new ApiRequest().dataModelingDags().get()
+        },
+        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDags().create({ data })
+        },
+    },
+
     dataModelingNodes: {
-        async list(): Promise<PaginatedResponse<DataModelingNode>> {
-            return await new ApiRequest().dataModelingNodes().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
+            const req = new ApiRequest().dataModelingNodes()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -4823,7 +4847,7 @@ const api = {
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
         },
-        async dagIds(): Promise<{ dag_ids: string[] }> {
+        async dagIds(): Promise<{ dag_ids: Array<{ id: string; name: string }> }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage(
@@ -4834,8 +4858,12 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
-            return await new ApiRequest().dataModelingEdges().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
+            const req = new ApiRequest().dataModelingEdges()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
     },
 
@@ -4997,6 +5025,42 @@ const api = {
 
         async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
             return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
+        },
+
+        async provisionWarehouse(
+            databaseName: string,
+            options?: ApiMethodOptions
+        ): Promise<{ status: string; org: string; username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('provision')
+                .create({ data: { database_name: databaseName }, ...options } as any)
+        },
+
+        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('deprovision')
+                .create(options as any)
+        },
+
+        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
+            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
+        },
+
+        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('check-database-name')
+                .withQueryString({ name })
+                .get()
+        },
+
+        async resetPassword(): Promise<{ username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('reset_password')
+                .create({} as any)
         },
     },
 
@@ -5569,8 +5633,8 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleFullUrl(true)
+    queryURL: (queryKind?: string): string => {
+        return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -5582,6 +5646,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
+            queryKind?: string
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5590,7 +5655,14 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({
+        const bodyKind = (query as { kind?: string }).kind
+        const pathKind = queryOptions?.queryKind
+
+        if (pathKind && pathKind !== bodyKind) {
+            throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
+        }
+
+        return await new ApiRequest().query(undefined, bodyKind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -5613,6 +5685,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+            queryKind?: string
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -5621,7 +5694,13 @@ const api = {
             query,
             tags,
         })
-        return await new ApiRequest().query().create({
+        if (queryOptions?.queryKind && queryOptions.queryKind !== hogQLQuery.kind) {
+            throw new Error(
+                `Query kind mismatch: path kind "${queryOptions.queryKind}" does not match body kind "${hogQLQuery.kind}".`
+            )
+        }
+
+        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
