@@ -772,7 +772,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                    state,
+                    { insight, extraDashboardIds, sourceDashboardId }
+                ) => {
+                    if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                        // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
+                        return state
+                    }
                     const targetDashboards = (insight.dashboard_tiles || [])
                         .map((tile) => tile.dashboard_id)
                         .concat(extraDashboardIds || [])
@@ -1889,7 +1896,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+            if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
+                return
+            }
             const targetDashboards = (insight.dashboard_tiles || [])
                 .map((tile) => tile.dashboard_id)
                 .concat(extraDashboardIds || [])
@@ -2048,7 +2059,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 if (refreshedInsight) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
                 } else {
                     actions.setRefreshError(insight.short_id)
@@ -2142,7 +2153,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
 
                         if (refreshedInsight) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
                             if (refreshedInsight.is_cached) {
