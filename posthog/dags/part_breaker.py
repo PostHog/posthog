@@ -120,11 +120,12 @@ class BreakResult:
     """Result of breaking a single oversized part."""
 
     part: PartStats
-    source_count: int
-    post_count: int
-    new_largest_part_gib: float
-    new_part_count: int
-    duration_seconds: float
+    source_count: int = 0
+    post_count: int = 0
+    new_largest_part_gib: float = 0.0
+    new_part_count: int = 0
+    duration_seconds: float = 0.0
+    dry_run: bool = False
 
     @property
     def count_diff_pct(self) -> float:
@@ -824,7 +825,7 @@ def break_part(
             ).result()
         except Exception:
             context.log.exception(f"Dry run failed for {source_table} shard {shard}, part {part.part_name}")
-        return None
+        return BreakResult(part=part, dry_run=True)
 
     start_time = time.time()
 
@@ -1089,12 +1090,33 @@ def break_part(
                         f"{[r[0] for r in current_parts]}. Dropping the first match."
                     )
                 current_part_name = current_parts[0][0]
+
+                # DROP PART requires a shard leader replica so we route the DROP
+                # to a (leader-eligible) replica on the same shard.
                 context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
-                client.execute(
-                    f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
-                    settings={"max_partition_size_to_drop": "0"},
-                )
-                context.log.info(f"Dropped {current_part_name}")
+                try:
+                    client.execute(
+                        f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                        settings={"max_partition_size_to_drop": "0"},
+                    )
+                    context.log.info(f"Dropped {current_part_name}")
+                except Exception as drop_err:
+                    if "not a leader" not in str(drop_err):
+                        raise
+                    context.log.info(f"Current replica is not a leader — routing DROP to an online replica...")
+
+                    def _drop_on_leader(leader_client: Client) -> None:
+                        leader_client.execute(
+                            f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                            settings={"max_partition_size_to_drop": "0"},
+                        )
+
+                    cluster.map_any_host_in_shards_by_role(
+                        {shard: _drop_on_leader},
+                        node_role=NodeRole.DATA,
+                        workload=Workload.ONLINE,
+                    ).result()
+                    context.log.info(f"Dropped {current_part_name} (via leader replica)")
             else:
                 context.log.warning(
                     f"Original oversized part (prefix {original_prefix}) not found in "
@@ -1203,11 +1225,17 @@ def report_results(
     results: list[Optional[BreakResult]],
 ):
     """Summarize the results of the part breaking run."""
-    completed = [r for r in results if r is not None]
-    failed_count = len(results) - len(completed)
+    dry_runs = [r for r in results if r is not None and r.dry_run]
+    completed = [r for r in results if r is not None and not r.dry_run]
+    failed_count = len(results) - len(completed) - len(dry_runs)
+
+    if dry_runs and not completed and failed_count == 0:
+        context.log.info(f"DRY RUN complete — checked {len(dry_runs)} part(s), no modifications made")
+        context.add_output_metadata({"parts_checked": len(dry_runs), "status": "dry_run"})
+        return
 
     if not completed and failed_count == 0:
-        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (nothing to do)")
         context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 

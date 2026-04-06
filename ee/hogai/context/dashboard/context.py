@@ -25,7 +25,6 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     filters_override: dict | None = None
     variables_override: dict | None = None
     layout: dict | None = None
-    result: object | None = None
 
 
 class DashboardContext:
@@ -154,5 +153,4 @@ class DashboardContext:
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,
-            result=data.result,
         )

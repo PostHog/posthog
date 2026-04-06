@@ -143,6 +143,43 @@ export interface AnthropicInputMessage {
     content: string | AnthropicCompletionMessage[]
 }
 
+// OpenAI Responses API types (role-less, use `type` instead)
+export interface OpenAIResponsesFunctionCall {
+    type: 'function_call'
+    call_id: string
+    name: string
+    arguments: string
+    id?: string
+    status?: string
+}
+
+export interface OpenAIResponsesFunctionCallOutput {
+    type: 'function_call_output'
+    call_id: string
+    output: string
+}
+
+/** Responses API built-in tool calls (web_search_call, reasoning, etc.) */
+export interface OpenAIResponsesBuiltinToolCall {
+    type:
+        | 'web_search_call'
+        | 'code_interpreter_call'
+        | 'image_generation_call'
+        | 'mcp_call'
+        | 'file_search_call'
+        | 'computer_call'
+    id?: string
+    status?: string
+    [key: string]: unknown
+}
+
+export interface OpenAIResponsesReasoning {
+    type: 'reasoning'
+    id?: string
+    summary?: { type: string; text: string }[]
+    [key: string]: unknown
+}
+
 export type InputMessage = OpenAICompletionMessage | AnthropicInputMessage
 export type CompletionMessage = OpenAICompletionMessage | AnthropicCompletionMessage
 

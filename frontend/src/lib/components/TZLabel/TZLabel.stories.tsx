@@ -1,16 +1,16 @@
 import { Meta } from '@storybook/react'
 import { useState } from 'react'
 
-import { TZLabel } from 'lib/components/TZLabel/index'
+import { TZLabel, TZLabelProps } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const meta: Meta<typeof TZLabel> = {
+const meta: Meta<TZLabelProps> = {
     title: 'Components/TZ Label',
-    component: TZLabel,
+    component: TZLabel as any,
     parameters: {
         mockDate: '2023-02-01',
     },

@@ -89,7 +89,7 @@ function SortableVariantHeader({
     moveVariantDown,
 }: SortableVariantHeaderProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-        id: variant.key || `variant-${index}`,
+        id: `variant-${index}`,
     })
 
     const style = {
@@ -308,8 +308,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         const { active, over } = event
 
         if (over && active.id !== over.id) {
-            const fromIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === active.id)
-            const toIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === over.id)
+            const fromIndex = variants.findIndex((_, index) => `variant-${index}` === active.id)
+            const toIndex = variants.findIndex((_, index) => `variant-${index}` === over.id)
 
             if (fromIndex !== -1 && toIndex !== -1) {
                 reorderVariants(fromIndex, toIndex)
@@ -323,17 +323,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         if (!activeId) {
             return null
         }
-        const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
+        const index = variants.findIndex((_, index) => `variant-${index}` === String(activeId))
         return index !== -1 ? variants[index] : null
     }
 
     // Calculate active variant index for drag overlay
-    const activeVariantIndex = activeId
-        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
-        : -1
+    const activeVariantIndex = activeId ? variants.findIndex((_, index) => `variant-${index}` === String(activeId)) : -1
 
     // Calculate expand/collapse button state
-    const allVariantKeys = variants.map((variant, index) => variant.key || `variant-${index}`)
+    const allVariantKeys = variants.map((_, index) => `variant-${index}`)
     const allExpanded = allVariantKeys.every((key) => openVariants.includes(key))
     const anyExpanded = openVariants.length > 0
 
@@ -785,9 +783,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             onDragEnd={handleDragEnd}
                                         >
                                             <SortableContext
-                                                items={variants.map(
-                                                    (variant, index) => variant.key || `variant-${index}`
-                                                )}
+                                                items={variants.map((_, index) => `variant-${index}`)}
                                                 strategy={verticalListSortingStrategy}
                                             >
                                                 <LemonCollapse
@@ -796,7 +792,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     onChange={setOpenVariants}
                                                     className="mb-3 [&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
                                                     panels={variants.map((variant, index) => ({
-                                                        key: variant.key || `variant-${index}`,
+                                                        key: `variant-${index}`,
                                                         className: '!pl-[2.5rem] dark:bg-surface-secondary',
                                                         header: (
                                                             <SortableVariantHeader

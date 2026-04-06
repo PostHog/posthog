@@ -1,3 +1,5 @@
+import { CronExpressionParser } from 'cron-parser'
+import cronstrue from 'cronstrue'
 import {
     actions,
     afterMount,
@@ -20,7 +22,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -120,6 +122,52 @@ function maybeApplyUrlIntent(
 }
 
 type FlagType = 'boolean' | 'multivariate' | 'remote_config'
+
+// Paired schedule presets create two complementary enable/disable schedules in one action.
+// The backend has no concept of "paired" — this is a frontend convenience.
+export type PairedPresetKey = 'business_hours' | 'weekdays_only' | 'custom_pair'
+
+interface PairedPresetDefinition {
+    label: string
+    description: string
+    enableCron: string
+    disableCron: string
+}
+
+/** Human-readable description of a 5-field cron expression, or an error string. Returns null for empty input. */
+export function describeCron(expr: string | null): string | null {
+    if (!expr) {
+        return null
+    }
+    const fields = expr.trim().split(/\s+/)
+    if (fields.length !== 5) {
+        return 'Invalid cron expression'
+    }
+    try {
+        // Validate with cron-parser first — cronstrue is lenient and can
+        // produce garbled output (e.g. "Monday through undefined") for
+        // syntactically incomplete expressions like "0 9 * * 1-".
+        CronExpressionParser.parse(expr)
+        return cronstrue.toString(expr)
+    } catch {
+        return 'Invalid cron expression'
+    }
+}
+
+export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
+    business_hours: {
+        label: 'Business hours',
+        description: 'Enable at 9:00 AM and disable at 5:00 PM, Monday through Friday',
+        enableCron: '0 9 * * 1-5',
+        disableCron: '0 17 * * 1-5',
+    },
+    weekdays_only: {
+        label: 'Weekdays only',
+        description: 'Enable at midnight Monday and disable at end of day Friday',
+        enableCron: '0 0 * * 1',
+        disableCron: '59 23 * * 5',
+    },
+}
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
@@ -273,11 +321,25 @@ export const convertIndexBasedPayloadsToVariantKeys = (
     payloads?: Record<string | number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    variants.forEach(({ key }, index) => {
-        if (payloads?.[index] !== undefined) {
-            newPayloads[key] = payloads[index]
+    const variantKeys = new Set(variants.map(({ key }) => key))
+
+    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
+        if (variantKeys.has(payloadKey)) {
+            newPayloads[payloadKey] = payloadValue
+            return
+        }
+
+        const payloadIndex = Number(payloadKey)
+        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
+            return
+        }
+
+        const variantKey = variants[payloadIndex]?.key
+        if (variantKey && newPayloads[variantKey] === undefined) {
+            newPayloads[variantKey] = payloadValue
         }
     })
+
     return newPayloads
 }
 
@@ -528,9 +590,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setCronExpression: (cronExpression: string | null) => ({ cronExpression }),
+        setRepeatsValue: (value: RecurrenceInterval | 'none' | 'cron') => ({ value }),
         setEndDate: (endDate: Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
+        setSchedulePreset: (preset: PairedPresetKey | null) => ({ preset }),
+        setCustomPairCron: (which: 'enable' | 'disable', expression: string) => ({ which, expression }),
+        createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -891,27 +958,59 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false,
             {
                 setIsRecurring: (_, { isRecurring }) => isRecurring,
-                // Reset when operation changes away from UpdateStatus
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : false,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? false : state,
             },
         ],
         recurrenceInterval: [
             null as RecurrenceInterval | null,
             {
                 setRecurrenceInterval: (_, { interval }) => interval,
-                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
+            },
+        ],
+        cronExpression: [
+            null as string | null,
+            {
+                setCronExpression: (_, { cronExpression }) => cronExpression,
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
             },
         ],
         endDate: [
             null as Dayjs | null,
             {
                 setEndDate: (_, { endDate }) => endDate,
-                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                // Reset when switching to AddReleaseCondition (recurring not supported for that operation)
                 setScheduledChangeOperation: (state, { changeType }) =>
-                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+                    changeType === ScheduledChangeOperationType.AddReleaseCondition ? null : state,
+            },
+        ],
+        // Paired schedule preset state
+        schedulePreset: [
+            null as PairedPresetKey | null,
+            {
+                setSchedulePreset: (_, { preset }) => preset,
+                // Reset preset when switching operations or after successful creation
+                setScheduledChangeOperation: () => null,
+                createScheduledChangeSuccess: () => null,
+            },
+        ],
+        customPairEnableCron: [
+            '' as string,
+            {
+                setCustomPairCron: (state, { which, expression }) => (which === 'enable' ? expression : state),
+                setSchedulePreset: () => '',
+            },
+        ],
+        customPairDisableCron: [
+            '' as string,
+            {
+                setCustomPairCron: (state, { which, expression }) => (which === 'disable' ? expression : state),
+                setSchedulePreset: () => '',
             },
         ],
         // V2 form UI state
@@ -1447,6 +1546,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
+                        cron_expression: values.cronExpression,
                         // Use end-of-day in project timezone to ensure consistent behavior
                         // across all users in the project
                         end_date: values.endDate
@@ -1503,6 +1603,152 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        setCronExpression: ({ cronExpression }) => {
+            if (!cronExpression) {
+                return
+            }
+            // Only compute next run for valid 5-field cron expressions
+            const fields = cronExpression.trim().split(/\s+/)
+            if (fields.length !== 5) {
+                return
+            }
+            try {
+                const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
+                const interval = CronExpressionParser.parse(cronExpression, {
+                    currentDate: baseDate,
+                })
+                const nextDate = interval.next().toDate()
+                actions.setScheduleDateMarker(dayjs(nextDate))
+            } catch {
+                // Invalid expression — don't update the date picker
+            }
+        },
+        setRepeatsValue: ({ value }) => {
+            if (value === 'none') {
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
+                actions.setEndDate(null)
+            } else if (value === 'cron') {
+                actions.setIsRecurring(true)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(values.cronExpression ?? '')
+            } else {
+                actions.setIsRecurring(true)
+                actions.setRecurrenceInterval(value)
+                actions.setCronExpression(null)
+            }
+        },
+        setSchedulePreset: ({ preset: rawPreset }) => {
+            const preset = rawPreset as PairedPresetKey | null
+            if (!preset) {
+                return
+            }
+            // Selecting any preset implies recurring cron mode
+            actions.setIsRecurring(true)
+            actions.setRecurrenceInterval(null)
+            if (preset !== 'custom_pair') {
+                const def = PAIRED_PRESETS[preset]
+                // Snap the date picker to the next enable-cron occurrence
+                actions.setCronExpression(def.enableCron)
+            }
+        },
+        createPairedSchedule: async () => {
+            const resetScheduleForm = (): void => {
+                actions.setSchedulePreset(null)
+                actions.setScheduleDateMarker(null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
+                actions.setEndDate(null)
+                actions.loadScheduledChanges()
+            }
+
+            const { customPairEnableCron, customPairDisableCron, currentProjectId } = values
+            const schedulePreset = values.schedulePreset as PairedPresetKey | null
+            if (!currentProjectId || !schedulePreset) {
+                return
+            }
+
+            let enableCron: string
+            let disableCron: string
+
+            if (schedulePreset === 'custom_pair') {
+                enableCron = (customPairEnableCron as string).trim()
+                disableCron = (customPairDisableCron as string).trim()
+            } else {
+                const def = PAIRED_PRESETS[schedulePreset]
+                enableCron = def.enableCron
+                disableCron = def.disableCron
+            }
+
+            const basePayload = {
+                record_id: values.featureFlag.id,
+                model_name: 'FeatureFlag',
+                is_recurring: true,
+                recurrence_interval: null,
+                end_date: values.endDate
+                    ? values.endDate
+                          .tz(values.currentTeam?.timezone || 'UTC')
+                          .endOf('day')
+                          .toISOString()
+                    : null,
+            }
+
+            // Compute scheduled_at from the enable cron's next run
+            let enableScheduledAt: string
+            try {
+                const interval = CronExpressionParser.parse(enableCron, { currentDate: new Date() })
+                enableScheduledAt = interval.next().toDate().toISOString()
+            } catch {
+                lemonToast.error('Invalid enable cron expression')
+                return
+            }
+
+            let disableScheduledAt: string
+            try {
+                const interval = CronExpressionParser.parse(disableCron, { currentDate: new Date() })
+                disableScheduledAt = interval.next().toDate().toISOString()
+            } catch {
+                lemonToast.error('Invalid disable cron expression')
+                return
+            }
+
+            // Create the enable schedule first
+            try {
+                await api.featureFlags.createScheduledChange(currentProjectId, {
+                    ...basePayload,
+                    payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
+                    cron_expression: enableCron,
+                    scheduled_at: enableScheduledAt,
+                })
+            } catch {
+                lemonToast.error('Failed to create the enable schedule')
+                return
+            }
+
+            // Create the disable schedule
+            try {
+                await api.featureFlags.createScheduledChange(currentProjectId, {
+                    ...basePayload,
+                    payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: false },
+                    cron_expression: disableCron,
+                    scheduled_at: disableScheduledAt,
+                })
+            } catch {
+                lemonToast.warning(
+                    'The enable schedule was created, but the disable schedule failed. ' +
+                        'You may want to create it manually or delete the enable schedule.'
+                )
+                resetScheduleForm()
+                return
+            }
+
+            // Both succeeded
+            lemonToast.success('Paired schedules created')
+            resetScheduleForm()
+            eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+        },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         generateUsageDashboard: async () => {
             if (props.id) {
@@ -1712,13 +1958,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)
+                actions.setCronExpression(null)
                 actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
         },
         setScheduledChangeOperation: ({ changeType }) => {
-            // reset filters when operation changes
+            // Reset payload when operation changes, defaulting to sensible values per operation type
             if (changeType === ScheduledChangeOperationType.UpdateVariants && values.featureFlag?.id) {
                 const flagWithKeyBasedPayloads = indexToVariantKeyFeatureFlagPayloads(values.featureFlag)
                 const flagWithIndexBasedPayloads = variantKeyToIndexFeatureFlagPayloads(
@@ -1738,14 +1985,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     currentVariants,
                     indexBasedPayloads
                 )
+            } else if (changeType === ScheduledChangeOperationType.UpdateStatus) {
+                // Default to the opposite of the current flag state since the user
+                // most likely wants to toggle it
+                const oppositeActive = !values.featureFlag.active
+                actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
             } else {
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
             }
         },
         setActiveTab: ({ tab }) => {
-            // reset filters when opening schedule tab, and load scheduled changes
+            // Reset payload when opening schedule tab. The default operation is UpdateStatus,
+            // so default active to the opposite of the current flag state.
             if (tab === FeatureFlagsTab.SCHEDULE) {
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                const oppositeActive = !values.featureFlag.active
+                actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
                 actions.loadScheduledChanges()
             }
         },
@@ -2055,6 +2309,68 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }))
                 return errors
             },
+        ],
+        repeatsValue: [
+            (s) => [s.isRecurring, s.cronExpression, s.recurrenceInterval],
+            (isRecurring, cronExpression, recurrenceInterval): RecurrenceInterval | 'none' | 'cron' =>
+                isRecurring ? (cronExpression !== null ? 'cron' : (recurrenceInterval ?? 'none')) : 'none',
+        ],
+        cronPreview: [(s) => [s.cronExpression], (cronExpression): string | null => describeCron(cronExpression)],
+        customPairEnableCronPreview: [(s) => [s.customPairEnableCron], (cron): string | null => describeCron(cron)],
+        customPairDisableCronPreview: [(s) => [s.customPairDisableCron], (cron): string | null => describeCron(cron)],
+        canCreatePairedSchedule: [
+            (s) => [
+                s.schedulePreset,
+                s.customPairEnableCron,
+                s.customPairDisableCron,
+                s.customPairEnableCronPreview,
+                s.customPairDisableCronPreview,
+            ],
+            (preset, enableCron, disableCron, enablePreview, disablePreview): boolean => {
+                if (!preset) {
+                    return false
+                }
+                if (preset === 'custom_pair') {
+                    return (
+                        !!enableCron &&
+                        !!disableCron &&
+                        enablePreview !== 'Invalid cron expression' &&
+                        disablePreview !== 'Invalid cron expression'
+                    )
+                }
+                return true
+            },
+        ],
+        activeRecurringSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter((sc) => sc.is_recurring && !sc.executed_at),
+        ],
+        pausedRecurringSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter(
+                    (sc) => !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression) && !sc.executed_at
+                ),
+        ],
+        upcomingOneTimeSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter(
+                    (sc) => !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && !sc.executed_at
+                ),
+        ],
+        completedSchedules: [
+            (s) => [s.scheduledChanges],
+            (scheduledChanges: ScheduledChangeType[]) => scheduledChanges.filter((sc) => !!sc.executed_at),
+        ],
+        activeSchedules: [
+            (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
+            (activeRecurring, pausedRecurring, upcomingOneTime) => [
+                ...activeRecurring,
+                ...pausedRecurring,
+                ...upcomingOneTime,
+            ],
         ],
         emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
         templates: [

@@ -33,16 +33,16 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.object_storage import store_session_id_chunks
-from posthog.temporal.delete_recordings.types import (
+from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
+from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.export_recording.types import ExportRecordingInput
-from posthog.temporal.import_recording.types import ImportRecordingInput
+from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
+from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
 logger = get_logger()
 

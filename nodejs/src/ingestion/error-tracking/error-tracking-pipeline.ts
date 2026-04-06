@@ -6,7 +6,14 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { DlqOutput, EVENTS_OUTPUT, EventOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    DlqOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -25,6 +32,7 @@ import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
@@ -43,7 +51,9 @@ export interface ErrorTrackingPipelineInput {
  */
 export type ErrorTrackingPipelineOutput = void
 
-export type ErrorTrackingOutputs = IngestionOutputs<EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput>
+export type ErrorTrackingOutputs = IngestionOutputs<
+    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput
+>
 
 export interface ErrorTrackingPipelineConfig {
     outputs: ErrorTrackingOutputs
@@ -126,7 +136,7 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                preservePartitionLocality: false,
+                                preservePartitionLocality: true,
                             })
                         )
                         // Parse Kafka message body [REUSE]
@@ -140,10 +150,14 @@ export function createErrorTrackingPipeline(
                             ])
                         )
                 )
-                // Map team to context for handleIngestionWarnings
+                // Map team to context for handleIngestionWarnings, and carry
+                // the Kafka message byte size through for Cymbal batch chunking.
                 .filterMap(
                     (element) => ({
-                        result: element.result,
+                        result: ok({
+                            ...element.result.value,
+                            messageBytes: element.context.message.value?.length ?? 0,
+                        }),
                         context: {
                             ...element.context,
                             team: { id: element.result.value.team.id },
@@ -157,7 +171,7 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            false, // preservePartitionLocality
+                                            true, // preservePartitionLocality
                                             overflowRedirectService
                                         )
                                     )
@@ -166,8 +180,10 @@ export function createErrorTrackingPipeline(
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
                                     // needs raw exception data, not person/geoip/group data).
                                     // Retry on transient failures (5xx, timeout, network errors).
+                                    // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
+                                    // gives ~30s total budget to ride out a Cymbal restart.
                                     .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 3,
+                                        tries: 10,
                                         sleepMs: 100,
                                     })
                                     // Enrich, prepare, create, and emit events
