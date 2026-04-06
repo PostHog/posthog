@@ -221,7 +221,7 @@ fn thin_if_fat(path: &Path, arch: &str) -> Result<Vec<u8>> {
     // Fat Mach-O magic numbers (big-endian fat header variants)
     const FAT_MAGIC: u32 = 0xCAFE_BABE;
     const FAT_MAGIC_64: u32 = 0xCAFE_BABF;
-    const FAT_CIGAM: u32 = 0xBEBA_FECA;    // byte-swapped FAT_MAGIC
+    const FAT_CIGAM: u32 = 0xBEBA_FECA; // byte-swapped FAT_MAGIC
     const FAT_CIGAM_64: u32 = 0xBFBA_FECA; // byte-swapped FAT_MAGIC_64
 
     let raw = std::fs::read(path)
@@ -232,7 +232,8 @@ fn thin_if_fat(path: &Path, arch: &str) -> Result<Vec<u8>> {
     }
 
     let magic = u32::from_be_bytes([raw[0], raw[1], raw[2], raw[3]]);
-    let is_fat = magic == FAT_MAGIC || magic == FAT_MAGIC_64 || magic == FAT_CIGAM || magic == FAT_CIGAM_64;
+    let is_fat =
+        magic == FAT_MAGIC || magic == FAT_MAGIC_64 || magic == FAT_CIGAM || magic == FAT_CIGAM_64;
 
     if !is_fat {
         tracing::debug!(
