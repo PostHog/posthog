@@ -79,6 +79,13 @@ test.describe('SQL Editor', () => {
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
 
             await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            // Dismiss the quickstart popover if visible, as it can overlay the button
+            const quickstart = page.locator('[data-attr=global-product-setup-button]')
+            if (await quickstart.isVisible({ timeout: 1000 }).catch(() => false)) {
+                await quickstart.click()
+                await page.getByRole('button', { name: 'Minimize' }).click()
+            }
+
             await page.locator('[data-attr=sql-editor-materialization-button]').click()
             await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
         })

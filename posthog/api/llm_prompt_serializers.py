@@ -81,8 +81,29 @@ class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
         return attrs
 
 
+class LLMPromptEditOperationSerializer(serializers.Serializer):
+    old = serializers.CharField(
+        help_text="Text to find in the current prompt. Must match exactly once.",
+    )
+    new = serializers.CharField(
+        help_text="Replacement text.",
+    )
+
+
 class LLMPromptPublishSerializer(serializers.Serializer):
-    prompt = serializers.JSONField(help_text="Prompt payload to publish as a new version.")
+    prompt = serializers.JSONField(
+        required=False,
+        help_text="Full prompt payload to publish as a new version. Mutually exclusive with edits.",
+    )
+    edits = LLMPromptEditOperationSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "List of find/replace operations to apply to the current prompt version. "
+            "Each edit's 'old' text must match exactly once. Edits are applied sequentially. "
+            "Mutually exclusive with prompt."
+        ),
+    )
     base_version = serializers.IntegerField(
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
@@ -90,6 +111,22 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_prompt = "prompt" in attrs
+        has_edits = "edits" in attrs
+
+        if has_prompt and has_edits:
+            raise serializers.ValidationError("Provide either 'prompt' or 'edits', not both.")
+        if not has_prompt and not has_edits:
+            raise serializers.ValidationError("Either 'prompt' or 'edits' is required.")
+
+        return attrs
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -155,14 +192,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
-        name = data.get("name")
+        name = attrs.get("name")
 
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
-            return data
+            return attrs
 
         if name is not None and self.instance.name != name:
             raise serializers.ValidationError(
@@ -170,13 +207,13 @@ class LLMPromptSerializer(serializers.ModelSerializer):
                 code="immutable",
             )
 
-        if "prompt" in data:
+        if "prompt" in attrs:
             raise serializers.ValidationError(
                 {"prompt": "Prompt content is versioned and cannot be updated in place. Create a new version instead."},
                 code="immutable",
             )
 
-        return data
+        return attrs
 
     def create(self, validated_data: dict[str, Any]) -> LLMPrompt:
         request = self.context["request"]

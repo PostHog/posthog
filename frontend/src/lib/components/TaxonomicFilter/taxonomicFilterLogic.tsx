@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import Fuse from 'fuse.js'
 import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -13,6 +12,7 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -50,10 +50,6 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import {
-    ReplayTaxonomicFilters,
-    replayTaxonomicFiltersProperties,
-} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -62,7 +58,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
@@ -77,6 +73,7 @@ import {
     PersonType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
     QueryBasedInsightModel,
     SessionRecordingPlaylistType,
     TeamType,
@@ -89,6 +86,19 @@ import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
+
+function indexAfterLastMetaGroup(
+    filtered: TaxonomicFilterGroupType[],
+    metaGroupOrder: TaxonomicFilterGroupType[]
+): number {
+    for (let i = metaGroupOrder.length - 1; i >= 0; i--) {
+        const idx = filtered.indexOf(metaGroupOrder[i])
+        if (idx !== -1) {
+            return idx + 1
+        }
+    }
+    return 0
+}
 
 const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.PageviewUrls,
@@ -297,7 +307,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
                 }
-                return groupTypes[0]
+                const metaTypes = selectors.metaGroupTypes(state)
+                return groupTypes.find((t) => !metaTypes.has(t)) ?? groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -1135,28 +1146,40 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
-                        categoryLabel: (count: number) => 'Replay' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.Replay,
-                        render: ReplayTaxonomicFilters,
-                        localItemsSearch: (
-                            items: TaxonomicDefinitionTypes[],
-                            q: string
-                        ): TaxonomicDefinitionTypes[] => {
-                            if (q.trim() === '') {
-                                return items
-                            }
-                            const fuse = new Fuse(replayTaxonomicFiltersProperties, {
-                                keys: ['label', 'key'],
-                                threshold: 0.3,
-                                ignoreLocation: true,
-                            })
-                            return fuse.search(q).map((result) => result.item)
-                        },
+                        options: [
+                            {
+                                key: 'visited_page',
+                                name: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'snapshot_source',
+                                name: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'level',
+                                name: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
+                                propertyFilterType: PropertyFilterType.LogEntry,
+                            },
+                            {
+                                key: 'message',
+                                name: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
+                                propertyFilterType: PropertyFilterType.LogEntry,
+                            },
+                            {
+                                key: 'comment_text',
+                                name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                        ],
+                        getName: (option: Record<string, any>) => option.name,
+                        getValue: (option: Record<string, any>) => option.key,
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
                                     `api/environments/${teamId}/events/values/?key=` +
-                                    'api/event/values/?key=' +
                                     encodeURIComponent('$current_url') +
                                     '&event_name=' +
                                     encodeURIComponent('$pageview')
@@ -1198,6 +1221,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
+                        isMetaGroup: true,
                         options: eventNames.includes('$autocapture')
                             ? (['text', 'selector'] as const).map((name) => ({
                                   name,
@@ -1214,12 +1238,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'recent',
                         type: TaxonomicFilterGroupType.RecentFilters,
                         isLocalOnly: true,
+                        isMetaGroup: true,
                         logic: recentTaxonomicFiltersLogic,
                         value: 'recentFilterItems',
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
                         getPopoverHeader: () => 'Recent',
+                    } as TaxonomicFilterGroup,
+                    {
+                        name: 'Pinned',
+                        searchPlaceholder: 'pinned',
+                        type: TaxonomicFilterGroupType.PinnedFilters,
+                        isLocalOnly: true,
+                        isMetaGroup: true,
+                        logic: taxonomicFilterPinnedPropertiesLogic,
+                        value: 'pinnedFilterItems',
+                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+                            'name' in item ? (item.name ?? null) : null,
+                        getPopoverHeader: () => 'Pinned',
                     } as TaxonomicFilterGroup,
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
@@ -1231,6 +1269,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         activeTaxonomicGroup: [
             (s) => [s.activeTab, s.taxonomicGroups],
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
+        ],
+        metaGroupTypes: [
+            (s) => [s.taxonomicGroups],
+            (taxonomicGroups: TaxonomicFilterGroup[]): Set<string> =>
+                new Set(taxonomicGroups.filter((g) => g.isMetaGroup).map((g) => g.type)),
         ],
         taxonomicGroupTypes: [
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
@@ -1258,18 +1301,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return availableGroupTypes.has(groupType)
                 })
 
-                // Auto-inject RecentFilters right after SuggestedFilters when available
-                const suggestedIndex = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                if (
-                    suggestedIndex !== -1 &&
-                    availableGroupTypes.has(TaxonomicFilterGroupType.RecentFilters) &&
-                    !filtered.includes(TaxonomicFilterGroupType.RecentFilters)
-                ) {
-                    filtered.splice(suggestedIndex + 1, 0, TaxonomicFilterGroupType.RecentFilters)
+                // SuggestedFilters must be explicitly requested; RecentFilters and
+                // PinnedFilters are auto-injected after existing meta groups.
+                const metaGroupOrder = [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+                const autoInjectGroups = [
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+                for (const metaType of autoInjectGroups) {
+                    if (availableGroupTypes.has(metaType) && !filtered.includes(metaType)) {
+                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, metaType)
+                    }
                 }
 
-                // Promote PageviewUrls, Screens, EmailAddresses to top positions
-                // (after SuggestedFilters/RecentFilters if present)
+                // Promote shortcut groups to top positions (after meta groups)
                 const shortcutGroups: TaxonomicFilterGroupType[] = [
                     TaxonomicFilterGroupType.PageviewUrls,
                     TaxonomicFilterGroupType.Screens,
@@ -1287,10 +1336,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 }
 
                 if (toInsert.length > 0) {
-                    const recentsIdx = filtered.indexOf(TaxonomicFilterGroupType.RecentFilters)
-                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                    const insertAt = recentsIdx !== -1 ? recentsIdx + 1 : suggestedIdx !== -1 ? suggestedIdx + 1 : 0
-                    filtered.splice(insertAt, 0, ...toInsert)
+                    filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
                 }
 
                 return filtered
@@ -1353,12 +1399,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [
                 (state, props) => {
                     const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
                     return Object.entries(logics).some(
                         ([type, logic]) =>
-                            type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                            type !== TaxonomicFilterGroupType.RecentFilters &&
-                            logic.isMounted() &&
-                            logic.selectors.isLoading(state, logic.props)
+                            !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
                     )
                 },
             ],
@@ -1368,13 +1412,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [
                 (state, props) => {
                     const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
                     return Object.entries(logics)
                         .filter(
                             ([type, logic]) =>
-                                type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                                type !== TaxonomicFilterGroupType.RecentFilters &&
-                                logic.isMounted() &&
-                                logic.selectors.isLoading(state, logic.props)
+                                !meta.has(type) && logic.isMounted() && logic.selectors.isLoading(state, logic.props)
                         )
                         .map(([type]) => type)
                         .join(',')
@@ -1430,12 +1472,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
         redistributedTopMatchItems: [
-            (s) => [s.topMatchItems, s.taxonomicGroupTypes],
-            (topMatchItems: TopMatchItem[], taxonomicGroupTypes: TaxonomicFilterGroupType[]): TopMatchItem[] => {
-                const nonSuggestedGroups = taxonomicGroupTypes.filter(
-                    (t) => t !== TaxonomicFilterGroupType.SuggestedFilters
-                )
-                return redistributeTopMatches(topMatchItems, nonSuggestedGroups.length, nonSuggestedGroups)
+            (s) => [s.topMatchItems, s.taxonomicGroupTypes, s.metaGroupTypes],
+            (
+                topMatchItems: TopMatchItem[],
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                metaGroupTypes: Set<string>
+            ): TopMatchItem[] => {
+                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
+                return redistributeTopMatches(topMatchItems, nonMetaGroups.length, nonMetaGroups)
             },
         ],
         topMatchItemsWithSkeletons: [
@@ -1445,24 +1489,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.loadingGroupTypes,
                 s.taxonomicGroups,
                 s.searchQuery,
+                s.metaGroupTypes,
             ],
             (
                 redistributed: TopMatchItem[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 loadingGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
-                searchQuery: string
+                searchQuery: string,
+                metaGroupTypes: Set<string>
             ): (TopMatchItem | SkeletonItem)[] => {
                 if (!searchQuery) {
                     return redistributed
                 }
 
-                const nonSuggestedGroups = taxonomicGroupTypes.filter(
-                    (t) => t !== TaxonomicFilterGroupType.SuggestedFilters
-                )
+                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
 
                 const result: (TopMatchItem | SkeletonItem)[] = []
-                for (const groupType of nonSuggestedGroups) {
+                for (const groupType of nonMetaGroups) {
                     const groupItems = redistributed.filter((item) => item.group === groupType)
                     if (groupItems.length > 0) {
                         result.push(...groupItems)
@@ -1605,7 +1649,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            if (groupType !== TaxonomicFilterGroupType.SuggestedFilters) {
+            if (!values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
                     const matches = subLogic.values.topMatchesForQuery

@@ -1176,8 +1176,8 @@ export type RecordingConsoleLogV2 = {
 }
 
 import type {
-    RecordingSegment as _RecordingSegment,
     EncodedRecordingSnapshot as _EncodedRecordingSnapshot,
+    RecordingSegment as _RecordingSegment,
     RecordingSnapshot as _RecordingSnapshot,
     SessionRecordingSnapshotSource as _SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse as _SessionRecordingSnapshotSourceResponse,
@@ -3032,6 +3032,8 @@ export type InsightEditorFilterGroup = {
     show?: boolean
     /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
     collapsedSummary?: string | null
+    /** Extra content rendered in the tile header next to the title */
+    headerExtra?: ReactNode
 }
 
 export interface SystemStatusSubrows {
@@ -5447,7 +5449,10 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
-    dag_id: string
+    /** UUID of the DAG this node belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     saved_query_id?: string
     created_at: string
     updated_at: string
@@ -5464,8 +5469,23 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    dag_id: string
+    /** UUID of the DAG this edge belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
+export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+
+export interface DataModelingDAG {
+    id: string
+    name: string
+    description: string
+    sync_frequency: DataModelingSyncInterval | null
+    node_count: number
     created_at: string
     updated_at: string
 }
