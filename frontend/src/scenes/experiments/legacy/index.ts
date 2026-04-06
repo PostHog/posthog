@@ -5,9 +5,6 @@
 export { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
 // Metrics
-export { LegacyMetricModal } from './metrics/LegacyMetricModal'
-export { LegacyMetricSourceModal } from './metrics/LegacyMetricSourceModal'
-export { LegacySharedMetricModal } from './metrics/LegacySharedMetricModal'
 export { TrendsMetricForm } from './metrics/TrendsMetricForm'
 export { FunnelsMetricForm } from './metrics/FunnelsMetricForm'
 
@@ -37,7 +34,6 @@ export { LegacyMetricsChartLayout } from './metricsView/LegacyMetricsChartLayout
 export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHighlight'
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
-export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
 export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
 export * from './metricsView/legacyViolinUtils'
 
