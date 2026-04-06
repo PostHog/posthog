@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('posthog', '1084_ducklake_add_organization_fk')]
+    dependencies = [("posthog", "1084_ducklake_add_organization_fk")]
 
     operations = [
         migrations.AddField(
