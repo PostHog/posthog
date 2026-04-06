@@ -37,10 +37,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
         openEditConclusionModal: true,
         closeEditConclusionModal: true,
 
-        // Stats engine configuration
-        openStatsEngineModal: true,
-        closeStatsEngineModal: true,
-
         // Shared metrics - Primary
         openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
         closePrimarySharedMetricModal: true,
@@ -81,15 +77,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
             {
                 openEditConclusionModal: () => true,
                 closeEditConclusionModal: () => false,
-            },
-        ],
-
-        // Stats engine modal state
-        isStatsEngineModalOpen: [
-            false,
-            {
-                openStatsEngineModal: () => true,
-                closeStatsEngineModal: () => false,
             },
         ],
 
