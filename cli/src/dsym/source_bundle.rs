@@ -284,16 +284,17 @@ fn longest_common_prefix(paths: &[String]) -> Option<String> {
     let first = dirs[0];
     let mut prefix_len = first.len();
     for dir in &dirs[1..] {
-        prefix_len = first
-            .chars()
+        // Use char_indices so byte_pos is a valid byte offset (not a char count).
+        let byte_pos = first
+            .char_indices()
             .zip(dir.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
-        // Snap back to a '/' boundary.
-        prefix_len = first[..prefix_len]
-            .rfind('/')
-            .map(|p| p + 1)
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map(|((pos, c), _)| pos + c.len_utf8())
             .unwrap_or(0);
+        // Snap back to a '/' boundary, then take the minimum across all dirs.
+        let new_len = first[..byte_pos].rfind('/').map(|p| p + 1).unwrap_or(0);
+        prefix_len = prefix_len.min(new_len);
     }
 
     if prefix_len == 0 {
@@ -364,10 +365,7 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
                 return false;
             }
             // Exclude synthetic compiler/linker placeholder names
-            if EXCLUDED_SYNTHETIC_NAMES
-                .iter()
-                .any(|s| path.starts_with(s))
-            {
+            if EXCLUDED_SYNTHETIC_NAMES.iter().any(|s| path.starts_with(s)) {
                 tracing::debug!("Filtered out (synthetic): {}", path);
                 return false;
             }

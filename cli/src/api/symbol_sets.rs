@@ -90,7 +90,11 @@ pub fn upload_with_retry(
     }
 }
 
-fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize, force: bool) -> Result<(), UploadError> {
+fn upload_inner(
+    input_sets: &[SymbolSetUpload],
+    batch_size: usize,
+    force: bool,
+) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
         .filter(|s| {
@@ -139,7 +143,10 @@ fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize, force: bool) 
     Ok(())
 }
 
-fn start_upload(symbol_sets: &[&SymbolSetUpload], force: bool) -> Result<BulkUploadStartResponse, UploadError> {
+fn start_upload(
+    symbol_sets: &[&SymbolSetUpload],
+    force: bool,
+) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
 
     let request = BulkUploadStartRequest {

@@ -281,8 +281,8 @@ fn thin_if_fat(path: &Path, arch: &str) -> Result<Vec<u8>> {
         return Ok(raw);
     }
 
-    let thinned = std::fs::read(&tmp_path)
-        .map_err(|e| anyhow!("Failed to read lipo output: {e}"))?;
+    let thinned =
+        std::fs::read(&tmp_path).map_err(|e| anyhow!("Failed to read lipo output: {e}"))?;
     tracing::info!(
         "[lipo] thinned {} ({} arch): {} bytes → {} bytes",
         path.file_name().unwrap_or_default().to_string_lossy(),
