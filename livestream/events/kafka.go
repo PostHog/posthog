@@ -133,21 +133,21 @@ type PostHogKafkaConsumer struct {
 }
 
 func NewPostHogKafkaConsumer(
-	kafkaConfig configs.KafkaConfig, geolocator geo.GeoLocator,
+	consumerConfig configs.ConsumerConfig,
+	geolocator geo.GeoLocator,
 	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":          kafkaConfig.Brokers,
-		"group.id":                   kafkaConfig.GroupID,
+		"bootstrap.servers":          consumerConfig.Brokers,
+		"group.id":                   consumerConfig.GroupID,
 		"auto.offset.reset":          "latest",
 		"enable.auto.commit":         false,
-		"security.protocol":          kafkaConfig.SecurityProtocol,
+		"security.protocol":          consumerConfig.SecurityProtocol,
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
 		"queued.max.messages.kbytes": 2_000_000,
 	}
-
-	applyKafkaConfigOverrides(config, kafkaConfig)
+	applyKafkaConfigOverrides(config, consumerConfig)
 
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -156,7 +156,7 @@ func NewPostHogKafkaConsumer(
 
 	return &PostHogKafkaConsumer{
 		consumer:     consumer,
-		topic:        kafkaConfig.Topic,
+		topic:        consumerConfig.Topic,
 		geolocator:   geolocator,
 		incoming:     make(chan []byte, (1+parallel)*100),
 		outgoingChan: outgoingChan,
@@ -295,14 +295,14 @@ func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
 	return float64(len(c.incoming)) / float64(cap(c.incoming))
 }
 
-func applyKafkaConfigOverrides(config *kafka.ConfigMap, kafkaConfig configs.KafkaConfig) {
-	if kafkaConfig.SessionTimeoutMs > 0 {
-		_ = config.SetKey("session.timeout.ms", kafkaConfig.SessionTimeoutMs)
+func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.ConsumerConfig) {
+	if consumerConfig.SessionTimeoutMs > 0 {
+		_ = config.SetKey("session.timeout.ms", consumerConfig.SessionTimeoutMs)
 	}
-	if kafkaConfig.HeartbeatIntervalMs > 0 {
-		_ = config.SetKey("heartbeat.interval.ms", kafkaConfig.HeartbeatIntervalMs)
+	if consumerConfig.HeartbeatIntervalMs > 0 {
+		_ = config.SetKey("heartbeat.interval.ms", consumerConfig.HeartbeatIntervalMs)
 	}
-	if kafkaConfig.MaxPollIntervalMs > 0 {
-		_ = config.SetKey("max.poll.interval.ms", kafkaConfig.MaxPollIntervalMs)
+	if consumerConfig.MaxPollIntervalMs > 0 {
+		_ = config.SetKey("max.poll.interval.ms", consumerConfig.MaxPollIntervalMs)
 	}
 }

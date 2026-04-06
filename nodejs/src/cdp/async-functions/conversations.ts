@@ -60,6 +60,9 @@ registerAsyncFunction('postHogGetTicket', {
                 sla: null,
                 assignee: null,
                 url: null,
+                slack_channel_id: null,
+                slack_thread_ts: null,
+                slack_team_id: null,
                 tags: [],
             },
         }

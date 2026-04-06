@@ -66,6 +66,7 @@ from posthog.hogql.database.schema.document_embeddings import (
     DocumentEmbeddingsTable,
     RawDocumentEmbeddingsTable,
 )
+from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, RangeTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -242,6 +243,8 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
+        "range": TableNode(name="range", table=RangeTable()),
+        "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
     if include_posthog_tables:
@@ -1483,6 +1486,22 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+
+    with timings.measure("traffic_type_virtual_fields"):
+        from posthog.hogql.database.schema.traffic_type import (
+            create_bot_name_field,
+            create_is_bot_field,
+            create_traffic_category_field,
+            create_traffic_type_field,
+        )
+
+        for field_name, factory_fn in [
+            ("$virt_is_bot", create_is_bot_field),
+            ("$virt_traffic_type", create_traffic_type_field),
+            ("$virt_traffic_category", create_traffic_category_field),
+            ("$virt_bot_name", create_bot_name_field),
+        ]:
+            events_table.fields[field_name] = factory_fn(name=field_name)
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

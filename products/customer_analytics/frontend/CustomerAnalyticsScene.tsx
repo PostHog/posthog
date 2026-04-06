@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -21,6 +22,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
@@ -53,6 +55,11 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
     const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
     const { activeJourney } = useValues(customerJourneysLogic)
+
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
@@ -119,7 +126,10 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                     type="primary"
                                     size="small"
                                     onClick={saveChanges}
-                                    disabledReason={stagedNodes.length === 0 ? 'No steps staged' : undefined}
+                                    disabledReason={
+                                        accessControlDisabledReason ??
+                                        (stagedNodes.length === 0 ? 'No steps staged' : undefined)
+                                    }
                                     loading={isSaving}
                                 >
                                     Save
@@ -133,6 +143,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                     size="small"
                                     to={urls.customerJourneyTemplates()}
                                     data-attr="new-journey"
+                                    disabledReason={accessControlDisabledReason}
                                 >
                                     New journey
                                 </LemonButton>

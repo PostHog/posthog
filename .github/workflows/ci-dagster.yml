@@ -59,7 +59,8 @@ jobs:
                         # Dagster depends on Python, so ensure we run on any possible changes to it
                         - 'posthog/**/*'
                         - 'ee/**/*'
-                        - 'products/**/*'
+                        - 'products/*'
+                        - 'products/*/!(frontend)/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json

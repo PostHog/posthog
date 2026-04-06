@@ -90,9 +90,53 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
+        const originalUrl = this.page.url()
+        const originalPathname = new URL(originalUrl).pathname
+        const saveRequestPromise = this.page.waitForResponse(
+            (response) =>
+                /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
+                ['POST', 'PATCH'].includes(response.request().method()),
+            { timeout: 60000 }
+        )
+
         await this.saveButton.click()
-        await this.page.waitForURL(/^(?!.*\/new$).+$/)
-        await expect(this.editButton).toBeVisible()
+
+        const saveResponse = await saveRequestPromise
+
+        if (saveResponse.status() >= 400) {
+            const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+            const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+            throw new Error(`Insight save failed with ${saveResponse.status()}${errorText ? `: ${errorText}` : ''}`)
+        }
+
+        const successToast = this.page
+            .locator('[data-attr="success-toast"]')
+            .filter({ hasText: 'Insight saved' })
+            .first()
+        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+
+        await expect(async () => {
+            const currentPathname = new URL(this.page.url()).pathname
+
+            if (await errorToast.isVisible().catch(() => false)) {
+                const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+                throw new Error(`Insight save showed an error toast${errorText ? `: ${errorText}` : ''}`)
+            }
+
+            if (currentPathname !== originalPathname) {
+                return
+            }
+
+            if (await this.editButton.isVisible().catch(() => false)) {
+                return
+            }
+
+            await expect(successToast.or(this.editButton)).toBeVisible()
+        }).toPass({ timeout: 30000 })
+
+        if (new URL(this.page.url()).pathname === originalPathname) {
+            await expect(this.editButton).toBeVisible()
+        }
     }
 
     async edit(): Promise<void> {

@@ -16,12 +16,16 @@ from posthog.schema import (
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    ChartDisplayType,
     DateRange,
+    EventsNode,
     FunnelsQuery,
     HogQLQuery,
     IntervalType,
+    LifecycleQuery,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
@@ -33,6 +37,8 @@ from posthog.schema import (
     RevenueAnalyticsMRRQueryResultItem,
     RevenueAnalyticsTopCustomersGroupBy,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -41,7 +47,12 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, execute_and_format_query
+from ee.hogai.context.insight.query_executor import (
+    AssistantQueryExecutor,
+    execute_and_format_query,
+    get_example_prompt,
+    is_supported_query,
+)
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
@@ -361,6 +372,134 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         hogql_response: dict[str, Any] = {"results": [{"count": 100}], "columns": ["count"]}
         result = await self.query_runner._compress_results(hogql_query, hogql_response)
         self.assertIn("count\n100", result)
+
+    async def test_compress_results_stickiness_query(self):
+        query = StickinessQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "count": 500,
+                    "data": [200, 150, 100],
+                    "days": [1, 2, 3],
+                    "labels": ["1 day", "2 days", "3 days"],
+                    "label": "$pageview",
+                    "action": {
+                        "order": 0,
+                        "type": "events",
+                        "name": "$pageview",
+                        "id": "$pageview",
+                        "custom_name": None,
+                    },
+                }
+            ]
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Interval|$pageview", result)
+        self.assertIn("1 day|200", result)
+
+    async def test_compress_results_lifecycle_query(self):
+        query = LifecycleQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "data": [46.0, 38.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - new",
+                    "status": "new",
+                    "action": {},
+                },
+                {
+                    "data": [120.0, 105.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - returning",
+                    "status": "returning",
+                    "action": {},
+                },
+                {
+                    "data": [15.0, 22.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - resurrecting",
+                    "status": "resurrecting",
+                    "action": {},
+                },
+                {
+                    "data": [-30.0, -45.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - dormant",
+                    "status": "dormant",
+                    "action": {},
+                },
+            ]
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|new|returning|resurrecting|dormant", result)
+        self.assertIn("2025-01-20|46|120|15|-30", result)
+
+    async def test_compress_results_boxplot_data(self):
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [],
+            "boxplot_data": [
+                {
+                    "day": "2025-01-20",
+                    "label": "Day 1",
+                    "min": 1.2,
+                    "p25": 5.5,
+                    "median": 12.3,
+                    "p75": 25.8,
+                    "max": 100.4,
+                    "mean": 18.7,
+                    "series_label": "$pageview",
+                    "series_index": 0,
+                },
+            ],
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|Min|P25|Median|P75|Max|Mean", result)
+        self.assertIn("2025-01-20|1.2|5.5|12.3|25.8|100.4|18.7", result)
+        self.assertNotIn("No data recorded", result)
+
+    async def test_compress_results_boxplot_data_none_falls_back_to_trends(self):
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}],
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|test", result)
+
+    def test_is_supported_query_includes_new_types(self):
+        self.assertTrue(is_supported_query(StickinessQuery(series=[])))
+        self.assertTrue(is_supported_query(AssistantStickinessQuery(series=[])))
+        self.assertTrue(is_supported_query(LifecycleQuery(series=[EventsNode(event="$pageview")])))
+
+    def test_get_example_prompt_stickiness(self):
+        from ee.hogai.context.insight.prompts import STICKINESS_EXAMPLE_PROMPT
+
+        self.assertEqual(get_example_prompt(StickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
+        self.assertEqual(get_example_prompt(AssistantStickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
+
+    def test_get_example_prompt_lifecycle(self):
+        from ee.hogai.context.insight.prompts import LIFECYCLE_EXAMPLE_PROMPT
+
+        self.assertEqual(
+            get_example_prompt(LifecycleQuery(series=[EventsNode(event="$pageview")])), LIFECYCLE_EXAMPLE_PROMPT
+        )
+
+    def test_get_example_prompt_boxplot(self):
+        from ee.hogai.context.insight.prompts import BOX_PLOT_EXAMPLE_PROMPT
+
+        query = TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT))
+        self.assertEqual(get_example_prompt(query), BOX_PLOT_EXAMPLE_PROMPT)
+
+    def test_get_example_prompt_regular_trends_not_boxplot(self):
+        from ee.hogai.context.insight.prompts import TRENDS_EXAMPLE_PROMPT
+
+        query = TrendsQuery(series=[])
+        self.assertEqual(get_example_prompt(query), TRENDS_EXAMPLE_PROMPT)
 
     async def test_compress_results_revenue_analytics_gross_revenue_query(self):
         revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(

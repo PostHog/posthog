@@ -2,7 +2,6 @@ import json
 import traceback
 import dataclasses
 from datetime import timedelta
-from typing import Optional
 
 import temporalio.workflow as wf
 
@@ -19,7 +18,6 @@ class ExportAssetWorkflowInputs:
     exported_asset_id: int
     team_id: int
     distinct_id: str = ""
-    export_format: Optional[str] = None
     slo: SloConfig | None = None
 
 
@@ -34,9 +32,6 @@ class ExportAssetWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: ExportAssetWorkflowInputs) -> None:
-        if inputs.slo:
-            inputs.slo.completion_properties["export_format"] = inputs.export_format or ""
-
         try:
             await wf.execute_activity(
                 export_asset_activity,

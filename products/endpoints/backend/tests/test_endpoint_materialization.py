@@ -497,7 +497,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue(response_data["can_materialize"])
-        self.assertNotIn("name", response_data)
         self.assertNotIn("query", response_data)
         self.assertNotIn("created_by", response_data)
 
@@ -524,7 +523,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("last_materialized_at", response_data)
         self.assertIn("error", response_data)
         # Verify no other endpoint fields are included
-        self.assertNotIn("name", response_data)
         self.assertNotIn("query", response_data)
         self.assertNotIn("created_by", response_data)
         self.assertNotIn("description", response_data)

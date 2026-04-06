@@ -268,12 +268,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
+        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
+        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
-            isNewInsight: boolean
-        ) => ({ insight, query, isNewInsight }),
+            isNewInsight: boolean,
+            saveType: 'save' | 'save_as'
+        ) => ({ insight, query, isNewInsight, saveType }),
         reportInsightViewed: (
             insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
@@ -319,6 +322,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
+        reportPropertyGroupFilterRemoved: true,
+        reportPropertyGroupFilterDuplicated: true,
+        reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
             type,
             groupsLength,
@@ -338,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             action: string,
             props?: Record<string, any>
         ) => ({ correlationType, action, props }),
-        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
-        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportPersonPropertyUpdated: (
@@ -1080,12 +1086,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
         },
-        reportInsightSaved: async ({ insight, query, isNewInsight }) => {
+        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
+        },
+        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
+            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
+        },
+        reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
                 insight: sanitizeInsight(insight),
                 is_new_insight: isNewInsight,
+                save_type: saveType,
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
@@ -1430,12 +1443,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (props) => {
             posthog.capture('help button used', props)
         },
-        reportCorrelationAnalysisFeedback: (props) => {
-            posthog.capture('correlation analysis feedback', props)
-        },
-        reportCorrelationAnalysisDetailedFeedback: (props) => {
-            posthog.capture('correlation analysis detailed feedback', props)
-        },
         reportCorrelationInteraction: ({ correlationType, action, props }) => {
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
         },
@@ -1689,6 +1696,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
+        },
+        reportPropertyGroupFilterRemoved: () => {
+            posthog.capture('property group filter removed')
+        },
+        reportPropertyGroupFilterDuplicated: () => {
+            posthog.capture('property group filter duplicated')
+        },
+        reportInsightDateRangeChanged: ({ queryKind }) => {
+            posthog.capture('insight date range changed', { query_kind: queryKind })
+        },
+        reportInsightBreakdownChanged: ({ queryKind }) => {
+            posthog.capture('insight breakdown changed', { query_kind: queryKind })
+        },
+        reportInsightCompareChanged: ({ queryKind }) => {
+            posthog.capture('insight compare changed', { query_kind: queryKind })
         },
         reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
             posthog.capture('outer match property groups type changed', { type, groupsLength })

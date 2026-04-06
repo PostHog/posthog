@@ -644,10 +644,7 @@ export class HogExecutorService {
 
                     params.body = params.body ? replace(params.body) : params.body
                     headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [
-                            key,
-                            typeof value === 'string' ? replace(value) : value,
-                        ])
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
                     )
                     params.url = replace(params.url)
                 }

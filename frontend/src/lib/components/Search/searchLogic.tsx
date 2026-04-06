@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconClock, IconDownload } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -579,6 +579,17 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['Exports'] ?? null,
                     record: { type: 'exports' },
                 },
+                {
+                    id: 'misc-alerts',
+                    name: 'Alerts',
+                    displayName: 'Alerts',
+                    category: 'misc',
+                    href: urls.alerts(),
+                    icon: <IconBell />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
+                    record: { type: 'alerts' },
+                },
             ],
         ],
         settingsItems: [
@@ -597,6 +608,12 @@ export const searchLogic = kea<searchLogicType>([
                 const seenSectionIds = new Set<string>()
 
                 for (const section of SETTINGS_MAP) {
+                    // Skip sections hidden from navigation (they are only accessible
+                    // from their product's own configuration page)
+                    if (section.hideFromNavigation) {
+                        continue
+                    }
+
                     // Map environment sections to project level
                     const effectiveLevel = section.level === 'environment' ? 'project' : section.level
                     const effectiveSectionId = (
