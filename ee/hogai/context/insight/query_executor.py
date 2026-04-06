@@ -482,9 +482,6 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
                 formatter_name = "StickinessResultsFormatter"
                 result = StickinessResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, LifecycleQuery):
-                formatter_name = "LifecycleResultsFormatter"
-                result = LifecycleResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
@@ -562,8 +559,6 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return PATHS_EXAMPLE_PROMPT
     if isinstance(query, AssistantStickinessQuery | StickinessQuery):
         return STICKINESS_EXAMPLE_PROMPT
-    if isinstance(query, LifecycleQuery):
-        return LIFECYCLE_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery):
