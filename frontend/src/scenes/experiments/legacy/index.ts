@@ -21,6 +21,9 @@ export { LegacyExperimentInfo } from './LegacyExperimentInfo'
 export { LegacyExploreButton } from './components/LegacyExploreButton'
 export { LegacyResultsQuery } from './components/LegacyResultsQuery'
 export { LegacySummaryTable } from './components/LegacySummaryTable'
+export { LegacyFunnelAttributionSelect } from './components/LegacyFunnelAttributionSelect'
+export { LegacyFunnelConversionWindowFilter } from './components/LegacyFunnelConversionWindowFilter'
+export { LegacyFunnelAggregationSelect } from './components/LegacyFunnelAggregationSelect'
 
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
