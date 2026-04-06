@@ -83,9 +83,9 @@ test.describe('SQL Editor', () => {
             const quickstart = page.locator('[data-attr=global-product-setup-button]')
             if (await quickstart.isVisible({ timeout: 1000 }).catch(() => false)) {
                 await quickstart.click()
-                const minimizeButton = page.getByRole('button', { name: 'Minimize' })
-                await minimizeButton.waitFor({ state: 'visible' })
-                await minimizeButton.click()
+                await expect(async () => {
+                    await page.getByRole('button', { name: 'Minimize' }).click()
+                }).toPass()
             }
 
             await page.locator('[data-attr=sql-editor-materialization-button]').click()
