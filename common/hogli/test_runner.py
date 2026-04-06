@@ -243,6 +243,21 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if _find_nearest(dir_path, "Cargo.toml"):
         return _detect_rust_test(dir_path)
 
+    # Product root: use Turbo pipeline (only for top-level product dirs)
+    if dir_path.startswith("products/"):
+        parts = PurePosixPath(dir_path.rstrip("/")).parts
+        if len(parts) == 2:
+            product_name = parts[1]
+            pkg_json = REPO_ROOT / "products" / product_name / "package.json"
+            if pkg_json.exists():
+                pkg_name = _parse_package_json_name(pkg_json)
+                if pkg_name:
+                    return TestRunConfig(
+                        test_type="turbo",
+                        command=["pnpm", "turbo", "run", "backend:test", f"--filter={pkg_name}"],
+                        description=f"Product tests via Turbo ({pkg_name})",
+                    )
+
     # Playwright: directory is under playwright/
     if dir_path.startswith("playwright/") or dir_path == "playwright":
         return TestRunConfig(
@@ -266,7 +281,7 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
 
     raise click.UsageError(
         f"Could not detect test type for directory: {dir_path}\n\n"
-        "Supported: Python, Jest, Playwright, Rust, Go directories"
+        "Supported: Python, Jest, Playwright, Rust, Go, Product (Turbo) directories"
     )
 
 
@@ -492,19 +507,19 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     name="test",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"
-        "Accepts files, directories, and pytest node IDs. Detects Python\n"
-        "(pytest), Jest, Playwright, Rust (cargo test), and Go (go test)\n"
-        "based on file extension or directory context.\n\n"
+        "Accepts files, directories, and pytest node IDs. Detects Python "
+        "(pytest), Jest, Playwright, Rust (cargo test), Go (go test), and "
+        "product directories (Turbo) based on file extension or directory context.\n\n"
         "Extra arguments are passed through to the underlying test runner.\n\n"
-        "Options:\n\n"
-        "  --changed  Run tests for files changed on the current branch\n\n"
-        "  --watch    Re-run tests on file changes (Python and Jest only)\n\n"
         "Examples:\n\n"
-        "  hogli test posthog/api/test/test_user.py\n\n"
-        "  hogli test posthog/api/test/\n\n"
-        "  hogli test posthog/api/test/test_user.py --watch\n\n"
-        "  hogli test --changed\n\n"
-        "  hogli test livestream/"
+        "\b\n"
+        "  hogli test posthog/api/test/\n"
+        "  hogli test posthog/api/test/test_user.py\n"
+        "  hogli test posthog/api/test/test_user.py::TestUser::test_create\n"
+        "  hogli test posthog/api/test/test_user.py --watch\n"
+        "  hogli test --changed\n"
+        "  hogli test livestream/\n"
+        "  hogli test products/visual_review/"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
