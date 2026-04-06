@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import * as React from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,8 +16,8 @@ const meta: Meta = {
 
 [Related Figma area](https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=3139%3A1388)
 
-Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions. 
-All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square. 
+Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions.
+All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square.
 
 When adding new icons from Figma please make sure to:
 - [ ] Export the item as an SVG using the 24x24 frame surrounding it
@@ -42,7 +42,7 @@ const allIcons: IconDefinition[] = Object.entries(icons)
     .sort((a, b) => a.name.localeCompare(b.name))
 
 type LibraryType = StoryObj<{ letter?: string | null }>
-const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
+const renderLibrary = ({ letter }: { letter?: string | null }): JSX.Element => {
     const [showBorder, setShowBorder] = React.useState(true)
     const filteredIcons =
         letter === undefined
@@ -103,35 +103,55 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
 }
 
 // This is for actual Storybook users
-export const Library: LibraryType = LibraryTemplate.bind({})
-Library.tags = ['autodocs', 'test-skip']
+export const Library: LibraryType = {
+    render: renderLibrary,
+    tags: ['autodocs', 'test-skip'],
+}
 
 // These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
 // of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.
-export const ShelfA: LibraryType = LibraryTemplate.bind({})
-ShelfA.args = { letter: 'a' }
-ShelfA.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfB: LibraryType = LibraryTemplate.bind({})
-ShelfB.args = { letter: 'b' }
-ShelfB.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfC: LibraryType = LibraryTemplate.bind({})
-ShelfC.args = { letter: 'c' }
-ShelfC.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfD: LibraryType = LibraryTemplate.bind({})
-ShelfD.args = { letter: 'd' }
-ShelfD.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfE: LibraryType = LibraryTemplate.bind({})
-ShelfE.args = { letter: 'e' }
-ShelfE.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfF: LibraryType = LibraryTemplate.bind({})
-ShelfF.args = { letter: 'f' }
-ShelfF.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfG: LibraryType = LibraryTemplate.bind({})
-ShelfG.args = { letter: 'g' }
-ShelfG.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfH: LibraryType = LibraryTemplate.bind({})
-ShelfH.args = { letter: 'h' }
-ShelfH.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfI: LibraryType = LibraryTemplate.bind({})
-ShelfI.args = { letter: 'i' }
-ShelfI.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
+export const ShelfA: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'a' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfB: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'b' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfC: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'c' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfD: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'd' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfE: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'e' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfF: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'f' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfG: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'g' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfH: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'h' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}
+export const ShelfI: LibraryType = {
+    render: renderLibrary,
+    args: { letter: 'i' },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } },
+}

@@ -260,7 +260,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector } = useValues(sourceWizardLogic)
+    const { selectedConnector, source } = useValues(sourceWizardLogic)
 
     return selectedConnector ? (
         <div className="space-y-4">
@@ -291,7 +291,7 @@ function SecondStep(): JSX.Element {
 
             <LemonDivider />
 
-            <SourceForm sourceConfig={selectedConnector} />
+            <SourceForm sourceConfig={selectedConnector} initialAccessMethod={source.access_method} />
         </div>
     ) : (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>
@@ -309,12 +309,12 @@ function WebhookSetupStep(): JSX.Element {
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
-        .filter((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync)
+        .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
         .map((s) => ({ name: s.table }))
 
     return (
         <WebhookSetupForm
-            sourceName={selectedConnector?.label ?? 'source'}
+            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
             sourceConfig={selectedConnector}
             webhookTables={webhookTables}
             webhookResult={webhookResult}

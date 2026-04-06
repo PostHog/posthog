@@ -13,10 +13,10 @@ from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -43,6 +43,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -339,6 +340,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "name": None,
             "query": "SELECT 1",
             "response": None,
+            "sendRawQuery": None,
             "tags": None,
             "values": None,
             "variables": None,
@@ -369,6 +371,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         changed_fields = {c.get("field") for c in changes}
         # description is now stored on EndpointVersion, not tracked in Endpoint activity log
         self.assertIn("is_active", changed_fields)
+        self.assertNotIn("description", changed_fields)
 
     def test_delete_endpoint(self):
         endpoint = create_endpoint_with_version(
@@ -1093,8 +1096,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_preview_returns_transform(self):
         self._create_endpoint_with_variables()
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
+            {},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1110,9 +1115,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
-        response = self.client.get(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
-            {"bucket_overrides[timestamp]": "hour"},
+            {"bucket_overrides": {"timestamp": "hour"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1130,8 +1136,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/endpoints/simple-endpoint/materialization_preview/"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/simple-endpoint/materialization_preview/",
+            {},
+            format="json",
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -1182,9 +1190,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_bucket_override_returns_400(self):
         self._create_endpoint_with_variables("invalid-bucket")
 
-        response = self.client.get(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/invalid-bucket/materialization_preview/",
-            {"bucket_overrides[timestamp]": "invalid_fn"},
+            {"bucket_overrides": {"timestamp": "invalid_fn"}},
+            format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

@@ -109,26 +109,32 @@ class TestTrafficTypeFunctions:
 
 
 class TestIsBotFunction:
-    def test_is_bot_returns_or_expression(self):
+    def test_is_bot_returns_compare_operation(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
 
-        assert isinstance(result, ast.Or)
-        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
-        assert len(result.exprs) == len(BOT_DEFINITIONS) + 1
+        assert isinstance(result, ast.CompareOperation)
+        assert result.op == ast.CompareOperationOp.NotEq
 
-    def test_is_bot_uses_match_calls(self):
+    def test_is_bot_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.left, ast.Call)
+        assert result.left.name == "multiMatchAnyIndex"
 
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            assert expr.name == "match"
+    def test_is_bot_compares_against_zero(self):
+        node = ast.Call(name="__preview_isBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.right, ast.Constant)
+        assert result.right.value == 0
 
 
 class TestGetBotTypeFunction:
@@ -268,15 +274,14 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
-
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            # User agent is wrapped in ifNull(user_agent, '')
-            safe_user_agent = expr.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
+        assert isinstance(result, ast.CompareOperation)
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        assert index_call.name == "multiMatchAnyIndex"
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
 
 
 class TestNullHandling:
@@ -307,18 +312,17 @@ class TestNullHandling:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
 
-        # All match calls should use ifNull(user_agent, '')
-        for match_call in result.exprs:
-            assert isinstance(match_call, ast.Call)
-            safe_user_agent = match_call.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
-            empty_string_arg = safe_user_agent.args[1]
-            assert isinstance(empty_string_arg, ast.Constant)
-            assert empty_string_arg.value == ""
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
+        empty_string_arg = safe_user_agent.args[1]
+        assert isinstance(empty_string_arg, ast.Constant)
+        assert empty_string_arg.value == ""
 
 
 class TestBotDefinitionsDataStructure:
@@ -345,3 +349,51 @@ class TestBotDefinitionsDataStructure:
         }
         for pattern, bot_def in BOT_DEFINITIONS.items():
             assert bot_def.category in valid_categories, f"Invalid category for {pattern}: {bot_def.category}"
+
+    @pytest.mark.parametrize(
+        "pattern,expected_name,expected_category,expected_type",
+        [
+            # AI Agents
+            ("GPTBot", "GPTBot", "llm_crawler", "AI Agent"),
+            ("OAI-SearchBot", "OpenAI Search", "llm_crawler", "AI Agent"),
+            ("ChatGPT-User", "ChatGPT", "llm_crawler", "AI Agent"),
+            ("ClaudeBot", "Claude", "llm_crawler", "AI Agent"),
+            ("Claude-Web", "Claude Web", "llm_crawler", "AI Agent"),
+            ("PerplexityBot", "Perplexity", "llm_crawler", "AI Agent"),
+            ("Meta-ExternalFetcher", "Meta Fetcher", "llm_crawler", "AI Agent"),
+            ("Diffbot", "Diffbot", "llm_crawler", "AI Agent"),
+            ("Timpibot", "Timpi", "llm_crawler", "AI Agent"),
+            ("omgili", "Webz.io", "llm_crawler", "AI Agent"),
+            ("Webzio-Extended", "Webz.io Extended", "llm_crawler", "AI Agent"),
+            # Search Crawlers
+            ("Googlebot", "Googlebot", "search_crawler", "Bot"),
+            ("Applebot", "Applebot", "search_crawler", "Bot"),
+            ("Amazonbot", "Amazon", "search_crawler", "Bot"),
+            # SEO Tools
+            ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
+            # Social Crawlers
+            ("FacebookBot", "Facebook Bot", "social_crawler", "Bot"),
+            ("facebookexternalhit", "Facebook", "social_crawler", "Bot"),
+            # Monitoring
+            ("Datadog", "Datadog", "monitoring", "Bot"),
+            # HTTP Clients
+            ("curl/", "curl", "http_client", "Automation"),
+            # Headless Browsers
+            ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
+        ],
+    )
+    def test_specific_bot_definitions(self, pattern, expected_name, expected_category, expected_type):
+        assert pattern in BOT_DEFINITIONS, f"Missing bot definition for {pattern}"
+        bot_def = BOT_DEFINITIONS[pattern]
+        assert bot_def.name == expected_name
+        assert bot_def.category == expected_category
+        assert bot_def.traffic_type == expected_type
+
+    def test_longer_patterns_come_before_shorter_substrings(self):
+        patterns = list(BOT_DEFINITIONS.keys())
+        for i, p1 in enumerate(patterns):
+            for j, p2 in enumerate(patterns):
+                if i != j and p1 in p2 and len(p1) < len(p2):
+                    assert patterns.index(p2) < patterns.index(p1), (
+                        f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
+                    )

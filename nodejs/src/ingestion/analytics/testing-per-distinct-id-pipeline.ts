@@ -49,7 +49,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
 
     return builder.retry(
         (e) =>
-            e.branching<EventBranch, void>(classifyEvent, (branches) => {
+            e.branching<EventBranch, void>(classifyEvent, (branches) =>
                 branches
                     .branch('client_ingestion_warning', (b) => createClientIngestionWarningSubpipeline(b))
                     .branch('heatmap', (b) =>
@@ -69,7 +69,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
                             groupId,
                         })
                     )
-            }),
+            ),
         { tries: 3, sleepMs: 100 }
     )
 }

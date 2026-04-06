@@ -82,7 +82,7 @@ export class VisualReviewClient {
         branch: string
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
-        baselineHashes?: Record<string, string>
+        purpose?: string
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -91,7 +91,7 @@ export class VisualReviewClient {
             branch: input.branch,
             snapshots: input.snapshots,
             pr_number: input.prNumber,
-            baseline_hashes: input.baselineHashes,
+            purpose: input.purpose,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
@@ -128,7 +128,24 @@ export class VisualReviewClient {
     }
 
     /**
-     * Signal that all artifacts are uploaded, trigger diff processing.
+     * Add a batch of snapshots to an existing run (shard-based flow).
+     */
+    async addSnapshots(
+        runId: string,
+        input: {
+            snapshots: SnapshotManifestItemApi[]
+        }
+    ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
+        return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                snapshots: input.snapshots,
+            }),
+        })
+    }
+
+    /**
+     * Complete a run: detect removals, verify uploads, trigger diff processing.
      */
     async completeRun(runId: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {

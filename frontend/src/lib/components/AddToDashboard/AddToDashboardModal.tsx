@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useEffect } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconHome } from '@posthog/icons'
+import { IconHome, IconPinFilled, IconUser } from '@posthog/icons'
 
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -24,6 +24,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
+    currentUserUuid: string | null
     style: CSSProperties
 }
 
@@ -34,12 +35,14 @@ const DashboardRelationRow = ({
     dashboard,
     insightProps,
     canEditInsight,
+    currentUserUuid,
 }: DashboardRelationRowProps): JSX.Element => {
     const { addToDashboard, removeFromDashboard } = useActions(addToDashboardModalLogic(insightProps))
     const { dashboardWithActiveAPICall } = useValues(addToDashboardModalLogic(insightProps))
 
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
+    const isMine = Boolean(currentUserUuid && dashboard.created_by?.uuid === currentUserUuid)
     return (
         <div
             data-attr="dashboard-list-item"
@@ -54,6 +57,20 @@ const DashboardRelationRow = ({
             >
                 {dashboard.name || 'Untitled'}
             </Link>
+            {dashboard.pinned && (
+                <Tooltip title="Pinned dashboard">
+                    <span className="flex shrink-0 items-center">
+                        <IconPinFilled className="text-secondary text-base" />
+                    </span>
+                </Tooltip>
+            )}
+            {isMine && (
+                <Tooltip title="Your dashboard">
+                    <span className="flex shrink-0 items-center">
+                        <IconUser className="text-secondary text-base" />
+                    </span>
+                </Tooltip>
+            )}
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
                     <span className="flex items-center">
@@ -91,6 +108,7 @@ interface DashboardRowProps {
     insightProps: InsightLogicProps
     canEditInsight: boolean
     scrollIndex: number
+    currentUserUuid: string | null
 }
 
 const DashboardRow = ({
@@ -101,6 +119,7 @@ const DashboardRow = ({
     insightProps,
     canEditInsight,
     scrollIndex,
+    currentUserUuid,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -115,6 +134,7 @@ const DashboardRow = ({
             isAlreadyOnDashboard={currentDashboards.some(
                 (currentDashboard) => currentDashboard.id === orderedDashboards[index].id
             )}
+            currentUserUuid={currentUserUuid}
             style={style}
         />
     )
@@ -137,7 +157,7 @@ export function AddToDashboardModal({
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic(insightProps)
 
-    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex, user } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
     const listRef = useListRef(null)
 
@@ -153,6 +173,7 @@ export function AddToDashboardModal({
         insightProps,
         canEditInsight,
         scrollIndex,
+        currentUserUuid: user?.uuid ?? null,
     }
 
     return (

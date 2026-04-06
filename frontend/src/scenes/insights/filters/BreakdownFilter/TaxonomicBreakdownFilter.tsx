@@ -23,6 +23,7 @@ export interface TaxonomicBreakdownFilterProps {
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
     showLabel?: boolean
+    showInlineOptions?: boolean
     disablePropertyInfo?: boolean
     size?: 'small' | 'medium'
 }
@@ -37,6 +38,7 @@ export function TaxonomicBreakdownFilter({
     updateBreakdownFilter,
     updateDisplay,
     showLabel = true,
+    showInlineOptions = false,
     disablePropertyInfo,
     size = 'medium',
 }: TaxonomicBreakdownFilterProps): JSX.Element {
@@ -78,14 +80,14 @@ export function TaxonomicBreakdownFilter({
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
-            {(showLabel || isMultipleBreakdownsEnabled) && (
+            {(showLabel || (!showInlineOptions && isMultipleBreakdownsEnabled)) && (
                 <div className="flex items-center gap-2">
                     {showLabel && (
                         <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
                             Breakdown by
                         </LemonLabel>
                     )}
-                    {isMultipleBreakdownsEnabled && (
+                    {!showInlineOptions && isMultipleBreakdownsEnabled && (
                         <Popover
                             overlay={<GlobalBreakdownOptionsMenu />}
                             visible={breakdownOptionsOpened}
@@ -105,6 +107,11 @@ export function TaxonomicBreakdownFilter({
                 {tags}
                 {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} size={size} />}
             </div>
+            {showInlineOptions && isMultipleBreakdownsEnabled && (
+                <div className="mt-2 border-t pt-2">
+                    <GlobalBreakdownOptionsMenu />
+                </div>
+            )}
         </BindLogic>
     )
 }

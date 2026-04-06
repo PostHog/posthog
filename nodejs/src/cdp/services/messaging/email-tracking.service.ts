@@ -217,6 +217,7 @@ export class EmailTrackingService {
         }
     }
 
+    // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
     // Metrics are not recorded here because SES webhooks already track opens.
     // Recording here would double-count. The pixel is still served so email
     // clients that load it get a valid response.

@@ -139,7 +139,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 
 export const BackfillsWithData: Story = {
     parameters: {
@@ -162,6 +162,58 @@ export const BackfillsWithData: Story = {
 export const BackfillsEmpty: Story = {
     parameters: {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID, 'backfills'),
+    },
+}
+
+export const RunsWithData: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID, 'runs'),
+    },
+    decorators: [
+        mswDecorator({
+            ...commonMocks,
+            get: {
+                ...commonMocks.get,
+                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/backfills/`]: {
+                    results: [],
+                    next: null,
+                },
+                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: {
+                    results: [
+                        {
+                            id: 'run-001',
+                            status: 'Completed',
+                            created_at: '2024-01-15T10:00:00Z',
+                            data_interval_start: '2024-01-15T09:00:00Z',
+                            data_interval_end: '2024-01-15T10:00:00Z',
+                            records_completed: 500,
+                        },
+                        {
+                            id: 'run-002',
+                            status: 'Failed',
+                            created_at: '2024-01-15T09:00:00Z',
+                            data_interval_start: '2024-01-15T08:00:00Z',
+                            data_interval_end: '2024-01-15T09:00:00Z',
+                            records_completed: 0,
+                        },
+                        {
+                            id: 'run-003',
+                            status: 'Running',
+                            created_at: '2024-01-15T11:00:00Z',
+                            data_interval_start: '2024-01-15T10:00:00Z',
+                            data_interval_end: '2024-01-15T11:00:00Z',
+                        },
+                    ],
+                    next: null,
+                },
+            },
+        }),
+    ],
+}
+
+export const RunsEmpty: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID, 'runs'),
     },
 }
 

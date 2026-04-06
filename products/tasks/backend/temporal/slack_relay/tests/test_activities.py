@@ -1,6 +1,7 @@
+from typing import ClassVar
+
 from unittest.mock import patch
 
-from django.apps import apps
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -10,6 +11,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
@@ -18,42 +21,47 @@ from products.tasks.backend.temporal.slack_relay.activities import (
 
 
 class TestRelaySlackMessage(TestCase):
-    def setUp(self):
-        self.Task = apps.get_model("tasks", "Task")
-        self.TaskRun = apps.get_model("tasks", "TaskRun")
-        self.SlackThreadTaskMapping = apps.get_model("slack_app", "SlackThreadTaskMapping")
-        self.org = Organization.objects.create(name="TestOrg")
-        self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        self.user = User.objects.create(email="alice@test.com")
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
 
-        self.task = self.Task.objects.create(
-            team=self.team,
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organization.objects.create(name="TestOrg")
+        cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
+        cls.user = User.objects.create(email="alice@test.com")
+
+        cls.task = Task.objects.create(
+            team=cls.team,
             title="Test task",
             description="desc",
-            origin_product=self.Task.OriginProduct.SLACK,
-            created_by=self.user,
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=cls.user,
             repository="org/repo",
         )
-        self.task_run = self.TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-            status=self.TaskRun.Status.IN_PROGRESS,
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.IN_PROGRESS,
             state={},
         )
-        self.integration = Integration.objects.create(
-            team=self.team,
+        cls.integration = Integration.objects.create(
+            team=cls.team,
             kind="slack-posthog-code",
             integration_id="T123",
             config={},
         )
-        self.SlackThreadTaskMapping.objects.create(
-            team=self.team,
-            integration=self.integration,
+        SlackThreadTaskMapping.objects.create(
+            team=cls.team,
+            integration=cls.integration,
             slack_workspace_id="T123",
             channel="C123",
             thread_ts="1111.1",
-            task=self.task,
-            task_run=self.task_run,
+            task=cls.task,
+            task_run=cls.task_run,
             mentioning_slack_user_id="U123",
         )
 

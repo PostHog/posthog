@@ -74,6 +74,7 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
 import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -132,6 +133,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -200,6 +202,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'google tag manager',
                     'gtm',
                 ],
+            },
+            {
+                id: 'js-snippet-version',
+                title: (
+                    <>
+                        Snippet version{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Experimental
+                        </LemonTag>
+                    </>
+                ),
+                description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
+                flag: ['JS_SNIPPET_VERSIONING'],
+                component: <JsSnippetVersionPin />,
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
             },
             {
                 id: 'snippet-v2',
@@ -1000,6 +1017,34 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: 'ERROR_TRACKING_SETTINGS_SPLIT',
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
+                component: <ErrorTrackingIntegrations />,
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-error-tracking-configuration',
+        title: 'Error tracking',
+        group: 'Products',
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                description:
+                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
+                docsUrl: 'https://posthog.com/docs/error-tracking',
+                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
+                component: <ExceptionAutocaptureToggle />,
+                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: '!ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-alerting',
@@ -1007,6 +1052,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
                 component: <ErrorTrackingAlerting />,
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description: 'Filter out exceptions that match the given filters.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-spike-detection',
@@ -1029,25 +1081,10 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description:
-                    'Drop exceptions by type or message before they create issues. Rules are evaluated both client-side and server-side.',
-                component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
-                id: 'error-tracking-integrations',
-                title: 'Integrations',
-                description: 'Connect error tracking with external services like GitHub or Linear.',
-                component: <ErrorTrackingIntegrations />,
-                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
-            },
-            {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 description: 'Upload source maps to get readable stack traces from minified code.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/source-maps',
+                docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
                 component: <SymbolSets />,
                 keywords: ['source map', 'sourcemap', 'debug', 'minified', 'stack trace'],
             },
@@ -1591,6 +1628,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AllowImpersonation />,
                 flag: 'CONTROL_SUPPORT_LOGIN',
                 keywords: ['impersonation', 'support login', 'debug'],
+            },
+            {
+                id: 'sidebar-auto-suggest',
+                title: 'Automatically suggest new apps',
+                description:
+                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
+                component: <SidebarAutoSuggestSetting />,
+                flag: 'AI_FIRST',
+                keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
             },
             {
                 id: 'hedgehog-mode',

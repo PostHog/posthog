@@ -16,6 +16,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -31,6 +32,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
@@ -74,6 +76,7 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -260,6 +263,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
+    )
+
+    # Auth token cache verification - every 6 hours at minute 40
+    # Verifies per-token auth cache entries against the database,
+    # deleting stale entries that signal-based invalidation may have missed.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="40"),
+        verify_and_fix_auth_token_cache_task.s(),
+        name="verify and fix auth token cache",
+        # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
+        # task survives moderate worker downtime without being dropped.
     )
 
     # Update events table partitions twice a week
@@ -551,6 +566,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*", minute="*/5"),
+        sync_js_snippet_manifest.s(),
+        name="sync posthog-js snippet manifest",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
@@ -573,4 +594,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
+    )
+
+    # Hard-delete expired test saved queries and their downstream objects
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_expired_test_saved_queries.s(),
+        name="cleanup expired test saved queries",
     )

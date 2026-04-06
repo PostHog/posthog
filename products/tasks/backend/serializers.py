@@ -8,7 +8,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
@@ -35,7 +35,9 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "signal_report",
             "json_schema",
+            "internal",
             "latest_run",
             "created_at",
             "updated_at",
@@ -74,6 +76,11 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
 
         return value.lower()
+
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
@@ -289,6 +296,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    internal = serializers.BooleanField(
+        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -371,6 +381,11 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         allow_blank=False,
         help_text="Follow-up user message to include in the resumed run's prompt.",
     )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -451,3 +466,84 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         max_value=5000,
         help_text="Maximum number of entries to return (default 1000, max 5000)",
     )
+
+
+class SandboxEnvironmentSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    effective_domains = serializers.SerializerMethodField(
+        help_text="Computed domain allowlist based on network_access_level and allowed_domains"
+    )
+    environment_variables = serializers.JSONField(
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Encrypted environment variables (write-only, never returned in responses)",
+    )
+    has_environment_variables = serializers.SerializerMethodField(
+        help_text="Whether this environment has any environment variables set"
+    )
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "include_default_domains",
+            "repositories",
+            "environment_variables",
+            "has_environment_variables",
+            "private",
+            "effective_domains",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "effective_domains",
+            "has_environment_variables",
+        ]
+
+    def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
+        return obj.get_effective_domains()
+
+    def get_has_environment_variables(self, obj: SandboxEnvironment) -> bool:
+        return bool(obj.environment_variables)
+
+    def validate_environment_variables(self, value):
+        if value:
+            for key in value:
+                if not SandboxEnvironment.is_valid_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+        return value
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "repositories",
+            "private",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]

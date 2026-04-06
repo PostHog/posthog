@@ -24,6 +24,7 @@ function toActivityError(err: unknown): Error {
 
 async function rasterizeRecordingActivity(
     pool: BrowserPool,
+    playerHtml: string,
     input: RasterizeRecordingInput
 ): Promise<RasterizeRecordingOutput> {
     const { workflowExecution, activityId } = Context.current().info
@@ -47,7 +48,7 @@ async function rasterizeRecordingActivity(
     const onProgress = () => Context.current().heartbeat()
 
     try {
-        const result = await rasterizeRecording(pool, input, outputPath, undefined, log, onProgress)
+        const result = await rasterizeRecording(pool, input, outputPath, playerHtml, undefined, log, onProgress)
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
@@ -56,7 +57,7 @@ async function rasterizeRecordingActivity(
         const periods = computeVideoTimestamps(result.inactivity_periods)
 
         const uploadStart = process.hrtime()
-        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id)
+        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id, onProgress)
         timings.upload_s = elapsed(uploadStart)
         RasterizationMetrics.observeUpload('success', timings.upload_s)
 
@@ -110,8 +111,8 @@ async function rasterizeRecordingActivity(
     }
 }
 
-export function createActivities(pool: BrowserPool) {
+export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
-        'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, input),
+        'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
     }
 }

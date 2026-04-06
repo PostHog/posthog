@@ -6,7 +6,7 @@ import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
 import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/recorder'
+import { playerHtmlCache } from '../capture/capture-page'
 import { config } from '../config'
 import { createLogger } from '../logger'
 import { createActivities } from './activities'
@@ -82,7 +82,7 @@ function startMetricsServer(): http.Server {
     const app = express()
     app.get(['/_health'], (_, res) => res.status(200).send('ok'))
     app.get(['/_ready'], (_, res) => res.status(ready ? 200 : 503).send(ready ? 'ok' : 'not ready'))
-    app.get(['/metrics', '/_metrics'], async (_, res) => {
+    app.get('/_metrics', async (_, res) => {
         try {
             res.set('Content-Type', prometheus.register.contentType)
             res.end(await prometheus.register.metrics())
@@ -116,14 +116,14 @@ async function main(): Promise<void> {
 
     log.info('browser pool launched')
 
-    await playerHtmlCache.load()
+    const playerHtml = await playerHtmlCache.load()
     log.info({ path: config.playerHtmlPath }, 'player html loaded')
 
     const worker = await Worker.create({
         connection,
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
-        activities: createActivities(pool),
+        activities: createActivities(pool, playerHtml),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
         dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
     })

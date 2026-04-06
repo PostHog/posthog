@@ -71,7 +71,7 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(insightName?: string): Promise<void> {
-        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.getByTestId('dashboard-add-graph-header').click()
         const row = insightName
             ? this.page.locator('.LemonModal .LemonTable tbody tr').filter({ hasText: insightName }).first()
             : this.page.locator('.LemonModal .LemonTable tbody tr').first()
@@ -87,9 +87,8 @@ export class DashboardPage {
 
         await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
 
-        const modal = this.page.locator('.LemonModal').filter({
-            has: this.page.getByTestId('text-card-edit-area'),
-        })
+        // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
+        const modal = this.page.getByTestId('text-card-modal')
         await expect(modal).toBeVisible()
 
         const textEditor = modal

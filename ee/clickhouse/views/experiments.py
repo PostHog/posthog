@@ -4,7 +4,7 @@ from typing import Any, Literal
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -30,6 +31,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -90,6 +92,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "exposure_preaggregation_enabled",
+            "only_count_matured_users",
             "status",
             "user_access_level",
         ]
@@ -124,27 +127,38 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "date_to": data["end_date"] if data["end_date"] else "",
             "explicitDate": True,
         }
+
+        # Refresh action names in inline metrics (metrics and metrics_secondary)
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
-            for metric in metrics_list:
+            for i, metric in enumerate(metrics_list):
+                # Refresh action names to show current names instead of stale cached values
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                if refreshed_metric:
+                    metrics_list[i] = refreshed_metric
+                    metric = refreshed_metric
+
                 if metric.get("count_query", {}).get("dateRange"):
                     metric["count_query"]["dateRange"] = new_date_range
                 if metric.get("funnels_query", {}).get("dateRange"):
                     metric["funnels_query"]["dateRange"] = new_date_range
 
+        # Update date ranges in saved metrics
+        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
-                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
-                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
-
-            # Add fingerprint to saved metric returned from API
-            # so that frontend knows what timeseries records to query
             if saved_metric.get("query"):
+                if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+                # Add fingerprint to saved metric returned from API
+                # so that frontend knows what timeseries records to query
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
                     get_experiment_stats_method(instance),
                     instance.exposure_criteria,
+                    only_count_matured_users=instance.only_count_matured_users,
                 )
 
         return data
@@ -196,6 +210,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
         exposure_preaggregation_enabled = validated_data.pop("exposure_preaggregation_enabled", False)
+        only_count_matured_users = validated_data.pop("only_count_matured_users", False)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
         conclusion = validated_data.pop("conclusion", None)
@@ -228,6 +243,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             filters=filters,
             scheduling_config=scheduling_config,
             exposure_preaggregation_enabled=exposure_preaggregation_enabled,
+            only_count_matured_users=only_count_matured_users,
             archived=archived,
             deleted=deleted,
             conclusion=conclusion,
@@ -241,9 +257,57 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
+class EndExperimentSerializer(serializers.Serializer):
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="The conclusion of the experiment.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ShipVariantSerializer(EndExperimentSerializer):
+    variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+
+
+@extend_schema_view(
+    # PATCH /experiments/{id}/
+    # DRF mixin calls implementation at ExperimentSerializer.update
+    partial_update=extend_schema(
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+    ),
+    # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
+    create=extend_schema(
+        description="Create a new experiment in draft status with optional metrics.",
+    ),
+    # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
+    retrieve=extend_schema(
+        description="Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
+    ),
+    # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
+    list=extend_schema(
+        description="List experiments for the current project. Supports filtering by status and archival state.",
+    ),
+    # DELETE /experiments/{id}/
+    # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
+)
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
-    ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+    # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
+    # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The
+    # approval check itself lives in the service layer — this mixin is only
+    # responsible for exception-to-response formatting.
+    ApprovalHandlingMixin,
+    ForbidDestroyModel,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
@@ -323,6 +387,86 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
+        request=EndExperimentSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        End a running experiment without shipping a variant.
+
+        Sets end_date to now and marks the experiment as stopped. The feature
+        flag is NOT modified — users continue to see their assigned variants
+        and exposure events ($feature_flag_called) continue to be recorded.
+        However, only data up to end_date is included in experiment results.
+
+        Use this when:
+
+        - You want to freeze the results window without changing which variant
+          users see.
+        - A variant was already shipped manually via the feature flag UI and
+          the experiment just needs to be marked complete.
+
+        The end_date can be adjusted after ending via PATCH if it needs to be
+        backdated (e.g. to match when the flag was actually paused).
+
+        Other options:
+        - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+        - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+
+        Returns 400 if the experiment is not running.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = EndExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        ended_experiment = service.end_experiment(
+            experiment,
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=ShipVariantSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Ship a variant to 100% of users and (optionally) end the experiment.
+
+        Rewrites the feature flag so that the selected variant is served to everyone.
+        Existing release conditions (flag groups) are preserved so the change can be
+        rolled back by deleting the auto-added release condition in the feature flag UI.
+
+        Can be called on both running and stopped experiments. If the experiment is
+        still running, it will also be ended (end_date set and status marked as stopped).
+        If the experiment has already ended, only the flag is rewritten - this supports
+        the "end first, ship later" workflow.
+
+        If an approval policy requires review before changes on the flag take effect,
+        the API returns 409 with a change_request_id. The experiment is NOT ended until
+        the change request is approved and the user retries.
+
+        Returns 400 if the experiment is in draft state, the variant_key is not found
+        on the flag, or the experiment has no linked feature flag.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = ShipVariantSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        shipped_experiment = service.ship_variant(
+            experiment,
+            variant_key=request_serializer.validated_data["variant_key"],
+            conclusion=request_serializer.validated_data.get("conclusion"),
+            conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            request=request,
+        )
+        return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
         request=None,
         responses=ExperimentSerializer,
     )
@@ -400,11 +544,13 @@ class EnterpriseExperimentsViewSet(
             )
 
         feature_flag_key = request.data.get("feature_flag_key")
+        name = request.data.get("name")
 
         service = ExperimentService(team=self.team, user=request.user)
         duplicate_experiment = service.duplicate_experiment(
             source_experiment,
             feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=self.get_serializer_context(),
         )
 
@@ -444,7 +590,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
+        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -469,7 +615,7 @@ class EnterpriseExperimentsViewSet(
             created_by_id=request.query_params.get("created_by_id"),
             order=request.query_params.get("order"),
             evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
         )
 
         # Serialize using the standard FeatureFlagSerializer
