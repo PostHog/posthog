@@ -36,6 +36,7 @@ export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHig
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
 export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
+export { LegacyVariantTag } from './components/LegacyVariantTag'
 export * from './metricsView/legacyViolinUtils'
 
 // Metrics View - Shared (Legacy)
