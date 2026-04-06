@@ -5,8 +5,9 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
+
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
