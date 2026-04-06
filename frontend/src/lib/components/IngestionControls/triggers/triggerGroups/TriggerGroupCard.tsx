@@ -91,11 +91,11 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
     const matchType = conditions.matchType === 'any' ? 'any' : 'all'
 
     return (
-        <div className="border rounded p-4 bg-surface-primary">
+        <div className="border rounded p-3 bg-surface-primary">
             {/* Header row: Name and actions */}
             <div className="flex items-center justify-between gap-4 mb-2">
                 <div className="flex-1">
-                    <LemonSnack>{displayName}</LemonSnack>
+                    <h3 className="mb-0">{displayName}</h3>
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex gap-2">
@@ -145,7 +145,10 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                                 </>
                             ) : (
                                 <>
-                                    Trigger group will match <b>all sessions</b>
+                                    Trigger group will match{' '}
+                                    <LemonTag type="success" size="medium">
+                                        all sessions
+                                    </LemonTag>
                                 </>
                             )}
                         </span>
@@ -169,7 +172,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                 </div>
                 <div className="text-right flex-col w-100">
                     <div className="text-2xl font-semibold leading-none">{Math.round(sampleRate * 100)}%</div>
-                    <div className="text-xs text-muted">matching sessions recorded</div>
+                    <div className="text-xs text-muted">sample rate</div>
                 </div>
             </div>
         </div>

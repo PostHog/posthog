@@ -425,6 +425,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
+            if (!endpoint && type === 'log_entry') {
+                return
+            }
+
             const start = performance.now()
 
             await breakpoint(300)

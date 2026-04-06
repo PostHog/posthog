@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import os
 import re
+import enum
 import time
 import shutil
 import signal
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+from hogli import hints
 from hogli.core.cli import cli
 
 MAX_SAMPLE_PATHS = 8
@@ -279,6 +282,9 @@ def doctor_disk(
             titles = ", ".join(non_counted)
             click.echo(f"   Note: {titles} cleanup is not included in the total freed space.")
 
+    if not dry_run:
+        hints.record_check_run("doctor:disk")
+
 
 def _run_category(
     category: CleanupCategory,
@@ -524,7 +530,7 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
         )
 
     # Get current size
-    git_size = _get_dir_size(git_dir)
+    git_size, _ = _get_dir_size(git_dir)
 
     # Count packs and get object stats
     pack_count = (
@@ -703,7 +709,7 @@ def _collect_python_cache_dirs(repo_root: Path) -> Iterable[CleanupItem]:
                 continue
             if resolved in seen or not cache_dir.is_dir():
                 continue
-            size = _get_dir_size(cache_dir)
+            size, _ = _get_dir_size(cache_dir)
             if size <= 0:
                 continue
             seen.add(resolved)
@@ -742,7 +748,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
             seen.add(resolved)
 
             if path.is_dir():
-                size = _get_dir_size(path)
+                size, _ = _get_dir_size(path)
                 if size <= 0:
                     continue
                 items.append(CleanupItem(path, size, is_dir=True))
@@ -782,7 +788,7 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
             continue
         if resolved in seen or not target_dir.is_dir():
             continue
-        size = _get_dir_size(target_dir)
+        size, _ = _get_dir_size(target_dir)
         if size <= 0:
             continue
         seen.add(resolved)
@@ -873,11 +879,14 @@ def _delete_items(items: Iterable[CleanupItem]) -> float:
     return freed
 
 
-def _get_dir_size(path: Path) -> float:
-    """Compute directory size without following symlinked directories."""
+def _get_dir_size(path: Path, cap: float = float("inf")) -> tuple[float, bool]:
+    """Compute directory size, stopping early once *cap* bytes is exceeded.
+
+    Returns ``(accumulated_size, exceeded)``.
+    """
 
     if not path.exists():
-        return 0.0
+        return 0.0, False
 
     total = 0.0
     stack = [path]
@@ -892,12 +901,14 @@ def _get_dir_size(path: Path) -> float:
                             stack.append(Path(entry.path))
                         else:
                             total += entry.stat(follow_symlinks=False).st_size
+                            if total > cap:
+                                return total, True
                     except (FileNotFoundError, PermissionError, OSError):
                         continue
         except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
             continue
 
-    return total
+    return total, False
 
 
 def _format_size(bytes_size: float) -> str:
@@ -960,12 +971,17 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     from hogli.core.manifest import REPO_ROOT
 
+    def _record() -> None:
+        if not dry_run:
+            hints.record_check_run("doctor:zombies")
+
     click.echo("Scanning for orphaned PostHog dev processes...\n")
 
     processes = _scan_posthog_processes(REPO_ROOT)
 
     if not processes:
         click.echo("No PostHog dev processes found. Nothing to clean up.")
+        _record()
         return
 
     orphans = [p for p in processes if p.is_orphan]
@@ -975,6 +991,7 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
     if not targets:
         click.echo(f"No orphaned processes found ({len(managed)} process(es) under an active process manager).")
         click.echo("Use --all to include managed processes.")
+        _record()
         return
 
     if include_all:
@@ -1025,6 +1042,8 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
         click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
     if failed > 0:
         click.echo(f"   {failed} process(es) could not be killed")
+
+    _record()
 
 
 def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
@@ -1463,3 +1482,267 @@ def _format_rss(rss_kb: int) -> str:
         return f"{mb:.1f} MB"
     gb = mb / 1024
     return f"{gb:.1f} GB"
+
+
+# ---------------------------------------------------------------------------
+# doctor — unified health check
+# ---------------------------------------------------------------------------
+
+
+class CheckStatus(enum.Enum):
+    OK = "ok"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass
+class CheckResult:
+    name: str
+    status: CheckStatus
+    summary: str
+    remediation: str | None = None
+
+
+_DISK_WARNING_THRESHOLD = 1024 * 1024 * 1024  # 1 GB
+
+
+def _check_disk(repo_root: Path) -> CheckResult:
+    """Fast disk usage probe for the doctor summary.
+
+    Uses depth-limited globs (no ``**``) and early-exit size counting so the
+    check completes in hundreds of milliseconds instead of seconds.  The
+    detailed ``doctor:disk`` command still uses the full estimators.
+    """
+    budget = float(_DISK_WARNING_THRESHOLD)
+    total = 0.0
+
+    # Flox logs — already cheap (single-directory glob)
+    flox_est = _estimate_flox_logs(repo_root)
+    total += flox_est.total_size
+
+    # Python caches — depth-limited instead of repo_root.glob("**/{pattern}")
+    _SKIP_PARTS = {".git", "node_modules", ".venv", "venv"}
+    seen: set[Path] = set()
+    for pattern in PYTHON_CACHE_PATTERNS:
+        for depth in ("*", "*/*", "*/*/*"):
+            for cache_dir in repo_root.glob(f"{depth}/{pattern}"):
+                if _SKIP_PARTS & set(cache_dir.parts):
+                    continue
+                try:
+                    resolved = cache_dir.resolve()
+                except (FileNotFoundError, PermissionError, RuntimeError):
+                    continue
+                if resolved in seen or not cache_dir.is_dir():
+                    continue
+                seen.add(resolved)
+                size, exceeded = _get_dir_size(cache_dir, cap=budget - total)
+                total += size
+                if exceeded:
+                    return CheckResult(
+                        name="Disk usage",
+                        status=CheckStatus.WARNING,
+                        summary=f">{_format_size(budget)} reclaimable",
+                        remediation="run `hogli doctor:disk`",
+                    )
+
+    # Node artifacts — patterns are mostly concrete paths; use capped sizing
+    node_seen: set[Path] = set()
+    for pattern in NODE_ARTIFACT_PATTERNS:
+        for path in repo_root.glob(pattern):
+            try:
+                resolved = path.resolve()
+            except (FileNotFoundError, PermissionError, RuntimeError):
+                continue
+            if resolved in node_seen:
+                continue
+            node_seen.add(resolved)
+            if path.is_dir():
+                size, exceeded = _get_dir_size(path, cap=budget - total)
+                total += size
+            else:
+                try:
+                    total += path.stat().st_size
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+            if total > budget:
+                return CheckResult(
+                    name="Disk usage",
+                    status=CheckStatus.WARNING,
+                    summary=f">{_format_size(budget)} reclaimable",
+                    remediation="run `hogli doctor:disk`",
+                )
+
+    if total > 0:
+        return CheckResult(
+            name="Disk usage",
+            status=CheckStatus.OK,
+            summary=f"{_format_size(total)} reclaimable",
+        )
+    return CheckResult(name="Disk usage", status=CheckStatus.OK, summary="clean")
+
+
+def _check_zombies(repo_root: Path) -> CheckResult:
+    """Quick orphan process scan."""
+    processes = _scan_posthog_processes(repo_root)
+    orphans = [p for p in processes if p.is_orphan]
+    if orphans:
+        return CheckResult(
+            name="Zombie processes",
+            status=CheckStatus.WARNING,
+            summary=f"{len(orphans)} orphaned",
+            remediation="run `hogli doctor:zombies`",
+        )
+    return CheckResult(
+        name="Zombie processes",
+        status=CheckStatus.OK,
+        summary="0 orphaned",
+    )
+
+
+def _check_docker() -> CheckResult:
+    """Check whether the Docker daemon is reachable.
+
+    Uses ``docker version`` instead of ``docker info`` — it only pings the
+    daemon for its version string rather than fetching full system metadata,
+    which is significantly faster (~200 ms vs ~1-3 s).
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return CheckResult(name="Docker", status=CheckStatus.OK, summary="daemon running")
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="daemon not responding",
+            remediation="start Docker Desktop or OrbStack",
+        )
+    except FileNotFoundError:
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="not installed",
+            remediation="install Docker Desktop or OrbStack",
+        )
+    except subprocess.TimeoutExpired:
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="timed out",
+            remediation="start Docker Desktop or OrbStack",
+        )
+
+
+def _check_migrations() -> CheckResult:
+    """Check for unapplied Django migrations."""
+    try:
+        from hogli.migrations import _compute_migration_diff
+
+        diff = _compute_migration_diff()
+        pending = len(diff.pending)
+        orphaned = len(diff.orphaned)
+        parts: list[str] = []
+        if pending:
+            parts.append(f"{pending} unapplied")
+        if orphaned:
+            parts.append(f"{orphaned} orphaned")
+        if parts:
+            return CheckResult(
+                name="Migrations",
+                status=CheckStatus.WARNING,
+                summary=", ".join(parts),
+                remediation="run `hogli migrations:sync`",
+            )
+        return CheckResult(name="Migrations", status=CheckStatus.OK, summary="in sync")
+    except SystemExit:
+        return CheckResult(
+            name="Migrations",
+            status=CheckStatus.ERROR,
+            summary="could not connect to database",
+            remediation="start the dev environment with `hogli start`",
+        )
+    except Exception as e:
+        return CheckResult(
+            name="Migrations",
+            status=CheckStatus.ERROR,
+            summary=str(e)[:60],
+        )
+
+
+_STATUS_COLORS = {
+    CheckStatus.OK: "green",
+    CheckStatus.WARNING: "yellow",
+    CheckStatus.ERROR: "red",
+}
+
+_STATUS_LABELS = {
+    CheckStatus.OK: "OK",
+    CheckStatus.WARNING: "WARNING",
+    CheckStatus.ERROR: "ERROR",
+}
+
+
+def _print_check_result(result: CheckResult) -> None:
+    """Print a single check result as a dotted status line."""
+    label = _STATUS_LABELS[result.status]
+    color = _STATUS_COLORS[result.status]
+    name_padded = f"  {result.name} ".ljust(28, ".")
+    status_text = click.style(f" {label}", fg=color, bold=True)
+    click.echo(f"{name_padded}{status_text} ({result.summary})")
+    if result.remediation:
+        click.echo(f"{'':>30}{result.remediation}")
+
+
+@cli.command(name="doctor", help="Quick health check for your dev environment")
+def doctor() -> None:
+    """Run non-destructive checks and print a status summary."""
+    from hogli.core.manifest import REPO_ROOT
+
+    click.echo("\nhogli doctor\n")
+
+    checks: list[Callable[[], CheckResult]] = [
+        lambda: _check_disk(REPO_ROOT),
+        lambda: _check_zombies(REPO_ROOT),
+        lambda: _check_docker(),
+        lambda: _check_migrations(),
+    ]
+
+    # Run all checks concurrently — each is I/O-bound and independent.
+    results: list[CheckResult | None] = [None] * len(checks)
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
+        for future in as_completed(future_to_idx):
+            try:
+                results[future_to_idx[future]] = future.result()
+            except Exception as e:
+                idx = future_to_idx[future]
+                results[idx] = CheckResult(
+                    name=f"Check {idx + 1}",
+                    status=CheckStatus.ERROR,
+                    summary=f"Check failed with error: {str(e)}",
+                )
+
+    for result in results:
+        assert result is not None
+        _print_check_result(result)
+
+    click.echo()
+
+    warnings = sum(1 for r in results if r is not None and r.status == CheckStatus.WARNING)
+    errors = sum(1 for r in results if r is not None and r.status == CheckStatus.ERROR)
+    if warnings == 0 and errors == 0:
+        click.secho("  All checks passed.", fg="green")
+    else:
+        parts: list[str] = []
+        if errors:
+            parts.append(f"{errors} error(s)")
+        if warnings:
+            parts.append(f"{warnings} warning(s)")
+        click.secho(f"  {', '.join(parts)} found.", fg="yellow")
+
+    click.echo()
+
+    hints.record_check_run("doctor")

@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -11,6 +12,8 @@ from temporalio.common import RetryPolicy
 
 from posthog.hogql import ast
 
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -216,6 +219,17 @@ class SignalReportSummaryWorkflow:
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
                 workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
+            else:  # Only emit the notification if we're not going to immediately re-run
+                await workflow.execute_activity(
+                    publish_report_completed_activity,
+                    PublishReportCompletedInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
@@ -492,5 +506,53 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
             report_id=input.report_id,
+        )
+        raise
+
+
+@dataclass
+class PublishReportCompletedInput:
+    team_id: int
+    report_id: str
+    signals: list[SignalData]
+
+
+@temporalio.activity.defn
+async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
+    """Publish a message to Kafka when a report is generated or re-generated."""
+    try:
+        message = {
+            "team_id": input.team_id,
+            "report_id": input.report_id,
+            "signals": [
+                {
+                    "document_id": signal.signal_id,
+                    "timestamp": signal.timestamp.isoformat(),
+                    "source_product": signal.source_product,
+                    "source_type": signal.source_type,
+                    "source_id": signal.source_id,
+                    "extra": signal.extra,
+                }
+                for signal in input.signals
+            ],
+        }
+        producer = KafkaProducer()
+        producer.produce(
+            topic=KAFKA_SIGNALS_REPORT_COMPLETED,
+            data=message,
+            key=input.report_id,
+        )
+        await asyncio.to_thread(producer.flush)
+        logger.debug(
+            f"Published report_completed for report {input.report_id}",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            signal_count=len(input.signals),
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to publish report_completed for report {input.report_id}: {e}",
+            report_id=input.report_id,
+            team_id=input.team_id,
         )
         raise

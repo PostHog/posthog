@@ -6,6 +6,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -17,8 +18,16 @@ import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
+import type { ActionReferenceApi } from '../generated/api.schemas'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
+
+export const REFERENCE_TYPE_LABELS: Record<string, string> = {
+    insight: 'Insight',
+    experiment: 'Experiment',
+    cohort: 'Cohort',
+    hog_function: 'Destination',
+}
 
 export interface SetActionProps {
     merge?: boolean
@@ -57,12 +66,19 @@ export const actionEditLogic = kea<actionEditLogicType>([
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
         migrateToHogFunction: true,
+        setReferencesSearch: (search: string) => ({ search }),
     }),
     reducers({
         createNew: [
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
+            },
+        ],
+        referencesSearch: [
+            '',
+            {
+                setReferencesSearch: (_, { search }) => search,
             },
         ],
     }),
@@ -172,7 +188,41 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
+        references: [
+            [] as ActionReferenceApi[],
+            {
+                loadReferences: async () => {
+                    if (!props.id) {
+                        return []
+                    }
+                    const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
+                    return response
+                },
+            },
+        ],
     })),
+
+    selectors({
+        analyticsReferences: [
+            (s) => [s.references],
+            (references: ActionReferenceApi[]): ActionReferenceApi[] =>
+                references.filter((ref) => ref.type !== 'hog_function'),
+        ],
+        filteredReferences: [
+            (s) => [s.analyticsReferences, s.referencesSearch],
+            (references: ActionReferenceApi[], search: string): ActionReferenceApi[] => {
+                if (!search) {
+                    return references
+                }
+                const lower = search.toLowerCase()
+                return references.filter(
+                    (ref) =>
+                        ref.name.toLowerCase().includes(lower) ||
+                        (REFERENCE_TYPE_LABELS[ref.type] ?? ref.type).toLowerCase().includes(lower)
+                )
+            },
+        ],
+    }),
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
@@ -180,24 +230,56 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (!actionId) {
                 return
             }
-            try {
-                await deleteWithUndo({
-                    endpoint: api.actions.determineDeleteEndpoint(),
-                    object: values.action,
-                    callback: (undo: boolean) => {
-                        if (undo) {
-                            router.actions.push(urls.action(actionId))
-                            refreshTreeItem('action', String(actionId))
-                        } else {
-                            actions.resetAction()
-                            deleteFromTree('action', String(actionId))
-                            router.actions.push(urls.actions())
-                            actions.loadActions()
-                        }
+
+            if (values.referencesLoading) {
+                lemonToast.info('Checking for references. Please try again in a moment.')
+                return
+            }
+
+            const performDelete = async (): Promise<void> => {
+                try {
+                    await deleteWithUndo({
+                        endpoint: api.actions.determineDeleteEndpoint(),
+                        object: values.action,
+                        callback: (undo: boolean) => {
+                            if (undo) {
+                                router.actions.push(urls.action(actionId))
+                                refreshTreeItem('action', String(actionId))
+                            } else {
+                                actions.resetAction()
+                                deleteFromTree('action', String(actionId))
+                                router.actions.push(urls.actions())
+                                actions.loadActions()
+                            }
+                        },
+                    })
+                } catch (e: any) {
+                    lemonToast.error(`Error deleting action: ${e.detail}`)
+                }
+            }
+
+            if (values.references.length > 0) {
+                const count = values.references.length
+
+                LemonDialog.open({
+                    title: 'This action is used by other resources',
+                    description: (
+                        <>
+                            This action is referenced by <strong>{count}</strong> resource
+                            {count === 1 ? '' : 's'}. Deleting it may break them.
+                        </>
+                    ),
+                    primaryButton: {
+                        children: 'Delete anyway',
+                        status: 'danger',
+                        onClick: performDelete,
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
                     },
                 })
-            } catch (e: any) {
-                lemonToast.error(`Error deleting action: ${e.detail}`)
+            } else {
+                await performDelete()
             }
         },
     })),
@@ -205,9 +287,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
     afterMount(({ actions, props }) => {
         if (!props.id) {
             actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
-        } else if (props.action) {
-            // Sync the prop action with the internal state when mounting with an existing action
-            actions.setAction(props.action, { merge: false })
+        } else {
+            if (props.action) {
+                // Sync the prop action with the internal state when mounting with an existing action
+                actions.setAction(props.action, { merge: false })
+            }
+            actions.loadReferences()
         }
     }),
 
