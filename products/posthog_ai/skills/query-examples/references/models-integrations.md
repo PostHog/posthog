@@ -7,15 +7,16 @@ Each integration represents a connection to an external service like Slack, GitH
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | integer | NOT NULL | Primary key (auto-generated)
-`team_id` | integer | NOT NULL | Team this integration belongs to
-`kind` | varchar(32) | NOT NULL | Integration type identifier (see below)
-`integration_id` | text | NULL | Identifier in the external system (e.g. Slack workspace ID, GitHub installation ID)
-`config` | jsonb | NOT NULL | Non-sensitive, kind-specific configuration
-`errors` | text | NOT NULL | Error message if the integration has issues, empty string otherwise
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`created_by_id` | integer | NULL | Creator user ID
+| Column           | Type              | Nullable | Description                                                                         |
+| ---------------- | ----------------- | -------- | ----------------------------------------------------------------------------------- |
+| `id`             | integer           | NOT NULL | Primary key (auto-generated)                                                        |
+| `team_id`        | integer           | NOT NULL | Team this integration belongs to                                                    |
+| `kind`           | varchar(32)       | NOT NULL | Integration type identifier (see below)                                             |
+| `integration_id` | text              | NULL     | Identifier in the external system (e.g. Slack workspace ID, GitHub installation ID) |
+| `config`         | jsonb             | NOT NULL | Non-sensitive, kind-specific configuration                                          |
+| `errors`         | text              | NOT NULL | Error message if the integration has issues, empty string otherwise                 |
+| `created_at`     | timestamp with tz | NOT NULL | Creation timestamp                                                                  |
+| `created_by_id`  | integer           | NULL     | Creator user ID                                                                     |
 
 ### Integration Kinds
 
