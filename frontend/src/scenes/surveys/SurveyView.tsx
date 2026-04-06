@@ -101,6 +101,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -230,9 +231,15 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
+                                            survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                                ? undefined
+                                                : () => editingSurvey(true)
                                         }
-                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
+                                        to={
+                                            survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >

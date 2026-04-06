@@ -60,6 +60,7 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
@@ -303,8 +304,16 @@ export function SurveyViewRedesign(): JSX.Element {
                         >
                             <LemonButton
                                 data-attr="edit-survey"
-                                onClick={survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)}
-                                to={survey.type === SurveyType.Popover ? urls.surveyWizard(survey.id) : undefined}
+                                onClick={
+                                    survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                        ? undefined
+                                        : () => editingSurvey(true)
+                                }
+                                to={
+                                    survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                        ? urls.surveyWizard(survey.id)
+                                        : undefined
+                                }
                                 type="secondary"
                                 size="small"
                             >
