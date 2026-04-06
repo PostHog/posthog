@@ -825,20 +825,17 @@ func TestSetup_escExitsFromStep1(t *testing.T) {
 	}
 }
 
-func TestSetup_escFromStep2GoesBackToStep1(t *testing.T) {
+func TestSetup_escExitsFromStep2(t *testing.T) {
 	m := setupModel(t)
 	m.setupStep = 2
 	m.setupEntries = []config.Intent{{Name: "proc1"}, {Name: "proc2"}}
 	m.setupChecked = map[string]bool{"proc1": true, "proc2": true}
-	// Esc should go back to step 1 (re-enter setup), not exit entirely
 	m = update(m, specialKey(tea.KeyEscape))
-	if !m.setupMode {
-		t.Error("esc from step 2 should stay in setup mode")
+	if m.setupMode {
+		t.Error("esc from step 1 should exit setup mode")
 	}
-	// enterSetupMode will fail to load intent-map (not in test env), so
-	// it should show an error but remain in setup mode
-	if !m.setupMode {
-		t.Error("should remain in setup mode even with error")
+	if m.focusedPane != focusServices {
+		t.Error("exiting setup should focus sidebar")
 	}
 }
 

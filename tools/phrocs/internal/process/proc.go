@@ -864,11 +864,10 @@ func (p *Process) WriteInput(data []byte) error {
 func (p *Process) Resize(cols, rows uint16) {
 	p.mu.Lock()
 	ptmx := p.ptmx
-	em := p.emulator
-	p.mu.Unlock()
-	if em != nil {
-		em.Resize(int(cols), int(rows))
+	if p.emulator != nil {
+		p.emulator.Resize(int(cols), int(rows))
 	}
+	p.mu.Unlock()
 	if ptmx != nil {
 		_ = pty.Setsize(ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 	}

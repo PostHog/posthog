@@ -250,7 +250,7 @@ func (m Model) renderFooter() string {
 			if m.setupStep == 2 {
 				escAction = "back"
 			}
-			hint = "-- SETUP --  error: " + m.setupError + "  esc: " + escAction
+			hint = "-- SETUP --  " + m.setupError + "  esc: " + escAction
 		} else if m.setupStep == 1 {
 			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
 		} else {

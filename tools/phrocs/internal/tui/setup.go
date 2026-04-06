@@ -59,16 +59,11 @@ func (m Model) enterSetupMode() Model {
 func (m Model) handleSetupKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case msg.Code == tea.KeyEscape, key.Matches(msg, m.keys.Quit):
-		if m.setupStep == 2 {
-			m = m.enterSetupMode()
-			m.dbg("setup mode: back to step 1")
-		} else {
-			m.setupMode = false
-			m.setupError = ""
-			m.focusedPane = focusServices
-			m = m.applySize()
-			m.dbg("setup mode: cancel")
-		}
+		m.setupMode = false
+		m.setupError = ""
+		m.focusedPane = focusServices
+		m = m.applySize()
+		m.dbg("setup mode: cancel")
 
 	case msg.Code == tea.KeyEnter:
 		if m.setupStep == 1 {
@@ -130,7 +125,7 @@ func (m *Model) startListUnits() tea.Cmd {
 		}
 	}
 	if len(selected) == 0 {
-		m.setupError = "select at least one product"
+		m.setupError = "error: select at least one product"
 		return nil
 	}
 
@@ -154,7 +149,7 @@ func (m *Model) startListUnits() tea.Cmd {
 // handleListUnitsMsg processes the result of an async dev:list-units call.
 func (m *Model) handleListUnitsMsg(msg listUnitsMsg) {
 	if msg.err != nil {
-		m.setupError = msg.err.Error()
+		m.setupError = "error: " + msg.err.Error()
 		return
 	}
 
@@ -200,7 +195,7 @@ func (m *Model) startDevApply() tea.Cmd {
 // handleDevApplyMsg processes the result of an async dev:apply call.
 func (m *Model) handleDevApplyMsg(msg devApplyMsg) {
 	if msg.err != nil {
-		m.setupError = msg.err.Error()
+		m.setupError = "error: " + msg.err.Error()
 		return
 	}
 

@@ -615,10 +615,10 @@ func TestBuildCmd_globalShell(t *testing.T) {
 func TestVT_cursorMovementOverwrites(t *testing.T) {
 	p := NewProcess("vt", config.ProcConfig{}, 100, "")
 	// Write two lines, then cursor-up + overwrite the first
-	p.emulator.Write([]byte("old line\r\n"))
-	p.emulator.Write([]byte("second\r\n"))
+	_, _ = p.emulator.Write([]byte("old line\r\n"))
+	_, _ = p.emulator.Write([]byte("second\r\n"))
 	// Move cursor up 2, write replacement
-	p.emulator.Write([]byte("\x1b[2Anew line\r\n"))
+	_, _ = p.emulator.Write([]byte("\x1b[2Anew line\r\n"))
 
 	lines := p.Lines()
 	if len(lines) < 2 {
@@ -634,10 +634,10 @@ func TestVT_cursorMovementOverwrites(t *testing.T) {
 
 func TestVT_eraseLineSequence(t *testing.T) {
 	p := NewProcess("vt", config.ProcConfig{}, 100, "")
-	p.emulator.Write([]byte("to be erased\r\n"))
-	p.emulator.Write([]byte("keep this\r\n"))
+	_, _ = p.emulator.Write([]byte("to be erased\r\n"))
+	_, _ = p.emulator.Write([]byte("keep this\r\n"))
 	// Cursor up 2 + erase entire line (CSI 2K)
-	p.emulator.Write([]byte("\x1b[2A\x1b[2K\r\n"))
+	_, _ = p.emulator.Write([]byte("\x1b[2A\x1b[2K\r\n"))
 
 	lines := p.Lines()
 	if len(lines) < 1 {
@@ -659,7 +659,7 @@ func TestVT_scrollbackAndScreen(t *testing.T) {
 
 	// Write 8 lines — 3 go to scrollback, 5 remain on screen
 	for i := range 8 {
-		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
 	}
 
 	lines := p.Lines()
@@ -682,7 +682,7 @@ func TestVT_scrollbackEviction(t *testing.T) {
 	p.emulator.Resize(40, 2)
 
 	for i := range 8 {
-		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
 	}
 
 	lines := p.Lines()
@@ -708,7 +708,7 @@ func TestVT_centeringPreservesLeadingSpaces(t *testing.T) {
 	p := NewProcess("vt", config.ProcConfig{}, 100, "")
 	p.emulator.Resize(80, 24)
 	// Simulate centered text: 20 spaces + content
-	p.emulator.Write([]byte("                    centered text\r\n"))
+	_, _ = p.emulator.Write([]byte("                    centered text\r\n"))
 
 	lines := p.Lines()
 	if len(lines) == 0 {
@@ -723,7 +723,7 @@ func TestVT_cursorForwardPreservesIndent(t *testing.T) {
 	p := NewProcess("vt", config.ProcConfig{}, 100, "")
 	p.emulator.Resize(80, 24)
 	// CSI 20C = cursor forward 20 columns, then write text
-	p.emulator.Write([]byte("\x1b[20Cindented via escape\r\n"))
+	_, _ = p.emulator.Write([]byte("\x1b[20Cindented via escape\r\n"))
 
 	lines := p.Lines()
 	if len(lines) == 0 {
@@ -769,7 +769,7 @@ func TestVT_clearLinesResetsScrollback(t *testing.T) {
 	p.emulator.Resize(40, 3)
 	// Write enough to fill scrollback
 	for i := range 10 {
-		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
 	}
 	before := p.Lines()
 	if len(before) == 0 {

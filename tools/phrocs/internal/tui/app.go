@@ -548,7 +548,6 @@ func (m *Model) reloadActiveLines() {
 	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
 }
 
-
 // statusSortOrder returns a numeric rank for sorting by status.
 // Running/pending processes sort first, done last.
 func statusSortOrder(s process.Status) int {
