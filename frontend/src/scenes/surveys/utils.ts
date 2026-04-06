@@ -425,8 +425,9 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
     if (survey.type !== SurveyType.Popover) {
         return false
     }
-    // Completion conditions — not exposed in WhenStep
-    if (survey.responses_limit || survey.response_sampling_limit || survey.response_sampling_start_date) {
+    // Adaptive sampling — WhenStep exposes a simple responses_limit but not
+    // the adaptive sampling controls
+    if (survey.response_sampling_limit || survey.response_sampling_start_date) {
         return false
     }
     // Property-based targeting filters — WhereStep handles linked_flag
