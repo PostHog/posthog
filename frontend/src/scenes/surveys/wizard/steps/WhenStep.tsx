@@ -250,29 +250,27 @@ export function WhenStep(): JSX.Element {
                 </p>
             </WizardDividerSection>
 
-            <WizardDividerSection
-                title="Stop after a response limit?"
-                description="Automatically stop showing the survey once you've collected enough responses."
-                contentClassName="space-y-2"
-            >
-                <LemonCheckbox
-                    checked={survey.responses_limit != null}
-                    onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
-                    label="Set a response limit"
-                />
-                {survey.responses_limit != null && (
-                    <div className="ml-6 flex items-center gap-2">
-                        <span className="text-secondary text-sm">Stop after</span>
-                        <LemonInput
-                            type="number"
-                            min={1}
-                            value={survey.responses_limit}
-                            onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : null)}
-                            className="w-24"
-                        />
-                        <span className="text-secondary text-sm">completed responses</span>
-                    </div>
-                )}
+            <WizardDividerSection contentClassName="space-y-2">
+                <label className="text-sm font-medium">Response limit</label>
+                <div className="flex items-center gap-2">
+                    <LemonCheckbox
+                        checked={survey.responses_limit != null}
+                        onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
+                        label="Stop the survey after"
+                    />
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        value={survey.responses_limit ?? undefined}
+                        disabled={survey.responses_limit == null}
+                        onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : 100)}
+                        className="w-20"
+                    />
+                    <span className="text-secondary text-sm">completed responses</span>
+                </div>
+                <p className="text-muted text-xs">
+                    Automatically stop showing the survey once you've collected enough responses
+                </p>
             </WizardDividerSection>
         </WizardStepLayout>
     )
