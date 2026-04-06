@@ -1,20 +1,15 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { Experiment, ExperimentStatus, InsightType } from '~/types'
+import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatus } from '../experimentsLogic'
-import { modalsLogic } from '../modalsLogic'
 import { formatUnitByQuantity } from '../utils'
-import { EllipsisAnimation } from './components'
-import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 function GoalTooltip({
     experiment,
@@ -49,7 +44,6 @@ function GoalTooltip({
 
 export function DataCollection(): JSX.Element {
     const {
-        experimentId,
         experiment,
         getInsightType,
         funnelResultsPersonsTotal,
@@ -57,8 +51,6 @@ export function DataCollection(): JSX.Element {
         minimumDetectableEffect,
         firstPrimaryMetric,
     } = useValues(experimentLogic)
-
-    const { openExperimentCollectionGoalModal } = useActions(modalsLogic)
 
     const insightType = getInsightType(firstPrimaryMetric)
 
@@ -71,7 +63,6 @@ export function DataCollection(): JSX.Element {
             : (actualRunningTime / recommendedRunningTime) * 100
 
     const hasHighRunningTime = recommendedRunningTime > 62
-    const hasEnded = getExperimentStatus(experiment) === ExperimentStatus.Stopped
 
     return (
         <div>
@@ -136,7 +127,7 @@ export function DataCollection(): JSX.Element {
                     <div className={`text-lg font-semibold ${experiment.end_date ? 'mt-4' : ''}`}>
                         {minimumDetectableEffect}%
                     </div>
-                    <div className="text-xs deprecated-space-x-1 text-sm flex">
+                    <div className="deprecated-space-x-1 text-sm flex">
                         <span>Minimum detectable effect</span>
                         <Tooltip
                             title={
@@ -162,83 +153,8 @@ export function DataCollection(): JSX.Element {
                             <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
-                    {!hasEnded && (
-                        <div className="w-24">
-                            <LemonButton
-                                className="mt-2"
-                                size="xsmall"
-                                type="secondary"
-                                onClick={openExperimentCollectionGoalModal}
-                            >
-                                <span className="px-0">Edit</span>
-                            </LemonButton>
-                        </div>
-                    )}
-                    <DataCollectionGoalModal experimentId={experimentId} />
                 </div>
             </div>
         </div>
-    )
-}
-
-export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { getInsightType, firstPrimaryMetric, trendMetricInsightLoading, funnelMetricInsightLoading } = useValues(
-        experimentLogic({ experimentId })
-    )
-    const { updateExperimentCollectionGoal, restoreUnmodifiedExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
-    const { closeExperimentCollectionGoalModal } = useActions(modalsLogic)
-    const { isExperimentCollectionGoalModalOpen } = useValues(modalsLogic)
-
-    const isInsightLoading =
-        getInsightType(firstPrimaryMetric) === InsightType.TRENDS
-            ? trendMetricInsightLoading
-            : funnelMetricInsightLoading
-
-    return (
-        <LemonModal
-            isOpen={isExperimentCollectionGoalModalOpen}
-            onClose={closeExperimentCollectionGoalModal}
-            width={550}
-            title="Recalculate estimated sample size"
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        form="edit-experiment-exposure-form"
-                        type="secondary"
-                        onClick={() => {
-                            restoreUnmodifiedExperiment()
-                            closeExperimentCollectionGoalModal()
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        form="edit-experiment-exposure-form"
-                        onClick={() => {
-                            updateExperimentCollectionGoal()
-                            closeExperimentCollectionGoalModal()
-                        }}
-                        type="primary"
-                        data-attr="create-annotation-submit"
-                    >
-                        Save
-                    </LemonButton>
-                </div>
-            }
-        >
-            {isInsightLoading ? (
-                <div className="flex flex-col flex-1 justify-center items-center mb-6">
-                    <LoadingBar />
-                    <div className="text-xs text-secondary w-60">
-                        <span className="mr-1">Fetching past events for the estimation</span>
-                        <EllipsisAnimation />
-                    </div>
-                </div>
-            ) : (
-                <DataCollectionCalculator experimentId={experimentId} />
-            )}
-        </LemonModal>
     )
 }
