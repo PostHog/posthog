@@ -13,13 +13,14 @@ export { LegacySharedTrendsMetricForm } from './sharedMetrics/LegacySharedTrends
 export { LegacySharedFunnelsMetricForm } from './sharedMetrics/LegacySharedFunnelsMetricForm'
 
 // Components
-export { LegacyExperimentHeader } from './components/LegacyExperimentHeader'
-export { LegacySummaryTable } from './components/LegacySummaryTable'
+export { LegacyDataCollection } from './components/LegacyDataCollection'
 export { LegacyExperimentDate } from './LegacyExperimentDate'
 export { LegacyExperimentDates } from './LegacyExperimentDates'
+export { LegacyExperimentHeader } from './components/LegacyExperimentHeader'
 export { LegacyExperimentInfo } from './LegacyExperimentInfo'
-export { LegacyResultsQuery } from './components/LegacyResultsQuery'
 export { LegacyExploreButton } from './components/LegacyExploreButton'
+export { LegacyResultsQuery } from './components/LegacyResultsQuery'
+export { LegacySummaryTable } from './components/LegacySummaryTable'
 
 // Calculations
 export * from './calculations/legacyExperimentCalculations'

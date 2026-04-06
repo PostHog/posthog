@@ -6,12 +6,16 @@ import { LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic } from '../../experimentLogic'
-import { formatUnitByQuantity } from '../../utils'
-
-function GoalTooltip({
+/**
+ * @deprecated
+ * Legacy goal tooltip for ExperimentView.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+function LegacyGoalTooltip({
     experiment,
     hasHighRunningTime,
 }: {
@@ -42,7 +46,12 @@ function GoalTooltip({
     )
 }
 
-export function DataCollection(): JSX.Element {
+/**
+ * @deprecated
+ * Legacy data collection component for ExperimentView.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyDataCollection(): JSX.Element {
     const {
         experiment,
         getInsightType,
@@ -101,7 +110,10 @@ export function DataCollection(): JSX.Element {
                                     </span>
                                 )}
                                 <span className="ml-1 text-xs">
-                                    <GoalTooltip experiment={experiment} hasHighRunningTime={hasHighRunningTime} />
+                                    <LegacyGoalTooltip
+                                        experiment={experiment}
+                                        hasHighRunningTime={hasHighRunningTime}
+                                    />
                                 </span>
                             </span>
                         </div>
@@ -117,7 +129,7 @@ export function DataCollection(): JSX.Element {
                                     </b>{' '}
                                     {formatUnitByQuantity(recommendedSampleSize, 'participant')}
                                 </span>
-                                <GoalTooltip experiment={experiment} hasHighRunningTime={hasHighRunningTime} />
+                                <LegacyGoalTooltip experiment={experiment} hasHighRunningTime={hasHighRunningTime} />
                             </div>
                         </div>
                     )}
