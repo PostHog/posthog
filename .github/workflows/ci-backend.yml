@@ -311,7 +311,9 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  bin/ci-wait-for-docker launch --background --down
+                  bin/ci-wait-for-docker launch --background --down \
+                    db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
+                    temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
@@ -367,7 +369,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |

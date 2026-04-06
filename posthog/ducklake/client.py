@@ -46,6 +46,18 @@ def _make_duckgres_conninfo(team_id: int) -> str:
     )
 
 
+# TODO: remove hardcoded schemas and derive the search path from the team's
+# data warehouse sources / DAG configuration instead
+_SEARCH_PATH_SCHEMAS = ["revenue", "stripe", "billing_public", "credit", "posthog"]
+
+
+def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | None = None) -> None:
+    schemas = (extra_schemas or []) + _SEARCH_PATH_SCHEMAS
+    literal = psql.Literal(",".join(schemas))
+    sql = psql.SQL("SET search_path TO {}").format(literal)
+    conn.execute(sql)
+
+
 def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
     """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
 
@@ -86,7 +98,7 @@ def execute_ducklake_query(
 
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
+        _set_search_path(conn)
         with conn.cursor() as cur:
             cur.execute(sql)
             columns = [desc.name for desc in cur.description] if cur.description else []
@@ -112,16 +124,9 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
     qualified = psql.Identifier(safe_schema, safe_table)
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
-        # TODO: remove hardcoded schemas and derive the search path from the team's
-        # data warehouse sources / DAG configuration instead
-        # duckgres SET seems to only accepts a single comma-separated string value
-        conn.execute(
-            psql.SQL("SET search_path TO '{},revenue,stripe,billing_public,credit,posthog'").format(
-                psql.SQL(safe_schema)
-            )
-        )
+        # duckgres SET seems to only accept a single comma-separated string value with single quotes
+        _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
             # capture previous table size before replacing
             cur.execute(
@@ -132,7 +137,7 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
             prev_file_size_bytes = int(prev_row[0]) if prev_row and prev_row[0] else 0
             cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS {}").format(qualified, sql))
     with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
+        _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
             cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
             row = cur.fetchone()
