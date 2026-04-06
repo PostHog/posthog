@@ -26,7 +26,7 @@ def _is_test_file(path: str) -> bool:
     """Check if a file path looks like a test file for any supported language."""
     name = PurePosixPath(path).name
     if path.endswith(".py"):
-        return name.startswith("test_") or name.startswith("eval_")
+        return name.startswith("test_") or (name.startswith("eval_") and path.startswith("ee/hogai/eval/"))
     if path.endswith((".test.ts", ".test.tsx")):
         return True
     if path.endswith(".spec.ts") and path.startswith("playwright/"):
@@ -96,13 +96,13 @@ def _find_nearest(file_path: str, target_filename: str) -> Path | None:
     repo_root = REPO_ROOT.resolve()
     path = Path(file_path)
     if path.is_absolute():
-        try:
-            abs_path = path.resolve()
-            abs_path.relative_to(repo_root)
-        except ValueError:
-            return None
+        abs_path = path.resolve()
     else:
-        abs_path = repo_root / path
+        abs_path = (repo_root / path).resolve()
+    try:
+        abs_path.relative_to(repo_root)
+    except ValueError:
+        return None
 
     current = abs_path if abs_path.is_dir() else abs_path.parent
     while True:

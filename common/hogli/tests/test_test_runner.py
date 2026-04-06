@@ -242,7 +242,9 @@ class TestIsTestFile:
     @parameterized.expand(
         [
             ("posthog/api/test/test_user.py", True),
-            ("ee/hogai/eval_router.py", True),
+            ("ee/hogai/eval/eval_router.py", True),
+            ("ee/hogai/eval_router.py", False),
+            ("posthog/eval_something.py", False),
             ("ee/hogai/router.py", False),
             ("posthog/models/team.py", False),
             ("frontend/src/scenes/dashboard/Dashboard.test.tsx", True),

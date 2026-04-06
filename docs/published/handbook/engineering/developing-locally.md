@@ -288,7 +288,7 @@ hogli test --changed
 
 ### End-to-end
 
-For Playwright end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
+For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
 
 ## Django migrations
 
