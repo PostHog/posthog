@@ -26,6 +26,22 @@ COVERED_STATUSES = [
 ]
 
 
+def next_interval_boundary(current: datetime, export: BatchExport) -> datetime:
+    """Advance to the next interval boundary, respecting DST in local time.
+
+    For hourly/sub-hourly intervals, a fixed timedelta is correct since DST
+    doesn't affect the interval length. For daily/weekly, we add the nominal
+    timedelta plus a 2-hour buffer to land somewhere in the next interval
+    (even on 25-hour fall-back days), then re-align to snap to the exact
+    local-time boundary.
+    """
+    if export.interval == "hour" or export.interval.startswith("every"):
+        return current + export.interval_time_delta
+
+    rough_next = current + export.interval_time_delta + timedelta(hours=2)
+    return align_timestamp_to_interval(rough_next, export)
+
+
 def get_backfill_bounds(interval: str, first_end: datetime, last_end: datetime) -> tuple[datetime, datetime]:
     """Create bounds around a range of data_interval_ends so the schedule backfill covers all runs.
 
@@ -90,8 +106,6 @@ def find_missing_intervals(
     results = []
 
     for export in exports:
-        interval_delta = export.interval_time_delta
-
         covered_run_ends = set(
             BatchExportRun.objects.filter(
                 batch_export=export,
@@ -106,12 +120,14 @@ def find_missing_intervals(
         # so we only consider complete intervals.
         interval_start = align_timestamp_to_interval(start, export)
         if interval_start < start:
-            interval_start += interval_delta
+            interval_start = next_interval_boundary(interval_start, export)
 
         # Collect individual missing intervals, then merge continuous ones
         missing_individual: list[tuple[datetime, datetime]] = []
-        while interval_start + interval_delta <= end:
-            interval_end = interval_start + interval_delta
+        while True:
+            interval_end = next_interval_boundary(interval_start, export)
+            if interval_end > end:
+                break
             if interval_end not in covered_run_ends:
                 missing_individual.append((interval_start, interval_end))
             interval_start = interval_end
