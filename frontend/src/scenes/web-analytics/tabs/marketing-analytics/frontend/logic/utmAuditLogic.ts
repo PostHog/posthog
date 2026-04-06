@@ -143,6 +143,14 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                 setUtmSearch: (_, { search }) => search,
             },
         ],
+        auditDataFailure: [
+            null as string | null,
+            {
+                loadAuditData: () => null,
+                loadAuditDataSuccess: () => null,
+                loadAuditDataFailure: (_, { error }) => error,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         auditData: [

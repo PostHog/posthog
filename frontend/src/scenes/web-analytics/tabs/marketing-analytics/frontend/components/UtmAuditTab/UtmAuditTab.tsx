@@ -176,9 +176,7 @@ function CampaignTabContent(): JSX.Element {
                                 onClick: () => setSelectedCampaign(record.campaign_name),
                                 className: 'cursor-pointer',
                             })}
-                            rowStatus={(record) =>
-                                record.campaign_name === selectedCampaign ? 'highlighted' : undefined
-                            }
+                            rowStatus={(record) => (record.campaign_name === selectedCampaign ? 'highlighted' : null)}
                             columns={[
                                 {
                                     title: 'Campaign',
@@ -245,9 +243,7 @@ function CampaignTabContent(): JSX.Element {
                                 onClick: () => setSelectedUtmCampaign(record.utm_campaign),
                                 className: 'cursor-pointer',
                             })}
-                            rowStatus={(record) =>
-                                record.utm_campaign === selectedUtmCampaign ? 'highlighted' : undefined
-                            }
+                            rowStatus={(record) => (record.utm_campaign === selectedUtmCampaign ? 'highlighted' : null)}
                             columns={[
                                 {
                                     title: 'utm_campaign',
