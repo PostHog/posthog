@@ -5,6 +5,8 @@ import {
     personhogConnectionEstablishmentSeconds,
     personhogConnectionState,
     personhogConnectionStateTransitionsTotal,
+    personhogStreamAcquisitionSeconds,
+    personhogStreamsInFlight,
 } from './metrics'
 
 export type SessionState = 'closed' | 'connecting' | 'open' | 'idle' | 'verifying' | 'error'
@@ -13,10 +15,10 @@ const ALL_STATES: SessionState[] = ['closed', 'connecting', 'open', 'idle', 'ver
 
 /**
  * Wraps an Http2SessionManager to monitor connection state transitions and
- * emit Prometheus metrics, mirroring the Python _ChannelStateMonitor pattern.
+ * emit Prometheus metrics.
  *
  * Because @connectrpc's Http2SessionManager has no subscribe/callback API for
- * state changes (unlike Python grpc's channel.subscribe()), we detect
+ * state changes, we detect
  * transitions by:
  *   1. Polling state() on a configurable interval (catches async transitions
  *      like idle timeouts, ping failures, goaway).
@@ -24,7 +26,7 @@ const ALL_STATES: SessionState[] = ['closed', 'connecting', 'open', 'idle', 'ver
  *      triggered by RPC activity with no polling delay).
  */
 export class SessionStateMonitor {
-    readonly inner: Http2SessionManager
+    private readonly inner: Http2SessionManager
 
     private previousState: SessionState
     private connectingStartedAt: number | undefined
@@ -50,6 +52,12 @@ export class SessionStateMonitor {
     /**
      * Implements NodeHttp2ClientSessionManager.request — delegates to the inner
      * manager and checks for state transitions around the call.
+     *
+     * Instruments:
+     * - Stream acquisition time: how long this.inner.request() takes (includes
+     *   connection establishment if the session isn't ready).
+     * - Streams in flight: gauge of concurrently open HTTP/2 streams, decremented
+     *   when the stream emits 'close'.
      */
     async request(
         method: string,
@@ -58,11 +66,22 @@ export class SessionStateMonitor {
         options: Omit<http2.ClientSessionRequestOptions, 'signal'>
     ): Promise<http2.ClientHttp2Stream> {
         this.checkStateTransition()
+        const acquireStart = performance.now()
         try {
             const stream = await this.inner.request(method, path, headers, options)
+            const acquireDurationSecs = (performance.now() - acquireStart) / 1000
+            personhogStreamAcquisitionSeconds.labels({ client: this.clientName }).observe(acquireDurationSecs)
+
+            personhogStreamsInFlight.labels({ client: this.clientName }).inc()
+            stream.once('close', () => {
+                personhogStreamsInFlight.labels({ client: this.clientName }).dec()
+            })
+
             this.checkStateTransition()
             return stream
         } catch (error) {
+            const acquireDurationSecs = (performance.now() - acquireStart) / 1000
+            personhogStreamAcquisitionSeconds.labels({ client: this.clientName }).observe(acquireDurationSecs)
             this.checkStateTransition()
             throw error
         }
@@ -83,7 +102,9 @@ export class SessionStateMonitor {
     }
 
     /**
-     * Stop polling and clean up.
+     * Stop polling. Only used in tests today — no server lifecycle calls this.
+     * Does not call inner.abort() because the transport owns the session
+     * lifecycle; if we wire this into server shutdown, abort should be added.
      */
     close(): void {
         if (this.pollTimer) {
