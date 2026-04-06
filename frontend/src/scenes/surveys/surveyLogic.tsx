@@ -2345,6 +2345,9 @@ export const surveyLogic = kea<surveyLogicType>([
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (shouldPreserveLocalChanges) {
+                    if (searchParams.edit) {
+                        actions.editingSurvey(true)
+                    }
                     return
                 }
                 // When pushing to `/new` and the id matches the new survey's id, do not load the survey again

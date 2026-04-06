@@ -131,6 +131,7 @@ describe('editor sync', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.survey.name).toBe('Unsaved guided name')
+        expect(logic.values.isEditingSurvey).toBe(true)
     })
 })
 
