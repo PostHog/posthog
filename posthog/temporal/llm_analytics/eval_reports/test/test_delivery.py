@@ -2,7 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.temporal.llm_analytics.eval_reports.delivery import UUID_LINK_PATTERN, _render_section_html, deliver_report
+from posthog.temporal.llm_analytics.eval_reports.delivery import (
+    UUID_LINK_PATTERN,
+    _inline_email_styles,
+    _linkify_uuids,
+    _render_section_html,
+    _render_section_mrkdwn,
+    deliver_report,
+)
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import EvalReportContent, ReportSection
 
 
@@ -17,6 +24,19 @@ class TestUuidLinkPattern(SimpleTestCase):
         text = "ID 12345678-1234-1234-1234-123456789abc is referenced."
         matches = UUID_LINK_PATTERN.findall(text)
         self.assertEqual(len(matches), 0)
+
+
+class TestLinkifyUuids(SimpleTestCase):
+    def test_converts_uuid_to_markdown_link(self):
+        text = "See `12345678-1234-1234-1234-123456789abc` here."
+        result = _linkify_uuids(text, project_id=42)
+        self.assertIn("[12345678...]", result)
+        self.assertIn("/project/42/llm-analytics/traces/12345678-1234-1234-1234-123456789abc", result)
+
+    def test_leaves_non_uuid_backticks_alone(self):
+        text = "Use `some_function()` here."
+        result = _linkify_uuids(text, project_id=1)
+        self.assertEqual(text, result)
 
 
 class TestRenderSectionHtml(SimpleTestCase):
@@ -41,9 +61,50 @@ class TestRenderSectionHtml(SimpleTestCase):
         html = _render_section_html("some_custom", "content", project_id=1)
         self.assertIn("<h2>Some Custom</h2>", html)
 
-    def test_line_breaks(self):
-        html = _render_section_html("statistics", "line1\nline2", project_id=1)
-        self.assertIn("<br>", html)
+    def test_renders_lists(self):
+        html = _render_section_html("statistics", "- item 1\n- item 2", project_id=1)
+        self.assertIn("<li>item 1</li>", html)
+        self.assertIn("<li>item 2</li>", html)
+        self.assertIn("<ul>", html)
+
+    def test_renders_tables(self):
+        md = "| Metric | Value |\n|--------|-------|\n| Pass rate | 80% |"
+        html = _render_section_html("statistics", md, project_id=1)
+        self.assertIn("<table", html)
+        self.assertIn("<th", html)
+        self.assertIn("Pass rate", html)
+
+    def test_renders_italic(self):
+        html = _render_section_html("statistics", "*emphasis*", project_id=1)
+        self.assertIn("<em>emphasis</em>", html)
+
+
+class TestInlineEmailStyles(SimpleTestCase):
+    def test_adds_table_styles(self):
+        html = "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
+        styled = _inline_email_styles(html)
+        self.assertIn("border-collapse", styled)
+        self.assertIn("background-color", styled)
+
+    def test_no_op_without_tables(self):
+        html = "<p>Just text</p>"
+        self.assertEqual(html, _inline_email_styles(html))
+
+
+class TestRenderSectionMrkdwn(SimpleTestCase):
+    def test_renders_title_bold(self):
+        result = _render_section_mrkdwn("executive_summary", "Some content")
+        self.assertIn("*Executive Summary*", result)
+
+    def test_converts_bold(self):
+        result = _render_section_mrkdwn("statistics", "**Pass rate**: 80%")
+        self.assertIn("*Pass rate*", result)
+
+    def test_converts_lists(self):
+        result = _render_section_mrkdwn("statistics", "- item 1\n- item 2")
+        # SlackMarkdownConverter uses bullet chars
+        self.assertIn("item 1", result)
+        self.assertIn("item 2", result)
 
 
 class TestDeliverReport(SimpleTestCase):

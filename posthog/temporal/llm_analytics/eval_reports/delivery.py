@@ -3,6 +3,8 @@
 import re
 
 import structlog
+from markdown_it import MarkdownIt
+from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import REPORT_SECTIONS, EvalReportContent
 
@@ -21,6 +23,27 @@ SECTION_TITLES = {
     "risk_assessment": "Risk Assessment",
 }
 
+_md = MarkdownIt().enable("table")
+_slack_converter = SlackMarkdownConverter()
+
+# Inline styles for email-safe HTML (many clients strip <style> blocks)
+_EMAIL_TABLE_STYLE = (
+    'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
+)
+_EMAIL_TH_STYLE = (
+    'style="border: 1px solid #ddd; padding: 8px 12px; background-color: #f5f5f5;'
+    ' text-align: left; font-weight: 600;"'
+)
+_EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
+
+
+def _inline_email_styles(html: str) -> str:
+    """Add inline styles to HTML elements for email client compatibility."""
+    html = html.replace("<table>", f"<table {_EMAIL_TABLE_STYLE}>")
+    html = re.sub(r"<th(?=>| )", f"<th {_EMAIL_TH_STYLE}", html)
+    html = re.sub(r"<td(?=>| )", f"<td {_EMAIL_TD_STYLE}", html)
+    return html
+
 
 def _make_generation_link(project_id: int, trace_id: str) -> str:
     """Convert a generation/trace ID to a PostHog link."""
@@ -29,22 +52,32 @@ def _make_generation_link(project_id: int, trace_id: str) -> str:
     return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}")
 
 
+def _linkify_uuids(text: str, project_id: int) -> str:
+    """Replace backtick-wrapped UUIDs with clickable links (markdown format)."""
+
+    def replace_with_md_link(match: re.Match) -> str:
+        gen_id = match.group(1)
+        link = _make_generation_link(project_id, gen_id)
+        return f"[{gen_id[:8]}...]({link})"
+
+    return UUID_LINK_PATTERN.sub(replace_with_md_link, text)
+
+
 def _render_section_html(section_name: str, content: str, project_id: int) -> str:
     """Render a report section as HTML with clickable generation ID links."""
     title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+    # Convert UUIDs to markdown links before rendering so they become <a> tags
+    content_with_links = _linkify_uuids(content, project_id)
+    html_content = _md.render(content_with_links)
+    html_content = _inline_email_styles(html_content)
+    return f"<h2>{title}</h2>\n{html_content}\n"
 
-    def replace_id_with_link(match):
-        gen_id = match.group(1)
-        link = _make_generation_link(project_id, gen_id)
-        return f'<a href="{link}" style="font-family: monospace; font-size: 0.85em;">{gen_id[:8]}...</a>'
 
-    html_content = UUID_LINK_PATTERN.sub(replace_id_with_link, content)
-    # Basic markdown → HTML: bold, line breaks, bullet points
-    html_content = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html_content)
-    html_content = html_content.replace("\n- ", "\n<li>")
-    html_content = html_content.replace("\n", "<br>\n")
-
-    return f"<h2>{title}</h2>\n<div>{html_content}</div>\n"
+def _render_section_mrkdwn(section_name: str, content: str) -> str:
+    """Render a report section as Slack mrkdwn."""
+    title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+    mrkdwn_content = _slack_converter.convert(content)
+    return f"*{title}*\n{mrkdwn_content}"
 
 
 def deliver_email_report(
@@ -114,14 +147,6 @@ def deliver_slack_report(
     content = EvalReportContent.from_dict(report_run.content)
     errors: list[str] = []
 
-    # Build plain text summary for Slack
-    summary_parts = []
-    for section_name in REPORT_SECTIONS:
-        section = getattr(content, section_name)
-        if section is not None:
-            title = SECTION_TITLES.get(section_name, section_name)
-            summary_parts.append(f"*{title}*\n{section.content}")
-
     for target in targets:
         if target.get("type") != "slack":
             continue
@@ -157,12 +182,13 @@ def deliver_slack_report(
 
             # Add executive summary as first section
             if content.executive_summary:
+                summary_mrkdwn = _slack_converter.convert(content.executive_summary.content)
                 blocks.append(
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": content.executive_summary.content[:3000],
+                            "text": summary_mrkdwn[:3000],
                         },
                     }
                 )
@@ -175,16 +201,16 @@ def deliver_slack_report(
 
             # Post remaining sections as thread replies
             thread_ts = result.get("ts")
-            if thread_ts and len(summary_parts) > 1:
+            if thread_ts:
                 # Skip executive summary (already in main message), post rest in thread
                 for section_name in REPORT_SECTIONS[1:]:
                     section = getattr(content, section_name)
                     if section is not None:
-                        title = SECTION_TITLES.get(section_name, section_name)
+                        mrkdwn_text = _render_section_mrkdwn(section_name, section.content)
                         client.chat_postMessage(
                             channel=channel,
                             thread_ts=thread_ts,
-                            text=f"*{title}*\n{section.content[:3000]}",
+                            text=mrkdwn_text[:3000],
                         )
 
         except Exception as e:
