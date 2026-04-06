@@ -6,232 +6,349 @@
             "type": "boolean"
         },
         "description": {
-            "description": "Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes",
-            "type": "string"
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Description of the experiment hypothesis and expected outcomes."
         },
-        "draft": {
-            "default": true,
-            "description": "Create as draft (true) or launch immediately (false). Recommend draft for review first",
-            "type": "boolean"
+        "exposure_criteria": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "exposure_config": {
+                            "description": "Custom exposure event configuration.",
+                            "properties": {
+                                "event": {
+                                    "description": "Custom exposure event name.",
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "enum": ["ExperimentEventExposureConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "filterTestAccounts": {
+                            "description": "Whether to filter out internal test accounts.",
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag_key": {
-            "description": "Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name",
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only.",
             "type": "string"
-        },
-        "filter_test_accounts": {
-            "default": true,
-            "description": "Whether to filter out internal test accounts",
-            "type": "boolean"
         },
         "holdout_id": {
-            "description": "Holdout group ID if this experiment should exclude users from other experiments",
-            "type": "number"
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of a holdout group to exclude from the experiment."
         },
-        "minimum_detectable_effect": {
-            "default": 30,
-            "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments",
-            "type": "number"
+        "metrics": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "Experiment metric. Set kind to 'ExperimentMetric' and metric_type to one of: 'mean' (requires source with EventsNode), 'funnel' (requires series array of EventsNode/ActionsNode steps), 'ratio' (requires numerator and denominator EventsNode). Optional fields: name, uuid, conversion_window, goal ('increase' or 'decrease').",
+                        "properties": {
+                            "conversion_window": {
+                                "description": "Conversion window duration.",
+                                "type": "number"
+                            },
+                            "denominator": {
+                                "description": "For ratio metrics: the denominator EventsNode.",
+                                "properties": {
+                                    "event": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "goal": {
+                                "description": "Whether higher or lower values indicate success.",
+                                "enum": ["increase", "decrease"],
+                                "type": "string"
+                            },
+                            "kind": {
+                                "description": "Must be 'ExperimentMetric'.",
+                                "enum": ["ExperimentMetric"],
+                                "type": "string"
+                            },
+                            "metric_type": {
+                                "description": "Type of metric measurement.",
+                                "enum": ["mean", "funnel", "ratio", "retention"],
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "Human-readable metric name.",
+                                "type": "string"
+                            },
+                            "numerator": {
+                                "description": "For ratio metrics: the numerator EventsNode.",
+                                "properties": {
+                                    "event": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "series": {
+                                "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                                "items": {
+                                    "properties": {
+                                        "event": {
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "enum": ["EventsNode", "ActionsNode"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "source": {
+                                "description": "For mean metrics: EventsNode with 'kind' and 'event' fields.",
+                                "properties": {
+                                    "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "uuid": {
+                                "description": "Unique identifier for the metric. Auto-generated if not provided.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "metric_type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio)."
+        },
+        "metrics_secondary": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "Experiment metric. Set kind to 'ExperimentMetric' and metric_type to one of: 'mean' (requires source with EventsNode), 'funnel' (requires series array of EventsNode/ActionsNode steps), 'ratio' (requires numerator and denominator EventsNode). Optional fields: name, uuid, conversion_window, goal ('increase' or 'decrease').",
+                        "properties": {
+                            "conversion_window": {
+                                "description": "Conversion window duration.",
+                                "type": "number"
+                            },
+                            "denominator": {
+                                "description": "For ratio metrics: the denominator EventsNode.",
+                                "properties": {
+                                    "event": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "goal": {
+                                "description": "Whether higher or lower values indicate success.",
+                                "enum": ["increase", "decrease"],
+                                "type": "string"
+                            },
+                            "kind": {
+                                "description": "Must be 'ExperimentMetric'.",
+                                "enum": ["ExperimentMetric"],
+                                "type": "string"
+                            },
+                            "metric_type": {
+                                "description": "Type of metric measurement.",
+                                "enum": ["mean", "funnel", "ratio", "retention"],
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "Human-readable metric name.",
+                                "type": "string"
+                            },
+                            "numerator": {
+                                "description": "For ratio metrics: the numerator EventsNode.",
+                                "properties": {
+                                    "event": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "series": {
+                                "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                                "items": {
+                                    "properties": {
+                                        "event": {
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "enum": ["EventsNode", "ActionsNode"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "source": {
+                                "description": "For mean metrics: EventsNode with 'kind' and 'event' fields.",
+                                "properties": {
+                                    "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "enum": ["EventsNode", "ActionsNode"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "uuid": {
+                                "description": "Unique identifier for the metric. Auto-generated if not provided.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "metric_type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Secondary experiment metrics array for additional measurements."
         },
         "name": {
-            "description": "Experiment name - should clearly describe what is being tested",
-            "minLength": 1,
+            "description": "Name of the experiment.",
+            "maxLength": 400,
             "type": "string"
         },
-        "primary_metrics": {
-            "description": "Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.",
-            "items": {
-                "properties": {
-                    "description": {
-                        "description": "What this metric measures and why it's important for the experiment",
-                        "type": "string"
+        "parameters": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "feature_flag_variants": {
+                            "description": "Experiment variants. If not specified, defaults to 50/50 control/test split.",
+                            "items": {
+                                "properties": {
+                                    "key": {
+                                        "description": "Variant key (e.g., 'control', 'variant_a', 'new_design').",
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Human-readable variant name.",
+                                        "type": "string"
+                                    },
+                                    "rollout_percentage": {
+                                        "description": "Percentage of users to show this variant.",
+                                        "maximum": 100,
+                                        "minimum": 0,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["key", "rollout_percentage"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "minimum_detectable_effect": {
+                            "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30%% for most experiments.",
+                            "type": "number"
+                        }
                     },
-                    "event_name": {
-                        "description": "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events.",
-                        "type": "string"
-                    },
-                    "funnel_steps": {
-                        "description": "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])",
-                        "items": {
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect."
+        },
+        "saved_metrics_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
                             "type": "string"
                         },
-                        "type": "array"
+                        "type": "object"
                     },
-                    "metric_type": {
-                        "description": "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics",
-                        "enum": ["mean", "funnel", "ratio"],
-                        "type": "string"
-                    },
-                    "name": {
-                        "description": "Human-readable metric name",
-                        "type": "string"
-                    },
-                    "properties": {
-                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
-                        "items": {
-                            "properties": {
-                                "key": {
-                                    "type": "string"
-                                },
-                                "operator": {
-                                    "type": "string"
-                                },
-                                "type": {
-                                    "type": "string"
-                                },
-                                "value": {
-                                    "anyOf": [
-                                        {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "items": {
-                                                        "type": "string"
-                                                    },
-                                                    "type": "array"
-                                                },
-                                                {
-                                                    "items": {
-                                                        "type": "number"
-                                                    },
-                                                    "type": "array"
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ]
-                                }
-                            },
-                            "required": ["key"],
-                            "type": "object"
-                        },
-                        "type": "array"
-                    }
+                    "type": "array"
                 },
-                "required": ["metric_type", "event_name"],
-                "type": "object"
-            },
-            "type": "array"
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
         },
-        "secondary_metrics": {
-            "description": "Secondary metrics to monitor for potential side effects or additional insights. Each metric needs event_name.",
-            "items": {
-                "properties": {
-                    "description": {
-                        "description": "What this secondary metric measures",
-                        "type": "string"
-                    },
-                    "event_name": {
-                        "description": "REQUIRED: PostHog event name. Use '$pageview' if unsure.",
-                        "type": "string"
-                    },
-                    "funnel_steps": {
-                        "description": "For funnel metrics only: Array of event names for each funnel step",
-                        "items": {
+        "type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `web` - web\n* `product` - product",
+                            "enum": ["web", "product"],
                             "type": "string"
                         },
-                        "type": "array"
-                    },
-                    "metric_type": {
-                        "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics",
-                        "enum": ["mean", "funnel", "ratio"],
-                        "type": "string"
-                    },
-                    "name": {
-                        "description": "Human-readable metric name",
-                        "type": "string"
-                    },
-                    "properties": {
-                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
-                        "items": {
-                            "properties": {
-                                "key": {
-                                    "type": "string"
-                                },
-                                "operator": {
-                                    "type": "string"
-                                },
-                                "type": {
-                                    "type": "string"
-                                },
-                                "value": {
-                                    "anyOf": [
-                                        {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "items": {
-                                                        "type": "string"
-                                                    },
-                                                    "type": "array"
-                                                },
-                                                {
-                                                    "items": {
-                                                        "type": "number"
-                                                    },
-                                                    "type": "array"
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ]
-                                }
-                            },
-                            "required": ["key"],
-                            "type": "object"
-                        },
-                        "type": "array"
-                    }
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
                 },
-                "required": ["metric_type", "event_name"],
-                "type": "object"
-            },
-            "type": "array"
-        },
-        "target_properties": {
-            "additionalProperties": {},
-            "description": "Properties to target specific user segments (e.g., country, subscription type)",
-            "propertyNames": {
-                "type": "string"
-            },
-            "type": "object"
-        },
-        "variants": {
-            "description": "Experiment variants. If not specified, defaults to 50/50 control/test split. Ask user how many variants they need and what each tests",
-            "items": {
-                "properties": {
-                    "key": {
-                        "description": "Variant key (e.g., 'control', 'variant_a', 'new_design')",
-                        "type": "string"
-                    },
-                    "name": {
-                        "description": "Human-readable variant name",
-                        "type": "string"
-                    },
-                    "rollout_percentage": {
-                        "description": "Percentage of users to show this variant",
-                        "maximum": 100,
-                        "minimum": 0,
-                        "type": "number"
-                    }
-                },
-                "required": ["key", "rollout_percentage"],
-                "type": "object"
-            },
-            "type": "array"
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product"
         }
     },
     "required": ["name", "feature_flag_key"],

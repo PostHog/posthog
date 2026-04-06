@@ -14,79 +14,6 @@
             "readOnlyHint": true
         }
     },
-    "experiment-get-all": {
-        "description": "Get all experiments in the project.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get all experiments in the project.",
-        "title": "Get all experiments",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "experiment-create": {
-        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, ask for specific event sequence (e.g., ['product_view', 'add_to_cart', 'purchase']) and use funnel_steps parameter 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Create A/B test experiment with guided metric and feature flag setup",
-        "title": "Create experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-delete": {
-        "description": "Delete an experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Delete an experiment by ID.",
-        "title": "Delete experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-update": {
-        "description": "Update an existing experiment by ID. Can update name, description, lifecycle state, variants, metrics, and other properties. RESTART WORKFLOW: To restart a concluded experiment, set end_date=null, conclusion=null, conclusion_comment=null, and optionally set a new start_date. To make it draft again, also set start_date=null. COMMON PATTERNS: Launch draft (set start_date), stop running (set end_date + conclusion), archive (set archived=true), modify variants (update parameters.feature_flag_variants). NOTE: feature_flag_key cannot be changed after creation.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Update an existing experiment with lifecycle management and restart capability.",
-        "title": "Update experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-get": {
-        "description": "Get details of a specific experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get details of a specific experiment.",
-        "title": "Get experiment details",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "experiment-results-get": {
         "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
         "category": "Experiments",
@@ -1642,6 +1569,186 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-get-all": {
+        "description": "Get all experiments in the project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get all experiments",
+        "title": "Get all experiments",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-get": {
+        "description": "Get details of a specific experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment details",
+        "title": "Get experiment details",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-create": {
+        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, provide the series array with EventsNode entries for each step 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment",
+        "title": "Create experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-update": {
+        "description": "Update an existing experiment by ID. Can update name, description, variants, metrics, and other properties. Use lifecycle tools for state transitions: experiment-launch to start, experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment",
+        "title": "Update experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-delete": {
+        "description": "Delete an experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment",
+        "title": "Delete experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-launch": {
+        "description": "Launch a draft experiment. Activates the linked feature flag, sets start_date to now, and transitions the experiment to running. Returns 400 if the experiment has already been launched.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Launch experiment",
+        "title": "Launch experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-end": {
+        "description": "End a running experiment. Sets end_date to now but does NOT modify the feature flag. Optionally provide a conclusion and comment. Returns 400 if the experiment is not running.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "End experiment",
+        "title": "End experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-archive": {
+        "description": "Archive an ended experiment to hide it from the default list view. Returns 400 if the experiment is already archived or has not ended.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Archive experiment",
+        "title": "Archive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-ship-variant": {
+        "description": "Ship a variant to 100% of users and optionally end the experiment. Requires variant_key. Can include conclusion and conclusion_comment. Returns 400 if the experiment is in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Ship experiment variant",
+        "title": "Ship experiment variant",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-pause": {
+        "description": "Pause a running experiment by deactivating its feature flag. Users fall back to the default experience and no new exposures are recorded. Returns 400 if the experiment is not running or is already paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Pause experiment",
+        "title": "Pause experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-resume": {
+        "description": "Resume a paused experiment by reactivating its feature flag. Returns 400 if the experiment is not paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Resume experiment",
+        "title": "Resume experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-reset": {
+        "description": "Reset an experiment back to draft state. Clears start/end dates, conclusion, and archived flag. The feature flag is left unchanged. Returns 400 if the experiment is already in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Reset experiment",
+        "title": "Reset experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "feature-flag-get-all": {
