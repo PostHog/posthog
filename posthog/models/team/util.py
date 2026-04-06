@@ -42,7 +42,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
@@ -54,8 +53,43 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Group.objects.filter(team_id__in=team_ids))
     _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+
+    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+    # Falls back to ORM batch deletion when personhog is not available.
+    _delete_persons_for_teams(team_ids, Person, PersonDistinctId)
+
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
+
+
+def _delete_persons_for_teams(team_ids: list[int], Person: type, PersonDistinctId: type):
+    """Delete Person + PersonDistinctId rows for teams via personhog RPC.
+
+    Falls back to ORM batch deletion when personhog is not available.
+    The RPC handles PersonDistinctId deletion automatically.
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.gate import use_personhog
+    from posthog.personhog_client.proto import DeletePersonsRequest
+
+    if use_personhog():
+        client = get_personhog_client()
+        if client is not None:
+            try:
+                for team_id in team_ids:
+                    while True:
+                        uuids = list(Person.objects.filter(team_id=team_id).values_list("uuid", flat=True)[:1000])
+                        if not uuids:
+                            break
+                        client.delete_persons(
+                            DeletePersonsRequest(team_id=team_id, person_uuids=[str(u) for u in uuids])
+                        )
+                return
+            except Exception:
+                logger.warning("personhog_delete_persons_for_teams_failure", team_ids=team_ids, exc_info=True)
+
+    # Fallback: ORM batch deletion
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
 
 
 def _raw_delete(queryset: Any):
