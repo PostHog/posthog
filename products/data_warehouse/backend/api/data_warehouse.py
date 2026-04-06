@@ -783,7 +783,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _is_managed_warehouse_enabled(self) -> bool:
         try:
             return posthoganalytics.feature_enabled(
-                "data-managed-warehouse",
+                "provision-managed-warehouse-beta",
                 str(self.team.uuid),
                 groups={
                     "organization": str(self.team.organization_id),

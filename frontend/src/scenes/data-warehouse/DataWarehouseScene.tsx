@@ -75,7 +75,7 @@ export function DataWarehouseScene(): JSX.Element {
                               },
                           ]
                         : []),
-                    ...(featureFlags[FEATURE_FLAGS.DATA_MANAGED_WAREHOUSE]
+                    ...(featureFlags[FEATURE_FLAGS.PROVISION_MANAGED_WAREHOUSE_BETA]
                         ? [
                               {
                                   key: DataWarehouseTab.SETTINGS,
