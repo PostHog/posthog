@@ -415,6 +415,11 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		return p.startWithPipe(cmd, send)
 	}
 
+	// Set the PTY size immediately so the child process sees the correct
+	// terminal dimensions before it reads them (e.g. Ink/React TUIs that
+	// center content based on process.stdout.columns).
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(w), Rows: uint16(h)})
+
 	waitDone := make(chan struct{})
 
 	p.mu.Lock()
