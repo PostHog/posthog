@@ -1090,7 +1090,7 @@
         }
     },
     "cohorts-list": {
-        "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
+        "description": "List all cohorts in the project. Returns a summary of each cohort (name, description, count, type). Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status, and query definition.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "List all cohorts",
