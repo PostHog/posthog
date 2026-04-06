@@ -275,7 +275,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const header = (
         <div className="space-y-3">
             <div className="space-y-1">
-                {backButton}
+                <div className="flex items-center justify-between">
+                    {backButton}
+                    <LemonButton type="secondary" size="small" onClick={handleCustomizeMore}>
+                        Full editor
+                    </LemonButton>
+                </div>
                 <div>
                     <label htmlFor="survey-name" className="text-xs font-medium text-muted">
                         Survey name
@@ -394,13 +399,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                 )}
                             </div>
                         </div>
-
-                        <p className="text-center text-xs text-muted">
-                            Need more control?{' '}
-                            <button type="button" onClick={handleCustomizeMore} className="text-link hover:underline">
-                                Open full editor
-                            </button>
-                        </p>
                     </div>
 
                     {/* Right: Preview */}
