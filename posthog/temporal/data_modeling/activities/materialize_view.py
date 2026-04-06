@@ -335,7 +335,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                 else:
                     query_typings.append((column_name, ch_type, None))
 
-    if query_typings:
+    has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
@@ -424,7 +425,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     team, node, saved_query, job = await _get_matview_input_objects(inputs)
-    await logger.adebug(f"Starting materialization for node {node.name}")
+    await logger.ainfo(f"Starting materialization for node {node.name}")
 
     table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
@@ -486,7 +487,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             await database_sync_to_async(job.save)()
             # explicitly delete batch to free memory after writing
             del batch, ch_types
-    await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
+    await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     # row count validation warning
     if job.rows_expected is not None:
         if row_count != job.rows_expected:
@@ -497,9 +498,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             )
     file_uris = []
     if delta_table is not None:
-        await logger.adebug("Compacting delta table")
+        await logger.ainfo("Compacting delta table")
         delta_table.optimize.compact()
-        await logger.adebug("Vacuuming delta table")
+        await logger.ainfo("Vacuuming delta table")
         delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
         file_uris = delta_table.file_uris()
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")

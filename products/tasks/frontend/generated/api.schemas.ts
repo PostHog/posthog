@@ -170,6 +170,7 @@ export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
  * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
+ * `signal_report` - Signal Report
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -180,6 +181,7 @@ export const OriginProductEnumApi = {
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
 } as const
 
 export interface PatchedTaskApi {
@@ -202,8 +204,12 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /** @nullable */
+    signal_report?: string | null
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
     /**
      * Latest run details for this task
      * @nullable
@@ -245,11 +251,8 @@ export interface TaskRunCreateRequestApi {
     resume_from_run_id?: string
     /** Follow-up user message to include in the resumed run's prompt. */
     pending_user_message?: string
-    /**
-     * ID of a SandboxEnvironment to use for network governance
-     * @nullable
-     */
-    sandbox_environment_id?: string | null
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
 }
 
 /**
@@ -665,6 +668,10 @@ export type TasksListParams = {
      * Filter by creator user ID
      */
     created_by?: number
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean
     /**
      * Number of results to return per page.
      */

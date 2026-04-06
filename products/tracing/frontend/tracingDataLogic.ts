@@ -1,10 +1,16 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+
+import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
@@ -16,71 +22,265 @@ export interface SparklineRow {
 export interface TracingSparklineData {
     data: { name: string; values: number[]; color: string }[]
     dates: string[]
+    labels: string[]
+}
+
+const DEFAULT_PAGE_SIZE = 100
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+
+function isUserInitiatedError(error: unknown): boolean {
+    const errorStr = String(error).toLowerCase()
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 export const tracingDataLogic = kea<tracingDataLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
-    loaders({
-        spans: {
-            __default: [] as Span[],
-            loadSpans: async (): Promise<Span[]> => {
-                const response = await api.tracing.listSpans({
-                    dateRange: { date_from: '-1h' },
-                    orderBy: 'latest',
-                    limit: 100,
-                })
-                return response.results as Span[]
-            },
-        },
-        traceSpans: {
-            __default: [] as Span[],
-            loadTraceSpans: async (traceId: string): Promise<Span[]> => {
-                const response = await api.tracing.getTrace(traceId, { date_from: '-24h' })
-                return response.results as Span[]
-            },
-        },
+    connect({
+        values: [tracingFiltersLogic, ['filters', 'utcDateRange']],
     }),
 
-    selectors({
-        sparklineData: [
-            (s) => [s.spans],
-            (spans: Span[]): TracingSparklineData => {
-                if (!spans.length) {
-                    return { data: [], dates: [] }
-                }
+    actions({
+        runQuery: true,
+        fetchNextPage: true,
+        clearSpans: true,
+        cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
+        setSpansAbortController: (controller: AbortController | null) => ({ controller }),
+        setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
+        setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
+        setNextCursor: (cursor: string | null) => ({ cursor }),
+    }),
 
-                const bucketMinutes = 5
-                const countMap = new Map<string, number>()
-                const timeBucketsSet = new Set<string>()
-                const servicesSet = new Set<string>()
-
-                for (const span of spans) {
-                    const ts = new Date(span.timestamp)
-                    ts.setSeconds(0, 0)
-                    ts.setMinutes(Math.floor(ts.getMinutes() / bucketMinutes) * bucketMinutes)
-                    const bucket = ts.toISOString()
-                    timeBucketsSet.add(bucket)
-                    servicesSet.add(span.service_name)
-                    const key = `${bucket}|${span.service_name}`
-                    countMap.set(key, (countMap.get(key) ?? 0) + 1)
-                }
-
-                const timeBuckets = [...timeBucketsSet].sort()
-                const services = [...servicesSet].sort()
-
-                const data = services.map((service, i) => ({
-                    name: service,
-                    values: timeBuckets.map((t) => countMap.get(`${t}|${service}`) ?? 0),
-                    color: getSeriesColor(i),
-                }))
-
-                return { data, dates: timeBuckets }
+    reducers({
+        spansAbortController: [
+            null as AbortController | null,
+            { setSpansAbortController: (_, { controller }) => controller },
+        ],
+        sparklineAbortController: [
+            null as AbortController | null,
+            { setSparklineAbortController: (_, { controller }) => controller },
+        ],
+        hasRunQuery: [
+            false as boolean,
+            {
+                fetchSpansSuccess: () => true,
+                fetchSpansFailure: () => true,
+            },
+        ],
+        spansLoading: [
+            false as boolean,
+            {
+                fetchSpans: () => true,
+                fetchSpansSuccess: () => false,
+                fetchSpansFailure: () => false,
+                fetchNextPage: () => true,
+                fetchNextPageSuccess: () => false,
+                fetchNextPageFailure: () => false,
+            },
+        ],
+        sparklineLoading: [
+            false as boolean,
+            {
+                fetchSparkline: () => true,
+                fetchSparklineSuccess: () => false,
+                fetchSparklineFailure: () => false,
+            },
+        ],
+        hasMoreToLoad: [
+            true as boolean,
+            {
+                setHasMoreToLoad: (_, { hasMore }) => hasMore,
+                clearSpans: () => true,
+            },
+        ],
+        nextCursor: [
+            null as string | null,
+            {
+                setNextCursor: (_, { cursor }) => cursor,
+                clearSpans: () => null,
             },
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadSpans()
+    loaders(({ values, actions }) => ({
+        spans: [
+            [] as Span[],
+            {
+                clearSpans: () => [],
+                fetchSpans: async () => {
+                    const controller = new AbortController()
+                    actions.cancelInProgressSpans(controller)
+
+                    const response = await api.tracing.listSpans({
+                        dateRange: values.utcDateRange,
+                        orderBy: values.filters.orderBy,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        prefetchSpans: 20,
+                        limit: DEFAULT_PAGE_SIZE,
+                    })
+
+                    actions.setSpansAbortController(null)
+                    actions.setHasMoreToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
+                    return response.results as Span[]
+                },
+                fetchNextPage: async () => {
+                    if (!values.nextCursor) {
+                        return values.spans
+                    }
+
+                    const controller = new AbortController()
+                    actions.cancelInProgressSpans(controller)
+
+                    const response = await api.tracing.listSpans({
+                        dateRange: values.utcDateRange,
+                        orderBy: values.filters.orderBy,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        limit: DEFAULT_PAGE_SIZE,
+                        after: values.nextCursor,
+                    })
+
+                    actions.setSpansAbortController(null)
+                    actions.setHasMoreToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
+                    return [...values.spans, ...(response.results as Span[])]
+                },
+            },
+        ],
+        traceSpans: [
+            [] as Span[],
+            {
+                loadTraceSpans: async (traceId: string): Promise<Span[]> => {
+                    const response = await api.tracing.getTrace(traceId, { date_from: '-24h' })
+                    return response.results as Span[]
+                },
+            },
+        ],
+        rawSparklineData: [
+            [] as SparklineRow[],
+            {
+                fetchSparkline: async () => {
+                    const controller = new AbortController()
+                    actions.cancelInProgressSparkline(controller)
+
+                    const response = await api.tracing.sparkline({
+                        dateRange: values.utcDateRange,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                    })
+
+                    actions.setSparklineAbortController(null)
+                    return response.results
+                },
+            },
+        ],
+    })),
+
+    selectors({
+        sparklineData: [
+            (s) => [s.rawSparklineData],
+            (rows: SparklineRow[]): TracingSparklineData => {
+                if (!rows.length) {
+                    return { data: [], dates: [], labels: [] }
+                }
+
+                let lastTime = ''
+                let i = -1
+                const labels: string[] = []
+                const dates: string[] = []
+                const accumulated = rows.reduce(
+                    (accumulator, currentItem) => {
+                        if (currentItem.time !== lastTime) {
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    timestampStyle: 'absolute',
+                                })
+                            )
+                            dates.push(currentItem.time)
+                            lastTime = currentItem.time
+                            i++
+                        }
+                        const key = currentItem.service
+                        if (!key) {
+                            return accumulator
+                        }
+                        if (!accumulator[key]) {
+                            accumulator[key] = []
+                        }
+                        while (accumulator[key].length <= i) {
+                            accumulator[key].push(0)
+                        }
+                        accumulator[key][i] += currentItem.count
+                        return accumulator
+                    },
+                    {} as Record<string, number[]>
+                )
+
+                const data = Object.entries(accumulated)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([name, values], index) => ({
+                        name,
+                        values: values as number[],
+                        color: getSeriesColor(index),
+                    }))
+                    .filter((series) => series.values.reduce((a, b) => a + b) > 0)
+
+                return { data, labels, dates }
+            },
+        ],
+        totalSpansMatchingFilters: [
+            (s) => [s.rawSparklineData],
+            (rows: SparklineRow[]): number => rows.reduce((sum, item) => sum + item.count, 0),
+        ],
+        rootSpans: [
+            (s) => [s.spans],
+            (spans: Span[]): Span[] => {
+                return spans.filter((s) => s.is_root_span)
+            },
+        ],
     }),
+
+    listeners(({ actions, values }) => ({
+        runQuery: () => {
+            actions.clearSpans()
+            actions.fetchSpans()
+            actions.fetchSparkline()
+        },
+        cancelInProgressSpans: ({ controller }) => {
+            if (values.spansAbortController !== null) {
+                values.spansAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setSpansAbortController(controller)
+        },
+        cancelInProgressSparkline: ({ controller }) => {
+            if (values.sparklineAbortController !== null) {
+                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setSparklineAbortController(controller)
+        },
+        fetchSpansFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load traces: ${error}`)
+            }
+        },
+        fetchSparklineFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                // Sparkline failures are non-critical, don't show toast
+            }
+        },
+    })),
+
+    events(({ values }) => ({
+        beforeUnmount: () => {
+            if (values.spansAbortController) {
+                values.spansAbortController.abort('unmounting component')
+            }
+            if (values.sparklineAbortController) {
+                values.sparklineAbortController.abort('unmounting component')
+            }
+        },
+    })),
 ])

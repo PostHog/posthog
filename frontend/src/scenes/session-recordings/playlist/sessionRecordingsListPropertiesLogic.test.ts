@@ -87,7 +87,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query': {
+                '/api/environments/:team_id/query/:kind': {
                     results: [
                         ['s1', 'AU', 'Chrome', 'Desktop', 'Windows', 'Windows 10', 'google.com'],
                         ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com'],

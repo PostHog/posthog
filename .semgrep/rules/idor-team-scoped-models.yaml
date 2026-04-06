@@ -89,6 +89,7 @@ rules:
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryDraft
+                              |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
@@ -143,6 +144,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |MCPAnalyticsSubmission
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -176,7 +178,7 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
-                              |TeamConversationsEmailConfig
+                              |EmailChannel
                               |Text
                               |Threshold
                               |Ticket
@@ -274,6 +276,7 @@ rules:
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
@@ -359,7 +362,7 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
-                        |TeamConversationsEmailConfig
+                        |EmailChannel
                         |Text
                         |Threshold
                         |Ticket

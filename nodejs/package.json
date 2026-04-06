@@ -104,7 +104,7 @@
         "js-big-decimal": "^2.2.0",
         "jsonwebtoken": "^9.0.2",
         "libsodium-wrappers": "^0.7.15",
-        "liquidjs": "^10.21.1",
+        "liquidjs": "^10.25.2",
         "lodash": "^4.17.21",
         "lru-cache": "^11.0.0",
         "luxon": "^3.4.4",
@@ -130,7 +130,7 @@
         "undici-types": "^7.3.0",
         "uuid": "^10.0.0",
         "xml-js": "^1.6.11",
-        "zod": "^3.24.1"
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@babel/cli": "^7.22.5",

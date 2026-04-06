@@ -122,7 +122,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             return (
                 (

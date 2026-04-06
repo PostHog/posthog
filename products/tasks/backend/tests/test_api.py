@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
@@ -51,20 +52,25 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 
 
 class BaseTaskAPITest(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
-    user: User
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
+        cls.organization.members.add(cls.user)
+        OrganizationMembership.objects.filter(user=cls.user, organization=cls.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
 
     def setUp(self):
         self.client = APIClient()
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
-        self.organization.members.add(self.user)
-        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-            level=OrganizationMembership.Level.ADMIN
-        )
         self.client.force_authenticate(self.user)
 
         # Enable tasks feature flag by default
@@ -209,6 +215,40 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
 
+    def test_create_task_with_signal_report_same_team(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["signal_report"], str(report.id))
+
+    def test_create_task_with_signal_report_different_team_rejected(self):
+        from products.signals.backend.models import SignalReport
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = SignalReport.objects.create(team=other_team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-team Task",
+                "description": "Should be rejected",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -256,6 +296,41 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(latest_run["task"], str(task.id))
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
+        task = self.create_task()
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Restricted env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["example.com"],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(sandbox_environment.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
+        mock_workflow.assert_called_once()
+
+    def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": "550e8400-e29b-41d4-a716-446655440000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
 
     @parameterized.expand(
         [
@@ -376,6 +451,74 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(task_ids), len(expected_task_ids))
         for expected_id in expected_task_ids:
             self.assertIn(expected_id, task_ids)
+
+
+class TestTaskInternalFilterAPI(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        self.external_task = self.create_task("External Task")
+        self.internal_task = Task.objects.create(
+            team=self.team,
+            title="Internal Task",
+            description="Internal Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+    def test_list_excludes_internal_tasks_by_default(self):
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_false_excludes_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_internal_field_in_response(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["internal"])
+
+    def test_retrieve_internal_task_by_id(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.internal_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_is_settable_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Internal Task via API", "description": "Created as internal", "internal": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_defaults_to_false_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Normal Task", "description": "No internal flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["internal"])
 
 
 class TestTaskRunAPI(BaseTaskAPITest):

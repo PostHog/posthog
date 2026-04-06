@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import TestCase
 
 from posthog.temporal.salesforce_enrichment.usage_workflow import (
-    SalesforceOrgMapping,
+    EnrichPageResult,
     SalesforceUsageEnrichmentWorkflow,
-    SalesforceUsageUpdate,
     UsageEnrichmentInputs,
+    UsageEnrichmentState,
     cache_org_mappings_activity,
+    enrich_org_page_activity,
     prepare_salesforce_update_record,
-    update_salesforce_usage_activity,
 )
 
 from ee.billing.salesforce_enrichment.usage_signals import UsageSignals
@@ -21,33 +21,6 @@ from ee.billing.salesforce_enrichment.usage_signals import UsageSignals
 async def mock_to_thread(fn, *args, **kwargs):
     """Mock asyncio.to_thread that returns an awaitable."""
     return fn(*args, **kwargs)
-
-
-class TestSalesforceOrgMapping(TestCase):
-    def test_create_mapping(self):
-        mapping = SalesforceOrgMapping(
-            salesforce_account_id="001ABC123",
-            posthog_org_id="550e8400-e29b-41d4-a716-446655440000",
-        )
-
-        assert mapping.salesforce_account_id == "001ABC123"
-        assert mapping.posthog_org_id == "550e8400-e29b-41d4-a716-446655440000"
-
-
-class TestSalesforceUsageUpdate(TestCase):
-    def test_create_update(self):
-        signals = UsageSignals(
-            total_events_7d=10000,
-            total_events_30d=50000,
-            events_avg_daily_7d=1428.57,
-        )
-        update = SalesforceUsageUpdate(
-            salesforce_account_id="001ABC123",
-            signals=signals,
-        )
-
-        assert update.salesforce_account_id == "001ABC123"
-        assert update.signals.total_events_7d == 10000
 
 
 class TestUsageEnrichmentInputs(TestCase):
@@ -205,42 +178,71 @@ class TestCacheOrgMappingsActivity(TestCase):
         assert stored_mappings[1]["posthog_org_id"] == "org-uuid-2"
 
 
-class TestUpdateSalesforceUsageActivity(TestCase):
-    @pytest.mark.asyncio
-    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_empty_updates_returns_zero(self, _mock_close, _mock_heartbeat):
-        result = await update_salesforce_usage_activity([])
-        assert result == 0
-
+class TestEnrichOrgPageActivity(TestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_bulk_update_exception_returns_zero(self, _mock_close, mock_sf_client, _mock_heartbeat):
-        signals = UsageSignals(total_events_7d=10000, events_avg_daily_7d=1428.57)
-        updates = [
-            SalesforceUsageUpdate(salesforce_account_id="001ABC", signals=signals),
-            SalesforceUsageUpdate(salesforce_account_id="001DEF", signals=signals),
+    async def test_enriches_page_successfully(self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
         ]
 
         mock_sf = MagicMock()
-        mock_sf.bulk.Account.update.side_effect = Exception("Salesforce API error")
+        mock_sf.bulk.Account.update.return_value = [
+            {"id": "001ABC", "success": True},
+            {"id": "001DEF", "success": True},
+        ]
         mock_sf_client.return_value = mock_sf
 
-        result = await update_salesforce_usage_activity(updates)
-        assert result == 0
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.page_size == 2
+        assert result.processed == 2
+        assert result.updated == 2
+        assert result.errors == []
+        mock_get_page.assert_called_once_with(0, 10000)
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_returns_empty_on_cache_miss(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.return_value = None
+
+        result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.page_size == 0
+        assert result.processed == 0
+        assert result.updated == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_returns_empty_on_empty_page(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.return_value = []
+
+        result = await enrich_org_page_activity(5000, 10000, 100)
+
+        assert result.page_size == 0
+        assert result.processed == 0
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_partial_success_counts_correctly(self, _mock_close, mock_sf_client, _mock_heartbeat):
-        signals = UsageSignals(total_events_7d=10000)
-        updates = [
-            SalesforceUsageUpdate(salesforce_account_id="001ABC", signals=signals),
-            SalesforceUsageUpdate(salesforce_account_id="001DEF", signals=signals),
-            SalesforceUsageUpdate(salesforce_account_id="001GHI", signals=signals),
+    async def test_handles_salesforce_partial_failure(
+        self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat
+    ):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+            {"salesforce_account_id": "001GHI", "posthog_org_id": "uuid-3"},
         ]
 
         mock_sf = MagicMock()
@@ -251,26 +253,145 @@ class TestUpdateSalesforceUsageActivity(TestCase):
         ]
         mock_sf_client.return_value = mock_sf
 
-        result = await update_salesforce_usage_activity(updates)
-        assert result == 2
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.page_size == 3
+        assert result.processed == 3
+        assert result.updated == 2
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_all_success(self, _mock_close, mock_sf_client, _mock_heartbeat):
-        signals = UsageSignals(total_events_7d=10000)
-        updates = [
-            SalesforceUsageUpdate(salesforce_account_id="001ABC", signals=signals),
-            SalesforceUsageUpdate(salesforce_account_id="001DEF", signals=signals),
+    async def test_handles_batch_exception(self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
         ]
 
         mock_sf = MagicMock()
-        mock_sf.bulk.Account.update.return_value = [
-            {"id": "001ABC", "success": True},
-            {"id": "001DEF", "success": True},
-        ]
         mock_sf_client.return_value = mock_sf
 
-        result = await update_salesforce_usage_activity(updates)
-        assert result == 2
+        with patch(
+            f"{WORKFLOW_MODULE}.aggregate_usage_signals_for_orgs",
+            side_effect=Exception("DB connection failed"),
+        ):
+            with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+                result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.page_size == 1
+        assert result.processed == 0
+        assert len(result.errors) == 1
+        assert "DB connection failed" in result.errors[0]
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_passes_offset_to_redis(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.return_value = []
+
+        await enrich_org_page_activity(5000, 2500, 50)
+
+        mock_get_page.assert_called_once_with(5000, 2500)
+
+
+WORKFLOW_CLASS = f"{WORKFLOW_MODULE}.SalesforceUsageEnrichmentWorkflow"
+
+
+class TestProductionModeContinueAsNew(TestCase):
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_continues_as_new_when_page_is_full(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                None,  # cache_org_mappings_activity
+                EnrichPageResult(page_size=10000, processed=10000, updated=9500, errors=[]),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        inputs = UsageEnrichmentInputs(batch_size=100)
+        await wf._run_production_mode(inputs)
+
+        mock_workflow.continue_as_new.assert_called_once()
+        call_args = mock_workflow.continue_as_new.call_args[0][0]
+        assert call_args.state.page_offset == 10000
+        assert call_args.state.total_processed == 10000
+        assert call_args.state.total_updated == 9500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_returns_result_on_last_page(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            return_value=EnrichPageResult(page_size=5000, processed=5000, updated=4800, errors=[]),
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        inputs = UsageEnrichmentInputs(batch_size=100, state=state)
+        result = await wf._run_production_mode(inputs)
+
+        mock_workflow.continue_as_new.assert_not_called()
+        assert result["total_orgs_processed"] == 15000
+        assert result["total_orgs_updated"] == 14300
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_max_orgs_stops_before_limit(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            return_value=EnrichPageResult(page_size=500, processed=500, updated=480, errors=[]),
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=0, total_processed=500, total_updated=480)
+        inputs = UsageEnrichmentInputs(batch_size=100, max_orgs=500, state=state)
+        result = await wf._run_production_mode(inputs)
+
+        # Should return immediately since total_processed == max_orgs
+        mock_workflow.execute_activity.assert_not_called()
+        assert result["total_orgs_processed"] == 500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_empty_page_returns_result(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                None,  # cache_org_mappings_activity
+                EnrichPageResult(page_size=0, processed=0, updated=0, errors=[]),
+            ]
+        )
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        inputs = UsageEnrichmentInputs(batch_size=100)
+        result = await wf._run_production_mode(inputs)
+
+        assert result["total_orgs_processed"] == 0
+        assert result["total_orgs_updated"] == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_errors_capped_at_10_across_continuations(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            return_value=EnrichPageResult(
+                page_size=5000, processed=5000, updated=0, errors=[f"error-{i}" for i in range(8)]
+            ),
+        )
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(
+            page_offset=10000,
+            total_processed=10000,
+            error_count=5,
+            errors=[f"prev-error-{i}" for i in range(5)],
+        )
+        inputs = UsageEnrichmentInputs(batch_size=100, state=state)
+        result = await wf._run_production_mode(inputs)
+
+        # error_count reflects all errors, but errors list is capped at 10
+        assert result["error_count"] == 13
+        assert len(result["errors"]) == 10

@@ -254,9 +254,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && {
-                    created_by: JSON.stringify(filters.createdBy),
-                }),
+                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                ...(filters.tab !== SavedInsightsTabs.Yours &&
+                    filters.createdBy !== 'All users' && {
+                        created_by: JSON.stringify(filters.createdBy),
+                    }),
                 ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {

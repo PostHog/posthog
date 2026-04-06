@@ -96,7 +96,7 @@ import {
     getSignificanceDetails,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
-} from './legacyExperimentCalculations'
+} from './legacy/calculations/legacyExperimentCalculations'
 import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
@@ -1697,7 +1697,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     payload?.end_date !== undefined ||
                     payload?.metrics !== undefined ||
                     payload?.metrics_secondary !== undefined ||
-                    payload?.stats_config !== undefined
+                    payload?.stats_config !== undefined ||
+                    payload?.only_count_matured_users !== undefined
                 actions.refreshExperimentResults(forceRefresh, 'config_change')
             }
         },

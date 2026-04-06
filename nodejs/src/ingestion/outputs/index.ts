@@ -1,4 +1,4 @@
-export { IngestionOutputs, IngestionOutput } from './ingestion-outputs'
+export { IngestionOutputs, IngestionOutput, IngestionOutputTarget } from './ingestion-outputs'
 export { IngestionOutputMessage } from './types'
 export { IngestionOutputDefinition, resolveIngestionOutputs } from './resolver'
 export { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
