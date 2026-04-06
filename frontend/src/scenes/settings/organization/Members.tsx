@@ -184,11 +184,11 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
-    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { downloadMembersListDisabledReason, filteredMembers, membersLoading, search } = useValues(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { downloadMembersList, setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
@@ -325,7 +325,23 @@ export function Members(): JSX.Element | null {
 
     return (
         <>
-            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
+            <div className="flex flex-wrap gap-2 justify-between items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for members"
+                    value={search}
+                    onChange={setSearch}
+                    className="flex-1 basis-[min(100%,18rem)]"
+                />
+                <LemonButton
+                    type="secondary"
+                    onClick={downloadMembersList}
+                    disabledReason={downloadMembersListDisabledReason}
+                    data-attr="org-members-download-csv"
+                >
+                    Download members list
+                </LemonButton>
+            </div>
 
             <LemonTable
                 dataSource={filteredMembers ?? []}
