@@ -234,6 +234,16 @@ def send_invite(invite_id: str) -> None:
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
+    org_id_str = str(organization_id)
+    # Don't send this email to the new member themselves; respect per-user org notification prefs
+    members_to_email = [
+        user
+        for user in organization.members.exclude(email=invitee.email)
+        if user.should_send_organization_member_join_email(org_id_str)
+    ]
+    if len(members_to_email) == 0:
+        return
+
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         use_http=True,
@@ -247,17 +257,9 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization_name": organization.name,
         },
     )
-    # Don't send this email to the new member themselves; respect per-user org notification prefs
-    org_id_str = str(organization_id)
-    members_to_email = [
-        user
-        for user in organization.members.exclude(email=invitee.email)
-        if user.should_send_organization_member_join_email(org_id_str)
-    ]
-    if len(members_to_email) > 0:
-        for user in members_to_email:
-            message.add_user_recipient(user)
-        message.send()
+    for user in members_to_email:
+        message.add_user_recipient(user)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
