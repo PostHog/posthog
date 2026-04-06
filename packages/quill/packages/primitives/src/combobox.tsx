@@ -258,7 +258,11 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
 }
 
 function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
-    return React.useRef<HTMLDivElement>(null!)
+    const contextRef = React.useContext(ComboboxAnchorContext)
+    if (contextRef === null) {
+        throw new Error('useComboboxAnchor must be used within a Combobox')
+    }
+    return contextRef
 }
 
 export {

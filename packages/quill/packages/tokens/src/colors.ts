@@ -61,7 +61,7 @@ export const semanticColors: Record<string, ColorTuple> = {
     'fill-selected': [
         'color-mix(in oklch, var(--fill-hover) 50%, transparent)',
         'color-mix(in oklch, var(--accent) 50%, transparent)',
-        'bg-fill-hover',
+        'bg-fill-selected',
     ],
 } as const
 

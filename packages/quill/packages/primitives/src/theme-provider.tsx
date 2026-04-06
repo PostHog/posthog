@@ -91,7 +91,9 @@ export function ThemeProvider({
 
     const setTheme = React.useCallback(
         (nextTheme: Theme) => {
-            localStorage.setItem(storageKey, nextTheme)
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(storageKey, nextTheme)
+            }
             setThemeState(nextTheme)
         },
         [storageKey]
