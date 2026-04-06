@@ -6741,7 +6741,22 @@ const schema84 = {
 const schema85 = { const: 'unique_group', type: 'string' }
 const schema86 = { const: 'hogql', type: 'string' }
 const schema87 = {
-    enum: ['total', 'sum', 'unique_session', 'min', 'max', 'avg', 'dau', 'unique_group', 'hogql'],
+    enum: [
+        'total',
+        'sum',
+        'unique_session',
+        'min',
+        'max',
+        'avg',
+        'dau',
+        'unique_group',
+        'hogql',
+        'median',
+        'p75',
+        'p90',
+        'p95',
+        'p99',
+    ],
     type: 'string',
 }
 const schema88 = { enum: ['total', 'dau'], type: 'string' }
@@ -7013,7 +7028,12 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                                     data === 'avg' ||
                                     data === 'dau' ||
                                     data === 'unique_group' ||
-                                    data === 'hogql'
+                                    data === 'hogql' ||
+                                    data === 'median' ||
+                                    data === 'p75' ||
+                                    data === 'p90' ||
+                                    data === 'p95' ||
+                                    data === 'p99'
                                 )
                             ) {
                                 const err13 = {
