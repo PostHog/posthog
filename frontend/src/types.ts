@@ -6427,6 +6427,7 @@ export type HogFunctionSubTemplateIdType =
     | 'insight-alert-firing'
     | 'experiment-significant'
     | 'logs-alert-firing'
+    | 'logs-alert-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

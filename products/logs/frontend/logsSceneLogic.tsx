@@ -28,6 +28,8 @@ import {
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
@@ -53,6 +55,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['setOrderBy'],
             logsViewerDataLogic({ id: props.tabId }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
+            logsViewerLogic({ id: props.tabId }),
+            ['setLinkToLogId', 'clearLinkToLogId'],
+            logDetailsModalLogic({ id: props.tabId }),
+            ['closeLogDetails'],
         ],
         values: [
             logsViewerFiltersLogic({ id: props.tabId }),
@@ -61,6 +67,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['orderBy'],
             logsViewerDataLogic({ id: props.tabId }),
             ['initialLogsLimit'],
+            logsViewerLogic({ id: props.tabId }),
+            ['linkToLogId'],
         ],
     })),
     tabAwareUrlToAction(({ actions, values, cache }) => {
@@ -144,6 +152,11 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
+
+            const linkToLogId = params.linkToLogId as string | undefined
+            if (linkToLogId && linkToLogId !== values.linkToLogId) {
+                actions.setLinkToLogId(linkToLogId)
+            }
         }
         return {
             '*': urlToAction,
@@ -175,6 +188,13 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             return result
         }
 
+        const clearLinkToLogId = (): ReturnType<typeof syncSearchParams> => {
+            return syncSearchParams(router, (params: Params) => {
+                delete params.linkToLogId
+                return params
+            })
+        }
+
         const clearInitialLogsLimit = (): [
             string,
             Params,
@@ -201,6 +221,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             // It ensures the first fetch loads enough logs to include the linked log,
             // then resets to null so subsequent queries use the default page size.
             fetchLogsSuccess: () => clearInitialLogsLimit(),
+            closeLogDetails: () => clearLinkToLogId(),
+            clearLinkToLogId: () => clearLinkToLogId(),
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
         }

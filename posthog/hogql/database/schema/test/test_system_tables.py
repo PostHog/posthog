@@ -87,6 +87,23 @@ class TestSystemTablesTeamScoping(BaseTest):
         )
 
 
+def _create_batch_export(team: Team, label: str):
+    from posthog.batch_exports.models import BatchExport, BatchExportDestination
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+
+
+def _create_batch_export_backfill(team: Team, label: str):
+    from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    batch_export = BatchExport.objects.create(
+        team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
+    )
+    return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
+
+
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
@@ -290,6 +307,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("batch_export_backfills", _create_batch_export_backfill),
+    ("batch_exports", _create_batch_export),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),

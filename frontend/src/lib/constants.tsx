@@ -589,6 +589,7 @@ export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
 
 export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
 export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
+export const LOGS_ALERT_RESOLVED_EVENT_ID = '$logs_alert_resolved'
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 
