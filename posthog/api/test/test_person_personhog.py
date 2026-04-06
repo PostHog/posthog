@@ -198,6 +198,11 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
 
         self.client.delete(f"/api/person/{person.uuid}/")
 
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(person.uuid)]
+
         if not self.personhog:
             assert Person.objects.filter(team_id=self.team.pk, uuid=person.uuid).count() == 0
             assert PersonDistinctId.objects.filter(team_id=self.team.pk, person_id=person.pk).count() == 0
@@ -282,5 +287,9 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
         # Other team's person should be untouched
         assert Person.objects.filter(team_id=other_team.pk, uuid=other_person.uuid).count() == 1
