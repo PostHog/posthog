@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type ToolBase,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -46,11 +52,12 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             return {
                 results: data.formatted_results ?? data.results,
                 _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
+                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results,
             }
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
-            ...(config.responseFormat ? { responseFormat: config.responseFormat } : {}),
+            ...(config.responseFormat ? { [POSTHOG_META_KEY]: { responseFormat: config.responseFormat } } : {}),
         },
     })
 }
