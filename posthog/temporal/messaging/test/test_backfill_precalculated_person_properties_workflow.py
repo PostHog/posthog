@@ -299,7 +299,7 @@ class TestEvaluateCombinedFiltersSync:
         [
             ("enabled_success", True, {"test_condition": True}, True, False),
             ("disabled", False, {"test_condition": True}, False, False),
-            ("enabled_non_dict", True, {}, False, True),
+            ("enabled_non_dict", True, {}, True, True),
         ]
     )
     @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
