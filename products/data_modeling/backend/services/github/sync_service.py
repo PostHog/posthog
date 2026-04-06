@@ -101,13 +101,15 @@ def sync_models_from_files(
     # Pre-create DAG objects for each dag.toml directory
     dag_objects: dict[str, DAG] = {}
     for dag_path, dag_cfg in parsed_dag_configs.items():
-        dag_name = _dag_name_from_toml_path(dag_path)
+        dag_name = dag_cfg.name or _dag_name_from_toml_path(dag_path)
+        dag_dir = dag_path.rsplit("/", 1)[0] if "/" in dag_path else ""
         dag_obj, _ = DAG.objects.update_or_create(
             team=team,
             name=dag_name,
             defaults={
                 "description": dag_cfg.description,
                 "sync_frequency_interval": dag_cfg.sync_frequency_interval,
+                "source_control_path": dag_dir,
             },
         )
         dag_objects[dag_path] = dag_obj
@@ -159,7 +161,9 @@ def sync_models_from_files(
             Node.objects.filter(saved_query=saved_query, team=team).exclude(dag=dag).delete()
             # sync to dag outside transaction (handles node creation)
             try:
-                sync_saved_query_to_dag(saved_query, materialize=parsed.materialized, dag=dag)
+                node = sync_saved_query_to_dag(saved_query, materialize=parsed.materialized, dag=dag)
+                if node is not None:
+                    Node.objects.filter(pk=node.pk).update(source_control_path=file.path)
             except Exception as e:
                 logger.warning("Failed to sync model to DAG", path=file.path, error=str(e), team_id=team.id)
                 errors[file.path] = f"DAG sync failed: {e}"
