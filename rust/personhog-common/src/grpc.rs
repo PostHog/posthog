@@ -75,7 +75,9 @@ impl TrackedTcpStream {
     fn new(inner: TcpStream) -> Self {
         // Disable Nagle's algorithm to prevent ~40ms tail latency from the
         // Nagle + delayed-ACK interaction on gRPC request-response exchanges.
-        drop(inner.set_nodelay(true));
+        if let Err(e) = inner.set_nodelay(true) {
+            tracing::warn!("failed to set TCP_NODELAY on accepted socket: {e}");
+        }
         gauge!("grpc_server_connections").increment(1.0);
         Self {
             inner,
