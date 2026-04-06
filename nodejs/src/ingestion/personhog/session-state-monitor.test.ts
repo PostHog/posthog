@@ -268,7 +268,6 @@ describe('SessionStateMonitor', () => {
 
         await monitor.request('POST', '/test', {}, {})
 
-        expect(mockStreamsInFlight.labels).toHaveBeenCalledWith({ client: 'test-client' })
         expect(mockStreamsInFlight.labels({ client: 'test-client' }).inc).toHaveBeenCalledTimes(1)
         expect(mockStreamsInFlight.labels({ client: 'test-client' }).dec).not.toHaveBeenCalled()
 

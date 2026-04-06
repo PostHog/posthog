@@ -36,9 +36,17 @@ export class SessionStateMonitor implements SessionManager {
     private pollTimer: ReturnType<typeof setInterval> | undefined
     private readonly clientName: string
 
+    // Pre-bound labeled metrics — avoids object allocation + hashmap lookup per request()
+    private readonly acquisitionMetric: ReturnType<typeof personhogStreamAcquisitionSeconds.labels>
+    private readonly streamsMetric: ReturnType<typeof personhogStreamsInFlight.labels>
+    private readonly establishmentMetric: ReturnType<typeof personhogConnectionEstablishmentSeconds.labels>
+
     constructor(inner: Http2SessionManager, clientName: string, pollIntervalMs: number = 5_000) {
         this.inner = inner
         this.clientName = clientName
+        this.acquisitionMetric = personhogStreamAcquisitionSeconds.labels({ client: clientName })
+        this.streamsMetric = personhogStreamsInFlight.labels({ client: clientName })
+        this.establishmentMetric = personhogConnectionEstablishmentSeconds.labels({ client: clientName })
         this.previousState = inner.state()
         this.setStateGauge(this.previousState)
         this.pollTimer = setInterval(() => this.checkStateTransition(), pollIntervalMs)
@@ -72,19 +80,17 @@ export class SessionStateMonitor implements SessionManager {
         const acquireStart = performance.now()
         try {
             const stream = await this.inner.request(method, path, headers, options)
-            const acquireDurationSecs = (performance.now() - acquireStart) / 1000
-            personhogStreamAcquisitionSeconds.labels({ client: this.clientName }).observe(acquireDurationSecs)
+            this.acquisitionMetric.observe((performance.now() - acquireStart) / 1000)
 
-            personhogStreamsInFlight.labels({ client: this.clientName }).inc()
+            this.streamsMetric.inc()
             stream.once('close', () => {
-                personhogStreamsInFlight.labels({ client: this.clientName }).dec()
+                this.streamsMetric.dec()
             })
 
             this.checkStateTransition()
             return stream
         } catch (error) {
-            const acquireDurationSecs = (performance.now() - acquireStart) / 1000
-            personhogStreamAcquisitionSeconds.labels({ client: this.clientName }).observe(acquireDurationSecs)
+            this.acquisitionMetric.observe((performance.now() - acquireStart) / 1000)
             this.checkStateTransition()
             throw error
         }
@@ -136,8 +142,7 @@ export class SessionStateMonitor implements SessionManager {
         if (current === 'connecting') {
             this.connectingStartedAt = performance.now()
         } else if ((current === 'open' || current === 'idle') && this.connectingStartedAt !== undefined) {
-            const durationMs = performance.now() - this.connectingStartedAt
-            personhogConnectionEstablishmentSeconds.labels({ client: this.clientName }).observe(durationMs / 1000)
+            this.establishmentMetric.observe((performance.now() - this.connectingStartedAt) / 1000)
             this.connectingStartedAt = undefined
         } else if (current === 'error' || current === 'closed') {
             this.connectingStartedAt = undefined
