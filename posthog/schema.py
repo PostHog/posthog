@@ -20984,6 +20984,21 @@ class WebVitalsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class NamedArgs1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+
+
+class IsExperimentFunnelsQuery(BaseModel):
+    namedArgs: NamedArgs1 | None = None
+
+
+class IsExperimentTrendsQuery(BaseModel):
+    namedArgs: NamedArgs1 | None = None
+
+
 class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
