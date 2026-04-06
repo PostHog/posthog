@@ -86,7 +86,6 @@ function closeColumn<T extends Record<string, any>>(onClose: () => void): LemonT
             <button
                 type="button"
                 className="InsightTooltip__close p-0.5 ml-2 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
-                style={{ opacity: 0 }}
                 onClick={onClose}
             >
                 <IconX className="w-3 h-3" />

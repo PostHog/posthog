@@ -24,17 +24,12 @@
         box-shadow: none;
     }
 
-    &__scrollable {
-        .LemonTable .ScrollableShadows__inner {
-            max-height: 16rem;
-            overflow-y: auto !important;
-        }
+    // Close button: hidden by default, visible when pinned
+    .InsightTooltip__close {
+        opacity: 0;
 
-        .LemonTable .LemonTable__content > table > thead {
-            position: sticky;
-            top: 0;
-            z-index: 1;
-            background: var(--color-bg-surface-primary);
+        .InsightTooltipWrapper--pinned & {
+            opacity: 1;
         }
     }
 
@@ -45,8 +40,10 @@
     .LemonTable {
         font-size: 0.75rem;
         border: none;
+        border-bottom: 1px solid var(--color-border-primary);
         border-radius: 0;
 
+        // Disable all scroll shadows inside tooltip
         .ScrollableShadows {
             --shadow-x-start: 0 0 0 0 transparent !important;
             --shadow-x-end: 0 0 0 0 transparent !important;
@@ -59,25 +56,22 @@
             box-shadow: none !important;
         }
 
+        // Close column in table header
         th.InsightTooltip__close-column {
             position: sticky;
             right: 0;
             padding: 0.4rem;
             vertical-align: top;
-            background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
+            background: transparent;
 
-            .LemonTable__header-content {
-                opacity: 0;
+            .InsightTooltipWrapper--pinned & {
+                background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
             }
         }
 
         td.InsightTooltip__close-column {
             padding: 0;
             background: transparent;
-        }
-
-        &:not(:last-child) {
-            border-bottom: 1px solid var(--color-border-primary);
         }
 
         .insights-label {
@@ -120,6 +114,21 @@
                 background-color: var(--color-border-primary);
                 border: 0;
             }
+        }
+    }
+
+    // Scrollable tooltip body with sticky header
+    &__scrollable .LemonTable {
+        .ScrollableShadows__inner {
+            max-height: 16rem;
+            overflow-y: auto !important;
+        }
+
+        .LemonTable__content > table > thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: var(--color-bg-surface-primary);
         }
     }
 
