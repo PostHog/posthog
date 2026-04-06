@@ -25,6 +25,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Hog Flows](./references/models-hog-flows.md)
 - [Hog Functions](./references/models-hog-functions.md)
+- [Integrations](./references/models-integrations.md)
 - [Notebooks](./references/models-notebooks.md)
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)

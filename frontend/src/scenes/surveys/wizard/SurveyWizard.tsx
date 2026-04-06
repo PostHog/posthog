@@ -90,7 +90,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }, [maxPreviewIndex])
 
     const handleCustomizeMore = (): void => {
-        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
+        const target = isEditing
+            ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
+            : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
+        router.actions.push(target)
     }
 
     // Show loading state while loading existing survey

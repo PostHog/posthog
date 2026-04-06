@@ -282,6 +282,12 @@ def _create_group_type_mapping(team: Team, label: str) -> GroupTypeMapping:
     )
 
 
+def _create_integration(team: Team, label: str):
+    from posthog.models.integration import Integration
+
+    return Integration.objects.create(team=team, kind="slack", errors="")
+
+
 def _create_insight(team: Team, label: str) -> Insight:
     return Insight.objects.create(team=team, name=f"insight_{label}")
 
@@ -332,6 +338,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("hog_functions", _create_hog_function),
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
+    ("integrations", _create_integration),
     ("notebooks", _create_notebook),
     ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),
