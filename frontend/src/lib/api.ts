@@ -5051,7 +5051,7 @@ const api = {
         async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('check_database_name')
+                .withAction('check-database-name')
                 .withQueryString({ name })
                 .get()
         },
