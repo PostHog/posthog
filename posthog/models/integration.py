@@ -3176,6 +3176,86 @@ class GitHubIntegration:
                 "status_code": response.status_code,
             }
 
+    def get_tree(self, repository: str, tree_sha: str = "HEAD", recursive: bool = True) -> dict[str, Any]:
+        """Get the Git tree for a repository, returning all file paths and their blob SHAs."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        params: dict[str, str | int] = {}
+        if recursive:
+            params["recursive"] = 1
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/git/trees/{tree_sha}",
+            params=params,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "success": True,
+                "sha": data["sha"],
+                "tree": [
+                    {"path": item["path"], "sha": item["sha"], "type": item["type"], "size": item.get("size")}
+                    for item in data.get("tree", [])
+                    if item["type"] == "blob"
+                ],
+                "truncated": data.get("truncated", False),
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to get tree: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def get_file_content(self, repository: str, file_path: str, ref: str = "HEAD") -> dict[str, Any]:
+        """Get the content of a file from a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            params={"ref": ref},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            content = data.get("content", "")
+            encoding = data.get("encoding", "")
+            if encoding == "base64":
+                import base64
+
+                content = base64.b64decode(content).decode("utf-8")
+            return {
+                "success": True,
+                "content": content,
+                "sha": data["sha"],
+                "path": data["path"],
+            }
+        elif response.status_code == 404:
+            return {
+                "success": False,
+                "error": "File not found",
+                "status_code": 404,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to get file: {response.text}",
+                "status_code": response.status_code,
+            }
+
     def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
         """List pull requests for a repository."""
         org = self.organization()
