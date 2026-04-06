@@ -665,7 +665,7 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			// Feed raw bytes into the VT emulator
 			p.mu.Lock()
 			if p.emulator != nil {
-				p.emulator.Write(data)
+				_, _ = p.emulator.Write(data)
 			}
 			// Detect interactive prompts: if the chunk doesn't end with \n,
 			// the process likely wrote a partial line and is waiting for input.
