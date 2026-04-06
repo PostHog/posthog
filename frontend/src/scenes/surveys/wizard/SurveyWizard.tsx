@@ -35,6 +35,9 @@ import { WizardStepper } from './WizardStepper'
 
 export const scene: SceneExport<SurveyWizardLogicProps> = {
     component: SurveyWizardComponent,
+    // Declaring the logic here keeps it (and its connected surveyLogic) mounted
+    // across tab switches, so unsaved edits and the current step survive re-entry.
+    logic: surveyWizardLogic,
     paramsToProps: ({ params: { id } }): SurveyWizardLogicProps => ({ id: id || 'new' }),
 }
 
