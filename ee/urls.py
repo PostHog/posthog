@@ -138,12 +138,12 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass",
         ),
         path(
-            "api/admin/radar-bypass/",
+            "admin/api/radar-bypass/",
             RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
             name="radar-bypass-api-list",
         ),
         path(
-            "api/admin/radar-bypass/<str:email>/",
+            "admin/api/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
         ),
@@ -153,12 +153,12 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="email-mfa-bypass",
         ),
         path(
-            "api/admin/email-mfa-bypass/",
+            "admin/api/email-mfa-bypass/",
             EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
             name="email-mfa-bypass-api-list",
         ),
         path(
-            "api/admin/email-mfa-bypass/<str:email>/",
+            "admin/api/email-mfa-bypass/<str:email>/",
             EmailMFABypassViewSet.as_view({"delete": "destroy"}),
             name="email-mfa-bypass-api-detail",
         ),

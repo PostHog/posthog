@@ -786,7 +786,7 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <div>
                             <LemonLabel>Variant to keep</LemonLabel>
-                            <div className="text-sm text-secondary">
+                            <div className="text-sm text-secondary mb-2">
                                 The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
                             </div>
                             <div className="w-1/2">

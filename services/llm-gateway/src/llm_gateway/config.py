@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     anthropic_api_key: str | None = None
+    bedrock_region_name: str | None = None
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None

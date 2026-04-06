@@ -15,7 +15,6 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "display_name",
             "url",
             "auth_type",
-            "server__oauth_provider_kind",
             "server__oauth_metadata",
             "server__oauth_client_id",
             "sensitive_configuration",

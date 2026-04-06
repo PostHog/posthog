@@ -14,10 +14,15 @@ import { useEditorGroupExpansion } from './useEditorGroupExpansion'
 export interface EditorFilterGroupTileProps {
     editorFilterGroup: InsightEditorFilterGroup
     insightProps: InsightLogicProps
+    queryKind?: string
 }
 
-export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: EditorFilterGroupTileProps): JSX.Element {
-    const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
+export function EditorFilterGroupTile({
+    insightProps,
+    editorFilterGroup,
+    queryKind,
+}: EditorFilterGroupTileProps): JSX.Element {
+    const { title, defaultExpanded, editorFilters, collapsedSummary, headerExtra } = editorFilterGroup
     const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded, isExpandable] = useEditorGroupExpansion(defaultExpanded, hasContent)
 
@@ -32,6 +37,7 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                         posthog.capture('editor panel section toggled', {
                             section: title,
                             action: newState ? 'opened' : 'closed',
+                            query_kind: queryKind,
                         })
                     }}
                     sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
@@ -39,16 +45,22 @@ export function EditorFilterGroupTile({ insightProps, editorFilterGroup }: Edito
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                     className={clsx('rounded-b-none px-1 py-1', isRowExpanded && 'border-b')}
                 >
-                    <div className="flex items-baseline gap-2 font-semibold">
-                        <span>{title}</span>
+                    <div className={clsx('flex items-baseline gap-2 font-semibold min-w-0', headerExtra && 'flex-1')}>
+                        <span className="shrink-0">{title}</span>
                         {!isRowExpanded && collapsedSummary && (
-                            <span className="text-xs font-normal text-secondary">{collapsedSummary}</span>
+                            <span className="text-xs font-normal text-secondary truncate">{collapsedSummary}</span>
+                        )}
+                        {headerExtra && (
+                            <div className="ml-auto self-center shrink-0" onClick={(e) => e.stopPropagation()}>
+                                {headerExtra}
+                            </div>
                         )}
                     </div>
                 </LemonButton>
             ) : (
-                <div className="px-3 py-2">
+                <div className="px-3 py-2 flex items-center justify-between">
                     <span className="font-semibold text-secondary">{title}</span>
+                    {headerExtra}
                 </div>
             )}
             <div

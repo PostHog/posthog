@@ -6,16 +6,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use personhog_common::grpc::ClientInFlightGuard;
+use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
@@ -31,10 +31,12 @@ use routing::{get_consistency, route_request};
 /// Calls a replica backend method with timing instrumentation.
 macro_rules! call_backend {
     ($self:expr, $method_name:expr, $method:ident, $request:expr) => {{
+        let client = current_client_name();
         counter!(
             "personhog_router_backend_requests_total",
             "method" => $method_name,
-            "backend" => "replica"
+            "backend" => "replica",
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -47,7 +49,8 @@ macro_rules! call_backend {
         histogram!(
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
-            "backend" => "replica"
+            "backend" => "replica",
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -55,7 +58,8 @@ macro_rules! call_backend {
             counter!(
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
-                "backend" => "replica"
+                "backend" => "replica",
+                "client" => client.clone()
             )
             .increment(1);
         }
@@ -71,10 +75,12 @@ macro_rules! call_leader {
             Status::unimplemented("leader backend not configured for this router")
         })?;
 
+        let client = current_client_name();
         counter!(
             "personhog_router_backend_requests_total",
             "method" => $method_name,
-            "backend" => "leader"
+            "backend" => "leader",
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -85,7 +91,8 @@ macro_rules! call_leader {
         histogram!(
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
-            "backend" => "leader"
+            "backend" => "leader",
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -93,7 +100,8 @@ macro_rules! call_leader {
             counter!(
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
-                "backend" => "leader"
+                "backend" => "leader",
+                "client" => client.clone()
             )
             .increment(1);
         }
@@ -396,6 +404,23 @@ impl PersonHogRouter {
             get_group_type_mappings_by_project_ids,
             request
         )
+    }
+
+    // ============================================================
+    // Person deletes - Person data, write operations
+    // ============================================================
+
+    /// Delete persons from Postgres.
+    ///
+    /// WARNING: This is a write operation on person data. Per routing rules, it should
+    /// use call_leader! once personhog-leader supports deletes. Currently routed through
+    /// the replica (which uses the primary Postgres pool) as a temporary measure.
+    /// TODO: Migrate to call_leader! before personhog-leader goes live.
+    pub async fn delete_persons(
+        &self,
+        request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        call_backend!(self, "DeletePersons", delete_persons, request)
     }
 
     // ============================================================

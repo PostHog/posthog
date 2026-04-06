@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 import requests
 import structlog
 
-from posthog.models.integration import OauthIntegration
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServer, MCPServerInstallation
@@ -215,32 +214,16 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
         raise TokenRefreshError("No refresh token available")
 
     server = installation.server
-    kind = server.oauth_provider_kind if server else ""
-    token_url = ""
-    client_id = ""
-    client_secret: str | None = None
-
-    if kind:
-        try:
-            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-            token_url = oauth_config.token_url
-            client_id = oauth_config.client_id
-            client_secret = oauth_config.client_secret
-        except NotImplementedError:
-            kind = ""
-
-    if not kind:
-        metadata = server.oauth_metadata if server else {}
-        token_url = metadata.get("token_endpoint", "")
-        client_id = server.oauth_client_id if server else ""
-        if not token_url or not client_id:
-            raise TokenRefreshError("Missing OAuth metadata for token refresh")
+    metadata = server.oauth_metadata if server else {}
+    token_url = metadata.get("token_endpoint", "")
+    client_id = server.oauth_client_id if server else ""
+    if not token_url or not client_id:
+        raise TokenRefreshError("Missing OAuth metadata for token refresh")
 
     token_data = refresh_oauth_token(
         token_url=token_url,
         refresh_token=refresh_token_value,
         client_id=client_id,
-        client_secret=client_secret,
     )
 
     updated: dict = {
@@ -258,28 +241,6 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
 
     logger.info("OAuth token refreshed successfully", installation_id=str(installation.id))
     return updated
-
-
-def exchange_known_provider_token(*, kind: str, code: str, redirect_uri: str) -> dict:
-    oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-
-    token_response = requests.post(
-        oauth_config.token_url,
-        data={
-            "client_id": oauth_config.client_id,
-            "client_secret": oauth_config.client_secret,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        },
-        timeout=TIMEOUT,
-    )
-
-    if token_response.status_code != 200:
-        logger.error("OAuth token exchange failed", status_code=token_response.status_code, error=token_response.text)
-        raise OAuthTokenExchangeError("Failed to exchange authorization code")
-
-    return token_response.json()
 
 
 def exchange_dcr_token(

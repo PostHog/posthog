@@ -11,6 +11,10 @@ from posthog.models import ActivityLog, EventDefinition, EventProperty, Organiza
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
 
 
+def exclude_virtual_properties(results: list) -> list:
+    return [r for r in results if not r.get("name", "").startswith("$virt_")]
+
+
 class TestPropertyDefinitionAPI(APIBaseTest):
     EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
@@ -24,6 +28,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         {"name": "purchase_value", "is_numerical": True},
         {"name": "first_visit", "is_numerical": False},
     ]
+
+    @staticmethod
+    def _exclude_virtual(results: list) -> list:
+        return exclude_virtual_properties(results)
 
     def setUp(self) -> None:
         super().setUp()
@@ -62,20 +70,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         assert response.status_code == status.HTTP_200_OK
 
-        assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS)
-
-        assert [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]] == sorted(
-            self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: str(x["name"])
-        )
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert sorted(
+            [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in db_results],
+            key=lambda x: str(x["name"]),
+        ) == sorted(self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: str(x["name"]))
 
     def test_list_property_definitions_with_excluded_properties(self):
         response = self.client.get(
             f'/api/projects/{self.team.pk}/property_definitions/?excluded_properties=["first_visit"]'
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
 
-        assert "first_visit" not in [r["name"] for r in response.json()["results"]]
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert len(db_results) == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
+        assert "first_visit" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_with_excluded_core_properties(self):
         # core property that doesn't start with $
@@ -84,8 +93,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_core_properties=true")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 6
-        assert len(response.json()["results"]) == 6
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert len(db_results) == 6
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
@@ -98,12 +107,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.bulk_create(
             [PropertyDefinition(team=self.team, name="z_property_{}".format(i)) for i in range(1, 301)]
         )
-        expected_property_count = 310
-
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == expected_property_count
-        assert len(response.json()["results"]) == 100  # Default page size
+        assert len(self._exclude_virtual(response.json()["results"])) == 100  # Default page size
         assert response.json()["results"][0]["name"] == "$browser"
         assert response.json()["results"][1]["name"] == "$browser_version"
 
@@ -118,8 +124,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             assert response.status_code == status.HTTP_200_OK
 
-            assert response.json()["count"] == expected_property_count
-            assert len(response.json()["results"]) == (100 if i < 2 else 10)  # Each page has 100 except the last one
+            db_results = self._exclude_virtual(response.json()["results"])
+            assert len(db_results) == (100 if i < 2 else 10)
             assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
 
     def test_cant_see_property_definitions_for_another_team(self):
@@ -142,7 +148,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions")
         assert response.status_code == status.HTTP_200_OK
 
-        assert sorted([r["name"] for r in response.json()["results"]]) == sorted(
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert sorted([r["name"] for r in db_results]) == sorted(
             [
                 "$browser",
                 "$browser_version",
@@ -203,7 +210,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-        actual_results = [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]]
+        db_results = self._exclude_virtual(response.json()["results"])
+        actual_results = [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results]
 
         assert actual_results == [
             ("$browser", True),
@@ -228,8 +236,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
+        db_results = self._exclude_virtual(response.json()["results"])
         assert sorted(
-            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results],
             key=lambda tup: tup[0],
         ) == [
             ("$browser", True),
@@ -295,26 +304,55 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "Get all person properties",
+                "no search returns all person properties sorted by name",
                 "type=person",
                 [
+                    "$browser",
+                    "$initial_browser",
+                    "$initial_os",
                     "$initial_referrer",
+                    "$os",
                     "another",
                     "person property",
-                    "$virt_initial_channel_type",
-                    "$virt_initial_referring_domain_type",
-                    "$virt_revenue",
-                    "$virt_mrr",
                 ],
             ),
-            ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
-            ("Search all properties containing 'prop'", "search=prop", ["event property"]),
+            ("substring match on name", "type=person&search=prop", ["person property"]),
+            ("type=event excludes person properties", "search=prop", ["event property"]),
             (
-                "Search person properties containing 'latest'",
+                "'latest' alone finds all 'Latest X' properties via label alias",
                 "type=person&search=latest",
-                ["another", "person property"],
+                ["$os", "$browser"],
             ),
-            ("Search person properties containing 'late'", "type=person&search=late", ["another", "person property"]),
+            (
+                "'late' matches same aliases ('late' is substring of 'Latest' labels)",
+                "type=person&search=late",
+                ["$os", "$browser"],
+            ),
+            (
+                "'latest os' finds $os via label alias ('Latest OS'), excludes $initial_os",
+                "type=person&search=latest os",
+                ["$os"],
+            ),
+            (
+                "'latest browser' finds $browser via label alias ('Latest browser'), excludes $initial_browser",
+                "type=person&search=latest browser",
+                ["$browser"],
+            ),
+            (
+                "'initial' matches properties containing 'initial' in name (sorted by length)",
+                "type=person&search=initial",
+                ["$initial_os", "$initial_browser", "$initial_referrer"],
+            ),
+            (
+                "'initial os' matches only $initial_os (both words must match)",
+                "type=person&search=initial os",
+                ["$initial_os"],
+            ),
+            (
+                "'os' matches name substring and label alias",
+                "type=person&search=os",
+                ["$os", "$initial_os"],
+            ),
         ]
     )
     def test_person_property_filters(self, _name: str, query_params: str, expected_results: list[str]) -> None:
@@ -335,10 +373,34 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             name="$initial_referrer",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
-        )  # We want to hide this property on events, but not on persons
+        )
         PropertyDefinition.objects.create(
             team=self.team,
             name="another",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$browser",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_browser",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
         )
@@ -346,7 +408,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
 
-        assert [row["name"] for row in response.json()["results"]] == expected_results
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert [row["name"] for row in db_results] == expected_results
 
     @parameterized.expand(
         [
@@ -736,7 +799,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 4
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
     @parameterized.expand(
         [
@@ -777,7 +840,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding core properties
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0&exclude_core_properties=true"
@@ -785,26 +848,31 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding core properties
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_GROUP_PROPERTIES)
 
     def test_virtual_property_type_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual properties when type=person
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_PERSON_PROPERTIES)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual properties when type=group
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_GROUP_PROPERTIES)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
         assert response.status_code == status.HTTP_200_OK
-        # Should not include virtual properties when type=event
+        # Should include virtual event properties (bot detection)
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 0
+        assert len(virtual_props) == len(PropertyDefinitionViewSet._BUILTIN_VIRTUAL_EVENT_PROPERTIES)
+        virtual_names = {p["name"] for p in virtual_props}
+        assert "$virt_is_bot" in virtual_names
+        assert "$virt_traffic_type" in virtual_names
+        assert "$virt_traffic_category" in virtual_names
+        assert "$virt_bot_name" in virtual_names
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):
