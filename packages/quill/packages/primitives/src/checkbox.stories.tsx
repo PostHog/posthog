@@ -15,6 +15,12 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
     render: () => (
+        <Checkbox id="checkbox" />
+    ),
+} satisfies Story
+
+export const WithFieldGroup: Story = {
+    render: () => (
         <FieldGroup className="max-w-sm">
             <Field orientation="horizontal">
                 <Checkbox id="checkbox" />
@@ -40,7 +46,7 @@ export const WithFieldDescription: Story = {
 
 export const WithFieldLabel: Story = {
     render: () => (
-        <FieldLabel>
+        <FieldLabel className="max-w-sm">
             <Field orientation="horizontal">
                 <Checkbox id="toggle-checkbox-2" name="toggle-checkbox-2" />
                 <FieldContent>
