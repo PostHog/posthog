@@ -282,77 +282,47 @@ class TestCombineFilterBytecodes:
         result = execute_bytecode(combined, globals_input)
         assert result.result == expected_result
 
-    def test_failing_filter_returns_false_for_that_condition(self):
-        """A failing filter should return false for its condition, not crash the entire execution."""
+    @parameterized.expand(
+        [
+            (
+                "single_failing",
+                ["failing_condition"],
+                ["working_condition"],
+                {"working_condition": True},
+            ),
+            (
+                "multiple_failing",
+                ["fail1", "fail2"],
+                ["work"],
+                {"work": True},
+            ),
+        ]
+    )
+    def test_failing_filters_are_omitted_from_results(self, _, failing_hashes, working_hashes, expected):
+        """Failing filters should be omitted from results, not crash the entire execution."""
         from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
             evaluate_combined_filters_with_fallback_sync,
         )
 
-        # Create a filter that will fail with a comparison error
-        failing_bytecode = [
-            "_H",
-            1,
-            31,
-            32,
-            "nonexistent_prop",
-            32,
-            "properties",
-            32,
-            "person",
-            1,
-            3,
-            32,
-            "test",
-            13,
-        ]  # > comparison with null
+        failing_bytecode = ["_H", 1, 31, 32, "nonexistent", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
         working_bytecode = ["_H", 1, 29]  # Always true
 
         filters = [
+            PersonPropertyFilter(condition_hash=h, bytecode=failing_bytecode, cohort_ids=[i], property_key=None)
+            for i, h in enumerate(failing_hashes)
+        ] + [
             PersonPropertyFilter(
-                condition_hash="failing_condition", bytecode=failing_bytecode, cohort_ids=[1], property_key=None
-            ),
-            PersonPropertyFilter(
-                condition_hash="working_condition", bytecode=working_bytecode, cohort_ids=[2], property_key=None
-            ),
+                condition_hash=h, bytecode=working_bytecode, cohort_ids=[len(failing_hashes) + i], property_key=None
+            )
+            for i, h in enumerate(working_hashes)
         ]
 
         combined = combine_filter_bytecodes(filters)
         result = evaluate_combined_filters_with_fallback_sync(
-            combined, filters, {"person": {"properties": {}}}, "test-person-123"
+            combined, filters, {"person": {"properties": {}}}, "test-person"
         )
 
-        # The failing filter should not be in results (failed filters are omitted)
-        # The working one should return true
-        assert result == {"working_condition": True}
-
-    def test_multiple_failing_filters_isolated(self):
-        """Multiple failing filters should not interfere with each other or working filters."""
-        from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
-            evaluate_combined_filters_with_fallback_sync,
-        )
-
-        failing_bytecode_1 = ["_H", 1, 31, 32, "prop1", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
-        failing_bytecode_2 = ["_H", 1, 31, 32, "prop2", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
-        working_bytecode = ["_H", 1, 29]  # Always true
-
-        filters = [
-            PersonPropertyFilter(
-                condition_hash="fail1", bytecode=failing_bytecode_1, cohort_ids=[1], property_key=None
-            ),
-            PersonPropertyFilter(
-                condition_hash="fail2", bytecode=failing_bytecode_2, cohort_ids=[2], property_key=None
-            ),
-            PersonPropertyFilter(condition_hash="work", bytecode=working_bytecode, cohort_ids=[3], property_key=None),
-        ]
-
-        combined = combine_filter_bytecodes(filters)
-        result = evaluate_combined_filters_with_fallback_sync(
-            combined, filters, {"person": {"properties": {}}}, "test-person-456"
-        )
-
-        # Failing filters should not be in results (failed filters are omitted)
-        # Working filter should return true
-        assert result == {"work": True}
+        assert result == expected
 
 
 class TestEvaluateCombinedFiltersSync:

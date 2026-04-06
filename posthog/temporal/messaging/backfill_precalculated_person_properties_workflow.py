@@ -294,8 +294,6 @@ def evaluate_individual_filters_sync(
                 cohort_ids=filter_obj.cohort_ids,
                 error=str(e),
             )
-            # Continue processing other filters instead of failing all
-            continue
 
     return results
 
@@ -329,7 +327,19 @@ def evaluate_combined_filters_with_fallback_sync(
             )
 
         if isinstance(result, dict):
-            return result
+            invalid_result_entries = {
+                condition_hash: value for condition_hash, value in result.items() if not isinstance(value, bool)
+            }
+            if not invalid_result_entries:
+                return result
+            LOGGER.warning(
+                "Combined filter evaluation returned non-boolean values, falling back to individual execution",
+                person_id=person_id,
+                invalid_condition_hashes=list(invalid_result_entries.keys()),
+                invalid_result_types={
+                    condition_hash: type(value).__name__ for condition_hash, value in invalid_result_entries.items()
+                },
+            )
 
         if detailed_logging:
             LOGGER.warning(
