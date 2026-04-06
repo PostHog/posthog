@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -100,7 +101,9 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts } = useValues(logic)
+    const { alerts, alertsLoading } = useValues(logic)
+
+    const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
@@ -117,7 +120,11 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     </Link>
                 </div>
 
-                {alerts.length ? (
+                {showDeferredListSpinner ? (
+                    <div className="flex justify-center p-8">
+                        <Spinner />
+                    </div>
+                ) : alerts.length ? (
                     <div className="deprecated-space-y-2">
                         <div>
                             <strong>{alerts?.length}</strong> {pluralize(alerts.length || 0, 'alert', 'alerts', false)}

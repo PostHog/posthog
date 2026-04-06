@@ -102,6 +102,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionPlayerMetaData',
                     'sessionPlayerMetaDataLoading',
                     'isNotFound',
+                    'loadMetaError',
                     'trackedWindow',
                     'snapshotSources',
                     'snapshotsLoading',

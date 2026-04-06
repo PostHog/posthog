@@ -30,6 +30,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
     LLMPromptDuplicateNameConflictError,
+    LLMPromptEditError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
@@ -41,7 +42,12 @@ from posthog.api.services.llm_prompt import (
     publish_prompt_version,
     resolve_versions_page,
 )
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import LLMPrompt, User
@@ -130,7 +136,8 @@ class LLMPromptViewSet(
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
-            request.successful_authenticator, SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication
+            request.successful_authenticator,
+            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
         ):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},
@@ -254,7 +261,8 @@ class LLMPromptViewSet(
                 self.team,
                 user=cast(User, request.user),
                 prompt_name=prompt_name,
-                prompt_payload=payload.validated_data["prompt"],
+                prompt_payload=payload.validated_data.get("prompt"),
+                edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
             )
         except LLMPromptNotFoundError:
@@ -274,6 +282,14 @@ class LLMPromptViewSet(
                         f"Prompt has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the prompt to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMPromptEditError as err:
+            return Response(
+                {
+                    "detail": err.message,
+                    "edit_index": err.edit_index,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

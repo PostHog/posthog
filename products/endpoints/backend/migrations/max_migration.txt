@@ -1,1 +1,1 @@
-0023_backfill_team_id_on_endpointversion_fix
+0024_endpointversion_updated_at

@@ -4,6 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
+use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
@@ -17,6 +18,7 @@ use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -238,6 +240,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
+        // K8s awareness (optional)
+        let k8s_cancel = CancellationToken::new();
+        let k8s_awareness = if config.k8s_awareness_enabled {
+            let namespace = config
+                .resolve_k8s_namespace()
+                .expect("k8s awareness enabled but namespace resolution failed");
+            let client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client");
+            tracing::info!(%namespace, "K8s awareness enabled");
+            Some(Arc::new(K8sAwareness::new(
+                client,
+                namespace,
+                k8s_cancel.child_token(),
+            )))
+        } else {
+            tracing::info!("K8s awareness disabled");
+            None
+        };
+
         // Start coordinator (leader election + partition assignment)
         let coordinator_handle =
             coordinator_handle.expect("coordinator handle must be registered in leader mode");
@@ -251,6 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
             },
             Arc::new(StickyBalancedStrategy),
+            k8s_awareness,
         );
 
         tokio::spawn(async move {
@@ -258,6 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
                 coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
             }
+            k8s_cancel.cancel();
         });
 
         PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)

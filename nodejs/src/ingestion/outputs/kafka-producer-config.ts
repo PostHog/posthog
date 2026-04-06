@@ -27,8 +27,8 @@ const producerConfigSchema = z.object({
     log_level: z.coerce.number().default(4),
     'enable.idempotence': z
         .enum(['true', 'false'])
-        .transform((v) => v === 'true')
-        .default('true'),
+        .default('true')
+        .transform((v) => v === 'true'),
     'message.max.bytes': z.coerce.number().optional(),
     'batch.num.messages': z.coerce.number().optional(),
     'sticky.partitioning.linger.ms': z.coerce.number().optional(),

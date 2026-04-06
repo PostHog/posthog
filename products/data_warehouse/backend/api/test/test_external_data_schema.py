@@ -74,7 +74,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -122,7 +124,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="Some_other_non_existent_table",
@@ -197,7 +201,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
@@ -231,7 +237,9 @@ class TestExternalDataSchema(APIBaseTest):
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(
@@ -936,3 +944,57 @@ class TestUpdateExternalDataSchema:
 
         schedule_desc = describe_schedule(temporal, str(schema.id))
         assert schedule_desc.schedule.spec.intervals[0].offset == timedelta(hours=15, minutes=30)
+
+
+class TestCancelExternalDataSchema(APIBaseTest):
+    @mock.patch("products.data_warehouse.backend.api.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_running_sync(self, mock_cancel):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.RUNNING,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="test-workflow-id",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_called_once_with(job.workflow_id)
+
+    @mock.patch("products.data_warehouse.backend.api.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_when_no_running_job(self, mock_cancel):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "No running sync to cancel."
+        mock_cancel.assert_not_called()

@@ -48,6 +48,14 @@ pub struct ConsumerConfig {
     // Kafka offset commit attempts
     #[envconfig(default = "5000")]
     pub kafka_consumer_auto_commit_interval_ms: i32,
+
+    // Fetch tuning — None means "use librdkafka default" (i.e. don't override).
+    // WarpStream reads from object storage and benefits from larger, less frequent fetches.
+    pub kafka_consumer_fetch_wait_max_ms: Option<u32>,
+
+    pub kafka_consumer_fetch_min_bytes: Option<u32>,
+
+    pub kafka_consumer_fetch_max_bytes: Option<u32>,
 }
 
 impl ConsumerConfig {

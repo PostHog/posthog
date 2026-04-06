@@ -65,6 +65,7 @@ PRODUCTS_APPS = [
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
+    "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [
