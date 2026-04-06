@@ -233,13 +233,12 @@ def sync_from_github(*, team: "Team", config: GitHubSyncConfig) -> SyncResult:
         error = tree_result.get("error", "Unknown error fetching tree")
         logger.error("Failed to fetch repo tree", team_id=team.id, error=error)
         return SyncResult(created=[], updated=[], deleted=[], errors={"_tree": error})
-    # Multi-env: models/<env_name>/...
-    # Single-env: models/...
     tree_items = tree_result["tree"]
-    multi_env_prefix = f"{models_dir}/{env_name}/"
-    single_env_prefix = f"{models_dir}/"
-    has_env_dir = any(item["path"].startswith(multi_env_prefix) for item in tree_items)
-    base_prefix = multi_env_prefix if has_env_dir else single_env_prefix
+    is_multi_env = GitHubSyncConfig.objects.filter(repository=config.repository).count() > 1
+    if is_multi_env:
+        base_prefix = f"{models_dir}/{env_name}/"
+    else:
+        base_prefix = f"{models_dir}/"
     # Filter for .sql and dag.toml files under the models directory
     sql_items = []
     dag_toml_items = []

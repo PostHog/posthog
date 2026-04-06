@@ -59,7 +59,8 @@ def compute_plan(
 
     models_dir = config.models_directory or "models"
     env_name = config.environment_name
-    plan_data = _classify_changes(result["files"], models_dir, env_name)
+    is_multi_env = GitHubSyncConfig.objects.filter(repository=config.repository).count() > 1
+    plan_data = _classify_changes(result["files"], models_dir, env_name, is_multi_env=is_multi_env)
 
     # mark previous pending plans for this PR as stale
     GitHubSyncPlan.objects.filter(
@@ -93,18 +94,17 @@ def _classify_changes(
     files: list[dict[str, Any]],
     models_dir: str,
     env_name: str,
+    is_multi_env: bool = False,
 ) -> dict[str, Any]:
     """Classify PR file changes into model and DAG operations.
 
     Filters for files under the models directory (respecting multi-env layout)
     and groups them by type (model .sql vs dag.toml) and operation.
     """
-    # determine the base prefix — we can't check for multi-env without the full tree,
-    # so we infer from the changed files themselves
-    multi_env_prefix = f"{models_dir}/{env_name}/"
-    single_env_prefix = f"{models_dir}/"
-    has_env_dir = any(f["filename"].startswith(multi_env_prefix) for f in files)
-    base_prefix = multi_env_prefix if has_env_dir else single_env_prefix
+    if is_multi_env:
+        base_prefix = f"{models_dir}/{env_name}/"
+    else:
+        base_prefix = f"{models_dir}/"
 
     models: dict[str, list[dict[str, str]]] = {"added": [], "modified": [], "removed": [], "renamed": []}
     dags: dict[str, list[dict[str, Any]]] = {"added": [], "modified": [], "removed": []}
@@ -188,28 +188,14 @@ def _classify_dag_change(
 # ---------------------------------------------------------------------------
 
 
-def render_plan_comment(plan: GitHubSyncPlan) -> str:
-    """Render a plan as markdown suitable for a GitHub PR comment."""
-    plan_data = plan.plan
+def _render_plan_section(plan_data: dict[str, Any]) -> list[str]:
+    """Render model and DAG tables for a single plan. Returns lines without header/footer."""
     models = plan_data.get("models", {})
     dags = plan_data.get("dags", {})
+    lines: list[str] = []
 
     model_count = sum(len(v) for v in models.values())
-    dag_count = sum(len(v) for v in dags.values())
-    total = model_count + dag_count
-
-    lines: list[str] = [PLAN_COMMENT_HEADER, "", "### PostHog data modeling plan", ""]
-
-    if total == 0:
-        lines.append("No data modeling changes detected in this PR.")
-        return "\n".join(lines)
-
-    change_word = "change" if total == 1 else "changes"
-    lines.append(f"**{total} {change_word}** detected in this PR.")
-    lines.append("")
-
     if model_count > 0:
-        lines.append("#### Models")
         lines.append("| Action | Model | Path |")
         lines.append("|--------|-------|------|")
         for m in models.get("added", []):
@@ -222,8 +208,11 @@ def render_plan_comment(plan: GitHubSyncPlan) -> str:
             lines.append(f"| - Remove | `{m['name']}` | `{m['path']}` |")
         lines.append("")
 
+    dag_count = sum(len(v) for v in dags.values())
     if dag_count > 0:
-        lines.append("#### DAGs")
+        if model_count > 0:
+            lines.append("**DAGs**")
+            lines.append("")
         lines.append("| Action | Path |")
         lines.append("|--------|------|")
         for d in dags.get("added", []):
@@ -234,50 +223,115 @@ def render_plan_comment(plan: GitHubSyncPlan) -> str:
             lines.append(f"| - Remove | `{d['path']}` |")
         lines.append("")
 
+    return lines
+
+
+def render_plan_comment(plan: GitHubSyncPlan) -> str:
+    """Render a single plan as markdown. Used when there's only one environment."""
+    plan_data = plan.plan
+    total = sum(len(v) for v in plan_data.get("models", {}).values()) + sum(
+        len(v) for v in plan_data.get("dags", {}).values()
+    )
+
+    lines: list[str] = [PLAN_COMMENT_HEADER, "", "### PostHog data modeling plan", ""]
+
+    if total == 0:
+        lines.append("No data modeling changes detected in this PR.")
+        return "\n".join(lines)
+
+    change_word = "change" if total == 1 else "changes"
+    lines.append(f"**{total} {change_word}** detected in this PR.")
+    lines.append("")
+    lines.extend(_render_plan_section(plan_data))
     lines.append("> This plan will be applied when the PR is merged.")
     return "\n".join(lines)
 
 
-def post_plan_comment(plan: GitHubSyncPlan, config: GitHubSyncConfig) -> None:
-    """Render the plan and post or update the PR comment."""
-    if not config.integration:
+def render_combined_plan_comment(plans: list[tuple[str, GitHubSyncPlan]]) -> str:
+    """Render multiple plans (one per environment) into a single comment.
+
+    Args:
+        plans: list of (environment_name, plan) tuples
+    """
+    lines: list[str] = [PLAN_COMMENT_HEADER, "", "### PostHog data modeling plan", ""]
+
+    total = 0
+    for _, plan in plans:
+        plan_data = plan.plan
+        total += sum(len(v) for v in plan_data.get("models", {}).values())
+        total += sum(len(v) for v in plan_data.get("dags", {}).values())
+
+    if total == 0:
+        lines.append("No data modeling changes detected in this PR.")
+        return "\n".join(lines)
+
+    change_word = "change" if total == 1 else "changes"
+    lines.append(f"**{total} {change_word}** detected in this PR.")
+    lines.append("")
+
+    for env_name, plan in plans:
+        section = _render_plan_section(plan.plan)
+        if section:
+            lines.append(f"#### {env_name}")
+            lines.append("")
+            lines.extend(section)
+
+    lines.append("> This plan will be applied when the PR is merged.")
+    return "\n".join(lines)
+
+
+def post_plan_comment(
+    plans: list[tuple[str, GitHubSyncPlan]],
+    configs: list[GitHubSyncConfig],
+    pr_number: int,
+) -> None:
+    """Render plans and post or update a single PR comment.
+
+    Args:
+        plans: list of (environment_name, plan) tuples
+        configs: all configs for this repo (used to find integration and previous comment IDs)
+        pr_number: the PR number to post on
+    """
+    # find a config with a working integration
+    config = next((c for c in configs if c.integration), None)
+    if not config:
         return
 
-    body = render_plan_comment(plan)
+    if len(plans) == 1:
+        body = render_plan_comment(plans[0][1])
+    else:
+        body = render_combined_plan_comment(plans)
+
     github = GitHubIntegration(config.integration)
     repo_name = _extract_repo_name(config.repository)
 
-    # try to reuse an existing comment ID from this or a previous (stale) plan on the same PR
-    existing_comment_id = plan.github_comment_id
-    if existing_comment_id is None:
-        previous = (
-            GitHubSyncPlan.objects.filter(
-                config=config,
-                pr_number=plan.pr_number,
-                github_comment_id__isnull=False,
-            )
-            .exclude(id=plan.id)
-            .order_by("-created_at")
-            .values_list("github_comment_id", flat=True)
-            .first()
+    # try to reuse an existing comment ID from any plan on this PR
+    existing_comment_id = (
+        GitHubSyncPlan.objects.filter(
+            config__repository=config.repository,
+            pr_number=pr_number,
+            github_comment_id__isnull=False,
         )
-        if previous is not None:
-            existing_comment_id = previous
+        .order_by("-created_at")
+        .values_list("github_comment_id", flat=True)
+        .first()
+    )
 
     result = github.create_or_update_issue_comment(
         repo_name,
-        plan.pr_number,
+        pr_number,
         body,
         comment_id=existing_comment_id,
     )
 
     if result.get("success"):
-        plan.github_comment_id = result["comment_id"]
-        plan.save(update_fields=["github_comment_id"])
+        comment_id = result["comment_id"]
+        for _, plan in plans:
+            plan.github_comment_id = comment_id
+            plan.save(update_fields=["github_comment_id"])
     else:
         logger.warning(
             "post_plan_comment: failed to post comment",
-            plan_id=str(plan.id),
-            pr_number=plan.pr_number,
+            pr_number=pr_number,
             error=result.get("error"),
         )
