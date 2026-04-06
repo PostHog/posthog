@@ -116,7 +116,7 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
         # TODO: remove hardcoded schemas and derive the search path from the team's
         # data warehouse sources / DAG configuration instead
-        # DuckDB SET only accepts a single comma-separated string value (no spaces)
+        # duckgres SET seems to only accepts a single comma-separated string value
         conn.execute(
             psql.SQL("SET search_path TO '{},revenue,stripe,billing_public,credit,posthog'").format(
                 psql.SQL(safe_schema)
