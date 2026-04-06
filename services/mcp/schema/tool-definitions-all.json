@@ -1899,6 +1899,51 @@
             "readOnlyHint": false
         }
     },
+    "integrations-list": {
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub integrations are returned.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List integrations",
+        "title": "List integrations",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-get": {
+        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Get integration",
+        "title": "Get integration",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-delete": {
+        "description": "Permanently delete an integration by ID. This removes the connection to the third-party service. Any features relying on this integration (alerts, workflow destinations, etc.) will stop working.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Delete integration",
+        "title": "Delete integration",
+        "required_scopes": ["integration:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llm-analytics-clustering-jobs-list": {
         "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
         "category": "LLM analytics",

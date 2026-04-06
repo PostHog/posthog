@@ -383,6 +383,22 @@ group_type_mappings: PostgresTable = PostgresTable(
     },
 )
 
+integrations: PostgresTable = PostgresTable(
+    name="integrations",
+    postgres_table_name="posthog_integration",
+    access_scope="integration",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "kind": StringDatabaseField(name="kind"),
+        "integration_id": StringDatabaseField(name="integration_id"),
+        "config": StringJSONDatabaseField(name="config"),
+        "errors": StringDatabaseField(name="errors"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+    },
+)
+
 insight_variables: PostgresTable = PostgresTable(
     name="insight_variables",
     postgres_table_name="posthog_insightvariable",
@@ -666,6 +682,7 @@ class SystemTables(TableNode):
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
+        "integrations": TableNode(name="integrations", table=integrations),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
