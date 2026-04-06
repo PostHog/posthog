@@ -438,8 +438,8 @@ class AlertSerializer(serializers.ModelSerializer):
     def validate_schedule_restriction(self, value):
         try:
             return validate_and_normalize_schedule_restriction(value)
-        except ValueError as e:
-            raise serializers.ValidationError(str(e))
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule restriction.")
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
