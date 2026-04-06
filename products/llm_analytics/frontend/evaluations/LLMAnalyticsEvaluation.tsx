@@ -51,6 +51,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         evaluationProviderKeyIssue,
         signalEmissionEnabled,
         activeTab,
+        canEnable,
+        canEnableReason,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -293,15 +295,25 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             </Field>
 
                                             <div className="flex items-center gap-2">
-                                                <LemonSwitch
-                                                    checked={evaluation.enabled}
-                                                    onChange={setEvaluationEnabled}
-                                                    label="Enable evaluation"
-                                                />
+                                                <Tooltip
+                                                    title={canEnableReason}
+                                                    visible={canEnableReason ? undefined : false}
+                                                >
+                                                    <span>
+                                                        <LemonSwitch
+                                                            checked={evaluation.enabled}
+                                                            onChange={setEvaluationEnabled}
+                                                            label="Enable evaluation"
+                                                            disabled={!canEnable && !evaluation.enabled}
+                                                        />
+                                                    </span>
+                                                </Tooltip>
                                                 <span className="text-muted text-sm">
-                                                    {evaluation.enabled
-                                                        ? 'This evaluation will run automatically based on triggers'
-                                                        : 'This evaluation is paused and will not run'}
+                                                    {!canEnable && !evaluation.enabled
+                                                        ? 'Add a provider API key to re-enable this evaluation'
+                                                        : evaluation.enabled
+                                                          ? 'This evaluation will run automatically based on triggers'
+                                                          : 'This evaluation is paused and will not run'}
                                                 </span>
                                             </div>
 

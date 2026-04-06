@@ -1341,7 +1341,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsEvaluations(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsEvaluations',
         sceneKeys: [
             'LLMAnalytics',

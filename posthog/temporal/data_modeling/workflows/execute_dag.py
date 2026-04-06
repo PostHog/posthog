@@ -53,6 +53,7 @@ class ExecuteDAGInputs:
     dag_id: str
     node_ids: list[str] | None = None
     duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -324,6 +325,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             dag_id=inputs.dag_id,
                             node_id=node_id,
                             duckgres_only=inputs.duckgres_only,
+                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

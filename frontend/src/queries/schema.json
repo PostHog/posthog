@@ -2909,7 +2909,8 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "search_llm_traces"
+                "search_llm_traces",
+                "run_hog_eval_test"
             ],
             "type": "string"
         },
@@ -18944,6 +18945,12 @@
                 "nullValue": {
                     "type": "string"
                 },
+                "sortColumn": {
+                    "type": "string"
+                },
+                "sortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "valueColumn": {
                     "type": "string"
                 },
@@ -18961,6 +18968,10 @@
                 }
             },
             "type": "object"
+        },
+        "HeatmapSortOrder": {
+            "enum": ["asc", "desc"],
+            "type": "string"
         },
         "HedgehogActorAccessoryOption": {
             "enum": [
@@ -34976,6 +34987,7 @@
                 "workflow_variables",
                 "suggested_filters",
                 "recent_filters",
+                "pinned_filters",
                 "empty"
             ],
             "type": "string"
@@ -35738,6 +35750,10 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"
+                },
+                "excludeBoxPlotOutliers": {
+                    "default": true,
+                    "type": "boolean"
                 },
                 "formula": {
                     "deprecated": "Use formulaNodes instead.",

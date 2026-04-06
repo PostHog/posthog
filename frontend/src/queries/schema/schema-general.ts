@@ -1092,6 +1092,11 @@ export interface HeatmapGradientStop {
     color: string
 }
 
+export enum HeatmapSortOrder {
+    Asc = 'asc',
+    Desc = 'desc',
+}
+
 export interface HeatmapSettings {
     xAxisColumn?: string
     yAxisColumn?: string
@@ -1103,6 +1108,8 @@ export interface HeatmapSettings {
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'
+    sortColumn?: string
+    sortOrder?: HeatmapSortOrder
 }
 
 export interface YAxisSettings {
@@ -1380,6 +1387,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default true */
+    excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
 }
@@ -1404,6 +1413,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'excludeBoxPlotOutliers',
     'hideWeekends',
 ])
 

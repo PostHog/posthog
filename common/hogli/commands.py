@@ -42,6 +42,7 @@ from __future__ import annotations
 # Side-effect imports: these modules use @cli.command() decorators that register
 # commands with the CLI group when imported. The imports appear unused but are required.
 from hogli import (
+    build,  # noqa: F401
     doctor,  # noqa: F401
     migrations,  # noqa: F401
     product,  # noqa: F401

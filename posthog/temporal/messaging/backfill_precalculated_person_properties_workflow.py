@@ -184,6 +184,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     batch_size: int = 1000
     start_person_id: str = "00000000-0000-0000-0000-000000000000"  # Starting person ID for this batch
     end_person_id: str = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # Ending person ID for this batch
+    person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -202,6 +204,7 @@ def evaluate_combined_filters_sync(
     combined_bytecode: list[Any],
     hog_globals: dict[str, Any],
     person_id: str,
+    detailed_logging: bool = False,
 ) -> dict[str, Any]:
     """Execute combined bytecode for all filters, returning {condition_hash: result}.
 
@@ -210,8 +213,29 @@ def evaluate_combined_filters_sync(
     try:
         bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
         result = bytecode_result.result
+
+        if detailed_logging:
+            LOGGER.info(
+                "HogVM evaluation completed",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
         if isinstance(result, dict):
             return result
+
+        if detailed_logging:
+            LOGGER.warning(
+                "HogVM evaluation returned non-dict result",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+
         return {}
     except Exception as e:
         LOGGER.warning(
@@ -274,6 +298,9 @@ async def backfill_precalculated_person_properties_activity(
         f"processing {len(filters)} total filters from person ID {inputs.start_person_id} to {inputs.end_person_id} "
         f"with batch size {inputs.batch_size} ({len(filters)} filters = ~{inputs.batch_size * len(filters)} events per batch)"
     )
+
+    # Enable detailed logging when both cohort_id and person_id are set (single cohort + single person mode)
+    detailed_logging_enabled = inputs.person_id is not None and inputs.single_cohort_mode
 
     async with Heartbeater(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
@@ -361,6 +388,7 @@ async def backfill_precalculated_person_properties_activity(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
+        person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
         persons_query = f"""
             SELECT
                 id as person_id,
@@ -370,6 +398,7 @@ async def backfill_precalculated_person_properties_activity(
               AND id >= %(start_person_id)s
               AND id <= %(end_person_id)s
               AND is_deleted = 0
+              {person_filter_clause}
             ORDER BY id
             FORMAT JSONEachRow
         """
@@ -379,6 +408,8 @@ async def backfill_precalculated_person_properties_activity(
             "start_person_id": inputs.start_person_id,
             "end_person_id": inputs.end_person_id,
         }
+        if inputs.person_id is not None:
+            query_params["person_id"] = inputs.person_id
 
         last_person_id = inputs.start_person_id
         batch_count = 0
@@ -421,7 +452,25 @@ async def backfill_precalculated_person_properties_activity(
                         combined_bytecode,
                         hog_globals,
                         person_id,
+                        detailed_logging=detailed_logging_enabled,
                     )
+
+                    # Detailed logging for filter results when in single cohort + single person mode
+                    if detailed_logging_enabled:
+                        person_filter_duration = time.monotonic() - person_filter_start
+                        matching_conditions = [
+                            condition_hash for condition_hash, matches in filter_results.items() if matches
+                        ]
+                        logger.info(
+                            "Filter evaluation results",
+                            person_id=person_id,
+                            total_conditions=len(filter_results),
+                            matching_conditions=len(matching_conditions),
+                            matching_condition_hashes=matching_conditions,
+                            all_results=filter_results,
+                            evaluation_duration_ms=round(person_filter_duration * 1000, 2),
+                            person_properties_count=len(parsed_properties),
+                        )
 
                     # Produce Kafka messages for matching conditions
                     for condition_hash, matches in filter_results.items():
@@ -440,10 +489,20 @@ async def backfill_precalculated_person_properties_activity(
                                 )
                                 kafka_results.append(produce_result)
                                 total_events_produced += 1
+
+                                if detailed_logging_enabled:
+                                    logger.info(
+                                        "Kafka message produced for matching condition",
+                                        person_id=person_id,
+                                        condition_hash=condition_hash,
+                                        matches=matches,
+                                        kafka_topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    )
                             except Exception as e:
                                 logger.warning(
                                     f"Failed to produce Kafka message for person {person_id}: {e}",
                                     person_id=person_id,
+                                    condition_hash=condition_hash,
                                     error=str(e),
                                 )
 
