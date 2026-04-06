@@ -65,7 +65,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
             "pr_id": 1,
         }
 
-        result = create_pr_from_saved_query(self.saved_query)
+        result = create_pr_from_saved_query(self.saved_query, query_text="SELECT 1")
 
         assert result["success"] is True
         assert result["pr_number"] == 99
@@ -81,7 +81,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
         mock_github.update_file.return_value = {"success": True, "commit_sha": "c", "file_sha": "f", "html_url": "u"}
         mock_github.create_pull_request.return_value = {"success": True, "pr_number": 1, "pr_url": "u", "pr_id": 1}
 
-        create_pr_from_saved_query(self.saved_query)
+        create_pr_from_saved_query(self.saved_query, query_text="SELECT 1")
 
         update_call = mock_github.update_file.call_args
         assert update_call[0][1] == "models/revenue.sql"  # file_path
@@ -94,7 +94,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
             query={"query": "SELECT 2", "kind": "HogQLQuery"},
         )
 
-        result = create_pr_from_saved_query(unsynced)
+        result = create_pr_from_saved_query(unsynced, query_text="SELECT 2")
 
         assert result["success"] is False
         assert "not synced" in result["error"]
@@ -102,7 +102,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
     def test_fails_without_github_config(self):
         GitHubSyncConfig.objects.filter(team=self.team).delete()
 
-        result = create_pr_from_saved_query(self.saved_query)
+        result = create_pr_from_saved_query(self.saved_query, query_text="SELECT 1")
 
         assert result["success"] is False
 
@@ -143,7 +143,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
                         obj = getattr(obj, part)
                     setattr(obj, parts[-1], value)
 
-                result = create_pr_from_saved_query(self.saved_query)
+                result = create_pr_from_saved_query(self.saved_query, query_text="SELECT 1")
 
                 assert result["success"] is False
                 assert "error" in result

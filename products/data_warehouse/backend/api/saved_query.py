@@ -269,6 +269,14 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             },
         }
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["is_github_synced"] = instance.is_github_synced
+        github_pr_url = self.context.get("github_pr_url")
+        if github_pr_url:
+            data["github_pr_url"] = github_pr_url
+        return data
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -392,6 +400,26 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
 
         soft_update = validated_data.pop("soft_update", False)
+
+        # GitHub-synced models: don't apply query changes locally, only create a PR
+        if "query" in validated_data and instance.is_github_synced:
+            try:
+                from products.data_modeling.backend.services.github.pr_service import create_pr_from_saved_query
+
+                new_query_text = validated_data["query"].get("query", "")
+                pr_result = create_pr_from_saved_query(instance, query_text=new_query_text)
+                if pr_result.get("success"):
+                    self.context["github_pr_url"] = pr_result["pr_url"]
+                else:
+                    raise serializers.ValidationError(
+                        f"Failed to create GitHub PR: {pr_result.get('error', 'Unknown error')}"
+                    )
+            except serializers.ValidationError:
+                raise
+            except Exception as e:
+                capture_exception(e)
+                raise serializers.ValidationError("Failed to create GitHub PR for this synced model")
+            return instance
 
         with transaction.atomic():
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
@@ -519,18 +547,6 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-
-            # if this model is synced from GitHub, push the change back as a PR
-            if view.is_github_synced:
-                try:
-                    from products.data_modeling.backend.services.github.pr_service import create_pr_from_saved_query
-
-                    pr_result = create_pr_from_saved_query(view)
-                    if pr_result.get("success"):
-                        self.context["github_pr_url"] = pr_result["pr_url"]
-                except Exception as e:
-                    capture_exception(e)
-                    logger.warning("Failed to create GitHub PR for synced model", saved_query_name=view.name)
 
         return view
 

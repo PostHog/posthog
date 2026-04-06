@@ -20,16 +20,22 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 logger = structlog.get_logger(__name__)
 
 
-def create_pr_from_saved_query(saved_query: DataWarehouseSavedQuery) -> dict[str, Any]:
+def create_pr_from_saved_query(
+    saved_query: DataWarehouseSavedQuery,
+    query_text: str,
+) -> dict[str, Any]:
     """Create a GitHub PR with the updated model file.
 
     Looks up the GitHubSyncedModel to find the file path, serializes the
-    current query back to SQL with annotations, creates a branch, commits
+    query text back to a .sql file with annotations, creates a branch, commits
     the file, and opens a PR.
 
     Returns a dict with {success, pr_url, pr_number} on success,
     or {success: False, error} on failure.
     """
+    if not query_text:
+        return {"success": False, "error": "No query text provided"}
+
     try:
         synced_model = saved_query.github_synced_model
     except Exception:
@@ -41,11 +47,6 @@ def create_pr_from_saved_query(saved_query: DataWarehouseSavedQuery) -> dict[str
 
     github = GitHubIntegration(config.integration)
     repo_name = _extract_repo_name(config.repository)
-
-    # serialize the current state back to .sql
-    query_text = saved_query.query.get("query", "") if saved_query.query else ""
-    if not query_text:
-        return {"success": False, "error": "Saved query has no query text"}
 
     # determine materialization from the node type
     from products.data_modeling.backend.models.node import Node, NodeType
