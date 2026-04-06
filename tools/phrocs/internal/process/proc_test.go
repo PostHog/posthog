@@ -610,6 +610,201 @@ func TestBuildCmd_globalShell(t *testing.T) {
 	}
 }
 
+// ── VT emulator integration ────────────────────────────────────────────────────
+
+func TestVT_cursorMovementOverwrites(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	// Write two lines, then cursor-up + overwrite the first
+	p.emulator.Write([]byte("old line\r\n"))
+	p.emulator.Write([]byte("second\r\n"))
+	// Move cursor up 2, write replacement
+	p.emulator.Write([]byte("\x1b[2Anew line\r\n"))
+
+	lines := p.Lines()
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "new line") {
+		t.Errorf("cursor-up overwrite: want 'new line', got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "old line") {
+		t.Errorf("old content should be overwritten, got %q", lines[0])
+	}
+}
+
+func TestVT_eraseLineSequence(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Write([]byte("to be erased\r\n"))
+	p.emulator.Write([]byte("keep this\r\n"))
+	// Cursor up 2 + erase entire line (CSI 2K)
+	p.emulator.Write([]byte("\x1b[2A\x1b[2K\r\n"))
+
+	lines := p.Lines()
+	if len(lines) < 1 {
+		t.Fatalf("expected at least 1 line, got %d", len(lines))
+	}
+	// First line should be blank after erase
+	if strings.TrimSpace(lines[0]) != "" {
+		t.Errorf("erased line should be blank, got %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "keep this") {
+		t.Errorf("second line should be preserved, got %q", lines[1])
+	}
+}
+
+func TestVT_scrollbackAndScreen(t *testing.T) {
+	// Small screen (5 rows) with scrollback of 10
+	p := NewProcess("vt", config.ProcConfig{}, 10, "")
+	p.emulator.Resize(40, 5)
+
+	// Write 8 lines — 3 go to scrollback, 5 remain on screen
+	for i := range 8 {
+		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+	}
+
+	lines := p.Lines()
+	if len(lines) < 8 {
+		t.Fatalf("expected at least 8 lines (scrollback + screen), got %d", len(lines))
+	}
+	// First line should be from scrollback
+	if !strings.Contains(lines[0], "line 0") {
+		t.Errorf("first scrollback line: want 'line 0', got %q", lines[0])
+	}
+	// Last content line
+	if !strings.Contains(lines[7], "line 7") {
+		t.Errorf("last line: want 'line 7', got %q", lines[7])
+	}
+}
+
+func TestVT_scrollbackEviction(t *testing.T) {
+	// Scrollback of 3, screen of 2 rows — eviction after 5 lines
+	p := NewProcess("vt", config.ProcConfig{}, 3, "")
+	p.emulator.Resize(40, 2)
+
+	for i := range 8 {
+		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+	}
+
+	lines := p.Lines()
+	// Oldest lines should have been evicted from scrollback
+	for _, l := range lines {
+		if strings.Contains(l, "line 0") || strings.Contains(l, "line 1") || strings.Contains(l, "line 2") {
+			t.Errorf("evicted line should not appear, got %q", l)
+		}
+	}
+	// Recent lines should be present
+	found7 := false
+	for _, l := range lines {
+		if strings.Contains(l, "line 7") {
+			found7 = true
+		}
+	}
+	if !found7 {
+		t.Errorf("recent line 'line 7' should be present, lines: %v", lines)
+	}
+}
+
+func TestVT_centeringPreservesLeadingSpaces(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(80, 24)
+	// Simulate centered text: 20 spaces + content
+	p.emulator.Write([]byte("                    centered text\r\n"))
+
+	lines := p.Lines()
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 line")
+	}
+	if !strings.HasPrefix(lines[0], "                    centered") {
+		t.Errorf("leading spaces should be preserved, got %q", lines[0])
+	}
+}
+
+func TestVT_cursorForwardPreservesIndent(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(80, 24)
+	// CSI 20C = cursor forward 20 columns, then write text
+	p.emulator.Write([]byte("\x1b[20Cindented via escape\r\n"))
+
+	lines := p.Lines()
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 line")
+	}
+	// The first 20 columns should be spaces, then the text
+	if len(lines[0]) < 20 {
+		t.Fatalf("line too short: %q", lines[0])
+	}
+	prefix := lines[0][:20]
+	if strings.TrimSpace(prefix) != "" {
+		t.Errorf("first 20 chars should be spaces, got %q", prefix)
+	}
+	if !strings.Contains(lines[0], "indented via escape") {
+		t.Errorf("text should follow indent, got %q", lines[0])
+	}
+}
+
+func TestVT_resizeUpdatesEmulator(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	if w := p.emulator.Width(); w != 80 {
+		t.Fatalf("initial width: got %d, want 80", w)
+	}
+	p.Resize(120, 40)
+	if w := p.emulator.Width(); w != 120 {
+		t.Errorf("after Resize: width got %d, want 120", w)
+	}
+	if h := p.emulator.Height(); h != 40 {
+		t.Errorf("after Resize: height got %d, want 40", h)
+	}
+}
+
+func TestVT_emptyScreenReturnsNoLines(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	lines := p.Lines()
+	if len(lines) != 0 {
+		t.Errorf("empty emulator: want 0 lines, got %d", len(lines))
+	}
+}
+
+func TestVT_clearLinesResetsScrollback(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(40, 3)
+	// Write enough to fill scrollback
+	for i := range 10 {
+		p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+	}
+	before := p.Lines()
+	if len(before) == 0 {
+		t.Fatal("expected lines before clear")
+	}
+
+	p.ClearLines()
+
+	after := p.Lines()
+	// Scrollback should be empty; only visible screen lines remain
+	sb := p.emulator.Scrollback()
+	if sb.Len() != 0 {
+		t.Errorf("scrollback should be empty after ClearLines, got %d", sb.Len())
+	}
+	if len(after) >= len(before) {
+		t.Errorf("after ClearLines: expected fewer lines (%d before), got %d", len(before), len(after))
+	}
+}
+
+func TestVT_appendLineWritesToEmulator(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.AppendLine("hello from test")
+	lines := p.Lines()
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "hello from test") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("AppendLine content not found in Lines(), got: %v", lines)
+	}
+}
+
 func TestBuildCmd_cmdBypassesShell(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{Cmd: []string{"echo", "hi"}}, 100, "/bin/zsh")
 	cmd := p.buildCmd()

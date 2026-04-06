@@ -218,19 +218,18 @@ func (p *Process) MarkRead() {
 
 func (p *Process) Lines() []string {
 	p.mu.Lock()
-	em := p.emulator
-	p.mu.Unlock()
-	if em == nil {
+	defer p.mu.Unlock()
+	if p.emulator == nil {
 		return nil
 	}
 	result := []string{}
-	sb := em.Scrollback()
+	sb := p.emulator.Scrollback()
 	if sb != nil {
 		for i := range sb.Len() {
 			result = append(result, sb.Line(i).Render())
 		}
 	}
-	screen := em.Render()
+	screen := p.emulator.Render()
 	screenLines := strings.Split(screen, "\n")
 	// The VT screen buffer always has height rows; trim trailing blank rows
 	// so unused screen space doesn't inflate the line count.
@@ -244,20 +243,18 @@ func (p *Process) Lines() []string {
 // ClearLines empties the scrollback buffer.
 func (p *Process) ClearLines() {
 	p.mu.Lock()
-	em := p.emulator
-	p.mu.Unlock()
-	if em != nil {
-		em.ClearScrollback()
+	defer p.mu.Unlock()
+	if p.emulator != nil {
+		p.emulator.ClearScrollback()
 	}
 }
 
 // AppendLine injects a line into the buffer without a real subprocess (for tests).
 func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
-	em := p.emulator
-	p.mu.Unlock()
-	if em != nil {
-		_, _ = em.Write([]byte(line + "\n"))
+	defer p.mu.Unlock()
+	if p.emulator != nil {
+		_, _ = p.emulator.Write([]byte(line + "\n"))
 	}
 }
 

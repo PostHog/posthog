@@ -113,6 +113,9 @@ var (
 			Bold(true).
 			Foreground(colorYellow).
 			Background(colorBrightBlack)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(colorBrightYellow)
 )
 
 func statusIconChar(s process.Status) string {

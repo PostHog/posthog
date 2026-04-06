@@ -382,6 +382,13 @@ func (m Model) renderSetupView() string {
 		rows = append(rows, scrollArrowStyle.Width(w).Render("▼"))
 	}
 
+	rows = append(rows, "")
+	if m.setupStep == 1 {
+		rows = append(rows, hintStyle.Render("  Enter to continue..."))
+	} else {
+		rows = append(rows, hintStyle.Render("  Enter to save and apply"))
+	}
+
 	for len(rows) < h {
 		rows = append(rows, "")
 	}
