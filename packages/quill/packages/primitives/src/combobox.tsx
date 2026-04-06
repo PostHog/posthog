@@ -18,7 +18,10 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     const anchorRef = React.useRef<HTMLDivElement>(null!)
     return (
         <ComboboxAnchorContext.Provider value={anchorRef}>
-            <ComboboxPrimitive.Root highlightItemOnHover={highlightItemOnHover} {...(props as any)}>
+            <ComboboxPrimitive.Root
+                    highlightItemOnHover={highlightItemOnHover}
+                    {...props}
+                >
                 {children}
             </ComboboxPrimitive.Root>
         </ComboboxAnchorContext.Provider>
