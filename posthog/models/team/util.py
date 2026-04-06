@@ -30,7 +30,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
+    from posthog.models.person import PersonlessDistinctId
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
@@ -56,17 +56,18 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
     # Falls back to ORM batch deletion when personhog is not available.
-    _delete_persons_for_teams(team_ids, Person, PersonDistinctId)
+    _delete_persons_for_teams(team_ids)
 
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
-def _delete_persons_for_teams(team_ids: list[int], Person: type, PersonDistinctId: type):
+def _delete_persons_for_teams(team_ids: list[int]) -> None:
     """Delete Person + PersonDistinctId rows for teams via personhog RPC.
 
     Falls back to ORM batch deletion when personhog is not available.
     The RPC handles PersonDistinctId deletion automatically.
     """
+    from posthog.models.person import Person, PersonDistinctId
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.gate import use_personhog
     from posthog.personhog_client.proto import DeletePersonsRequest

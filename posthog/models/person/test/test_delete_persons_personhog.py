@@ -5,6 +5,8 @@ Covers routing, fallback, and integration for:
 - _delete_persons_for_teams (team deletion path)
 """
 
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -81,7 +83,7 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             mock_errors_counter.labels.assert_called_once()
 
     def test_personhog_sends_correct_uuids(self):
-        mock_persons = []
+        mock_persons: Any = []
         for uuid in ["uuid-1", "uuid-2", "uuid-3"]:
             p = MagicMock()
             p.uuid = uuid
@@ -96,7 +98,7 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             assert list(req.person_uuids) == ["uuid-1", "uuid-2", "uuid-3"]
 
     def test_personhog_batches_over_1000(self):
-        mock_persons = []
+        mock_persons: Any = []
         for i in range(1500):
             p = MagicMock()
             p.uuid = f"uuid-{i}"
@@ -150,20 +152,24 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
     ):
         mock_use_personhog.return_value = gate_on
 
-        MockPerson = MagicMock()
-        MockPersonDistinctId = MagicMock()
+        mock_person_cls = MagicMock()
+        mock_person_did_cls = MagicMock()
         # Simulate no persons to delete (empty queryset)
-        MockPerson.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(return_value=[])
+        mock_person_cls.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(return_value=[])
 
-        with fake_personhog_client(gate_enabled=gate_on) as fake:
+        with (
+            fake_personhog_client(gate_enabled=gate_on) as fake,
+            patch("posthog.models.person.Person", mock_person_cls),
+            patch("posthog.models.person.PersonDistinctId", mock_person_did_cls),
+        ):
             if grpc_exception is not None:
                 fake.delete_persons = MagicMock(side_effect=grpc_exception)
-                # On failure, we need the queryset mock to return empty for the loop
-                MockPerson.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(
+                # On failure, we need the queryset mock to return a uuid for the loop
+                mock_person_cls.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(
                     return_value=["uuid-1"]
                 )
 
-            _delete_persons_for_teams([1], MockPerson, MockPersonDistinctId)
+            _delete_persons_for_teams([1])
 
         if gate_on and grpc_exception is None:
             mock_raw_delete_batch.assert_not_called()
@@ -236,7 +242,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
         assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 3
 
         with fake_personhog_client(gate_enabled=False):
-            _delete_persons_for_teams([self.team.pk], Person, PersonDistinctId)
+            _delete_persons_for_teams([self.team.pk])
 
         assert Person.objects.filter(team_id=self.team.pk).count() == 0
         assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
@@ -250,7 +256,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
             fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
             fake.add_person(team_id=other_team.pk, person_id=p2.pk, uuid=str(p2.uuid), distinct_ids=["b"])
 
-            _delete_persons_for_teams([self.team.pk, other_team.pk], Person, PersonDistinctId)
+            _delete_persons_for_teams([self.team.pk, other_team.pk])
 
             # Should call delete_persons for each team that has persons
             calls = fake.assert_called("delete_persons")
@@ -263,7 +269,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
 
         with fake_personhog_client(gate_enabled=True) as fake:
             fake.delete_persons = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            _delete_persons_for_teams([self.team.pk], Person, PersonDistinctId)
+            _delete_persons_for_teams([self.team.pk])
 
         assert Person.objects.filter(team_id=self.team.pk).count() == 0
         assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
@@ -274,7 +280,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
         Person.objects.create(team=other_team, distinct_ids=["b"])
 
         with fake_personhog_client(gate_enabled=False):
-            _delete_persons_for_teams([self.team.pk], Person, PersonDistinctId)
+            _delete_persons_for_teams([self.team.pk])
 
         assert Person.objects.filter(team_id=self.team.pk).count() == 0
         assert Person.objects.filter(team_id=other_team.pk).count() == 1
