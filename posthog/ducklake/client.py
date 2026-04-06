@@ -48,7 +48,6 @@ def _make_duckgres_conninfo(team_id: int) -> str:
 
 # TODO: remove hardcoded schemas and derive the search path from the team's
 # data warehouse sources / DAG configuration instead
-# duckgres SET seems to only accept a single comma-separated string value
 _SEARCH_PATH_SCHEMAS = ["revenue", "stripe", "billing_public", "credit", "posthog"]
 
 
@@ -126,9 +125,7 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
-        # TODO: remove hardcoded schemas and derive the search path from the team's
-        # data warehouse sources / DAG configuration instead
-        # duckgres SET seems to only accepts a single comma-separated string value
+        # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
             # capture previous table size before replacing
