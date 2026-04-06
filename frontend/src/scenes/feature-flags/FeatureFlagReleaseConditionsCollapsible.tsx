@@ -15,7 +15,19 @@ import { useActions, useValues } from 'kea'
 import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
-import { IconCollapse, IconCopy, IconExpand, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    IconBalance,
+    IconCollapse,
+    IconCopy,
+    IconExpand,
+    IconInfo,
+    IconLaptop,
+    IconPerson,
+    IconPlus,
+    IconServer,
+    IconTrash,
+    IconCheckCircle,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -26,7 +38,6 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -912,76 +923,29 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
                         <div>
                             <LemonLabel className="mb-2">Match by</LemonLabel>
-                            <LemonRadio
+                            <div
+                                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
                                 data-attr="feature-flag-aggregation-filter"
-                                value={
-                                    isMixedTargeting
-                                        ? 'mixed'
-                                        : releaseFilters.aggregation_group_type_index != null
-                                          ? 'group'
-                                          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
-                                            ? 'device'
-                                            : 'user'
-                                }
-                                onChange={(value: string) => {
-                                    if (value === 'user') {
-                                        setIsMixedTargeting(false)
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                                    } else if (value === 'device') {
-                                        setIsMixedTargeting(false)
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                                    } else if (value === 'group') {
-                                        setIsMixedTargeting(false)
-                                        const firstGroupType = groupTypeValues[0]
-                                        if (firstGroupType) {
-                                            setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                                        }
-                                        onBucketingIdentifierChange?.(null)
-                                    } else if (value === 'mixed') {
-                                        setIsMixedTargeting(true)
-                                        // Reset flag-level aggregation; each condition set picks its own
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(null)
-                                    }
-                                }}
-                                options={[
+                            >
+                                {[
                                     {
                                         value: 'user',
-                                        label: (
-                                            <div>
-                                                <div className="font-medium">User</div>
-                                                <div className="text-xs text-muted">
-                                                    Stable assignment for logged-in users based on their distinct ID.
-                                                </div>
-                                            </div>
-                                        ),
+                                        icon: <IconPerson className="text-lg" />,
+                                        label: 'User',
+                                        description:
+                                            'Stable assignment for logged-in users based on their distinct ID.',
                                     },
                                     ...(onBucketingIdentifierChange
                                         ? [
                                               {
                                                   value: 'device',
-                                                  label: (
-                                                      <div>
-                                                          <div className="font-medium">
-                                                              Device{' '}
-                                                              <LemonTag type="warning" size="small">
-                                                                  BETA
-                                                              </LemonTag>
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment per device. Good fit for experiments on
-                                                              anonymous users.{' '}
-                                                              <Link
-                                                                  to="https://posthog.com/docs/feature-flags/device-bucketing"
-                                                                  target="_blank"
-                                                              >
-                                                                  Learn more
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  ),
+                                                  icon: <IconLaptop className="text-lg" />,
+                                                  label: 'Device',
+                                                  description:
+                                                      'Stable assignment per device. Good fit for experiments on anonymous users.',
+                                                  badge: { type: 'warning' as const, text: 'BETA' },
+                                                  learnMoreUrl:
+                                                      'https://posthog.com/docs/feature-flags/device-bucketing',
                                               },
                                           ]
                                         : []),
@@ -989,37 +953,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         ? [
                                               {
                                                   value: 'group',
-                                                  label: (
-                                                      <div>
-                                                          <div className="flex items-center gap-2">
-                                                              <span className="font-medium">Group</span>
-                                                              {releaseFilters.aggregation_group_type_index != null &&
-                                                                  !isMixedTargeting && (
-                                                                      <LemonSelect
-                                                                          size="xsmall"
-                                                                          dropdownMatchSelectWidth={false}
-                                                                          data-attr="feature-flag-group-type-select"
-                                                                          value={
-                                                                              releaseFilters.aggregation_group_type_index
-                                                                          }
-                                                                          onChange={(value) => {
-                                                                              if (value != null) {
-                                                                                  setAggregationGroupTypeIndex(value)
-                                                                              }
-                                                                          }}
-                                                                          options={groupTypeValues.map((groupType) => ({
-                                                                              value: groupType.group_type_index,
-                                                                              label: groupType.group_type,
-                                                                          }))}
-                                                                      />
-                                                                  )}
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment for everyone in an organization,
-                                                              company, or other custom group type.
-                                                          </div>
-                                                      </div>
-                                                  ),
+                                                  icon: <IconServer className="text-lg" />,
+                                                  label: 'Group',
+                                                  description:
+                                                      'Stable assignment for everyone in an organization, company, or other custom group type.',
                                               },
                                           ]
                                         : []),
@@ -1027,43 +964,167 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         ? [
                                               {
                                                   value: 'mixed',
-                                                  label: (
-                                                      <div>
-                                                          <div className="flex items-center gap-2">
-                                                              <span className="font-medium">User & Group</span>
-                                                              <LemonTag type="highlight" size="small">
-                                                                  NEW
-                                                              </LemonTag>
-                                                              {isMixedTargeting && (
-                                                                  <LemonSelect
-                                                                      size="xsmall"
-                                                                      dropdownMatchSelectWidth={false}
-                                                                      data-attr="feature-flag-mixed-group-type-select"
-                                                                      value={mixedGroupTypeIndex}
-                                                                      onChange={(value) => {
-                                                                          if (value != null) {
-                                                                              setMixedGroupTypeIndex(value)
-                                                                          }
-                                                                      }}
-                                                                      options={groupTypeValues.map((groupType) => ({
-                                                                          value: groupType.group_type_index,
-                                                                          label: groupType.group_type,
-                                                                      }))}
-                                                                  />
-                                                              )}
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Mix user and group targeting across condition sets. Each
-                                                              condition set picks its own targeting type.
-                                                          </div>
-                                                      </div>
-                                                  ),
+                                                  icon: <IconBalance className="text-lg" />,
+                                                  label: 'User & Group',
+                                                  description:
+                                                      'Mix user and group targeting across condition sets. Each condition set picks its own targeting type.',
+                                                  badge: { type: 'highlight' as const, text: 'NEW' },
                                               },
                                           ]
                                         : []),
-                                ]}
-                                radioPosition="top"
-                            />
+                                ].map((option) => {
+                                    const isSelected =
+                                        (option.value === 'mixed' && isMixedTargeting) ||
+                                        (option.value === 'group' &&
+                                            !isMixedTargeting &&
+                                            releaseFilters.aggregation_group_type_index != null) ||
+                                        (option.value === 'device' &&
+                                            !isMixedTargeting &&
+                                            bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID) ||
+                                        (option.value === 'user' &&
+                                            !isMixedTargeting &&
+                                            releaseFilters.aggregation_group_type_index == null &&
+                                            bucketingIdentifier !== FeatureFlagBucketingIdentifier.DEVICE_ID)
+
+                                    return (
+                                        <div
+                                            key={option.value}
+                                            role="radio"
+                                            aria-checked={isSelected}
+                                            tabIndex={0}
+                                            className={`rounded p-3 cursor-pointer transition-colors ${
+                                                isSelected
+                                                    ? 'bg-accent-highlight-light border-2 border-accent'
+                                                    : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                            }`}
+                                            onClick={() => {
+                                                if (option.value === 'user') {
+                                                    setIsMixedTargeting(false)
+                                                    setAggregationGroupTypeIndex(null)
+                                                    onBucketingIdentifierChange?.(
+                                                        FeatureFlagBucketingIdentifier.DISTINCT_ID
+                                                    )
+                                                } else if (option.value === 'device') {
+                                                    setIsMixedTargeting(false)
+                                                    setAggregationGroupTypeIndex(null)
+                                                    onBucketingIdentifierChange?.(
+                                                        FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                    )
+                                                } else if (option.value === 'group') {
+                                                    setIsMixedTargeting(false)
+                                                    const firstGroupType = groupTypeValues[0]
+                                                    if (firstGroupType) {
+                                                        setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                                                    }
+                                                    onBucketingIdentifierChange?.(null)
+                                                } else if (option.value === 'mixed') {
+                                                    setIsMixedTargeting(true)
+                                                    setAggregationGroupTypeIndex(null)
+                                                    onBucketingIdentifierChange?.(null)
+                                                }
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault()
+                                                    // Trigger the same logic as onClick
+                                                    if (option.value === 'user') {
+                                                        setIsMixedTargeting(false)
+                                                        setAggregationGroupTypeIndex(null)
+                                                        onBucketingIdentifierChange?.(
+                                                            FeatureFlagBucketingIdentifier.DISTINCT_ID
+                                                        )
+                                                    } else if (option.value === 'device') {
+                                                        setIsMixedTargeting(false)
+                                                        setAggregationGroupTypeIndex(null)
+                                                        onBucketingIdentifierChange?.(
+                                                            FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                        )
+                                                    } else if (option.value === 'group') {
+                                                        setIsMixedTargeting(false)
+                                                        const firstGroupType = groupTypeValues[0]
+                                                        if (firstGroupType) {
+                                                            setAggregationGroupTypeIndex(
+                                                                firstGroupType.group_type_index
+                                                            )
+                                                        }
+                                                        onBucketingIdentifierChange?.(null)
+                                                    } else if (option.value === 'mixed') {
+                                                        setIsMixedTargeting(true)
+                                                        setAggregationGroupTypeIndex(null)
+                                                        onBucketingIdentifierChange?.(null)
+                                                    }
+                                                }
+                                            }}
+                                            data-attr={`feature-flag-aggregation-${option.value}`}
+                                        >
+                                            <div className="flex flex-col gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    {option.icon}
+                                                    <span className="font-medium flex-1">{option.label}</span>
+                                                    {option.badge && (
+                                                        <LemonTag type={option.badge.type} size="small">
+                                                            {option.badge.text}
+                                                        </LemonTag>
+                                                    )}
+                                                    {isSelected && (
+                                                        <IconCheckCircle className="text-accent text-base" />
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-muted">
+                                                    {option.description}
+                                                    {option.learnMoreUrl && (
+                                                        <>
+                                                            {' '}
+                                                            <Link to={option.learnMoreUrl} target="_blank">
+                                                                Learn more
+                                                            </Link>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                {/* Group type selector for selected group option */}
+                                                {option.value === 'group' &&
+                                                    isSelected &&
+                                                    releaseFilters.aggregation_group_type_index != null &&
+                                                    !isMixedTargeting && (
+                                                        <LemonSelect
+                                                            size="xsmall"
+                                                            dropdownMatchSelectWidth={false}
+                                                            data-attr="feature-flag-group-type-select"
+                                                            value={releaseFilters.aggregation_group_type_index}
+                                                            onChange={(value) => {
+                                                                if (value != null) {
+                                                                    setAggregationGroupTypeIndex(value)
+                                                                }
+                                                            }}
+                                                            options={groupTypeValues.map((groupType) => ({
+                                                                value: groupType.group_type_index,
+                                                                label: groupType.group_type,
+                                                            }))}
+                                                        />
+                                                    )}
+                                                {/* Mixed group type selector */}
+                                                {option.value === 'mixed' && isSelected && isMixedTargeting && (
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        dropdownMatchSelectWidth={false}
+                                                        data-attr="feature-flag-mixed-group-type-select"
+                                                        value={mixedGroupTypeIndex}
+                                                        onChange={(value) => {
+                                                            if (value != null) {
+                                                                setMixedGroupTypeIndex(value)
+                                                            }
+                                                        }}
+                                                        options={groupTypeValues.map((groupType) => ({
+                                                            value: groupType.group_type_index,
+                                                            label: groupType.group_type,
+                                                        }))}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>
