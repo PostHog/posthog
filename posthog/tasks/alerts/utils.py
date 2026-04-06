@@ -213,6 +213,23 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     return snap_candidate_utc_to_schedule_restriction(alert, candidate)
 
 
+def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -> datetime:
+    """
+    After persisting a new schedule_restriction (or clearing it), compute next_check_at like
+    ``mark_for_recheck`` + ``next_check_time`` (same as the worker after a check).
+
+    We temporarily clear ``next_check_at`` so the interval math uses *now* (not a stale future instant).
+    Otherwise a previously snapped time (e.g. first minute after quiet hours) can stick at 4pm local
+    even when it is still morning and earlier hourly runs are allowed.
+    """
+    old_next = alert.next_check_at
+    try:
+        alert.next_check_at = None
+        return next_check_time(alert)
+    finally:
+        alert.next_check_at = old_next
+
+
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 

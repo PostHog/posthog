@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -556,6 +557,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_schedule_restriction_snaps_next_check_to_first_minute_outside_quiet_hours(self) -> None:
+        """Changing quiet hours should persist a concrete next_check_at instead of null (avoids pointless enqueue cycles)."""
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "snap next",
+            "calculation_interval": "hourly",
+        }
+        with freeze_time("2026-04-06T14:00:00Z"):
+            alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json").json()
+            AlertConfiguration.objects.filter(pk=alert["id"]).update(
+                next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+                {"schedule_restriction": {"blocked_windows": [{"start": "11:00", "end": "16:00"}]}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+            nxt = response.json()["next_check_at"]
+            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
 
     def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
         creation_request = {

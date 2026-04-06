@@ -35,7 +35,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import validate_alert_config
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
 from posthog.utils import relative_date_parse
 
 
@@ -353,12 +353,17 @@ class AlertSerializer(serializers.ModelSerializer):
         if conditions_or_threshold_changed or calculation_interval_changed:
             instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
+        schedule_restriction_changed = False
         if "schedule_restriction" in validated_data:
             new_sr = validated_data["schedule_restriction"]
             if new_sr != instance.schedule_restriction:
-                instance.mark_for_recheck(reset_state=False)
+                schedule_restriction_changed = True
 
         instance = super().update(instance, validated_data)
+        if schedule_restriction_changed:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
+
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
@@ -580,7 +585,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
-    queryset = AlertConfiguration.objects.all().order_by("-created_at")
+    queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:

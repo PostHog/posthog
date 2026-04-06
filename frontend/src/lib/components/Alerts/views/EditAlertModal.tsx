@@ -130,17 +130,13 @@ export function EditAlertModal({
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
-    const { loadAlert } = useActions(_alertLogic)
 
-    // need to reload edited alert as well
+    /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
     const _onEditSuccess = useCallback(
         (alertId: AlertType['id'] | undefined) => {
-            if (alertId) {
-                loadAlert()
-            }
             onEditSuccess(alertId)
         },
-        [loadAlert, onEditSuccess]
+        [onEditSuccess]
     )
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })

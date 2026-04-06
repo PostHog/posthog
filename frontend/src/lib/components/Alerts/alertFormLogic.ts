@@ -16,6 +16,7 @@ import {
 import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
@@ -56,6 +57,11 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+}
+
+/** Apply create/update/snooze API response to alertLogic so UI (e.g. next planned evaluation) updates immediately. */
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    alertLogic({ alertId: updatedAlert.id }).actions.loadAlertSuccess(updatedAlert)
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -225,6 +231,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         await flushPendingNotifications(updatedAlert.id)
+                        hydrateAlertLogicFromSaveResponse(updatedAlert)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -235,6 +242,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     await flushPendingNotifications(updatedAlert.id)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
@@ -281,6 +289,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -295,6 +304,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
