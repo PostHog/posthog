@@ -1143,6 +1143,7 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation, { maxFetchRetries: 0 })
 
+            expect(result.finished).toBe(true)
             expect(result.error).toBeInstanceOf(Error)
             expect(result.error!.message).toContain('HTTP fetch failed on attempt 1')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
