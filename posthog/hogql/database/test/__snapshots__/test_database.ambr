@@ -5064,6 +5064,84 @@
           "row_count": null,
           "type": "system"
       },
+      "system.integrations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "errors": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "errors",
+                  "id": null,
+                  "name": "errors",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.integrations",
+          "name": "system.integrations",
+          "row_count": null,
+          "type": "system"
+      },
       "system.insight_variables": {
           "fields": {
               "id": {
@@ -9893,6 +9971,84 @@
           },
           "id": "system.ingestion_warnings",
           "name": "system.ingestion_warnings",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.integrations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "errors": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "errors",
+                  "id": null,
+                  "name": "errors",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.integrations",
+          "name": "system.integrations",
           "row_count": null,
           "type": "system"
       },

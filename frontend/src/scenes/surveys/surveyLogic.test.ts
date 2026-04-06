@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
@@ -9,6 +10,7 @@ import {
 } from 'scenes/surveys/surveyLogic'
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -81,6 +83,57 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     schedule: SurveySchedule.Once,
     user_access_level: AccessControlLevel.Editor,
 }
+
+const createPersistedSurvey = (): Survey => ({
+    ...MULTIPLE_CHOICE_SURVEY,
+    id: 'test-survey',
+    name: 'Saved survey',
+    questions: [
+        {
+            type: SurveyQuestionType.Open,
+            question: 'What do you think?',
+            description: '',
+            buttonText: 'Submit',
+        },
+    ],
+})
+
+describe('editor sync', () => {
+    beforeEach(() => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+    })
+
+    it('preserves unsaved changes when switching from guided to the full editor', async () => {
+        const logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setSurveyValue('name', 'Unsaved guided name')
+        }).toMatchValues({
+            survey: partial({
+                name: 'Unsaved guided name',
+            }),
+            surveyChanged: true,
+        })
+
+        router.actions.push('/surveys/test-survey?edit=true#preserveLocalChanges=true')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.survey.name).toBe('Unsaved guided name')
+        expect(logic.values.isEditingSurvey).toBe(true)
+    })
+})
 
 describe('set response-based survey branching', () => {
     let logic: ReturnType<typeof surveyLogic.build>

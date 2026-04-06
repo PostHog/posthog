@@ -156,6 +156,7 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
@@ -2110,7 +2111,13 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
+    source?:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | ExperimentActorsQuery
+        | StickinessActorsQuery
+        | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -3440,6 +3447,16 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface ExperimentActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.ExperimentActorsQuery
+    source: ExperimentQuery
+    /** Index of the step for which we want to get actors for, per experiment variant.
+     * Positive for converted persons, negative for dropped off persons. */
+    funnelStep?: integer
+    /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
+    funnelStepBreakdown?: BreakdownKeyType
+}
+
 export interface SessionData {
     person_id: string
     session_id: string
@@ -3727,7 +3744,12 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
+    source:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | StickinessActorsQuery
+        | ExperimentActorsQuery
 }
 
 export interface DatabaseSchemaSchema {

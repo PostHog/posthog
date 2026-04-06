@@ -4034,6 +4034,531 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentActorsQueryKind = typeof ExperimentActorsQueryKind[keyof typeof ExperimentActorsQueryKind];
+
+
+    export const ExperimentActorsQueryKind = {
+      ExperimentActorsQuery: 'ExperimentActorsQuery',
+    } as const;
+
+    export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
+
+
+    export const ExperimentQueryKind = {
+      ExperimentQuery: 'ExperimentQuery',
+    } as const;
+
+    export type ExperimentMetricGoal = typeof ExperimentMetricGoal[keyof typeof ExperimentMetricGoal];
+
+
+    export const ExperimentMetricGoal = {
+      Increase: 'increase',
+      Decrease: 'decrease',
+    } as const;
+
+    export type ExperimentMeanMetricKind = typeof ExperimentMeanMetricKind[keyof typeof ExperimentMeanMetricKind];
+
+
+    export const ExperimentMeanMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
+
+
+    export const ExperimentMeanMetricMetricType = {
+      Mean: 'mean',
+    } as const;
+
+    export type ExperimentDataWarehouseNodeKind = typeof ExperimentDataWarehouseNodeKind[keyof typeof ExperimentDataWarehouseNodeKind];
+
+
+    export const ExperimentDataWarehouseNodeKind = {
+      ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
+    } as const;
+
+    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
+    /**
+     * @nullable
+     */
+    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentDataWarehouseNode {
+      /** @nullable */
+      custom_name?: string | null;
+      data_warehouse_join_key: string;
+      events_join_key: string;
+      /**
+       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+       * @nullable
+       */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      kind?: ExperimentDataWarehouseNodeKind;
+      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_hogql?: string | null;
+      /** @nullable */
+      math_multiplier?: number | null;
+      /** @nullable */
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      /** @nullable */
+      math_property_type?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      optionalInFunnel?: boolean | null;
+      /**
+       * Properties configurable in the interface
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      response?: ExperimentDataWarehouseNodeResponse;
+      table_name: string;
+      timestamp_field: string;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentMeanMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      ignore_zeros?: boolean | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentMeanMetricKind;
+      /** @nullable */
+      lower_bound_percentile?: number | null;
+      metric_type?: ExperimentMeanMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentMeanMetricResponse;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      upper_bound_percentile?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentFunnelMetricKind = typeof ExperimentFunnelMetricKind[keyof typeof ExperimentFunnelMetricKind];
+
+
+    export const ExperimentFunnelMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
+
+
+    export const ExperimentFunnelMetricMetricType = {
+      Funnel: 'funnel',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentFunnelMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      funnel_order_type?: StepOrderValue | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentFunnelMetricKind;
+      metric_type?: ExperimentFunnelMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentFunnelMetricResponse;
+      series: (EventsNode | ActionsNode)[];
+      /** @nullable */
+      sharedMetricId?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentRatioMetricKind = typeof ExperimentRatioMetricKind[keyof typeof ExperimentRatioMetricKind];
+
+
+    export const ExperimentRatioMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
+
+
+    export const ExperimentRatioMetricMetricType = {
+      Ratio: 'ratio',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentRatioMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentRatioMetricKind;
+      metric_type?: ExperimentRatioMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      response?: ExperimentRatioMetricResponse;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentRetentionMetricKind = typeof ExperimentRetentionMetricKind[keyof typeof ExperimentRetentionMetricKind];
+
+
+    export const ExperimentRetentionMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
+
+
+    export const ExperimentRetentionMetricMetricType = {
+      Retention: 'retention',
+    } as const;
+
+    export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
+
+
+    export const StartHandling = {
+      FirstSeen: 'first_seen',
+      LastSeen: 'last_seen',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentRetentionMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentRetentionMetricKind;
+      metric_type?: ExperimentRetentionMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentRetentionMetricResponse;
+      retention_window_end: number;
+      retention_window_start: number;
+      retention_window_unit: FunnelConversionWindowTimeUnit;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      start_handling: StartHandling;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export interface SessionData {
+      event_uuid: string;
+      person_id: string;
+      session_id: string;
+      timestamp: string;
+    }
+
+    export type ExperimentStatsValidationFailure = typeof ExperimentStatsValidationFailure[keyof typeof ExperimentStatsValidationFailure];
+
+
+    export const ExperimentStatsValidationFailure = {
+      NotEnoughExposures: 'not-enough-exposures',
+      BaselineMeanIsZero: 'baseline-mean-is-zero',
+      NotEnoughMetricData: 'not-enough-metric-data',
+    } as const;
+
+    export interface ExperimentStatsBaseValidated {
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export type ExperimentVariantResultFrequentistMethod = typeof ExperimentVariantResultFrequentistMethod[keyof typeof ExperimentVariantResultFrequentistMethod];
+
+
+    export const ExperimentVariantResultFrequentistMethod = {
+      Frequentist: 'frequentist',
+    } as const;
+
+    export interface ExperimentVariantResultFrequentist {
+      /**
+       * @minItems 2
+       * @maxItems 2
+       * @nullable
+       */
+      confidence_interval?: number[] | null;
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      method?: ExperimentVariantResultFrequentistMethod;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      p_value?: number | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export type ExperimentVariantResultBayesianMethod = typeof ExperimentVariantResultBayesianMethod[keyof typeof ExperimentVariantResultBayesianMethod];
+
+
+    export const ExperimentVariantResultBayesianMethod = {
+      Bayesian: 'bayesian',
+    } as const;
+
+    export interface ExperimentVariantResultBayesian {
+      /** @nullable */
+      chance_to_win?: number | null;
+      /**
+       * @minItems 2
+       * @maxItems 2
+       * @nullable
+       */
+      credible_interval?: number[] | null;
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      method?: ExperimentVariantResultBayesianMethod;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export interface ExperimentBreakdownResult {
+      /** Control variant stats for this breakdown */
+      baseline: ExperimentStatsBaseValidated;
+      /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
+      breakdown_value: (string | number | number)[];
+      /** Test variant results with statistical comparisons for this breakdown */
+      variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
+    }
+
+    export type ExperimentQueryResponseKind = typeof ExperimentQueryResponseKind[keyof typeof ExperimentQueryResponseKind];
+
+
+    export const ExperimentQueryResponseKind = {
+      ExperimentQuery: 'ExperimentQuery',
+    } as const;
+
+    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
+
+
+    export const ExperimentSignificanceCode = {
+      Significant: 'significant',
+      NotEnoughExposure: 'not_enough_exposure',
+      LowWinProbability: 'low_win_probability',
+      HighLoss: 'high_loss',
+      HighPValue: 'high_p_value',
+    } as const;
+
+    export interface ExperimentVariantTrendsBaseStats {
+      absolute_exposure: number;
+      count: number;
+      exposure: number;
+      key: string;
+    }
+
+    export interface ExperimentVariantFunnelsBaseStats {
+      failure_count: number;
+      key: string;
+      success_count: number;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null | null;
+
+    export type ExperimentQueryResponseInsightItem = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ExperimentQueryResponseProbability = {[key: string]: number} | null | null;
+
+    export interface ExperimentQueryResponse {
+      baseline?: ExperimentStatsBaseValidated | null;
+      /**
+       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
+       * @nullable
+       */
+      breakdown_results?: ExperimentBreakdownResult[] | null;
+      /** @nullable */
+      clickhouse_sql?: string | null;
+      /** @nullable */
+      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
+      /** @nullable */
+      hogql?: string | null;
+      /** @nullable */
+      insight?: ExperimentQueryResponseInsightItem[] | null;
+      /**
+       * Whether exposures were served from the precomputation system
+       * @nullable
+       */
+      is_precomputed?: boolean | null;
+      kind?: ExperimentQueryResponseKind;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
+      /** @nullable */
+      p_value?: number | null;
+      /** @nullable */
+      probability?: ExperimentQueryResponseProbability;
+      significance_code?: ExperimentSignificanceCode | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      stats_version?: number | null;
+      variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
+      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
+    }
+
+    export interface ExperimentQuery {
+      /** @nullable */
+      experiment_id?: number | null;
+      kind?: ExperimentQueryKind;
+      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      name?: string | null;
+      response?: ExperimentQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export interface ExperimentActorsQuery {
+      /**
+       * Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons.
+       * @nullable
+       */
+      funnelStep?: number | null;
+      /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
+      funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
+      /** @nullable */
+      includeRecordings?: boolean | null;
+      kind?: ExperimentActorsQueryKind;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ActorsQueryResponse | null;
+      source: ExperimentQuery;
+      tags?: QueryLogTags | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export type StickinessActorsQueryKind = typeof StickinessActorsQueryKind[keyof typeof StickinessActorsQueryKind];
 
 
@@ -4254,7 +4779,7 @@ export namespace Schemas {
       search?: string | null;
       /** @nullable */
       select?: string[] | null;
-      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery | null;
+      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
       /**
        * version of the node, used for schema migrations
@@ -9019,23 +9544,6 @@ export namespace Schemas {
       ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
     } as const;
 
-    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
-
-
-    export const ExperimentSignificanceCode = {
-      Significant: 'significant',
-      NotEnoughExposure: 'not_enough_exposure',
-      LowWinProbability: 'low_win_probability',
-      HighLoss: 'high_loss',
-      HighPValue: 'high_p_value',
-    } as const;
-
-    export interface ExperimentVariantFunnelsBaseStats {
-      failure_count: number;
-      key: string;
-      success_count: number;
-    }
-
     export type Response23CredibleIntervals = {[key: string]: number[]};
 
     export type Response23InsightItemItem = { [key: string]: unknown };
@@ -9062,13 +9570,6 @@ export namespace Schemas {
     export const Response24Kind = {
       ExperimentTrendsQuery: 'ExperimentTrendsQuery',
     } as const;
-
-    export interface ExperimentVariantTrendsBaseStats {
-      absolute_exposure: number;
-      count: number;
-      exposure: number;
-      key: string;
-    }
 
     export type Response24CredibleIntervals = {[key: string]: number[]};
 
@@ -14063,181 +14564,6 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
-    export interface SessionData {
-      event_uuid: string;
-      person_id: string;
-      session_id: string;
-      timestamp: string;
-    }
-
-    export type ExperimentStatsValidationFailure = typeof ExperimentStatsValidationFailure[keyof typeof ExperimentStatsValidationFailure];
-
-
-    export const ExperimentStatsValidationFailure = {
-      NotEnoughExposures: 'not-enough-exposures',
-      BaselineMeanIsZero: 'baseline-mean-is-zero',
-      NotEnoughMetricData: 'not-enough-metric-data',
-    } as const;
-
-    export interface ExperimentStatsBaseValidated {
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export type ExperimentVariantResultFrequentistMethod = typeof ExperimentVariantResultFrequentistMethod[keyof typeof ExperimentVariantResultFrequentistMethod];
-
-
-    export const ExperimentVariantResultFrequentistMethod = {
-      Frequentist: 'frequentist',
-    } as const;
-
-    export interface ExperimentVariantResultFrequentist {
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
-      confidence_interval?: number[] | null;
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      method?: ExperimentVariantResultFrequentistMethod;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      p_value?: number | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export type ExperimentVariantResultBayesianMethod = typeof ExperimentVariantResultBayesianMethod[keyof typeof ExperimentVariantResultBayesianMethod];
-
-
-    export const ExperimentVariantResultBayesianMethod = {
-      Bayesian: 'bayesian',
-    } as const;
-
-    export interface ExperimentVariantResultBayesian {
-      /** @nullable */
-      chance_to_win?: number | null;
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
-      credible_interval?: number[] | null;
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      method?: ExperimentVariantResultBayesianMethod;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export interface ExperimentBreakdownResult {
-      /** Control variant stats for this breakdown */
-      baseline: ExperimentStatsBaseValidated;
-      /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-      breakdown_value: (string | number | number)[];
-      /** Test variant results with statistical comparisons for this breakdown */
-      variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
-    }
-
-    export type ExperimentDataWarehouseNodeKind = typeof ExperimentDataWarehouseNodeKind[keyof typeof ExperimentDataWarehouseNodeKind];
-
-
-    export const ExperimentDataWarehouseNodeKind = {
-      ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
-    } as const;
-
-    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentDataWarehouseNode {
-      /** @nullable */
-      custom_name?: string | null;
-      data_warehouse_join_key: string;
-      events_join_key: string;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
-      kind?: ExperimentDataWarehouseNodeKind;
-      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
-      math_hogql?: string | null;
-      /** @nullable */
-      math_multiplier?: number | null;
-      /** @nullable */
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
-      math_property_type?: string | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
-      /** @nullable */
-      response?: ExperimentDataWarehouseNodeResponse;
-      table_name: string;
-      timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
     export type ExperimentEventExposureConfigKind = typeof ExperimentEventExposureConfigKind[keyof typeof ExperimentEventExposureConfigKind];
 
 
@@ -14363,302 +14689,6 @@ export namespace Schemas {
       response?: ExperimentExposureQueryResponse | null;
       /** @nullable */
       start_date?: string | null;
-      tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentFunnelMetricKind = typeof ExperimentFunnelMetricKind[keyof typeof ExperimentFunnelMetricKind];
-
-
-    export const ExperimentFunnelMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
-
-
-    export const ExperimentFunnelMetricMetricType = {
-      Funnel: 'funnel',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null;
-
-    export type ExperimentMetricGoal = typeof ExperimentMetricGoal[keyof typeof ExperimentMetricGoal];
-
-
-    export const ExperimentMetricGoal = {
-      Increase: 'increase',
-      Decrease: 'decrease',
-    } as const;
-
-    export interface ExperimentFunnelMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      funnel_order_type?: StepOrderValue | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentFunnelMetricKind;
-      metric_type?: ExperimentFunnelMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode)[];
-      /** @nullable */
-      sharedMetricId?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentMeanMetricKind = typeof ExperimentMeanMetricKind[keyof typeof ExperimentMeanMetricKind];
-
-
-    export const ExperimentMeanMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
-
-
-    export const ExperimentMeanMetricMetricType = {
-      Mean: 'mean',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentMeanMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      ignore_zeros?: boolean | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentMeanMetricKind;
-      /** @nullable */
-      lower_bound_percentile?: number | null;
-      metric_type?: ExperimentMeanMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentMeanMetricResponse;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      upper_bound_percentile?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
-
-
-    export const ExperimentQueryKind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
-
-    export type ExperimentRatioMetricKind = typeof ExperimentRatioMetricKind[keyof typeof ExperimentRatioMetricKind];
-
-
-    export const ExperimentRatioMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
-
-
-    export const ExperimentRatioMetricMetricType = {
-      Ratio: 'ratio',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentRatioMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentRatioMetricKind;
-      metric_type?: ExperimentRatioMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      response?: ExperimentRatioMetricResponse;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentRetentionMetricKind = typeof ExperimentRetentionMetricKind[keyof typeof ExperimentRetentionMetricKind];
-
-
-    export const ExperimentRetentionMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
-
-
-    export const ExperimentRetentionMetricMetricType = {
-      Retention: 'retention',
-    } as const;
-
-    export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
-
-
-    export const StartHandling = {
-      FirstSeen: 'first_seen',
-      LastSeen: 'last_seen',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentRetentionMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentRetentionMetricKind;
-      metric_type?: ExperimentRetentionMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentRetentionMetricResponse;
-      retention_window_end: number;
-      retention_window_start: number;
-      retention_window_unit: FunnelConversionWindowTimeUnit;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      start_handling: StartHandling;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentQueryResponseKind = typeof ExperimentQueryResponseKind[keyof typeof ExperimentQueryResponseKind];
-
-
-    export const ExperimentQueryResponseKind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null | null;
-
-    export type ExperimentQueryResponseInsightItem = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseProbability = {[key: string]: number} | null | null;
-
-    export interface ExperimentQueryResponse {
-      baseline?: ExperimentStatsBaseValidated | null;
-      /**
-       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
-       * @nullable
-       */
-      breakdown_results?: ExperimentBreakdownResult[] | null;
-      /** @nullable */
-      clickhouse_sql?: string | null;
-      /** @nullable */
-      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
-      /** @nullable */
-      hogql?: string | null;
-      /** @nullable */
-      insight?: ExperimentQueryResponseInsightItem[] | null;
-      /**
-       * Whether exposures were served from the precomputation system
-       * @nullable
-       */
-      is_precomputed?: boolean | null;
-      kind?: ExperimentQueryResponseKind;
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      /** @nullable */
-      p_value?: number | null;
-      /** @nullable */
-      probability?: ExperimentQueryResponseProbability;
-      significance_code?: ExperimentSignificanceCode | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      stats_version?: number | null;
-      variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
-    }
-
-    export interface ExperimentQuery {
-      /** @nullable */
-      experiment_id?: number | null;
-      kind?: ExperimentQueryKind;
-      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      name?: string | null;
-      response?: ExperimentQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
        * version of the node, used for schema migrations
@@ -16658,7 +16688,7 @@ export namespace Schemas {
     export interface InsightActorsQueryOptions {
       kind?: InsightActorsQueryOptionsKind;
       response?: InsightActorsQueryOptionsResponse | null;
-      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery;
+      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | ExperimentActorsQuery;
       /**
        * version of the node, used for schema migrations
        * @nullable

@@ -274,6 +274,9 @@
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
@@ -15478,6 +15481,45 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelStep": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons."
+                },
+                "funnelStepBreakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType",
+                    "description": "The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test')."
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentQuery"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,
             "description": "Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.",
@@ -19783,6 +19825,9 @@
                         },
                         {
                             "$ref": "#/definitions/StickinessActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
                         }
                     ]
                 },
@@ -24473,6 +24518,7 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
