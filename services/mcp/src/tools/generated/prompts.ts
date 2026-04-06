@@ -14,18 +14,28 @@ import {
 } from '@/generated/prompts/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const PromptListSchema = LlmPromptsListQueryParams.omit({ limit: true, offset: true })
+const PromptListSchema = LlmPromptsListQueryParams.omit({ limit: true, offset: true }).extend({
+    content: LlmPromptsListQueryParams.shape.content.default('none'),
+})
 
-const promptList = (): ToolBase<typeof PromptListSchema, Schemas.PaginatedLLMPromptListList> => ({
+type PromptListResultItem = Omit<Schemas.LLMPromptList, 'prompt'> & {
+    prompt?: unknown
+}
+
+type PaginatedPromptListResult = Omit<Schemas.PaginatedLLMPromptListList, 'results'> & {
+    results: PromptListResultItem[]
+}
+
+const promptList = (): ToolBase<typeof PromptListSchema, PaginatedPromptListResult> => ({
     name: 'prompt-list',
     schema: PromptListSchema,
     handler: async (context: Context, params: z.infer<typeof PromptListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedLLMPromptListList>({
+        const result = await context.api.request<PaginatedPromptListResult>({
             method: 'GET',
             path: `/api/environments/${projectId}/llm_prompts/`,
             query: {
-                content: params.content,
+                content: params.content ?? 'none',
                 search: params.search,
             },
         })
