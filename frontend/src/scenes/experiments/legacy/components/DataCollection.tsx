@@ -8,8 +8,8 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
-import { formatUnitByQuantity } from '../utils'
+import { experimentLogic } from '../../experimentLogic'
+import { formatUnitByQuantity } from '../../utils'
 
 function GoalTooltip({
     experiment,

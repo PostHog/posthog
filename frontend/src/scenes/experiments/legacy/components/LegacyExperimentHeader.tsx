@@ -1,4 +1,4 @@
-import { DataCollection } from 'scenes/experiments/ExperimentView/DataCollection'
+import { DataCollection } from 'scenes/experiments/legacy/components/DataCollection'
 
 /**
  * @deprecated
