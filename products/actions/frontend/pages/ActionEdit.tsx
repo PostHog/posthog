@@ -66,7 +66,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }
     const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged, analyticsReferences } = useValues(logic)
+    const { action, actionChanged } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state
@@ -326,7 +326,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 />
             </Form>
             <ActionHogFunctions />
-            {id && analyticsReferences.length > 0 && (
+            {id && (
                 <LemonCollapse
                     defaultActiveKey="used-in-analytics"
                     panels={[
