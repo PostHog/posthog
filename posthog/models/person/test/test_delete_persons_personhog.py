@@ -5,8 +5,6 @@ Covers routing, fallback, and integration for:
 - _delete_persons_for_teams (team deletion path)
 """
 
-from typing import Any
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -83,14 +81,14 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             mock_errors_counter.labels.assert_called_once()
 
     def test_personhog_sends_correct_uuids(self):
-        mock_persons: Any = []
+        mock_persons = []
         for uuid in ["uuid-1", "uuid-2", "uuid-3"]:
             p = MagicMock()
             p.uuid = uuid
             mock_persons.append(p)
 
         with fake_personhog_client() as fake:
-            delete_persons_from_postgres(team_id=42, persons=mock_persons)
+            delete_persons_from_postgres(team_id=42, persons=mock_persons)  # type: ignore[arg-type]
 
             calls = fake.assert_called("delete_persons", times=1)
             req = calls[0].request
@@ -98,14 +96,14 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             assert list(req.person_uuids) == ["uuid-1", "uuid-2", "uuid-3"]
 
     def test_personhog_batches_over_1000(self):
-        mock_persons: Any = []
+        mock_persons = []
         for i in range(1500):
             p = MagicMock()
             p.uuid = f"uuid-{i}"
             mock_persons.append(p)
 
         with fake_personhog_client() as fake:
-            delete_persons_from_postgres(team_id=1, persons=mock_persons)
+            delete_persons_from_postgres(team_id=1, persons=mock_persons)  # type: ignore[arg-type]
 
             calls = fake.assert_called("delete_persons", times=2)
             assert len(list(calls[0].request.person_uuids)) == 1000
