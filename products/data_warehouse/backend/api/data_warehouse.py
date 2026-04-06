@@ -906,7 +906,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
-        return self._provisioning_request("GET", "/warehouse/status")
+        resp = self._provisioning_request("GET", "/warehouse/status")
+        # Override connection host/port with the public-facing duckgres PG endpoint
+        if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
+            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
+            pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
+            if pg_url:
+                resp.data["connection"]["host"] = pg_url
+                resp.data["connection"]["port"] = pg_port
+        return resp
 
     @extend_schema(
         responses={
