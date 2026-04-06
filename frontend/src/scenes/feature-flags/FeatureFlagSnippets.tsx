@@ -525,10 +525,10 @@ export function AndroidSnippet({
         return (
             <>
                 <CodeSnippet language={Language.Kotlin} wrap>
-                    {`${warning ? warning + '\n' : ''}val remoteConfig = ${clientSuffix}getFeatureFlagPayload("${flagKey}")
-remoteConfig?.let { config ->
+                    {`${warning ? warning + '\n' : ''}val result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
+result.payload?.let { payload ->
     // Handle remote configuration payload
-    println("Remote config: $config")
+    println("Remote config: $payload")
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
@@ -576,10 +576,10 @@ export function FlutterSnippet({
         return (
             <>
                 <CodeSnippet language={Language.Dart} wrap>
-                    {`${warning ? warning + '\n' : ''}final remoteConfig = ${clientSuffix}getFeatureFlagPayload('${flagKey}');
-if (remoteConfig != null) {
+                    {`${warning ? warning + '\n' : ''}final result = ${clientSuffix}getFeatureFlagResult('${flagKey}');
+if (result.payload != null) {
   // Handle remote configuration payload
-  print('Remote config: $remoteConfig');
+  print('Remote config: \${result.payload}');
 }`}
                 </CodeSnippet>
                 <div className="mt-2">
@@ -678,14 +678,14 @@ export function ReactNativeSnippet({
         return (
             <>
                 <CodeSnippet language={Language.JSX} wrap>
-                    {`${warning ? warning + '\n' : ''}import { useFeatureFlagWithPayload } from 'posthog-react-native'
+                    {`${warning ? warning + '\n' : ''}import { useFeatureFlagResult } from 'posthog-react-native'
 
 const MyComponent = () => {
-    const [flagValue, payload] = useFeatureFlagWithPayload('${flagKey}')
+    const result = useFeatureFlagResult('${flagKey}')
     
-    if (payload) {
+    if (result.payload) {
         // Handle remote configuration payload
-        console.log('Remote config:', payload)
+        console.log('Remote config:', result.payload)
     }
     
     return <YourComponent />
