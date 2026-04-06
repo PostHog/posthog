@@ -126,8 +126,8 @@ def parse_model_file(content: str) -> ParsedModelFile:
                 _NULLARY_DIRECTIVES[directive](model)
             else:
                 _UNARY_DIRECTIVES[directive](model, _parse_unary_value(directive, value, line_num))
-        else:
-            query_lines.append(line)
+        # keep all lines (including annotations) in the query
+        query_lines.append(line)
     # validate mutually exclusive directives
     for exclusive_set in _MUTUALLY_EXCLUSIVE:
         found = exclusive_set & seen_directives.keys()
