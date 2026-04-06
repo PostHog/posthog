@@ -88,7 +88,7 @@ function SimpleVariant(
                           onClick={() => templateTileClicked(template, 'main_grid')}
                           index={index + 1}
                           data-attr="create-dashboard-from-template"
-                          showFavourite={experimentVariant !== 'control' && template.is_featured}
+                          showFavourite={experimentVariant === 'simple' && template.is_featured}
                       />
                   ))}
         </div>
