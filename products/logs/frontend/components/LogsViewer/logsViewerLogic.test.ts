@@ -686,30 +686,26 @@ describe('logsViewerLogic', () => {
             ;({ logic, dataLogic } = mountWithLogs([]))
         })
 
-        it('clears linkToLogId when linked log found after logs update', async () => {
+        it('clears linkToLogId when linked log is found in results', async () => {
+            // Simulate: linkToLogId set from URL, then query results arrive containing the log
             logic.actions.setLinkToLogId('log-2')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.linkToLogId).toBe('log-2')
-
             dataLogic.actions.setLogs(mockRawLogs)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.linkToLogId).toBeNull()
         })
 
-        it('does not clear linkToLogId while no query has run', async () => {
+        it('clears linkToLogId when log not found in results', async () => {
             logic.actions.setLinkToLogId('log-missing')
+            dataLogic.actions.setLogs(mockRawLogs)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.linkToLogId).toBe('log-missing')
+            expect(logic.values.linkToLogId).toBeNull()
         })
 
-        it('clears linkToLogId when log not found after query completes', async () => {
+        it('clears linkToLogId when query returns zero results', async () => {
             logic.actions.setLinkToLogId('log-missing')
-            await expectLogic(logic).toFinishAllListeners()
-
-            dataLogic.actions.setLogs(mockRawLogs)
+            dataLogic.actions.setLogs([])
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.linkToLogId).toBeNull()

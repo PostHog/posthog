@@ -42,9 +42,10 @@ function tryOpenLinkedLog(
         openLogDetails: (log: ParsedLogMessage) => void
         requestScrollToCursor: () => void
         setLinkToLogId: (id: string | null) => void
+        clearLinkToLogId: () => void
     }
 ): void {
-    if (!linkToLogId || logs.length === 0) {
+    if (!linkToLogId || logsLoading) {
         return
     }
     const index = logs.findIndex((log) => log.uuid === linkToLogId)
@@ -53,9 +54,9 @@ function tryOpenLinkedLog(
         actions.openLogDetails(logs[index])
         actions.requestScrollToCursor()
         actions.setLinkToLogId(null)
-    } else if (!logsLoading) {
+    } else {
         lemonToast.warning('Log not found')
-        actions.setLinkToLogId(null)
+        actions.clearLinkToLogId()
     }
 }
 
@@ -107,6 +108,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Deep linking - position cursor at a specific log by ID
         setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
+        clearLinkToLogId: true,
 
         // Copy link to log
         copyLinkToLog: (logId: string) => ({ logId }),
@@ -187,7 +189,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             null as string | null,
             {
                 setLinkToLogId: (_, { linkToLogId }) => linkToLogId,
-                // Clear when user actively navigates
+                clearLinkToLogId: () => null,
                 moveCursorDown: () => null,
                 moveCursorUp: () => null,
                 userSetCursorIndex: () => null,

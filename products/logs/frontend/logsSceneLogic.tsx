@@ -56,7 +56,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerDataLogic({ id: props.tabId }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: props.tabId }),
-            ['setLinkToLogId'],
+            ['setLinkToLogId', 'clearLinkToLogId'],
             logDetailsModalLogic({ id: props.tabId }),
             ['closeLogDetails'],
         ],
@@ -222,6 +222,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             // then resets to null so subsequent queries use the default page size.
             fetchLogsSuccess: () => clearInitialLogsLimit(),
             closeLogDetails: () => clearLinkToLogId(),
+            clearLinkToLogId: () => clearLinkToLogId(),
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
         }
