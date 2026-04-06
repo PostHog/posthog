@@ -309,10 +309,11 @@ export class LazyLoader<T> {
             return
         }
 
-        // Calculate how many to evict
-        const toEvict = this.cacheSize - this.maxSize
+        // Evict extra headroom so we don't re-sort on every subsequent insert.
+        // Only apply headroom for caches large enough to benefit (>100 entries).
+        const headroom = this.maxSize > 100 ? Math.ceil(this.maxSize * 0.1) : 0
+        const toEvict = this.cacheSize - this.maxSize + headroom
 
-        // Build a sortable array of [key, lastUsed] without intermediate tuple allocations
         const cacheKeys = Object.keys(this.cache)
         cacheKeys.sort((a, b) => (this.lastUsed[a] ?? 0) - (this.lastUsed[b] ?? 0))
 
