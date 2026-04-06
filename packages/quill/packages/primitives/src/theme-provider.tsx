@@ -30,7 +30,7 @@ function isTheme(value: string | null): value is Theme {
 }
 
 function getSystemTheme(): ResolvedTheme {
-    if (window.matchMedia(COLOR_SCHEME_QUERY).matches) {
+    if (typeof window !== 'undefined' && window.matchMedia(COLOR_SCHEME_QUERY).matches) {
         return 'dark'
     }
 
@@ -79,9 +79,11 @@ export function ThemeProvider({
     ...props
 }: ThemeProviderProps): React.ReactElement {
     const [theme, setThemeState] = React.useState<Theme>(() => {
-        const storedTheme = localStorage.getItem(storageKey)
-        if (isTheme(storedTheme)) {
-            return storedTheme
+        if (typeof window !== 'undefined') {
+            const storedTheme = localStorage.getItem(storageKey)
+            if (isTheme(storedTheme)) {
+                return storedTheme
+            }
         }
 
         return defaultTheme
