@@ -3382,6 +3382,87 @@ class GitHubIntegration:
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
+    def get_pull_request_files(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Get the list of files changed in a pull request.
+
+        Uses the GitHub PR files API which returns status (added/modified/removed/renamed),
+        filename, previous_filename (for renames), and blob SHA for each changed file.
+        """
+        org = self.organization()
+        all_files: list[dict[str, Any]] = []
+        page = 1
+
+        while True:
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{org}/{repository}/pulls/{pr_number}/files?per_page=100&page={page}",
+            )
+
+            if response is None:
+                return {"success": False, "error": "Failed to fetch PR files"}
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to fetch PR files: {response.text}",
+                    "status_code": response.status_code,
+                }
+
+            files = response.json()
+            if not files:
+                break
+
+            all_files.extend(
+                {
+                    "filename": f["filename"],
+                    "status": f["status"],
+                    "sha": f.get("sha", ""),
+                    "previous_filename": f.get("previous_filename", ""),
+                }
+                for f in files
+            )
+            page += 1
+
+        return {"success": True, "files": all_files}
+
+    def create_or_update_issue_comment(
+        self, repository: str, issue_number: int, body: str, comment_id: int | None = None
+    ) -> dict[str, Any]:
+        """Create or update a comment on an issue or pull request.
+
+        If comment_id is provided, attempts to update the existing comment.
+        Falls back to creating a new comment if the update fails (e.g. comment was deleted).
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config.get("access_token")
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        if comment_id is not None:
+            response = requests.patch(
+                f"https://api.github.com/repos/{org}/{repository}/issues/comments/{comment_id}",
+                json={"body": body},
+                headers=headers,
+            )
+            if response.status_code == 200:
+                return {"success": True, "comment_id": response.json()["id"]}
+            # comment may have been deleted — fall through to create
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/issues/{issue_number}/comments",
+            json={"body": body},
+            headers=headers,
+        )
+        if response.status_code == 201:
+            return {"success": True, "comment_id": response.json()["id"]}
+
+        return {
+            "success": False,
+            "error": f"Failed to create comment: {response.text}",
+            "status_code": response.status_code,
+        }
+
 
 class GitLabIntegrationError(Exception):
     pass
