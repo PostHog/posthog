@@ -7,6 +7,8 @@ publish = false
 [dependencies]
 assignment-coordination = { path = "../common/assignment-coordination" }
 dashmap = { workspace = true }
+k8s-awareness = { path = "../common/k8s-awareness" }
+kube = { version = "0.98", features = ["client"] }
 envconfig = { workspace = true }
 etcd-client = "0.18"
 kafka-assigner-proto = { path = "../kafka-assigner-proto" }
@@ -23,7 +25,14 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+k8s-openapi = { version = "0.24", features = ["latest"] }
+serial_test = "3"
+serde_json = { workspace = true }
+tempfile = "3"
+testcontainers = { workspace = true }
+testcontainers-modules = { version = "0.15", features = ["k3s"] }
 tokio = { workspace = true, features = ["full", "test-util"] }
+tracing-subscriber = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [package.metadata.cargo-shear]

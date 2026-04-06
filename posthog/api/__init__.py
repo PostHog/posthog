@@ -26,7 +26,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.dashboards.backend.api import dashboard, dashboard_templates
-from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
+from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -301,6 +301,9 @@ projects_router.register(r"signal_reports", signals.SignalReportViewSet, "projec
 projects_router.register(
     r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
 )
+projects_router.register(
+    r"signal_processing", signals.SignalProcessingViewSet, "project_signal_processing", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -452,6 +455,12 @@ register_grandfathered_environment_nested_viewset(
     r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
 )
 register_grandfathered_environment_nested_viewset(
+    r"warehouse_saved_query_folders",
+    saved_query.DataWarehouseSavedQueryFolderViewSet,
+    "environment_warehouse_saved_query_folders",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
     r"warehouse_saved_queries",
     saved_query.DataWarehouseSavedQueryViewSet,
     "environment_warehouse_saved_queries",
@@ -558,6 +567,12 @@ environments_router.register(
     r"managed_viewsets",
     managed_viewset.DataWarehouseManagedViewSetViewSet,
     "environment_managed_viewsets",
+    ["team_id"],
+)
+environments_router.register(
+    r"data_modeling_dags",
+    DAGViewSet,
+    "environment_data_modeling_dags",
     ["team_id"],
 )
 environments_router.register(

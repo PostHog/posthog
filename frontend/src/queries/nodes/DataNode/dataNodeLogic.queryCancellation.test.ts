@@ -32,7 +32,7 @@ describe('dataNodeLogic - query cancellation', () => {
             },
             post: {
                 '/api/environments/997/insights/cancel/': [201],
-                '/api/environments/997/query/': async () => {
+                '/api/environments/997/query/:kind/': async () => {
                     return new Promise<[number, { result: string[] }]>((resolve) =>
                         setTimeout(() => {
                             resolve([200, { result: ['slow result from api'] }])
