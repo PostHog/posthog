@@ -625,26 +625,25 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             (
                 "too_many_windows",
                 {"blocked_windows": [{"start": f"{i:02d}:00", "end": f"{i:02d}:30"} for i in range(6)]},
-                "at most 5",
             ),
-            ("missing_start", {"blocked_windows": [{"end": "12:00"}]}, "start and end"),
-            ("missing_end", {"blocked_windows": [{"start": "12:00"}]}, "start and end"),
-            ("equal_start_end", {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}, "differ"),
-            ("seconds_not_allowed", {"blocked_windows": [{"start": "12:00:00", "end": "13:00"}]}, "hh:mm"),
-            ("invalid_hour", {"blocked_windows": [{"start": "25:00", "end": "26:00"}]}, "invalid"),
-            ("non_object_window", {"blocked_windows": ["not-an-object"]}, "object"),
-            ("blocked_windows_not_array", {"blocked_windows": {}}, "array"),
-            ("window_shorter_than_30_min", {"blocked_windows": [{"start": "12:00", "end": "12:20"}]}, "30 minutes"),
+            ("missing_start", {"blocked_windows": [{"end": "12:00"}]}),
+            ("missing_end", {"blocked_windows": [{"start": "12:00"}]}),
+            ("equal_start_end", {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}),
+            ("seconds_not_allowed", {"blocked_windows": [{"start": "12:00:00", "end": "13:00"}]}),
+            ("invalid_hour", {"blocked_windows": [{"start": "25:00", "end": "26:00"}]}),
+            ("non_object_window", {"blocked_windows": ["not-an-object"]}),
+            ("blocked_windows_not_array", {"blocked_windows": {}}),
+            ("window_shorter_than_30_min", {"blocked_windows": [{"start": "12:00", "end": "12:20"}]}),
         ]
     )
     def test_create_alert_rejects_invalid_schedule_restriction(
-        self, _name: str, schedule_restriction: dict[str, Any], expected_fragment: str
+        self, _name: str, schedule_restriction: dict[str, Any]
     ) -> None:
         creation_request = self._quiet_hours_alert_payload(self.insight["id"])
         creation_request["schedule_restriction"] = schedule_restriction
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert expected_fragment in str(response.content).lower()
+        assert "invalid schedule restriction" in str(response.content).lower()
 
     @parameterized.expand(
         [
