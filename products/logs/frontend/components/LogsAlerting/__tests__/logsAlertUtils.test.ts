@@ -1,7 +1,4 @@
-import {
-    LOGS_ALERT_FIRING_EVENT_ID,
-    LOGS_ALERT_RESOLVED_EVENT_ID,
-} from 'lib/constants'
+import { LOGS_ALERT_FIRING_EVENT_ID, LOGS_ALERT_RESOLVED_EVENT_ID } from 'lib/constants'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
