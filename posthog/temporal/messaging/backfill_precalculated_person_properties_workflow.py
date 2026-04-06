@@ -452,7 +452,7 @@ async def backfill_precalculated_person_properties_activity(
                         combined_bytecode,
                         hog_globals,
                         person_id,
-                        detailed_logging_enabled,
+                        detailed_logging=detailed_logging_enabled,
                     )
 
                     # Detailed logging for filter results when in single cohort + single person mode
