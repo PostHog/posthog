@@ -519,6 +519,19 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+
+            # if this model is synced from GitHub, push the change back as a PR
+            if view.is_github_synced:
+                try:
+                    from products.data_modeling.backend.services.github.pr_service import create_pr_from_saved_query
+
+                    pr_result = create_pr_from_saved_query(view)
+                    if pr_result.get("success"):
+                        self.context["github_pr_url"] = pr_result["pr_url"]
+                except Exception as e:
+                    capture_exception(e)
+                    logger.warning("Failed to create GitHub PR for synced model", saved_query_name=view.name)
+
         return view
 
     def validate_query(self, query):

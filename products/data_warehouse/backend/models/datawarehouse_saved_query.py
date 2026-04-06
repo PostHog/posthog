@@ -145,6 +145,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         db_table = "posthog_datawarehousesavedquery"
 
     @property
+    def is_github_synced(self) -> bool:
+        try:
+            return self.github_synced_model is not None
+        except Exception:
+            return False
+
+    @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
 
