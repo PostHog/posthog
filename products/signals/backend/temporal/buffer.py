@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
-BUFFER_FLUSH_TIMEOUT_SECONDS = 60
+BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 

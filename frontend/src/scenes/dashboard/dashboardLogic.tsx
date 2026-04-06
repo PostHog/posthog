@@ -41,6 +41,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -417,8 +418,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
-                    actions.abortAnyRunningQuery()
-
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
@@ -624,6 +623,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return values.dashboard
+                },
+            },
+        ],
+        generatedDashboardMetadata: [
+            null as { name: string; description: string } | null,
+            {
+                generateDashboardMetadata: async () => {
+                    try {
+                        const response = await api.dashboards.generateMetadata(props.id)
+                        eventUsageLogic.actions.reportDashboardMetadataAiGenerated({ dashboardId: props.id })
+                        return { name: response.name, description: response.description }
+                    } catch (e) {
+                        eventUsageLogic.actions.reportDashboardMetadataAiGenerationFailed({ dashboardId: props.id })
+                        lemonToast.error('Failed to generate name and description')
+                        throw e
+                    }
                 },
             },
         ],
@@ -1258,29 +1273,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const urlValueOverride = urlVariable?.value
-                        const dashboardValueOverride = dashboard.persisted_variables?.[v.variableId]?.value
-                        const insightValueOverride = v.value
-                        const defaultVariableValue = variable.default_value
-
-                        const urlIsNullOverride = urlVariable?.isNull
-                        const dashboardIsNullOverride = dashboard.persisted_variables?.[v.variableId]?.isNull
-                        const insightIsNullOverride = v.isNull
-                        const defaultVariableIsNull = variable.isNull
+                        const dashboardVariable = dashboard.persisted_variables?.[v.variableId]
+                        const variableSources = [urlVariable, dashboardVariable, v]
+                        const valueSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'value') : false
+                        )
+                        const isNullSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'isNull') : false
+                        )
 
                         // determine effective variable state
                         const resultVar: Variable = {
                             ...variable,
-                            value:
-                                urlValueOverride ||
-                                dashboardValueOverride ||
-                                insightValueOverride ||
-                                defaultVariableValue,
-                            isNull:
-                                urlIsNullOverride ||
-                                dashboardIsNullOverride ||
-                                insightIsNullOverride ||
-                                defaultVariableIsNull,
+                            value: valueSource ? valueSource.value : variable.default_value,
+                            isNull: isNullSource ? isNullSource.isNull : variable.isNull,
                         }
 
                         // get insights using variable
@@ -1551,6 +1557,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
+        /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */
+        canGenerateDashboardAiMetadata: [
+            (s) => [s.canEditDashboard, s.placement, s.dashboard, router.selectors.location],
+            (
+                canEditDashboard: boolean,
+                placement: DashboardPlacement,
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                { pathname }: { pathname: string }
+            ): boolean => {
+                const tiles = dashboard?.tiles?.filter((t: DashboardTile<QueryBasedInsightModel>) => !t.deleted) ?? []
+                const hasInsightOrTextTile = tiles.some((t) => !!(t.insight || t.text))
+                if (!canEditDashboard || !hasInsightOrTextTile) {
+                    return false
+                }
+                if (placement !== DashboardPlacement.Dashboard) {
+                    return false
+                }
+                if (
+                    pathname.startsWith('/shared/') ||
+                    pathname.startsWith('/embedded/') ||
+                    pathname.startsWith('/shared_dashboard/')
+                ) {
+                    return false
+                }
+                return true
+            },
+        ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
             (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
@@ -1749,6 +1782,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        generateDashboardMetadataSuccess: ({ generatedDashboardMetadata }) => {
+            if (generatedDashboardMetadata && values.dashboard) {
+                dashboardsModel.actions.updateDashboard({
+                    id: values.dashboard.id,
+                    name: generatedDashboardMetadata.name,
+                    description: generatedDashboardMetadata.description,
+                    allowUndo: true,
+                })
+                if (generatedDashboardMetadata.description && !sceneLayoutLogic.values.showDescription) {
+                    sceneLayoutLogic.actions.toggleShowDescription()
+                }
+            }
+        },
         togglePinned: () => {
             if (values.dashboard) {
                 // Reducers have already run, so values.isPinned reflects the desired new state.

@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.parser import parse_expr
 
 
 class IngestionWarningsTable(Table):
@@ -29,6 +30,49 @@ class IngestionWarningsTable(Table):
     def to_printed_hogql(self):
         return "ingestion_warnings"
 
+
+batch_export_backfills: PostgresTable = PostgresTable(
+    name="batch_export_backfills",
+    postgres_table_name="posthog_batchexportbackfill",
+    access_scope="batch_export",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "batch_export_id": StringDatabaseField(name="batch_export_id"),
+        "start_at": DateTimeDatabaseField(name="start_at", nullable=True),
+        "end_at": DateTimeDatabaseField(name="end_at", nullable=True),
+        "status": StringDatabaseField(name="status"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at", nullable=True),
+        "last_updated_at": DateTimeDatabaseField(name="last_updated_at"),
+        "total_records_count": IntegerDatabaseField(name="total_records_count", nullable=True),
+    },
+)
+
+batch_exports: PostgresTable = PostgresTable(
+    name="batch_exports",
+    postgres_table_name="posthog_batchexport",
+    access_scope="batch_export",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "model": StringDatabaseField(name="model", nullable=True),
+        "interval": StringDatabaseField(name="interval"),
+        "_paused": BooleanDatabaseField(name="paused", hidden=True),
+        "paused": ExpressionField(name="paused", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_paused"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "destination_id": StringDatabaseField(name="destination_id"),
+        "timezone": StringDatabaseField(name="timezone"),
+        "interval_offset": IntegerDatabaseField(name="interval_offset", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_updated_at": DateTimeDatabaseField(name="last_updated_at"),
+        "last_paused_at": DateTimeDatabaseField(name="last_paused_at", nullable=True),
+        "start_at": DateTimeDatabaseField(name="start_at", nullable=True),
+        "end_at": DateTimeDatabaseField(name="end_at", nullable=True),
+    },
+)
 
 alerts: PostgresTable = PostgresTable(
     name="alerts",
@@ -250,6 +294,50 @@ source_sync_jobs: PostgresTable = PostgresTable(
         "created_at": DateTimeDatabaseField(name="created_at"),
         "finished_at": DateTimeDatabaseField(name="finished_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+endpoint_versions: PostgresTable = PostgresTable(
+    name="data_modeling_endpoint_versions",
+    postgres_table_name="endpoints_endpointversion",
+    access_scope="endpoint",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "endpoint_id": StringDatabaseField(name="endpoint_id"),
+        "version": IntegerDatabaseField(name="version"),
+        "description": StringDatabaseField(name="description"),
+        "query": StringJSONDatabaseField(name="query"),
+        "cache_age_seconds": IntegerDatabaseField(name="cache_age_seconds"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
+        ),
+        "columns": StringJSONDatabaseField(name="columns"),
+    },
+)
+
+endpoints: PostgresTable = PostgresTable(
+    name="data_modeling_endpoints",
+    postgres_table_name="endpoints_endpoint",
+    predicates=[parse_expr("deleted != true")],
+    access_scope="endpoint",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
+        ),
+        "current_version": IntegerDatabaseField(name="current_version"),
+        "derived_from_insight": StringDatabaseField(name="derived_from_insight"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "last_executed_at": DateTimeDatabaseField(name="last_executed_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
     },
 )
 
@@ -551,11 +639,15 @@ class SystemTables(TableNode):
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
+        "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
+        "batch_exports": TableNode(name="batch_exports", table=batch_exports),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
+        "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
+        "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
         "error_tracking_issue_assignments": TableNode(

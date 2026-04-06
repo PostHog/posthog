@@ -99,6 +99,7 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
 }
 
 function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeof MOCK_GROUPS): MockPersonHogClient {
@@ -108,6 +109,10 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
             fetchGroupsByKeys: jest.fn(),
             fetchGroupTypesByTeamIds: jest.fn(),
             fetchGroupTypesByProjectIds: jest.fn(),
+        },
+        persons: {
+            fetchPersonsByDistinctIds: jest.fn(),
+            fetchPersonsByPersonIds: jest.fn(),
         },
     }
 
@@ -303,6 +308,10 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                         return Promise.resolve({})
                     }),
                     fetchGroupTypesByProjectIds: jest.fn(),
+                },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
                 },
             }
 

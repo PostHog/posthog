@@ -1,7 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { TeamForReplay } from '../../session-recording/teams/types'
@@ -9,14 +7,7 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import {
-    DLQ_OUTPUT,
-    DlqOutput,
-    INGESTION_WARNINGS_OUTPUT,
-    IngestionWarningsOutput,
-    OVERFLOW_OUTPUT,
-    OverflowOutput,
-} from '../common/outputs'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -39,17 +30,13 @@ export interface SessionReplayPipelineOutput {
 }
 
 export interface SessionReplayPipelineConfig {
-    kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
-    dlqTopic: string
     promiseScheduler: PromiseScheduler
     teamService: TeamService
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
-    /** Producer for ingestion warnings. */
-    ingestionWarningProducer: KafkaProducerWrapper
     /** Session batch manager for recording sessions. */
     sessionBatchManager: SessionBatchManager
     /** Debug logging matcher for partition-based debugging. */
@@ -75,33 +62,15 @@ export function createSessionReplayPipeline(
     OverflowOutput
 > {
     const {
-        kafkaProducer,
+        outputs,
         eventIngestionRestrictionManager,
         overflowEnabled,
-        overflowTopic,
-        dlqTopic,
         promiseScheduler,
         teamService,
         topHog,
-        ingestionWarningProducer,
         sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
-
-    const outputs = new IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>({
-        [INGESTION_WARNINGS_OUTPUT]: {
-            topic: KAFKA_INGESTION_WARNINGS,
-            producer: ingestionWarningProducer,
-        },
-        [DLQ_OUTPUT]: {
-            topic: dlqTopic,
-            producer: kafkaProducer,
-        },
-        [OVERFLOW_OUTPUT]: {
-            topic: overflowTopic,
-            producer: kafkaProducer,
-        },
-    })
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,

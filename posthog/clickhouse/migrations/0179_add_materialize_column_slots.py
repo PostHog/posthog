@@ -12,7 +12,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table="events"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

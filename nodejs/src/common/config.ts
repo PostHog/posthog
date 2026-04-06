@@ -86,7 +86,8 @@ export type CommonConfig = BaseServerConfig & {
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     PERSONHOG_ADDR: string
-    PERSONHOG_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -94,6 +95,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_INTERVAL_MS: number
     PERSONHOG_PING_TIMEOUT_MS: number
     PERSONHOG_PING_IDLE_CONNECTION: boolean
+    PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
+    PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
     // Redis
     REDIS_URL: string
@@ -236,7 +239,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
-        PERSONHOG_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 5000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
@@ -244,6 +248,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_INTERVAL_MS: 30_000,
         PERSONHOG_PING_TIMEOUT_MS: 5_000,
         PERSONHOG_PING_IDLE_CONNECTION: true,
+        PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
+        PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
 
         // Redis
         // ok to connect to localhost over plaintext
