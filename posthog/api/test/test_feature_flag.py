@@ -6299,6 +6299,60 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_with_explicit_null"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_stale_filter_json_null_variant(self):
+        # Regression test: a condition group with "variant": null (JSON null) should NOT
+        # be treated as having a variant override. In JSONB, elem->'variant' IS NOT NULL
+        # is TRUE for JSON null because JSON null is not SQL NULL. The ->> operator casts
+        # to text where JSON null becomes SQL NULL, so both checks are needed.
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="json_null_variant",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": [], "variant": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                    },
+                },
+            )
+
+        filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        # Should NOT appear in stale results: the null variant means no variant override,
+        # so it falls into the "all variants at 100%" branch which requires a single
+        # variant at 100% rollout (neither is).
+        assert not any(flag["key"] == "json_null_variant" for flag in response["results"])
+
+    def test_get_flags_with_stale_filter_empty_multivariate_object(self):
+        # Regression test: multivariate as empty object {} should be treated the same as
+        # missing/null multivariate. jsonb_array_length(filters->'multivariate'->'variants')
+        # returns NULL (not 0) when 'variants' key doesn't exist in {}, so the explicit
+        # empty object check is needed.
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="empty_multivariate_object",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "multivariate": {},
+                },
+            )
+
+        filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "empty_multivariate_object"
+        assert response["results"][0]["status"] == "STALE"
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(
