@@ -21,9 +21,10 @@ tools:
         title: List prompts
         description: >
             List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
-            summaries.
+            summaries. By default, only prompt metadata is returned, not full prompt content.
         include_params:
             - search
+            - content
     prompt-get:
         operation: llm_prompts_name_retrieve
         enabled: true

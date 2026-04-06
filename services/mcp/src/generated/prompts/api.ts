@@ -20,6 +20,12 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .optional()
+        .describe(
+            "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
+        ),
 })
 
 export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({

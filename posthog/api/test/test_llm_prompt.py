@@ -167,6 +167,41 @@ class TestLLMPromptAPI(APIBaseTest):
         assert prompt_a["version"] == 2
         assert prompt_a["latest_version"] == 2
         assert prompt_a["version_count"] == 2
+        assert prompt_a["prompt"] == "v2"
+        assert prompt_a["prompt_size_bytes"] > 0
+
+    def test_list_with_preview_content_mode_returns_preview_without_full_prompt(self, mock_feature_enabled):
+        self.create_prompt_version(name="preview-prompt", prompt="x" * 200)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content=preview")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert "prompt" not in prompt
+        assert "prompt_preview" in prompt
+        assert len(prompt["prompt_preview"]) <= 163
+        assert prompt["prompt_size_bytes"] > 200
+
+    def test_list_with_none_content_mode_omits_prompt_fields(self, mock_feature_enabled):
+        self.create_prompt_version(name="metadata-prompt", prompt={"text": "hello"})
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content=none")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert "prompt" not in prompt
+        assert "prompt_preview" not in prompt
+        assert prompt["prompt_size_bytes"] > 0
+
+    def test_list_can_order_by_prompt_size_bytes(self, mock_feature_enabled):
+        self.create_prompt_version(name="small", prompt="abc")
+        self.create_prompt_version(name="large", prompt="x" * 50)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?order_by=-prompt_size_bytes")
+
+        assert response.status_code == status.HTTP_200_OK
+        names = [prompt["name"] for prompt in response.json()["results"]]
+        assert names == ["large", "small"]
 
     def test_fetch_prompt_by_name_returns_latest_by_default(self, mock_feature_enabled):
         first_version = self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")

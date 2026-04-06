@@ -50,6 +50,16 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional substring filter applied to prompt names and prompt content.",
     )
+    content = serializers.ChoiceField(
+        choices=["full", "preview", "none"],
+        required=False,
+        default="full",
+        help_text=(
+            "Controls how much prompt content is included in list results. "
+            "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
+            "and 'none' omits prompt content entirely."
+        ),
+    )
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
@@ -227,6 +237,73 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         )
 
 
+class LLMPromptListSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    is_latest = serializers.SerializerMethodField()
+    latest_version = serializers.SerializerMethodField()
+    version_count = serializers.SerializerMethodField()
+    first_version_created_at = serializers.SerializerMethodField()
+    prompt_size_bytes = serializers.SerializerMethodField()
+    prompt_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LLMPrompt
+        fields = [
+            "id",
+            "name",
+            "prompt",
+            "prompt_preview",
+            "prompt_size_bytes",
+            "version",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "deleted",
+            "is_latest",
+            "latest_version",
+            "version_count",
+            "first_version_created_at",
+        ]
+        read_only_fields = fields
+
+    def get_is_latest(self, instance: LLMPrompt) -> bool:
+        return bool(getattr(instance, "is_latest", False))
+
+    def get_latest_version(self, instance: LLMPrompt) -> int:
+        return int(getattr(instance, "latest_version", instance.version))
+
+    def get_version_count(self, instance: LLMPrompt) -> int:
+        return int(getattr(instance, "version_count", 1))
+
+    def get_first_version_created_at(self, instance: LLMPrompt) -> str:
+        value = getattr(instance, "first_version_created_at", instance.created_at)
+        if value is None:
+            value = instance.created_at
+        if isinstance(value, str):
+            return value
+        return value.isoformat().replace("+00:00", "Z")
+
+    def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
+        return int(getattr(instance, "prompt_size_bytes", 0))
+
+    def get_prompt_preview(self, instance: LLMPrompt) -> str:
+        prompt = instance.prompt
+        display_value = prompt if isinstance(prompt, str) else json.dumps(prompt, ensure_ascii=False)
+        return display_value[:160] + ("..." if len(display_value) > 160 else "")
+
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        content_mode = self.context.get("content_mode", "full")
+        if content_mode == "none":
+            data.pop("prompt", None)
+            data.pop("prompt_preview", None)
+        elif content_mode == "preview":
+            data.pop("prompt", None)
+        else:
+            data.pop("prompt_preview", None)
+        return data
+
+
 class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -247,6 +324,23 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     name = serializers.CharField()
     prompt = serializers.JSONField()
     version = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+    deleted = serializers.BooleanField()
+    is_latest = serializers.BooleanField()
+    latest_version = serializers.IntegerField()
+    version_count = serializers.IntegerField()
+    first_version_created_at = serializers.DateTimeField()
+
+
+class LLMPromptListPublicSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    prompt = serializers.JSONField(required=False)
+    prompt_preview = serializers.CharField(required=False)
+    prompt_size_bytes = serializers.IntegerField()
+    version = serializers.IntegerField()
+    created_by = UserBasicSerializer(read_only=True)
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
     deleted = serializers.BooleanField()

@@ -26,6 +26,7 @@ const promptList = (): ToolBase<typeof PromptListSchema, Schemas.PaginatedLLMPro
             path: `/api/environments/${projectId}/llm_prompts/`,
             query: {
                 search: params.search,
+                content: params.content ?? 'none',
             },
         })
         return result

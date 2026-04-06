@@ -2,7 +2,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Q, QuerySet, TextField
+from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import posthoganalytics
@@ -19,6 +19,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptListQuerySerializer,
+    LLMPromptListSerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
     LLMPromptResolveQuerySerializer,
@@ -76,6 +77,8 @@ ALLOWED_LIST_ORDERINGS = {
     "-version_count": "-version_count",
     "first_version_created_at": "first_version_created_at",
     "-first_version_created_at": "-first_version_created_at",
+    "prompt_size_bytes": "prompt_size_bytes",
+    "-prompt_size_bytes": "-prompt_size_bytes",
 }
 
 
@@ -199,18 +202,35 @@ class LLMPromptViewSet(
             },
         )
 
+    def _get_list_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMPromptListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
-        queryset = get_latest_prompts_queryset(self.team)
+        queryset = get_latest_prompts_queryset(self.team).annotate(
+            prompt_text=Cast("prompt", output_field=TextField()),
+            prompt_size_bytes=Func(Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()),
+        )
 
         search = request.query_params.get("search", "").strip()
         if search:
-            queryset = queryset.annotate(prompt_text=Cast("prompt", output_field=TextField())).filter(
-                Q(name__icontains=search) | Q(prompt_text__icontains=search)
-            )
+            queryset = queryset.filter(Q(name__icontains=search) | Q(prompt_text__icontains=search))
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return LLMPromptListSerializer
+        return super().get_serializer_class()
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if self.action == "list":
+            context["content_mode"] = self._get_list_params(self.request).get("content", "full")
+        return context
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
