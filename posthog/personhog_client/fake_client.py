@@ -314,9 +314,6 @@ class FakePersonHogClient:
 
     # ── Assertion helpers ────────────────────────────────────────────
 
-    def get_calls_by_method(self, method: str) -> list[_Call]:
-        return [call for call in self.calls if call.method == method]
-
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:
         matched = [c for c in self.calls if c.method == method]
         if times is not None:
