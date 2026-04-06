@@ -41,18 +41,35 @@ async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
             ExportAssetWorkflowInputs(
                 exported_asset_id=asset.id,
                 team_id=team.id,
-                export_format=EXPORT_FORMAT,
                 slo=SloConfig(
                     operation=SloOperation.EXPORT,
                     area=SloArea.ANALYTIC_PLATFORM,
                     team_id=team.id,
                     resource_id=str(asset.id),
                     distinct_id=str(team.id),
+                    start_properties={
+                        "export_format": EXPORT_FORMAT,
+                        "export_type": "insight",
+                        "source": "insight",
+                    },
+                    completion_properties={
+                        "export_format": EXPORT_FORMAT,
+                        "export_type": "insight",
+                        "source": "insight",
+                    },
                 ),
             ),
             id=f"export-asset-{asset.id}",
             task_queue=settings.TEMPORAL_TASK_QUEUE,
         )
+
+
+def _get_slo_started_props(mock_analytics) -> dict:
+    started_calls = [
+        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+    ]
+    assert len(started_calls) == 1
+    return started_calls[0].kwargs["properties"]
 
 
 def _get_slo_completed_props(mock_analytics) -> dict:
@@ -83,11 +100,19 @@ async def test_successful_export(
     await sync_to_async(asset.refresh_from_db)()
     assert asset.has_content
 
+    started_props = _get_slo_started_props(mock_analytics)
+    assert started_props["operation"] == "export"
+    assert started_props["export_format"] == EXPORT_FORMAT
+    assert started_props["export_type"] == "insight"
+    assert started_props["source"] == "insight"
+
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS
     assert props["operation"] == "export"
     assert props["resource_id"] == str(asset.id)
     assert props["export_format"] == EXPORT_FORMAT
+    assert props["export_type"] == "insight"
+    assert props["source"] == "insight"
     assert "error" not in props
 
 

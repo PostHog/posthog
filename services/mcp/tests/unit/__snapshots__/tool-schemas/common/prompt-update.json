@@ -6,8 +6,26 @@
             "minimum": 1,
             "type": "number"
         },
+        "edits": {
+            "description": "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt.",
+            "items": {
+                "properties": {
+                    "new": {
+                        "description": "Replacement text.",
+                        "type": "string"
+                    },
+                    "old": {
+                        "description": "Text to find in the current prompt. Must match exactly once.",
+                        "type": "string"
+                    }
+                },
+                "required": ["old", "new"],
+                "type": "object"
+            },
+            "type": "array"
+        },
         "prompt": {
-            "description": "Prompt payload to publish as a new version."
+            "description": "Full prompt payload to publish as a new version. Mutually exclusive with edits."
         },
         "prompt_name": {
             "pattern": "^[^/]+$",

@@ -2,7 +2,7 @@
 # Dockerfile.node - nodejs Only
 #
 # This Dockerfile builds only the nodejs (Node.js app) without Django, frontend, or other PostHog components.
-# Use this for running standalone nodejs instances.
+# Use this for running standalone Node.js plugin server instances.
 #
 
 #
@@ -103,6 +103,7 @@ RUN apt-get update && \
     "libssl3=3.0.18-1~deb12u2" \
     "curl" \
     "gettext-base" \
+    "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 # curl: Required by bin/nodejs startup script to fetch EC2 metadata when INJECT_EC2_CLIENT_RACK is set

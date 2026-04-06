@@ -1,5 +1,9 @@
 metadata:
+    devbox:
+        coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -91,6 +95,17 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
+devbox:
+    devbox: null
+    devbox:setup: null
+    devbox:start: null
+    devbox:stop: null
+    devbox:ssh: null
+    devbox:open: null
+    devbox:logs: null
+    devbox:destroy: null
+    devbox:status: null
+    devbox:forward: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -111,6 +126,11 @@ core:
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
+        services:
+            - postgresql
+    dev:sync-hog-templates:
+        cmd: python manage.py sync_hog_function_templates
+        description: Sync hog function templates from configuration
         services:
             - postgresql
     dev:sync-user-settings:
@@ -258,6 +278,7 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
+    build: null # Click-defined command; placed here for help categorization
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
@@ -548,6 +569,7 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 tools:
+    doctor: null # Click-defined, placed here for categorization
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
@@ -729,7 +751,14 @@ environment:
         description: Disable anonymous usage telemetry
     telemetry:status:
         description: Show current telemetry settings
+    sandbox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
     start:stripe:mock:
         bin_script: start-stripe-mock
         description: 'Start the local Stripe mock API server'
+        hidden: true
+    fix:rdkafka:paths:
+        bin_script: fix-rdkafka-paths
+        description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
         hidden: true

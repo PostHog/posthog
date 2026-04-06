@@ -5,6 +5,8 @@ import "charm.land/bubbles/v2/key"
 type keyMap struct {
 	PrevProc   key.Binding
 	NextProc   key.Binding
+	KeyUp      key.Binding
+	KeyDown    key.Binding
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 	GotoTop    key.Binding
@@ -30,11 +32,17 @@ type keyMap struct {
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("k", "up"),
-			key.WithHelp("↑:", "prev"),
+			key.WithKeys("k"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("j", "down"),
+			key.WithKeys("j"),
+		),
+		KeyUp: key.NewBinding(
+			key.WithKeys("up"),
+			key.WithHelp("↑:", "prev"),
+		),
+		KeyDown: key.NewBinding(
+			key.WithKeys("down"),
 			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
@@ -123,12 +131,12 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.NextPane, k.Search, k.CopyMode, k.Sort, k.Restart, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.KeyDown, k.NextPane, k.Search, k.CopyMode, k.Info, k.Sort, k.Restart, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.NextProc, k.PrevProc, k.Sort},
+		{k.KeyDown, k.KeyUp, k.Sort},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},

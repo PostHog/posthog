@@ -56,6 +56,7 @@ type Model struct {
 	// Center viewport with output of the active process
 	viewport         viewport.Model
 	viewportAtBottom bool
+	activeLines      []string
 
 	// Copy mode: keyboard-driven line selection within the output pane
 	copyMode   bool
@@ -82,6 +83,9 @@ type Model struct {
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
 
+	// Buffered text for PTY input when the output pane is focused
+	inputBuffer string
+
 	// Info mode: replaces the output viewport with process stats
 	infoMode bool
 
@@ -101,6 +105,7 @@ type Model struct {
 	width  int
 	height int
 	ready  bool
+	isDark bool
 
 	mouseScrollSpeed int
 	hideHelp         bool // hide_keymap_window from config
@@ -114,6 +119,9 @@ type Model struct {
 func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
+	h := help.New()
+	h.Styles = helpStyles()
+
 	return Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
@@ -121,11 +129,12 @@ func New(mgr *process.Manager, cfg *config.Config, logger *log.Logger) Model {
 		servicesOffset:   0,
 		focusedPane:      focusServices,
 		viewportAtBottom: true,
+		isDark:           true,
 		mouseScrollSpeed: cfg.MouseScrollSpeed,
 		hideHelp:         cfg.HideKeymapWindow,
 		procListWidth:    cfg.ProcListWidth,
 		keys:             keys,
-		help:             help.New(),
+		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
@@ -160,33 +169,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.BackgroundColorMsg:
-		isDark := msg.IsDark()
-		m.help.Styles = help.DefaultStyles(isDark)
+		m.isDark = msg.IsDark()
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
-		// Refresh info panel on each spinner tick to keep uptime current
+
+	case process.MetricsMsg:
 		if m.infoMode {
 			m.refreshInfoContent()
 		}
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
-		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
+		if p := m.activeProc(); m.ready && p != nil && p.Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.viewport.SetContent(m.buildContent())
+			m.applyOutputDelta(msg)
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
-			}
-			if m.searchQuery != "" {
-				m.recomputeSearch()
 			}
 		}
 
@@ -363,7 +369,7 @@ func (m Model) applySize() Model {
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.isFullScreen() {
-		vpW = m.width - horizontalBorderCount
+		vpW = m.width
 	}
 
 	if !m.ready {
@@ -404,6 +410,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 
 	// Resize viewport to account for container sidebar appearing/disappearing
@@ -420,6 +427,9 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
+		m.activeLines = nil
+		m.infoMode = false
+		m.disableAllMetrics()
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -429,9 +439,16 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
-		m.viewport.SetContent(m.buildContent())
+		m.disableAllMetrics()
+		if m.infoMode {
+			m.toggleMetricsOnSelectedProc()
+			m.refreshInfoContent()
+		} else {
+			m.reloadActiveLines()
+		}
 	}
 
+	// Scroll to bottom when switching processes if viewport was already at bottom
 	if m.viewportAtBottom {
 		m.viewport.GotoBottom()
 	}
@@ -442,13 +459,43 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	return m, cmds
 }
 
-// Joins the active process's output lines into a viewport content string
-func (m Model) buildContent() string {
+func (m *Model) disableAllMetrics() {
+	for _, p := range m.services {
+		p.SetMetricsEnabled(false)
+	}
+}
+
+// Reloads activeLines from the process buffer and pushes to the viewport.
+func (m *Model) reloadActiveLines() {
 	p := m.activeProc()
 	if p == nil {
-		return ""
+		m.activeLines = nil
+	} else {
+		m.activeLines = p.Lines()
 	}
-	return strings.Join(p.Lines(), "\n")
+	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
+}
+
+// applyOutputDelta incrementally updates the viewport content using the
+// batch metadata in OutputMsg. Falls back to a full rebuild on eviction.
+func (m *Model) applyOutputDelta(msg process.OutputMsg) {
+	if msg.Evicted > 0 || len(msg.Added) == 0 {
+		m.reloadActiveLines()
+		if m.searchQuery != "" {
+			m.recomputeSearch()
+		}
+		return
+	}
+
+	m.activeLines = append(m.activeLines, msg.Added...)
+	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
+
+	if m.searchQuery != "" {
+		startIdx := len(m.activeLines) - len(msg.Added)
+		for i, line := range msg.Added {
+			m.updateSearchForLine(line, startIdx+i, false)
+		}
+	}
 }
 
 // statusSortOrder returns a numeric rank for sorting by status.
@@ -515,4 +562,10 @@ func (m *Model) sortServices() {
 		}
 	}
 	m.ensureSidebarCursorVisible()
+}
+
+func (m Model) toggleMetricsOnSelectedProc() {
+	if p := m.activeProc(); p != nil {
+		p.SetMetricsEnabled(true)
+	}
 }

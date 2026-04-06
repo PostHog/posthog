@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -8,6 +9,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
@@ -16,6 +18,13 @@ import { userLogic } from 'scenes/userLogic'
 import { DashboardTemplateType } from '~/types'
 
 const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default' })
+
+const POPULAR_TEMPLATE_TOOLTIP = 'One of our most popular templates'
+
+/** Matches backend: global scope + no team means the template is org-wide only and cannot be made team-private. */
+function isBuiltInOfficialTemplate(record: Pick<DashboardTemplateType, 'scope' | 'team_id'>): boolean {
+    return record.scope === 'global' && record.team_id == null
+}
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { allTemplates, allTemplatesLoading, templateFilter, templateNameOrdering } = useValues(templatesTableLogic)
@@ -38,6 +47,21 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { user } = useValues(userLogic)
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
+        {
+            key: 'featured',
+            width: '2rem',
+            align: 'center',
+            className: 'align-middle',
+            render: (_, record) => (
+                <span className="inline-flex min-h-5 w-full items-center justify-center leading-none">
+                    {record.scope === 'global' && record.is_featured ? (
+                        <Tooltip title={POPULAR_TEMPLATE_TOOLTIP}>
+                            <IconThumbsUpFilled className="size-4 text-success" aria-label={POPULAR_TEMPLATE_TOOLTIP} />
+                        </Tooltip>
+                    ) : null}
+                </span>
+            ),
+        },
         {
             title: 'Name',
             dataIndex: 'template_name',
@@ -65,10 +89,16 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         },
         {
             width: 0,
-            render: (_, { id, scope }: DashboardTemplateType) => {
+            render: (_, record: DashboardTemplateType) => {
                 if (!user?.is_staff) {
                     return null
                 }
+                const { id, scope } = record
+                const builtInOfficial = isBuiltInOfficialTemplate(record)
+                const makePrivateDisabledReason = builtInOfficial
+                    ? 'Built-in official templates cannot be made team-only'
+                    : undefined
+
                 return (
                     <More
                         overlay={
@@ -100,6 +130,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         })
                                     }}
                                     fullWidth
+                                    disabledReason={makePrivateDisabledReason}
                                 >
                                     Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                 </LemonButton>
@@ -127,7 +158,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     status="danger"
                                     disabledReason={
                                         scope === 'global'
-                                            ? 'Cannot delete global dashboard templates, make them team only first'
+                                            ? builtInOfficial
+                                                ? 'Built-in official templates cannot be deleted'
+                                                : 'Cannot delete a global template until it is team-only'
                                             : undefined
                                     }
                                 >
@@ -156,7 +189,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             <LemonTable
                 id="dashboard-templates"
                 data-attr="dashboards-template-table"
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 25 }}
                 dataSource={Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}

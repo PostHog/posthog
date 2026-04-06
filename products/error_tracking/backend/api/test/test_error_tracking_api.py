@@ -4,9 +4,6 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
-
 from boto3 import resource
 from botocore.config import Config
 from rest_framework import status
@@ -231,41 +228,43 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert symbol_set.content_hash == "this_is_a_content_hash"
 
-    def test_can_upload_a_source_map(self) -> None:
-        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
-            symbol_set = ErrorTrackingSymbolSet.objects.create(
-                ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
-            )
+    def test_can_bulk_delete_symbol_sets(self) -> None:
+        ss1 = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        ss2 = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=self.team, storage_ptr=None)
+        ss3 = ErrorTrackingSymbolSet.objects.create(ref="source_3", team=self.team, storage_ptr=None)
 
-            with open(get_path_to("source.js.map"), "rb") as image:
-                # Note - we just use the source map twice, because we don't expect the API to do
-                # any validation here - cymbal does the parsing work.
-                # TODO - we could have the api validate these contents before uploading, if we wanted
-                data = {"source_map": image, "minified": image}
-                response = self.client.patch(
-                    f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-                    data,
-                    format="multipart",
-                )
-                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-    def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
-        symbol_set = ErrorTrackingSymbolSet.objects.create(
-            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
+            data={"ids": [str(ss1.id), str(ss2.id)]},
+            format="json",
         )
-        with override_settings(OBJECT_STORAGE_ENABLED=False):
-            fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
-            data = {"source_map": fake_big_file, "minified": fake_big_file}
-            response = self.client.put(
-                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-                data,
-                format="multipart",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-            self.assertEqual(
-                response.json()["detail"],
-                "Object storage must be available to allow source map uploads.",
-            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.json()["deleted"], 2)
+        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss1.id).exists())
+        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss2.id).exists())
+        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=ss3.id).exists())
+
+    def test_bulk_delete_ignores_other_teams(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        ss1 = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        other_ss = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=other_team, storage_ptr=None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
+            data={"ids": [str(ss1.id), str(other_ss.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.json()["deleted"], 1)
+        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
+
+    def test_bulk_delete_requires_ids(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
+            data={},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_fetching_symbol_sets(self):
         other_team = self.create_team_with_organization(organization=self.organization)

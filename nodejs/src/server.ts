@@ -17,16 +17,14 @@ import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/cons
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { SessionRecordingIngester } from './session-recording/consumer'
-import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
@@ -36,12 +34,14 @@ import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
 
 /**
- * PluginServer handles CDP, recordings, logs, evaluation scheduler, and local-dev combined modes.
- * Ingestion (ingestion-v2, ingestion-v2-testing) is handled by IngestionGeneralServer — see index.ts.
+ * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
+ * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionReplayServer — see index.ts.
  */
 export class PluginServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -49,7 +49,6 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -89,9 +88,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow
         )
-        const needsLogs = !!capabilities.logsIngestion
-        const needsTraces = !!capabilities.tracesIngestion
-
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
@@ -101,10 +97,10 @@ export class PluginServer implements NodeServer {
             cdpServices = await this.createCdpSharedServices()
         }
 
-        // 3. CDP + Logs + Traces services (posthog redis, quota limiting)
-        let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-        if (needsCdp || needsLogs || needsTraces) {
-            cdpLogsServices = this.createCdpLogsServices(teamManager)
+        // 3. CDP services (posthog redis, quota limiting)
+        let cdpQuotaServices: ReturnType<typeof this.createCdpQuotaServices> | undefined
+        if (needsCdp) {
+            cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
         // Build typed deps objects for consumers
@@ -120,7 +116,7 @@ export class PluginServer implements NodeServer {
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
-                  quotaLimiting: cdpLogsServices!.quotaLimiting,
+                  quotaLimiting: cdpQuotaServices!.quotaLimiting,
               }
             : undefined
 
@@ -133,44 +129,6 @@ export class PluginServer implements NodeServer {
                     pubSub: this.pubsub!,
                 })
             )
-        }
-
-        if (capabilities.sessionRecordingBlobIngestionV2) {
-            serviceLoaders.push(async () => {
-                const kafkaMessageProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const ingester = new SessionRecordingIngester(
-                    this.config,
-                    false,
-                    this.postgres!,
-                    this.kafkaProducer!,
-                    kafkaMessageProducer
-                )
-                await ingester.start()
-                return ingester.service
-            })
-        }
-
-        if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
-            serviceLoaders.push(async () => {
-                const kafkaMessageProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const ingester = new SessionRecordingIngester(
-                    this.config,
-                    true,
-                    this.postgres!,
-                    this.kafkaProducer!,
-                    kafkaMessageProducer
-                )
-                await ingester.start()
-                return ingester.service
-            })
         }
 
         if (capabilities.cdpProcessedEvents) {
@@ -264,6 +222,14 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpHogflowScheduler) {
+            serviceLoaders.push(() => {
+                const scheduler = new HogFlowScheduleService(this.config)
+                scheduler.start()
+                return Promise.resolve(scheduler.service)
+            })
+        }
+
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
@@ -287,42 +253,11 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        if (capabilities.logsIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new LogsIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
-            })
-        }
-
-        if (capabilities.tracesIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new TracesIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        }
-
-        if (capabilities.recordingApi) {
-            serviceLoaders.push(async () => {
-                const api = new RecordingApi(this.config, this.postgres!)
-                this.lifecycle.expressApp.use('/', api.router())
-                await api.start()
-                return api.service
             })
         }
 
@@ -332,7 +267,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -351,7 +286,6 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -372,8 +306,8 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PostgresPersonRepository
-        groupRepository: PostgresGroupRepository
+        personRepository: PersonRepository
+        groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -381,10 +315,26 @@ export class PluginServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres!, {
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres!)
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
+        const groupRepository = buildGroupRepository(
+            personhogClient,
+            postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
@@ -399,7 +349,7 @@ export class PluginServer implements NodeServer {
         }
     }
 
-    private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
+    private createCdpQuotaServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
         logger.info('🤔', 'Connecting to PostHog Redis...')
         this.posthogRedisPool = createRedisPoolFromConfig({
             connection: createPosthogRedisConnectionConfig(this.config),
