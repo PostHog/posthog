@@ -22,8 +22,8 @@ export const semanticColors: Record<string, ColorTuple> = {
     primary: ['oklch(0.6514 0.2137 37.89)', 'oklch(0.8325 0.1611 84.54)', 'bg-primary'],
     'primary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-primary-foreground'],
 
-    secondary: ['oklch(0.31 0 0)', 'oklch(0.86 0 0)', 'bg-primary'],
-    'secondary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-primary-foreground'],
+    secondary: ['oklch(0.31 0 0)', 'oklch(0.86 0 0)', 'bg-secondary'],
+    'secondary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-secondary-foreground'],
 
     muted: ['oklch(0.97 0.006 106)', 'hsl(240 8% 10%)', 'bg-muted'],
     'muted-foreground': ['oklch(0.446 0.03 257)', 'oklch(0.709 0 0)', 'text-muted-foreground'],
@@ -151,13 +151,6 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('')
     lines.push('  /* --- Colors --- */')
     lines.push(generateColorMappingsCSS())
-    lines.push('')
-    lines.push('  --color-sidebar: var(--sidebar);')
-    lines.push('  --color-sidebar-foreground: var(--sidebar-foreground);')
-    lines.push('  --color-sidebar-accent: var(--sidebar-accent);')
-    lines.push('  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);')
-    lines.push('  --color-sidebar-border: var(--sidebar-border);')
-    lines.push('  --color-sidebar-ring: var(--sidebar-ring);')
     lines.push('')
     lines.push('  /* --- Spacing --- */')
     lines.push(generateSpacingCSS())
