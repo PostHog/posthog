@@ -73,8 +73,7 @@ async def async_generate_embedding(
     """Async equivalent of generate_embedding — uses httpx instead of requests to avoid blocking a thread."""
     logger.info(f"Generating ad-hoc embedding (async) for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
-    # TODO: Check if we need a larger timeout for embedding worker (avoid read timeouts)
-    async with internal_httpx_async_client() as client:
+    async with internal_httpx_async_client(timeout=30.0) as client:
         response = await client.post(_EMBEDDING_URL, json=payload)
         response.raise_for_status()
         return _parse_embedding_response(response.json())

@@ -12,6 +12,7 @@ import {
     LemonTabs,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -79,6 +80,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
         evaluationsFilter,
         dateFilter,
         unhealthyProviderKeysUsedByEvaluations,
+        canEnableEvaluation,
     } = useValues(evaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(evaluationsLogic)
@@ -114,24 +116,39 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
         {
             title: 'Status',
             key: 'enabled',
-            render: (_, evaluation) => (
-                <div className="flex items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonSwitch
-                            checked={evaluation.enabled}
-                            onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                            size="small"
-                            data-attr="toggle-evaluation-enabled"
-                        />
-                    </AccessControlAction>
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
+            render: (_, evaluation) => {
+                const canEnable = canEnableEvaluation(evaluation)
+                const isBlocked = !canEnable && !evaluation.enabled
+                return (
+                    <div className="flex items-center gap-2">
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <Tooltip
+                                title={
+                                    isBlocked
+                                        ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
+                                        : undefined
+                                }
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={evaluation.enabled}
+                                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
+                                        size="small"
+                                        disabled={isBlocked}
+                                        data-attr="toggle-evaluation-enabled"
+                                    />
+                                </span>
+                            </Tooltip>
+                        </AccessControlAction>
+                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                )
+            },
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {

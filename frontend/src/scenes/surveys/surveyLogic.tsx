@@ -2291,7 +2291,10 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props, values }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+        [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate, preserveLocalChanges }, { method }) => {
+            const shouldPreserveLocalChanges =
+                preserveLocalChanges && values.surveyChanged && values.survey.id === (props.id ?? NEW_SURVEY.id)
+
             // Parse filters from URL params
             if (searchParams.propertyFilters) {
                 try {
@@ -2341,6 +2344,12 @@ export const surveyLogic = kea<surveyLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                if (shouldPreserveLocalChanges) {
+                    if (searchParams.edit) {
+                        actions.editingSurvey(true)
+                    }
+                    return
+                }
                 // When pushing to `/new` and the id matches the new survey's id, do not load the survey again
                 if (props.id === 'new' && values.survey.id === NEW_SURVEY.id && !fromTemplate) {
                     return
@@ -2387,12 +2396,15 @@ export const surveyLogic = kea<surveyLogicType>([
             { replace: true },
         ],
     })),
-    afterMount(({ props, actions }) => {
-        if (props.id !== 'new') {
+    afterMount(({ props, actions, values }) => {
+        const shouldPreserveLocalChanges =
+            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+
+        if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()
             actions.loadSurveyNotifications()
         }
-        if (props.id === 'new') {
+        if (props.id === 'new' && !shouldPreserveLocalChanges) {
             actions.resetSurvey()
         }
     }),

@@ -31,7 +31,7 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 
 </details>
 
-### When to run a migration for DATA and COORDINATOR nodes
+### When to run a migration on DATA nodes (non-sharded)
 
 - Basically when the migration does not include any of the above listed in the previous section.
 - When adding / updating a distributed table for reading
@@ -40,13 +40,13 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 - When adding / updating a dictionary
 - And so on
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA, NodeRole.COORDINATOR]`.
+In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
 
 <details>
 
 <summary>Example</summary>
 
-Following the previous section example, the sharded events table along with the Kafka tables, materialized views and writable distributed table would be added to the data nodes. However, the `distributed_events`, which is the table used for the read path, would be added to all nodes.
+Following the previous section example, the sharded events table along with the Kafka tables, materialized views and writable distributed table would be added to the data nodes. The `distributed_events`, which is the table used for the read path, would also be added to data nodes.
 
 </details>
 
@@ -75,11 +75,11 @@ We are introducing changes to our ClickHouse topology frequently, introducing ne
 
 Rarely, you'll need to run a migration on all nodes. In that case, you can use the `NodeRole.ALL` role. You should only use it when you're sure that the change is safe to apply to all nodes.
 
-In the vast majority of cases, just follow the [previous](#when-to-run-a-migration-only-on-a-data-node) [sections](#when-to-run-a-migration-for-data-and-coordinator-nodes).
+In the vast majority of cases, just follow the [previous](#when-to-run-a-migration-only-on-a-data-node) [sections](#when-to-run-a-migration-on-data-nodes-non-sharded).
 
 ### The ON CLUSTER clause
 
-**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, which may not include all target nodes.
 This may cause lots of troubles and block migrations.
 
 The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
@@ -106,4 +106,4 @@ was interfering with ingestion. This was causing delays and at the end incidents
 
 We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
 
-ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers, coordinator and our new ingestion nodes.
+ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers and our new ingestion nodes.

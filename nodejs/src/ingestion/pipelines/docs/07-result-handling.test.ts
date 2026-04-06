@@ -85,9 +85,11 @@ describe('Result Handling', () => {
 
         const pipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'my-dlq-topic', producer: mockProducer as any },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockProducer as any },
-                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+                [DLQ_OUTPUT]: [{ topic: 'my-dlq-topic', producer: mockProducer as any, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockProducer as any, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    { topic: 'ingestion_warnings_test', producer: mockProducer as any, producerName: 'test' },
+                ],
             }),
             promiseScheduler: promiseScheduler,
         }
@@ -150,9 +152,11 @@ describe('Result Handling', () => {
 
         const pipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockProducer as any },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockProducer as any },
-                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+                [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockProducer as any, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockProducer as any, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    { topic: 'ingestion_warnings_test', producer: mockProducer as any, producerName: 'test' },
+                ],
             }),
             promiseScheduler: promiseScheduler,
         }
@@ -215,10 +219,14 @@ describe('Result Handling', () => {
 
         const pipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockProducer as any },
-                [HIGH_PRIORITY_OUTPUT]: { topic: 'high-priority-topic', producer: mockProducer as any },
-                [BROADCAST_OUTPUT]: { topic: 'broadcast-topic', producer: mockProducer as any },
-                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockProducer as any },
+                [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockProducer as any, producerName: 'test' }],
+                [HIGH_PRIORITY_OUTPUT]: [
+                    { topic: 'high-priority-topic', producer: mockProducer as any, producerName: 'test' },
+                ],
+                [BROADCAST_OUTPUT]: [{ topic: 'broadcast-topic', producer: mockProducer as any, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    { topic: 'ingestion_warnings_test', producer: mockProducer as any, producerName: 'test' },
+                ],
             }),
             promiseScheduler: promiseScheduler,
         }

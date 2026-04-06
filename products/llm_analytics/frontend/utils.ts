@@ -313,6 +313,30 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
     )
 }
 
+// LangChain/LangGraph type guard
+// LangChain messages use `type` (human, ai, tool, system, context) instead of `role`
+const LANGCHAIN_MESSAGE_TYPES = new Set(['human', 'ai', 'tool', 'system', 'context'])
+
+interface LangChainMessage {
+    type: string
+    content: unknown
+    tool_calls?: unknown
+    tool_call_id?: string
+    [key: string]: unknown
+}
+
+export function isLangChainMessage(input: unknown): input is LangChainMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        !('role' in input) &&
+        'type' in input &&
+        typeof input.type === 'string' &&
+        LANGCHAIN_MESSAGE_TYPES.has(input.type) &&
+        'content' in input
+    )
+}
+
 // OpenAI Responses API type guards
 const OPENAI_RESPONSES_BUILTIN_TOOL_TYPES = new Set([
     'web_search_call',
@@ -681,6 +705,7 @@ export const roleMap: Record<string, string> = {
 
     system: 'system',
     instructions: 'system',
+    context: 'system',
 }
 
 export function normalizeRole(rawRole: unknown, fallback: string): string {
@@ -704,7 +729,13 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     const roleToUse =
         rawMessage && typeof rawMessage === 'object' && 'role' in rawMessage && typeof rawMessage.role === 'string'
             ? normalizeRole(rawMessage.role, defaultRole)
-            : defaultRole
+            : rawMessage &&
+                typeof rawMessage === 'object' &&
+                'type' in rawMessage &&
+                typeof rawMessage.type === 'string' &&
+                Object.hasOwn(roleMap, rawMessage.type)
+              ? normalizeRole(rawMessage.type, defaultRole)
+              : defaultRole
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
@@ -962,8 +993,27 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         return normalizeOTelPartsMessage(rawMessage, roleToUse)
     }
 
-    // Unsupported message.
-    console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    // LangChain/LangGraph format: uses `type` (human, ai, tool, system, context) instead of `role`
+    if (isLangChainMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content:
+                    typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
+                tool_calls:
+                    'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                        ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                        : undefined,
+                tool_call_id:
+                    'tool_call_id' in rawMessage && typeof rawMessage.tool_call_id === 'string'
+                        ? rawMessage.tool_call_id
+                        : undefined,
+            },
+        ]
+    }
+
+    // Unsupported message — log at debug level to avoid flooding the console
+
     posthog.capture('llma message normalization failed', {
         message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
         message_type: typeof rawMessage,

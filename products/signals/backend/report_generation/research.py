@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import json
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
 from products.signals.backend.temporal.types import SignalData
+
+
+class ActionabilityChoice(str, Enum):
+    IMMEDIATELY_ACTIONABLE = "immediately_actionable"
+    REQUIRES_HUMAN_INPUT = "requires_human_input"
+    NOT_ACTIONABLE = "not_actionable"
+
+
+class Priority(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
@@ -468,6 +483,7 @@ async def run_multi_turn_research(
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -505,6 +521,8 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
+        origin_product="signal_report",
+        signal_report_id=signal_report_id,
     )
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]

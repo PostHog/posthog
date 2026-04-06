@@ -20,7 +20,7 @@ Changes here have a high blast radius — always lock down behavior with tests b
 4. **Run the existing test suite** to establish a green baseline:
 
    ```bash
-   pnpm --filter=@posthog/frontend jest TaxonomicFilter
+   hogli test frontend/src/lib/components/TaxonomicFilter/
    ```
 
 ## Architecture at a glance

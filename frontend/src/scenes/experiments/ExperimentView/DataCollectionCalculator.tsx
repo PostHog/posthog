@@ -14,7 +14,10 @@ import { ExperimentIdType, InsightType } from '~/types'
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { isLaunched } from '../experimentsLogic'
-import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
+import {
+    minimumSampleSizePerVariant,
+    recommendedExposureForCountData,
+} from '../legacy/calculations/legacyExperimentCalculations'
 
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType

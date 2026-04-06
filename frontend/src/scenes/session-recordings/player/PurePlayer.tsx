@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
@@ -89,9 +89,14 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
-    const { isNotFound, isRecentAndInvalid, isRecordingDeleted, recordingDeletedAt, recordingDeletedBy } = useValues(
-        sessionRecordingDataCoordinatorLogic(logicProps)
-    )
+    const {
+        isNotFound,
+        loadMetaError,
+        isRecentAndInvalid,
+        isRecordingDeleted,
+        recordingDeletedAt,
+        recordingDeletedBy,
+    } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
@@ -230,6 +235,16 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         return (
             <div className="flex-1 w-full flex justify-center">
                 <RecordingNotFound />
+            </div>
+        )
+    }
+
+    if (loadMetaError) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center p-4">
+                <LemonBanner type="error" className="max-w-xl">
+                    There was an error loading this recording. Please try again later.
+                </LemonBanner>
             </div>
         )
     }

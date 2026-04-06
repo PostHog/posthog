@@ -58,7 +58,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading'], teamLogic, ['currentTeam']],
+        values: [
+            surveyLogic({ id: props.id }),
+            ['survey', 'surveyChanged', 'surveyLoading'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
 
     actions({
@@ -360,7 +365,15 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
     })),
 
     afterMount(({ actions, props, values }) => {
+        const shouldPreserveLocalChanges =
+            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+
         if (props.id === 'new') {
+            if (shouldPreserveLocalChanges) {
+                actions.setStep('questions')
+                return
+            }
+
             // Templates set both name AND questions, while default NEW_SURVEY has empty name
             const hasTemplateSelected = values.survey?.name && values.survey?.questions?.length > 0
             if (hasTemplateSelected) {
@@ -369,7 +382,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.resetWizard()
                 actions.resetSurvey()
             }
-        } else {
+        } else if (!shouldPreserveLocalChanges) {
             actions.loadSurvey()
         }
 
