@@ -896,6 +896,30 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const showGroupsOptions = groupTypes.size > 0
 
+    // Handler for option selection logic (shared by click and keyboard events)
+    const selectMatchByOption = (value: string): void => {
+        if (value === 'user') {
+            setIsMixedTargeting(false)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+        } else if (value === 'device') {
+            setIsMixedTargeting(false)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+        } else if (value === 'group') {
+            setIsMixedTargeting(false)
+            const firstGroupType = groupTypeValues[0]
+            if (firstGroupType) {
+                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+            }
+            onBucketingIdentifierChange?.(null)
+        } else if (value === 'mixed') {
+            setIsMixedTargeting(true)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(null)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -922,10 +946,53 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <div className="flex-1">
                     {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
                         <div>
-                            <LemonLabel className="mb-2">Match by</LemonLabel>
+                            <LemonLabel className="mb-2" id="match-by-label">
+                                Match by
+                            </LemonLabel>
                             <div
+                                role="radiogroup"
+                                aria-labelledby="match-by-label"
                                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
                                 data-attr="feature-flag-aggregation-filter"
+                                onKeyDown={(e) => {
+                                    // Handle arrow key navigation for radio group
+                                    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                                        e.preventDefault()
+                                        const options = [
+                                            'user',
+                                            ...(onBucketingIdentifierChange ? ['device'] : []),
+                                            ...(showGroupsOptions ? ['group'] : []),
+                                            ...(showGroupsOptions && isMixedTargetingEnabled ? ['mixed'] : []),
+                                        ]
+
+                                        const currentSelected = isMixedTargeting
+                                            ? 'mixed'
+                                            : releaseFilters.aggregation_group_type_index != null
+                                              ? 'group'
+                                              : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                ? 'device'
+                                                : 'user'
+
+                                        const currentIndex = options.indexOf(currentSelected)
+                                        let nextIndex = currentIndex
+
+                                        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                                            nextIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1
+                                        } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                                            nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0
+                                        }
+
+                                        selectMatchByOption(options[nextIndex])
+
+                                        // Focus the newly selected option
+                                        setTimeout(() => {
+                                            const selectedElement = document.querySelector(
+                                                `[data-attr="feature-flag-aggregation-${options[nextIndex]}"]`
+                                            )
+                                            ;(selectedElement as HTMLElement)?.focus()
+                                        }, 0)
+                                    }
+                                }}
                             >
                                 {[
                                     {
@@ -991,68 +1058,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             key={option.value}
                                             role="radio"
                                             aria-checked={isSelected}
-                                            tabIndex={0}
+                                            tabIndex={isSelected ? 0 : -1}
                                             className={`rounded p-3 cursor-pointer transition-colors ${
                                                 isSelected
                                                     ? 'bg-accent-highlight-light border-2 border-accent'
                                                     : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
                                             }`}
-                                            onClick={() => {
-                                                if (option.value === 'user') {
-                                                    setIsMixedTargeting(false)
-                                                    setAggregationGroupTypeIndex(null)
-                                                    onBucketingIdentifierChange?.(
-                                                        FeatureFlagBucketingIdentifier.DISTINCT_ID
-                                                    )
-                                                } else if (option.value === 'device') {
-                                                    setIsMixedTargeting(false)
-                                                    setAggregationGroupTypeIndex(null)
-                                                    onBucketingIdentifierChange?.(
-                                                        FeatureFlagBucketingIdentifier.DEVICE_ID
-                                                    )
-                                                } else if (option.value === 'group') {
-                                                    setIsMixedTargeting(false)
-                                                    const firstGroupType = groupTypeValues[0]
-                                                    if (firstGroupType) {
-                                                        setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                                                    }
-                                                    onBucketingIdentifierChange?.(null)
-                                                } else if (option.value === 'mixed') {
-                                                    setIsMixedTargeting(true)
-                                                    setAggregationGroupTypeIndex(null)
-                                                    onBucketingIdentifierChange?.(null)
-                                                }
-                                            }}
+                                            onClick={() => selectMatchByOption(option.value)}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' || e.key === ' ') {
                                                     e.preventDefault()
-                                                    // Trigger the same logic as onClick
-                                                    if (option.value === 'user') {
-                                                        setIsMixedTargeting(false)
-                                                        setAggregationGroupTypeIndex(null)
-                                                        onBucketingIdentifierChange?.(
-                                                            FeatureFlagBucketingIdentifier.DISTINCT_ID
-                                                        )
-                                                    } else if (option.value === 'device') {
-                                                        setIsMixedTargeting(false)
-                                                        setAggregationGroupTypeIndex(null)
-                                                        onBucketingIdentifierChange?.(
-                                                            FeatureFlagBucketingIdentifier.DEVICE_ID
-                                                        )
-                                                    } else if (option.value === 'group') {
-                                                        setIsMixedTargeting(false)
-                                                        const firstGroupType = groupTypeValues[0]
-                                                        if (firstGroupType) {
-                                                            setAggregationGroupTypeIndex(
-                                                                firstGroupType.group_type_index
-                                                            )
-                                                        }
-                                                        onBucketingIdentifierChange?.(null)
-                                                    } else if (option.value === 'mixed') {
-                                                        setIsMixedTargeting(true)
-                                                        setAggregationGroupTypeIndex(null)
-                                                        onBucketingIdentifierChange?.(null)
-                                                    }
+                                                    selectMatchByOption(option.value)
                                                 }
                                             }}
                                             data-attr={`feature-flag-aggregation-${option.value}`}
@@ -1075,7 +1091,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     {option.learnMoreUrl && (
                                                         <>
                                                             {' '}
-                                                            <Link to={option.learnMoreUrl} target="_blank">
+                                                            <Link
+                                                                to={option.learnMoreUrl}
+                                                                target="_blank"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            >
                                                                 Learn more
                                                             </Link>
                                                         </>
@@ -1086,14 +1106,35 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     isSelected &&
                                                     releaseFilters.aggregation_group_type_index != null &&
                                                     !isMixedTargeting && (
+                                                        <div onClick={(e) => e.stopPropagation()}>
+                                                            <LemonSelect
+                                                                size="xsmall"
+                                                                dropdownMatchSelectWidth={false}
+                                                                data-attr="feature-flag-group-type-select"
+                                                                value={releaseFilters.aggregation_group_type_index}
+                                                                onChange={(value) => {
+                                                                    if (value != null) {
+                                                                        setAggregationGroupTypeIndex(value)
+                                                                    }
+                                                                }}
+                                                                options={groupTypeValues.map((groupType) => ({
+                                                                    value: groupType.group_type_index,
+                                                                    label: groupType.group_type,
+                                                                }))}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                {/* Mixed group type selector */}
+                                                {option.value === 'mixed' && isSelected && isMixedTargeting && (
+                                                    <div onClick={(e) => e.stopPropagation()}>
                                                         <LemonSelect
                                                             size="xsmall"
                                                             dropdownMatchSelectWidth={false}
-                                                            data-attr="feature-flag-group-type-select"
-                                                            value={releaseFilters.aggregation_group_type_index}
+                                                            data-attr="feature-flag-mixed-group-type-select"
+                                                            value={mixedGroupTypeIndex}
                                                             onChange={(value) => {
                                                                 if (value != null) {
-                                                                    setAggregationGroupTypeIndex(value)
+                                                                    setMixedGroupTypeIndex(value)
                                                                 }
                                                             }}
                                                             options={groupTypeValues.map((groupType) => ({
@@ -1101,24 +1142,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 label: groupType.group_type,
                                                             }))}
                                                         />
-                                                    )}
-                                                {/* Mixed group type selector */}
-                                                {option.value === 'mixed' && isSelected && isMixedTargeting && (
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        dropdownMatchSelectWidth={false}
-                                                        data-attr="feature-flag-mixed-group-type-select"
-                                                        value={mixedGroupTypeIndex}
-                                                        onChange={(value) => {
-                                                            if (value != null) {
-                                                                setMixedGroupTypeIndex(value)
-                                                            }
-                                                        }}
-                                                        options={groupTypeValues.map((groupType) => ({
-                                                            value: groupType.group_type_index,
-                                                            label: groupType.group_type,
-                                                        }))}
-                                                    />
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
