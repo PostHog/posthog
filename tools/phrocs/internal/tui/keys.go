@@ -252,17 +252,14 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			}
 		case tea.KeySpace:
 			m.inputBuffer += " "
-		case tea.KeyDown, tea.KeyUp, tea.KeyLeft, tea.KeyRight:
-			switch msg.Code {
-			case tea.KeyDown:
-				input = []byte("\x1b[B")
-			case tea.KeyUp:
-				input = []byte("\x1b[A")
-			case tea.KeyRight:
-				input = []byte("\x1b[C")
-			case tea.KeyLeft:
-				input = []byte("\x1b[D")
-			}
+		case tea.KeyDown:
+			input = []byte("\x1b[B")
+		case tea.KeyUp:
+			input = []byte("\x1b[A")
+		case tea.KeyRight:
+			input = []byte("\x1b[C")
+		case tea.KeyLeft:
+			input = []byte("\x1b[D")
 		case tea.KeyTab:
 			input = []byte("\t")
 		case tea.KeyDelete:

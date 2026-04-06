@@ -419,7 +419,8 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 }
 
 func TestSearch_eviction(t *testing.T) {
-	// Use a tiny scrollback (3 lines) so eviction happens quickly.
+	// Use a tiny scrollback (3 lines) and small window so the VT emulator
+	// screen is just 1 row, causing scrollback eviction after 4 lines.
 	f := false
 	cfg := &config.Config{
 		Procs:            map[string]config.ProcConfig{"svc": {Shell: "true", Autostart: &f}},
@@ -428,7 +429,7 @@ func TestSearch_eviction(t *testing.T) {
 	}
 	mgr := process.NewManager(cfg)
 	m := New(mgr, cfg, "", nil)
-	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 5})
 	p, _ := mgr.Get("svc")
 
 	// Fill the scrollback: lines 0,1,2 = "err0","ok1","err2"
@@ -548,7 +549,7 @@ func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
 
 func TestOutputMsg_activeProc(t *testing.T) {
 	m := readyModel(t, "backend")
-	// AppendLine puts the line into p.lines; OutputMsg triggers applyOutputDelta.
+	// AppendLine writes to the VT emulator; OutputMsg triggers a full reload.
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("hello world")
 	before := m.viewport.TotalLineCount()

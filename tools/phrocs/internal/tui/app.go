@@ -203,7 +203,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.applyOutputDelta(msg)
+			m.reloadActiveLines()
+			if m.searchQuery != "" {
+				m.recomputeSearch()
+			}
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
@@ -545,27 +548,6 @@ func (m *Model) reloadActiveLines() {
 	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
 }
 
-// applyOutputDelta incrementally updates the viewport content using the
-// batch metadata in OutputMsg. Falls back to a full rebuild on eviction.
-func (m *Model) applyOutputDelta(msg process.OutputMsg) {
-	if msg.Evicted > 0 || len(msg.Added) == 0 {
-		m.reloadActiveLines()
-		if m.searchQuery != "" {
-			m.recomputeSearch()
-		}
-		return
-	}
-
-	m.activeLines = append(m.activeLines, msg.Added...)
-	m.viewport.SetContent(strings.Join(m.activeLines, "\n"))
-
-	if m.searchQuery != "" {
-		startIdx := len(m.activeLines) - len(msg.Added)
-		for i, line := range msg.Added {
-			m.updateSearchForLine(line, startIdx+i, false)
-		}
-	}
-}
 
 // statusSortOrder returns a numeric rank for sorting by status.
 // Running/pending processes sort first, done last.
