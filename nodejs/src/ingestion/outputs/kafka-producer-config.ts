@@ -10,6 +10,7 @@ import { z } from 'zod'
  * corresponding env var is set. Invalid env var values cause a startup failure.
  */
 const producerConfigSchema = z.object({
+    'client.id': z.string().optional(),
     'metadata.broker.list': z.string().default('kafka:9092'),
     'security.protocol': z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']).optional(),
     'sasl.mechanisms': z.string().optional(),
