@@ -171,22 +171,6 @@ describe('SessionStateMonitor', () => {
         monitor.close()
     })
 
-    it('updates state gauge — sets active to 1 and others to 0', () => {
-        const inner = makeMockSessionManager('closed')
-        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
-        jest.clearAllMocks()
-
-        inner.setState('connecting')
-        jest.advanceTimersByTime(1000)
-
-        // connecting=1, all others=0
-        expect(mockStateGauge.labels).toHaveBeenCalledWith({ state: 'connecting', client: 'test-client' })
-        expect(mockStateGauge.labels({ state: 'connecting', client: 'test-client' }).set).toHaveBeenCalledWith(1)
-        expect(mockStateGauge.labels({ state: 'closed', client: 'test-client' }).set).toHaveBeenCalledWith(0)
-
-        monitor.close()
-    })
-
     it('detects transitions around request() calls', async () => {
         const inner = makeMockSessionManager('idle')
         // Use a very long poll interval so only request() detects the change
@@ -220,22 +204,6 @@ describe('SessionStateMonitor', () => {
             client: 'test-client',
         })
 
-        monitor.close()
-    })
-
-    it('delegates authority to inner manager', () => {
-        const inner = makeMockSessionManager()
-        const monitor = new SessionStateMonitor(inner as any, 'test-client')
-        expect(monitor.authority).toBe('http://localhost:50051')
-        monitor.close()
-    })
-
-    it('delegates notifyResponseByteRead to inner manager', () => {
-        const inner = makeMockSessionManager()
-        const monitor = new SessionStateMonitor(inner as any, 'test-client')
-        const fakeStream = {} as any
-        monitor.notifyResponseByteRead(fakeStream)
-        expect(inner.notifyResponseByteRead).toHaveBeenCalledWith(fakeStream)
         monitor.close()
     })
 

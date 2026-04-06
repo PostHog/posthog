@@ -1,3 +1,4 @@
+import type { GrpcTransportOptions } from '@connectrpc/connect-node'
 import { Http2SessionManager } from '@connectrpc/connect-node'
 import * as http2 from 'node:http2'
 
@@ -25,7 +26,9 @@ const ALL_STATES: SessionState[] = ['closed', 'connecting', 'open', 'idle', 'ver
  *   2. Checking state before/after each request() call (catches transitions
  *      triggered by RPC activity with no polling delay).
  */
-export class SessionStateMonitor {
+type SessionManager = NonNullable<GrpcTransportOptions['sessionManager']>
+
+export class SessionStateMonitor implements SessionManager {
     private readonly inner: Http2SessionManager
 
     private previousState: SessionState
