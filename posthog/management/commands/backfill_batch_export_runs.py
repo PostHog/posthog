@@ -136,6 +136,7 @@ async def backfill_export(
     missing_intervals: list[tuple],
     dry_run: bool,
     overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
+    no_delay: bool = False,
 ) -> int:
     """Trigger Temporal schedule backfills for the missing intervals of a single export.
 
@@ -168,8 +169,8 @@ async def backfill_export(
                 overlap=overlap_policy,
             )
             await handle.backfill(backfill)
-            # TODO: make this configurable
-            await asyncio.sleep(2)
+            if not no_delay:
+                await asyncio.sleep(2)
 
         count += 1
 
@@ -180,6 +181,7 @@ async def run_backfills(
     missing_by_export: list[tuple[BatchExport, list[tuple]]],
     dry_run: bool,
     overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
+    no_delay: bool = False,
 ) -> tuple[int, int]:
     """Connect to Temporal and trigger backfills for all missing intervals.
 
@@ -202,7 +204,14 @@ async def run_backfills(
             f"interval={export.interval}) — {len(missing_intervals)} missing"
         )
 
-        count = await backfill_export(client, export, missing_intervals, dry_run, overlap_policy)
+        count = await backfill_export(
+            client=client,
+            export=export,
+            missing_intervals=missing_intervals,
+            dry_run=dry_run,
+            overlap_policy=overlap_policy,
+            no_delay=no_delay,
+        )
         if count == 0 and len(missing_intervals) > 0:
             failed_exports += 1
         total_backfills += count
@@ -262,6 +271,12 @@ class Command(BaseCommand):
             choices=["events", "persons", "sessions"],
             default=None,
             help="Filter by export model (e.g. events, persons, sessions)",
+        )
+        parser.add_argument(
+            "--no-delay",
+            action="store_true",
+            default=False,
+            help="Skip the 2-second delay between backfill requests",
         )
         parser.add_argument(
             "--overlap-policy",
@@ -340,7 +355,7 @@ class Command(BaseCommand):
         overlap_policy = overlap_policy_map[options["overlap_policy"]]
 
         total_backfills, failed_exports = asyncio.run(
-            run_backfills(missing_by_export, options["dry_run"], overlap_policy),
+            run_backfills(missing_by_export, options["dry_run"], overlap_policy, options["no_delay"]),
         )
 
         prefix = "[DRY RUN] " if options["dry_run"] else ""
