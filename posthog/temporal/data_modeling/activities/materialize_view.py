@@ -335,7 +335,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                 else:
                     query_typings.append((column_name, ch_type, None))
 
-    if query_typings:
+    has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:

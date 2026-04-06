@@ -616,6 +616,9 @@ importers:
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
+      '@posthog/products-data-modeling':
+        specifier: workspace:*
+        version: link:../products/data_modeling
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
@@ -2002,7 +2005,32 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/data_modeling: {}
+  products/data_modeling:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
 
   products/data_warehouse: {}
 
@@ -21532,8 +21560,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.394.0:
-    resolution: {integrity: sha512-0y7+/QQ8MxCjPcpWK3rz7pQXsNGQAUGI6JlBKHQBneqOAWeCVET6Ohd5KVgD95Rm8v6ZLRn5TJvjdsRwIWHHUg==}
+  unlayer-types@1.395.0:
+    resolution: {integrity: sha512-2tb1IuEBa11ZUXueDtYCHc7PqV3WbAoBmEpNWjgE4WZclSk4sW0P41KKpa6NswdoP8UfFd18aV+oQJhz467NcA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -44338,7 +44366,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.394.0
+      unlayer-types: 1.395.0
 
   react-error-overlay@6.0.9: {}
 
@@ -46734,7 +46762,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.394.0: {}
+  unlayer-types@1.395.0: {}
 
   unpipe@1.0.0: {}
 

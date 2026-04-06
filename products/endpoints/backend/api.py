@@ -407,6 +407,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
             result["version_created_at"] = version.created_at.isoformat()
+            result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
@@ -820,6 +821,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     target_version.is_active = data.is_active
                     update_fields.append("is_active")
                 if update_fields:
+                    update_fields.append("updated_at")
                     target_version.save(update_fields=update_fields)
 
             # Step 4: Handle materialization state (only if endpoint should be active)
@@ -1063,7 +1065,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
         version.saved_query = saved_query
         version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides"])
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.

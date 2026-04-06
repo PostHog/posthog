@@ -1365,7 +1365,7 @@
         }
     },
     "prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "Update prompt",
