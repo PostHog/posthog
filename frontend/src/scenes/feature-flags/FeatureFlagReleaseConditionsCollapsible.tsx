@@ -784,6 +784,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
+    // Ref map for focus management
+    const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
     const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
 
     const {
@@ -896,6 +899,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const showGroupsOptions = groupTypes.size > 0
 
+    // Compute current selected option (shared between keyboard navigation and selection rendering)
+    const currentSelected = isMixedTargeting
+        ? 'mixed'
+        : releaseFilters.aggregation_group_type_index != null
+          ? 'group'
+          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+            ? 'device'
+            : 'user'
+
     // Handler for option selection logic (shared by click and keyboard events)
     const selectMatchByOption = (value: string): void => {
         if (value === 'user') {
@@ -965,14 +977,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             ...(showGroupsOptions && isMixedTargetingEnabled ? ['mixed'] : []),
                                         ]
 
-                                        const currentSelected = isMixedTargeting
-                                            ? 'mixed'
-                                            : releaseFilters.aggregation_group_type_index != null
-                                              ? 'group'
-                                              : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
-                                                ? 'device'
-                                                : 'user'
-
                                         const currentIndex = options.indexOf(currentSelected)
                                         let nextIndex = currentIndex
 
@@ -985,12 +989,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         selectMatchByOption(options[nextIndex])
 
                                         // Focus the newly selected option
-                                        setTimeout(() => {
-                                            const selectedElement = document.querySelector(
-                                                `[data-attr="feature-flag-aggregation-${options[nextIndex]}"]`
-                                            )
-                                            ;(selectedElement as HTMLElement)?.focus()
-                                        }, 0)
+                                        optionRefs.current[options[nextIndex]]?.focus()
                                     }
                                 }}
                             >
@@ -1040,22 +1039,14 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                           ]
                                         : []),
                                 ].map((option) => {
-                                    const isSelected =
-                                        (option.value === 'mixed' && isMixedTargeting) ||
-                                        (option.value === 'group' &&
-                                            !isMixedTargeting &&
-                                            releaseFilters.aggregation_group_type_index != null) ||
-                                        (option.value === 'device' &&
-                                            !isMixedTargeting &&
-                                            bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID) ||
-                                        (option.value === 'user' &&
-                                            !isMixedTargeting &&
-                                            releaseFilters.aggregation_group_type_index == null &&
-                                            bucketingIdentifier !== FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                    const isSelected = option.value === currentSelected
 
                                     return (
                                         <div
                                             key={option.value}
+                                            ref={(el) => {
+                                                optionRefs.current[option.value] = el
+                                            }}
                                             role="radio"
                                             aria-checked={isSelected}
                                             tabIndex={isSelected ? 0 : -1}
