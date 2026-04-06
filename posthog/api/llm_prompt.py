@@ -209,13 +209,14 @@ class LLMPromptViewSet(
 
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         queryset = get_latest_prompts_queryset(self.team).annotate(
-            prompt_text=Cast("prompt", output_field=TextField()),
             prompt_size_bytes=Func(Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()),
         )
 
         search = request.query_params.get("search", "").strip()
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(prompt_text__icontains=search))
+            queryset = queryset.annotate(prompt_text=Cast("prompt", output_field=TextField())).filter(
+                Q(name__icontains=search) | Q(prompt_text__icontains=search)
+            )
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
