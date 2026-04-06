@@ -22,7 +22,7 @@ use crate::{
         ruby::RawRubyFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
-    sanitize_source_line, sanitize_string,
+    sanitize_source_line,
     symbol_store::Catalog,
 };
 
