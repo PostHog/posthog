@@ -679,6 +679,53 @@ describe('logsViewerLogic', () => {
         })
     })
 
+    describe('deep linking (linkToLogId)', () => {
+        let dataLogic: ReturnType<typeof logsViewerDataLogic.build>
+
+        beforeEach(() => {
+            ;({ logic, dataLogic } = mountWithLogs([]))
+        })
+
+        it('clears linkToLogId when linked log found after logs update', async () => {
+            logic.actions.setLinkToLogId('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBe('log-2')
+
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('does not clear linkToLogId while no query has run', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBe('log-missing')
+        })
+
+        it('clears linkToLogId when log not found after query completes', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            await expectLogic(logic).toFinishAllListeners()
+
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('opens correct log when linkToLogId changes with logs already loaded', async () => {
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setLinkToLogId('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+    })
+
     describe('per-row prettification', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())

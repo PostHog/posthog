@@ -2,9 +2,9 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
@@ -33,6 +33,32 @@ export interface LogsViewerLogicProps {
     id: string
 }
 
+function tryOpenLinkedLog(
+    logs: ParsedLogMessage[],
+    linkToLogId: string | null,
+    logsLoading: boolean,
+    actions: {
+        setCursor: (index: number) => void
+        openLogDetails: (log: ParsedLogMessage) => void
+        requestScrollToCursor: () => void
+        setLinkToLogId: (id: string | null) => void
+    }
+): void {
+    if (!linkToLogId || logs.length === 0) {
+        return
+    }
+    const index = logs.findIndex((log) => log.uuid === linkToLogId)
+    if (index !== -1) {
+        actions.setCursor(index)
+        actions.openLogDetails(logs[index])
+        actions.requestScrollToCursor()
+        actions.setLinkToLogId(null)
+    } else if (!logsLoading) {
+        lemonToast.warning('Log not found')
+        actions.setLinkToLogId(null)
+    }
+}
+
 export const logsViewerLogic = kea<logsViewerLogicType>([
     path((id) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', id]),
     props({} as LogsViewerLogicProps),
@@ -44,7 +70,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             logDetailsModalLogic({ id }),
             ['isLogDetailsOpen'],
             logsViewerDataLogic({ id }),
-            ['parsedLogs as logs'],
+            ['parsedLogs as logs', 'logsLoading'],
             logsViewerConfigLogic({ id }),
             ['orderBy'],
         ],
@@ -81,7 +107,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Deep linking - position cursor at a specific log by ID
         setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
-        setCursorToLogId: (logId: string) => ({ logId }),
 
         // Copy link to log
         copyLinkToLog: (logId: string) => ({ logId }),
@@ -442,16 +467,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }
             }
         },
-        setCursorToLogId: ({ logId }) => {
-            const index = values.logs.findIndex((log) => log.uuid === logId)
-            if (index !== -1) {
-                actions.setCursor(index)
-                // If navigating via link, also open the details modal
-                if (values.linkToLogId === logId) {
-                    actions.openLogDetails(values.logs[index])
-                }
-            }
-        },
         copyLinkToLog: ({ logId }) => {
             posthog.capture('logs link copied')
             const url = new URL(window.location.href)
@@ -500,44 +515,20 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            // Support both new (linkToLogId) and legacy (highlightedLogId) URL params
-            const linkToLogId = (searchParams.linkToLogId ?? searchParams.highlightedLogId) as string | undefined
-            if (linkToLogId && linkToLogId !== values.linkToLogId) {
-                actions.setLinkToLogId(linkToLogId)
-            }
-        },
-    })),
-
-    tabAwareActionToUrl(() => {
-        const clearLinkToLogIdFromUrl = ():
-            | [string, Record<string, any>, Record<string, any>, { replace: boolean }]
-            | void => {
-            const url = new URL(window.location.href)
-            const hasLinkParam = url.searchParams.has('linkToLogId') || url.searchParams.has('highlightedLogId')
-            if (hasLinkParam) {
-                url.searchParams.delete('linkToLogId')
-                url.searchParams.delete('highlightedLogId')
-                return [url.pathname, Object.fromEntries(url.searchParams), {}, { replace: true }]
-            }
-        }
-        return {
-            // Clear URL param when user actively navigates
-            moveCursorDown: clearLinkToLogIdFromUrl,
-            moveCursorUp: clearLinkToLogIdFromUrl,
-            userSetCursorIndex: clearLinkToLogIdFromUrl,
-        }
-    }),
-
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         cursorIndex: (cursorIndex) => {
             if (cursorIndex !== null) {
                 actions.requestScrollToCursor()
             }
         },
-        logs: () => {
+        logs: (logs: ParsedLogMessage[]) => {
             actions.recomputeRowHeights()
+            tryOpenLinkedLog(logs, values.linkToLogId, values.logsLoading, actions)
+        },
+        linkToLogId: (linkToLogId: string | null) => {
+            if (linkToLogId) {
+                tryOpenLinkedLog(values.logs, linkToLogId, values.logsLoading, actions)
+            }
         },
     })),
 ])
