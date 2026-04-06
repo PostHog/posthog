@@ -94,6 +94,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         [
             ("created", "post", None, "created"),
             ("updated", "patch", {"active": False}, "updated"),
+            ("deleted", "patch", {"deleted": True}, "deleted"),
+            ("restored", "patch", {"deleted": False}, "restored"),
         ]
     )
     @patch("posthog.api.feature_flag.produce_internal_event")
@@ -109,9 +111,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 
         if method == "patch":
-            # Reset mock to only capture the update event
-            mock_produce_internal_event.reset_mock()
             flag_id = create_response.json()["id"]
+
+            if expected_activity == "restored":
+                # Soft-delete the flag first so we can restore it
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+                    {"deleted": True},
+                    format="json",
+                )
+
+            # Reset mock to only capture the target event
+            mock_produce_internal_event.reset_mock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
                 update_payload,

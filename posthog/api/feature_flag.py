@@ -3303,6 +3303,7 @@ def handle_feature_flag_change(
         )
     except Exception as e:
         # Don't let event emission failures block the flag change
+        logger.exception("Failed to emit $feature_flag_changed internal event for flag %s", after_update.key)
         capture_exception(e)
 
 
