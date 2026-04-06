@@ -211,6 +211,12 @@ const meta: Meta = {
         pageUrl: urls.surveys(),
     },
     decorators: [
+        (Story) => {
+            // Pin the survey editor preference to the full editor so the
+            // `/surveys/new` stories don't get redirected to the guided wizard.
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+            return <Story />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/surveys/': toPaginatedResponse([
