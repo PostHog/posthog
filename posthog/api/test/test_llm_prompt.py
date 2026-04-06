@@ -881,6 +881,8 @@ class TestLLMPromptAPI(APIBaseTest):
             ("json_object", {"role": "system", "content": "v2"}, '{"role": "system", "content": "v2"}'),
             ("json_array", [{"role": "system", "content": "v2"}], '[{"role": "system", "content": "v2"}]'),
             ("string", "v2 plain string", "v2 plain string"),
+            ("number", 42, "42"),
+            ("boolean", True, "true"),
         ]
     )
     def test_publish_prompt_normalizes_prompt_to_string(

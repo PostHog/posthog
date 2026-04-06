@@ -26,6 +26,13 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
+def normalize_prompt_to_string(value: Any) -> str:
+    validate_prompt_payload_size(value)
+    if not isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
 def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
@@ -110,10 +117,7 @@ class LLMPromptPublishSerializer(serializers.Serializer):
     )
 
     def validate_prompt(self, value: Any) -> str:
-        validate_prompt_payload_size(value)
-        if not isinstance(value, str):
-            return json.dumps(value, ensure_ascii=False)
-        return value
+        return normalize_prompt_to_string(value)
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -193,10 +197,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         return validate_prompt_name_value(value)
 
     def validate_prompt(self, value: Any) -> str:
-        validate_prompt_payload_size(value)
-        if not isinstance(value, str):
-            return json.dumps(value, ensure_ascii=False)
-        return value
+        return normalize_prompt_to_string(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
