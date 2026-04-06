@@ -24,7 +24,7 @@ Column | Type | Nullable | Description
 ### Key Relationships
 
 - Integrations belong to a **Team** (`team_id`)
-- Integrations are referenced by **Hog functions** and **Workflows** that use external services
+- Integrations are referenced by **Hog functions**, **Batch exports** and **Workflows** that use external services
 
 ### Important Notes
 
