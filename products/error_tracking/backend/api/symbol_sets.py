@@ -71,7 +71,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
-    scope_object_read_actions = ["list", "retrieve", "download_url"]
+    scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
@@ -231,30 +231,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
-
-    @action(methods=["GET"], detail=True, parser_classes=[JSONParser])
-    def download_url(self, request, **kwargs):
-        """Return a short-lived presigned GET URL for the symbol set file.
-        Intended for debugging / CLI inspection."""
-        if not settings.OBJECT_STORAGE_ENABLED:
-            raise ValidationError(
-                code="object_storage_required",
-                detail="Object storage must be available.",
-            )
-
-        symbol_set = self.get_object()
-
-        if not symbol_set.storage_ptr:
-            raise ValidationError(
-                code="not_uploaded",
-                detail="Symbol set file has not been uploaded yet.",
-            )
-
-        url = object_storage.get_presigned_url(
-            file_key=symbol_set.storage_ptr,
-            expiration=300,  # 5 minutes
-        )
-        return Response({"url": url}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
