@@ -250,7 +250,7 @@ export function WhenStep(): JSX.Element {
                 </p>
             </WizardDividerSection>
 
-            <WizardDividerSection contentClassName="space-y-2">
+            <section className="space-y-2">
                 <label className="text-sm font-medium">Response limit</label>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
@@ -262,8 +262,7 @@ export function WhenStep(): JSX.Element {
                         type="number"
                         min={1}
                         value={survey.responses_limit ?? undefined}
-                        disabled={survey.responses_limit == null}
-                        onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : 100)}
+                        onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : null)}
                         className="w-20"
                     />
                     <span className="text-secondary text-sm">completed responses</span>
@@ -271,7 +270,7 @@ export function WhenStep(): JSX.Element {
                 <p className="text-muted text-xs">
                     Automatically stop showing the survey once you've collected enough responses
                 </p>
-            </WizardDividerSection>
+            </section>
         </WizardStepLayout>
     )
 }
