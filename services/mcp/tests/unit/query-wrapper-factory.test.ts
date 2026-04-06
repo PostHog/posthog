@@ -19,7 +19,7 @@ describe('createQueryWrapper _meta', () => {
         const factory = createQueryWrapper({ name: 'test', schema, kind: 'TestQuery' })
 
         const tool = factory()
-        expect(tool._meta![POSTHOG_META_KEY]!.responseFormat).toBeUndefined()
+        expect(tool._meta?.[POSTHOG_META_KEY]?.responseFormat).toBeUndefined()
     })
 
     it('sets both uiResourceUri and responseFormat in _meta', () => {
