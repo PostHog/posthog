@@ -659,7 +659,7 @@ func TestVT_scrollbackAndScreen(t *testing.T) {
 
 	// Write 8 lines — 3 go to scrollback, 5 remain on screen
 	for i := range 8 {
-		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		fmt.Fprintf(p.emulator, "line %d\r\n", i)
 	}
 
 	lines := p.Lines()
@@ -682,7 +682,7 @@ func TestVT_scrollbackEviction(t *testing.T) {
 	p.emulator.Resize(40, 2)
 
 	for i := range 8 {
-		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		fmt.Fprintf(p.emulator, "line %d\r\n", i)
 	}
 
 	lines := p.Lines()
@@ -769,7 +769,7 @@ func TestVT_clearLinesResetsScrollback(t *testing.T) {
 	p.emulator.Resize(40, 3)
 	// Write enough to fill scrollback
 	for i := range 10 {
-		_, _ = p.emulator.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		fmt.Fprintf(p.emulator, "line %d\r\n", i)
 	}
 	before := p.Lines()
 	if len(before) == 0 {
