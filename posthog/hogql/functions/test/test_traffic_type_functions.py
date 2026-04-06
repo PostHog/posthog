@@ -381,7 +381,7 @@ class TestBotDefinitionsDataStructure:
             ("Claude-Web", "Claude Web", "ai_assistant", "AI Agent"),
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
-            ("Applebot", "Applebot", "search_crawler", "Bot"),
+            ("Applebot/", "Applebot", "search_crawler", "Bot"),
             ("Amazonbot", "Amazon", "search_crawler", "Bot"),
             ("bingbot", "Bingbot", "search_crawler", "Bot"),
             # SEO Tools

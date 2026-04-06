@@ -53,8 +53,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "ChatGPT-User": BotDefinition("ChatGPT", "ai_assistant", "AI Agent"),
     "Claude-User": BotDefinition("Claude User", "ai_assistant", "AI Agent"),
     "Claude-Web": BotDefinition("Claude Web", "ai_assistant", "AI Agent"),
-    # Search Crawlers (Applebot must come after Applebot-Extended above)
-    "Applebot": BotDefinition("Applebot", "search_crawler", "Bot"),
+    # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
+    "Applebot/": BotDefinition("Applebot", "search_crawler", "Bot"),
     "Amazonbot": BotDefinition("Amazon", "search_crawler", "Bot"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot"),
     "bingbot": BotDefinition("Bingbot", "search_crawler", "Bot"),
