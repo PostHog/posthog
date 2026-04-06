@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import {
@@ -23,6 +23,8 @@ import {
     FREQUENCY_OPTIONS,
     getNthWeekdayOfMonth,
     NTH_LABELS,
+    parseNaturalLanguage,
+    scheduleToText,
     WEEKDAY_FULL_LABELS,
     WEEKDAY_LABELS,
     WEEKDAY_PILL_LABELS,
@@ -256,6 +258,59 @@ function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (tim
     )
 }
 
+function NaturalLanguageScheduleInput({
+    state,
+    startsAt,
+    onStateChange,
+}: {
+    state: ScheduleState
+    startsAt: string | null
+    onStateChange: (state: ScheduleState) => void
+}): JSX.Element {
+    const currentText = scheduleToText(state, startsAt)
+    const [text, setText] = useState(currentText)
+    const [isFocused, setIsFocused] = useState(false)
+    const [hasError, setHasError] = useState(false)
+
+    const handleChange = useCallback(
+        (value: string) => {
+            setText(value)
+            if (!value.trim()) {
+                setHasError(false)
+                return
+            }
+            const parsed = parseNaturalLanguage(value)
+            if (parsed) {
+                setHasError(false)
+                onStateChange(parsed)
+            } else {
+                setHasError(true)
+            }
+        },
+        [onStateChange]
+    )
+
+    // Sync text from picker changes when not focused
+    const displayText = isFocused ? text : currentText
+
+    return (
+        <LemonInput
+            value={displayText}
+            onChange={handleChange}
+            onFocus={() => {
+                setIsFocused(true)
+                setText(currentText)
+                setHasError(false)
+            }}
+            onBlur={() => setIsFocused(false)}
+            placeholder='e.g. "every week on Monday and Wednesday"'
+            fullWidth
+            size="small"
+            status={hasError && isFocused ? 'danger' : undefined}
+        />
+    )
+}
+
 export function RecurringSchedulePicker(): JSX.Element {
     const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
     const {
@@ -352,6 +407,14 @@ export function RecurringSchedulePicker(): JSX.Element {
                         </span>
                     )}
                 </div>
+            )}
+
+            {isScheduleRepeating && (
+                <NaturalLanguageScheduleInput
+                    state={scheduleState}
+                    startsAt={scheduleStartsAt}
+                    onStateChange={setScheduleState}
+                />
             )}
 
             {isScheduleRepeating && (
