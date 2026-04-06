@@ -1,6 +1,5 @@
 import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { ActionType } from '~/types'
@@ -20,15 +19,11 @@ export async function deleteActionWithWarning(action: ActionType, callback: (und
     }
 
     const performDelete = async (): Promise<void> => {
-        try {
-            await deleteWithUndo({
-                endpoint: api.actions.determineDeleteEndpoint(),
-                object: action,
-                callback,
-            })
-        } catch (e: any) {
-            lemonToast.error(`Error deleting action: ${e.detail}`)
-        }
+        await deleteWithUndo({
+            endpoint: api.actions.determineDeleteEndpoint(),
+            object: action,
+            callback,
+        })
     }
 
     if (references.length > 0) {
