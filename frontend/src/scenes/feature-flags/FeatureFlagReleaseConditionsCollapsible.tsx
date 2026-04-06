@@ -22,9 +22,9 @@ import {
     IconExpand,
     IconInfo,
     IconLaptop,
+    IconPeople,
     IconPerson,
     IconPlus,
-    IconServer,
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
@@ -1020,7 +1020,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         ? [
                                               {
                                                   value: 'group',
-                                                  icon: <IconServer className="text-lg" />,
+                                                  icon: <IconPeople className="text-lg" />,
                                                   label: 'Group',
                                                   description:
                                                       'Stable assignment for everyone in an organization, company, or other custom group type.',
