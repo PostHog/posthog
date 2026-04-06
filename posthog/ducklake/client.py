@@ -56,8 +56,7 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     schemas = (extra_schemas or []) + _SEARCH_PATH_SCHEMAS
     literal = psql.Literal(",".join(schemas))
     sql = psql.SQL("SET search_path TO {}").format(literal)
-    return sql
-    # conn.execute(sql)
+    conn.execute(sql)
 
 
 def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
