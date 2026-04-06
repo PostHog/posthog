@@ -13,7 +13,6 @@ import structlog
 from posthog.models.integration import GitHubIntegration
 
 from products.data_modeling.backend.models import GitHubSyncConfig
-from products.data_modeling.backend.services.github.model_parser import serialize_model_file
 from products.data_modeling.backend.services.github.sync_service import _extract_repo_name
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -48,18 +47,8 @@ def create_pr_from_saved_query(
     github = GitHubIntegration(config.integration)
     repo_name = _extract_repo_name(config.repository)
 
-    # determine materialization from the node type
-    from products.data_modeling.backend.models.node import Node, NodeType
-
-    is_materialized = Node.objects.filter(
-        saved_query=saved_query,
-        type=NodeType.MAT_VIEW,
-    ).exists()
-
-    file_content = serialize_model_file(
-        query_text,
-        materialized=is_materialized,
-    )
+    # query_text includes annotations (-- @mat, etc.) so write it directly
+    file_content = query_text.rstrip() + "\n"
 
     # create branch
     short_id = uuid4().hex[:8]
