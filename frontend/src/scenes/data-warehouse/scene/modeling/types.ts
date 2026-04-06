@@ -14,7 +14,8 @@ export interface NodeData extends Record<string, unknown> {
     id: string
     name: string
     type: DataModelingNodeType
-    dagId?: string
+    dag?: string
+    dagName?: string
     savedQueryId?: string
     handles?: NodeHandle[]
     upstreamCount: number

@@ -1,7 +1,19 @@
+import { Page } from '@playwright/test'
+
 import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
+
+async function createSavedTrendsInsight(page: Page, insightName: string): Promise<void> {
+    const insight = new InsightPage(page)
+
+    await insight.goToNewTrends()
+    await insight.trends.waitForChart()
+    await insight.editName(insightName)
+    await insight.save()
+    await expect(insight.editButton).toBeVisible()
+}
 
 test.describe('Dashboards', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
@@ -17,13 +29,18 @@ test.describe('Dashboards', () => {
     test('Can create a new dashboard with an insight', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const dashboardName = randomString('dash-edit')
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
 
         await test.step('create a dashboard', async () => {
             await dashboard.createNew(dashboardName)
         })
 
         await test.step('add the insight to the dashboard', async () => {
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
         })
     })
@@ -31,12 +48,17 @@ test.describe('Dashboards', () => {
     test('Editing an insight updates the dashboard tile', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
+        const insightName = randomString('dash-trends')
         const updatedName = randomString('dash-updated')
         let dashboardUrl: string
 
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
             dashboardUrl = page.url()
         })
@@ -44,7 +66,7 @@ test.describe('Dashboards', () => {
         await test.step('select to edit an insight', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/edit/)
+            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
         })
 
         await test.step('edit the insight name and save', async () => {
@@ -62,9 +84,9 @@ test.describe('Dashboards', () => {
         await test.step('navigate to dashboard and verify the updated insight', async () => {
             await page.goto(dashboardUrl, { waitUntil: 'domcontentloaded' })
             await expect(page).toHaveURL(/\/dashboard\//)
-            await expect(dashboard.insightCards.first().locator('[data-attr="insight-card-title"]')).toContainText(
-                updatedName
-            )
+            await expect(dashboard.insightCards.first()).toBeVisible()
+            const updatedCard = await dashboard.findCardByTitle(updatedName)
+            await expect(updatedCard.locator('[data-attr="insight-card-title"]')).toContainText(updatedName)
         })
     })
 
@@ -161,6 +183,7 @@ test.describe('Dashboards', () => {
             await page.keyboard.type('SELECT {variables.test_number}', { delay: 10 })
 
             await page.getByRole('button', { name: 'Run' }).click()
+            await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
             await expect(page.getByRole('button', { name: 'Save as insight' })).toBeEnabled({ timeout: 30000 })
             await page.getByRole('button', { name: 'Save as insight' }).click()
 
@@ -217,17 +240,22 @@ test.describe('Dashboards', () => {
     test('Deleting an insight from dashboard redirects back', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
 
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
         })
 
         await test.step('open the insight from the dashboard', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/edit/)
+            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
             // Wait for the insight to fully load before interacting with the
             // side panel — InsightPanelDangerZone only renders the delete
             // button once the insight data is available in the store.
@@ -350,10 +378,15 @@ test.describe('Dashboard compact cards and inline editing', () => {
 
     test('Edit mode button enters and exits edit mode', async ({ page }) => {
         const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
 
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
         })
 
@@ -368,11 +401,16 @@ test.describe('Dashboard compact cards and inline editing', () => {
 
     test('Inline editing insight title via compact card popover', async ({ page }) => {
         const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
         const updatedTitle = randomString('inline-title')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
 
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
         })
 
@@ -398,11 +436,16 @@ test.describe('Dashboard compact cards and inline editing', () => {
 
     test('Inline editing insight description via compact card popover', async ({ page }) => {
         const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
         const description = randomString('inline-desc')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
 
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard()
+            await dashboard.addInsightToNewDashboard(insightName)
             await expect(dashboard.insightCards).toBeVisible()
         })
 

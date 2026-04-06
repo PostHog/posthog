@@ -467,11 +467,9 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('the logger override', () => {
-        it('captures replayer warnings', async () => {
-            jest.useFakeTimers()
-
-            let warningCounts = 0
-            const logger = makeLogger((x) => (warningCounts += x))
+        it('captures replayer warnings and logs to window stores', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
 
             logger.logger.warn('[replayer]', 'test')
             logger.logger.warn('[replayer]', 'test2')
@@ -482,14 +480,33 @@ describe('sessionRecordingPlayerLogic', () => {
                 ['[replayer]', 'test2'],
             ])
             expect((window as any).__posthog_player_logs).toEqual([['[replayer]', 'test3']])
+            expect(categories).toEqual(['test', 'test2'])
+        })
 
-            jest.runOnlyPendingTimers()
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
-            )
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
-            )
+        it('calls onWarning with categorized message per warning', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Mutation target not found')
+
+            expect(categories).toEqual([
+                'Unknown tag: custom-element',
+                'Unknown tag: custom-element',
+                'Mutation target not found',
+            ])
+        })
+
+        it('filters out ignored warnings', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Could not find node with id 42. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Could not find node with id 99. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+
+            expect(categories).toEqual(['Unknown tag: custom-element'])
         })
     })
 
@@ -653,7 +670,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
-                logic.actions.incrementWarningCount(2)
+                logic.cache.rrwebWarningCount = 2
                 logic.actions.incrementErrorCount()
 
                 logic.unmount()

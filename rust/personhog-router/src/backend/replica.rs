@@ -2,13 +2,13 @@ use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
@@ -18,6 +18,8 @@ use personhog_proto::personhog::types::v1::{
 use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
+
+use personhog_common::grpc::current_client_name;
 
 use super::retry::with_retry;
 use super::PersonHogBackend;
@@ -40,7 +42,9 @@ impl ReplicaBackend {
         max_send_message_size: usize,
         max_recv_message_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut endpoint = Channel::from_shared(url.to_string())?.timeout(timeout);
+        let mut endpoint = Channel::from_shared(url.to_string())?
+            .timeout(timeout)
+            .tcp_nodelay(true);
         if let Some(interval) = keepalive_interval {
             endpoint = endpoint
                 .http2_keep_alive_interval(interval)
@@ -61,16 +65,20 @@ impl ReplicaBackend {
 }
 
 /// Wraps a gRPC call with retry logic. Clones the request for each attempt.
+/// Forwards the `x-client-name` header so the downstream service can
+/// attribute metrics to the originating client.
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {
         with_retry(&$self.retry_config, stringify!($method), || {
             let mut client = $self.client.clone();
             let req = $request.clone();
+            let client_name = current_client_name();
             async move {
-                client
-                    .$method(Request::new(req))
-                    .await
-                    .map(|r| r.into_inner())
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
+                client.$method(request).await.map(|r| r.into_inner())
             }
         })
         .await
@@ -163,6 +171,15 @@ impl PersonHogBackend for ReplicaBackend {
         request: DeleteHashKeyOverridesByTeamsRequest,
     ) -> Result<DeleteHashKeyOverridesByTeamsResponse, Status> {
         retry_call!(self, delete_hash_key_overrides_by_teams, request)
+    }
+
+    // Person deletes
+
+    async fn delete_persons(
+        &self,
+        request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        retry_call!(self, delete_persons, request)
     }
 
     // Cohort membership

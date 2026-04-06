@@ -608,6 +608,12 @@ export const searchLogic = kea<searchLogicType>([
                 const seenSectionIds = new Set<string>()
 
                 for (const section of SETTINGS_MAP) {
+                    // Skip sections hidden from navigation (they are only accessible
+                    // from their product's own configuration page)
+                    if (section.hideFromNavigation) {
+                        continue
+                    }
+
                     // Map environment sections to project level
                     const effectiveLevel = section.level === 'environment' ? 'project' : section.level
                     const effectiveSectionId = (

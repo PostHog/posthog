@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+    buildResponseFilter,
     composeToolSchema,
     extractPathParams,
     generateQueryWrapperFile,
@@ -556,5 +557,180 @@ describe('ToolConfigSchema validation', () => {
     it('allows input_schema without include_params, exclude_params, or param_overrides', () => {
         const result = ToolConfigSchema.safeParse(validBase)
         expect(result.success).toBe(true)
+    })
+
+    it('rejects response.include with response.exclude', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            response: { include: ['id'], exclude: ['name'] },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('accepts response.include alone', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            response: { include: ['id', 'name'] },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts response.exclude alone', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            response: { exclude: ['filters', 'created_by'] },
+        })
+        expect(result.success).toBe(true)
+    })
+})
+
+// ------------------------------------------------------------------
+// buildResponseFilter
+// ------------------------------------------------------------------
+
+describe('buildResponseFilter', () => {
+    it('returns empty code when no response filtering configured', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const result = buildResponseFilter(config)
+        expect(result.code).toBe('')
+        expect(result.helperImport).toBeNull()
+    })
+
+    it('generates pickResponseFields for detail endpoint with response.include', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { include: ['id', 'name', 'status'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('pickResponseFields(result, ')
+        expect(result.code).toContain("'id', 'name', 'status'")
+        expect(result.helperImport).toBe('pickResponseFields')
+    })
+
+    it('generates omitResponseFields for detail endpoint with response.exclude', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['filters', 'created_by'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('omitResponseFields(result, ')
+        expect(result.code).toContain("'filters', 'created_by'")
+        expect(result.helperImport).toBe('omitResponseFields')
+    })
+
+    it('maps pickResponseFields over results for list endpoint with response.include', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { include: ['id', 'key'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('pickResponseFields(item, ')
+        expect(result.helperImport).toBe('pickResponseFields')
+    })
+
+    it('maps omitResponseFields over results for list endpoint with response.exclude', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { exclude: ['large_blob'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('omitResponseFields(item, ')
+        expect(result.helperImport).toBe('omitResponseFields')
+    })
+
+    it('preserves wildcard dot-path patterns in generated code', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['filters.groups.*.properties', 'created_by'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain("'filters.groups.*.properties'")
+        expect(result.code).toContain("'created_by'")
+    })
+})
+
+// ------------------------------------------------------------------
+// generateToolCode — response filtering
+// ------------------------------------------------------------------
+
+describe('generateToolCode with response filtering', () => {
+    it('generates pickResponseFields and uses filtered var for enrichment', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { include: ['id', 'name'] },
+            enrich_url: '{id}',
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+        })
+
+        const result = generateToolCode('things-get', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+
+        expect(result.code).toContain('pickResponseFields(result, ')
+        expect(result.code).toContain('const filtered = ')
+        expect(result.code).toContain('withPostHogUrl(context, filtered,')
+        expect(result.responseFilterImport).toBe('pickResponseFields')
+    })
+
+    it('generates omitResponseFields for detail endpoint', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['filters'] },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+        })
+
+        const result = generateToolCode('things-get', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+
+        expect(result.code).toContain('omitResponseFields(result, ')
+        expect(result.code).toContain('return filtered')
+        expect(result.responseFilterImport).toBe('omitResponseFields')
+    })
+
+    it('returns null responseFilterImport when no filtering', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved()
+
+        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+
+        expect(result.responseFilterImport).toBeNull()
+    })
+
+    it('generates response filtering for list endpoint with enrichment', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{id}',
+            response: { exclude: ['large_field'] },
+        }
+        const resolved = makeResolved()
+
+        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+
+        expect(result.code).toContain('result.results.map((item: any) => omitResponseFields(item, ')
+        expect(result.code).toContain('...filtered,')
+        expect(result.code).toContain('filtered.results.map')
+        expect(result.responseFilterImport).toBe('omitResponseFields')
     })
 })
