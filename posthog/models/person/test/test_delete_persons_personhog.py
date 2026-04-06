@@ -139,21 +139,17 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
         ]
     )
     @patch("posthog.models.team.util._raw_delete_batch")
-    @patch("posthog.personhog_client.gate.use_personhog")
     def test_routing(
         self,
         _name,
         gate_on,
         grpc_exception,
-        mock_use_personhog,
         mock_raw_delete_batch,
     ):
-        mock_use_personhog.return_value = gate_on
-
         mock_person_cls = MagicMock()
         mock_person_did_cls = MagicMock()
         # Simulate no persons to delete (empty queryset)
-        mock_person_cls.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(return_value=[])
+        mock_person_cls.objects.filter.return_value.values_list.return_value = []
 
         with (
             fake_personhog_client(gate_enabled=gate_on) as fake,
@@ -162,10 +158,8 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
         ):
             if grpc_exception is not None:
                 fake.delete_persons = MagicMock(side_effect=grpc_exception)
-                # On failure, we need the queryset mock to return a uuid for the loop
-                mock_person_cls.objects.filter.return_value.values_list.return_value.__getitem__ = MagicMock(
-                    return_value=["uuid-1"]
-                )
+                # On failure, we need the queryset to return a uuid so the RPC is actually called
+                mock_person_cls.objects.filter.return_value.values_list.return_value = ["uuid-1"]
 
             _delete_persons_for_teams([1])
 

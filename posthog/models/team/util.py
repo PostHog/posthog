@@ -66,31 +66,39 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
 
     Falls back to ORM batch deletion when personhog is not available.
     The RPC handles PersonDistinctId deletion automatically.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
     """
-    from posthog.models.person import Person, PersonDistinctId
+    from posthog.models.person.util import _personhog_routed
+
+    for team_id in team_ids:
+        _personhog_routed(
+            "delete_persons_for_team",
+            lambda tid=team_id: _delete_persons_for_team_via_personhog(tid),
+            lambda tid=team_id: _delete_persons_for_team_via_orm(tid),
+            team_id=team_id,
+        )
+
+
+def _delete_persons_for_team_via_personhog(team_id: int) -> None:
+    from posthog.models.person import Person
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.gate import use_personhog
     from posthog.personhog_client.proto import DeletePersonsRequest
 
-    if use_personhog():
-        client = get_personhog_client()
-        if client is not None:
-            try:
-                for team_id in team_ids:
-                    while True:
-                        uuids = list(Person.objects.filter(team_id=team_id).values_list("uuid", flat=True)[:1000])
-                        if not uuids:
-                            break
-                        client.delete_persons(
-                            DeletePersonsRequest(team_id=team_id, person_uuids=[str(u) for u in uuids])
-                        )
-                return
-            except Exception:
-                logger.warning("personhog_delete_persons_for_teams_failure", team_ids=team_ids, exc_info=True)
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
 
-    # Fallback: ORM batch deletion
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+    all_uuids = [str(u) for u in Person.objects.filter(team_id=team_id).values_list("uuid", flat=True)]
+    for i in range(0, len(all_uuids), 1000):
+        batch = all_uuids[i : i + 1000]
+        client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=batch))
+
+
+def _delete_persons_for_team_via_orm(team_id: int) -> None:
+    from posthog.models.person import Person, PersonDistinctId
+
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))
+    _raw_delete_batch(Person.objects.filter(team_id=team_id))
 
 
 def _raw_delete(queryset: Any):
