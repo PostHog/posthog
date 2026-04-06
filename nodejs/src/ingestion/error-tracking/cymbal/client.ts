@@ -12,7 +12,7 @@ const CymbalResponseSchema = z.object({
     event: z.string(),
     team_id: z.number(),
     timestamp: z.string(),
-    properties: z.record(z.unknown()),
+    properties: z.record(z.string(), z.unknown()),
 })
 
 const CymbalResponseArraySchema = z.array(CymbalResponseSchema.nullable())

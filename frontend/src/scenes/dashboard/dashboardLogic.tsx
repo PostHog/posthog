@@ -1273,29 +1273,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const urlValueOverride = urlVariable?.value
-                        const dashboardValueOverride = dashboard.persisted_variables?.[v.variableId]?.value
-                        const insightValueOverride = v.value
-                        const defaultVariableValue = variable.default_value
-
-                        const urlIsNullOverride = urlVariable?.isNull
-                        const dashboardIsNullOverride = dashboard.persisted_variables?.[v.variableId]?.isNull
-                        const insightIsNullOverride = v.isNull
-                        const defaultVariableIsNull = variable.isNull
+                        const dashboardVariable = dashboard.persisted_variables?.[v.variableId]
+                        const variableSources = [urlVariable, dashboardVariable, v]
+                        const valueSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'value') : false
+                        )
+                        const isNullSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'isNull') : false
+                        )
 
                         // determine effective variable state
                         const resultVar: Variable = {
                             ...variable,
-                            value:
-                                urlValueOverride ||
-                                dashboardValueOverride ||
-                                insightValueOverride ||
-                                defaultVariableValue,
-                            isNull:
-                                urlIsNullOverride ||
-                                dashboardIsNullOverride ||
-                                insightIsNullOverride ||
-                                defaultVariableIsNull,
+                            value: valueSource ? valueSource.value : variable.default_value,
+                            isNull: isNullSource ? isNullSource.isNull : variable.isNull,
                         }
 
                         // get insights using variable

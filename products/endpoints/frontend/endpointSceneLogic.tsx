@@ -142,6 +142,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        setDebugMode: (debugMode: boolean) => ({ debugMode }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -210,6 +211,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setViewingVersion: (_, { version }) => version,
                 // Reset when switching endpoints; loadEndpointSuccess listener restores from URL if needed
                 loadEndpoint: () => null,
+            },
+        ],
+        debugMode: [
+            false,
+            {
+                setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
             },
         ],
         bucketOverrides: [
