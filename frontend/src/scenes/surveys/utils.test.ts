@@ -4,6 +4,7 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import {
     EventPropertyFilter,
     FeatureFlagFilters,
+    PropertyOperator,
     PropertyFilterType,
     Survey,
     SurveyAppearance,
@@ -508,7 +509,7 @@ describe('survey utils', () => {
                             {
                                 key: 'email',
                                 value: ['@posthog.com'],
-                                operator: 'icontains',
+                                operator: PropertyOperator.IContains,
                                 type: PropertyFilterType.Person,
                             },
                         ],
