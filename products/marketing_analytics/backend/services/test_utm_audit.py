@@ -4,10 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.marketing_analytics.backend.services.utm_audit import (
+from products.marketing_analytics.backend.services.types import (
+    Campaign,
     TeamMappings,
     UtmAuditResponse,
     UtmIssueSeverity,
+)
+from products.marketing_analytics.backend.services.utm_audit import (
     _build_all_utm_events,
     _cross_reference,
     _load_team_mappings,
@@ -19,16 +22,7 @@ NO_MAPPINGS = TeamMappings(source_to_integration={}, campaign_aliases={}, field_
 
 class TestCrossReference:
     def test_campaign_with_matching_utm_events(self):
-        campaigns = [
-            {
-                "campaign_name": "Spring Sale",
-                "campaign_id": "123",
-                "source_name": "google",
-                "spend": 100.0,
-                "clicks": 50,
-                "impressions": 1000,
-            }
-        ]
+        campaigns = [Campaign("Spring Sale", "123", "google", 100.0, 50, 1000)]
         utm_events = {("spring sale", "google"): 42}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS)
@@ -39,16 +33,7 @@ class TestCrossReference:
         assert len(results[0].issues) == 0
 
     def test_campaign_with_no_utm_events(self):
-        campaigns = [
-            {
-                "campaign_name": "Summer Promo",
-                "campaign_id": "456",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("Summer Promo", "456", "google", 500.0, 100, 5000)]
 
         results = _cross_reference(campaigns, {}, NO_MAPPINGS)
 
@@ -60,16 +45,7 @@ class TestCrossReference:
         assert results[0].issues[0].severity == UtmIssueSeverity.ERROR
 
     def test_campaign_with_source_mismatch(self):
-        campaigns = [
-            {
-                "campaign_name": "Brand Campaign",
-                "campaign_id": "789",
-                "source_name": "google",
-                "spend": 200.0,
-                "clicks": 80,
-                "impressions": 2000,
-            }
-        ]
+        campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
         utm_events = {("brand campaign", "adwords"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS)
@@ -81,16 +57,7 @@ class TestCrossReference:
         assert results[0].issues[0].severity == UtmIssueSeverity.WARNING
 
     def test_case_insensitive_matching(self):
-        campaigns = [
-            {
-                "campaign_name": "WINTER Sale",
-                "campaign_id": "101",
-                "source_name": "Google",
-                "spend": 150.0,
-                "clicks": 60,
-                "impressions": 1500,
-            }
-        ]
+        campaigns = [Campaign("WINTER Sale", "101", "Google", 150.0, 60, 1500)]
         utm_events = {("winter sale", "google"): 25}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS)
@@ -102,30 +69,9 @@ class TestCrossReference:
 
     def test_multiple_campaigns_mixed_issues(self):
         campaigns = [
-            {
-                "campaign_name": "Good Campaign",
-                "campaign_id": "1",
-                "source_name": "google",
-                "spend": 1000.0,
-                "clicks": 500,
-                "impressions": 10000,
-            },
-            {
-                "campaign_name": "Bad Campaign",
-                "campaign_id": "2",
-                "source_name": "meta",
-                "spend": 200.0,
-                "clicks": 50,
-                "impressions": 2000,
-            },
-            {
-                "campaign_name": "Worse Campaign",
-                "campaign_id": "3",
-                "source_name": "google",
-                "spend": 800.0,
-                "clicks": 100,
-                "impressions": 5000,
-            },
+            Campaign("Good Campaign", "1", "google", 1000.0, 500, 10000),
+            Campaign("Bad Campaign", "2", "meta", 200.0, 50, 2000),
+            Campaign("Worse Campaign", "3", "google", 800.0, 100, 5000),
         ]
         utm_events = {("good campaign", "google"): 100}
 
@@ -151,16 +97,7 @@ class TestCrossReference:
         assert len(results) == 0
 
     def test_custom_source_mapping_resolves_match(self):
-        campaigns = [
-            {
-                "campaign_name": "brand_campaign",
-                "campaign_id": "1",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("brand_campaign", "1", "google", 500.0, 100, 5000)]
         utm_events = {("brand_campaign", "partner_blog"): 55}
         mappings = TeamMappings(
             source_to_integration={"partner_blog": "google"},
@@ -176,16 +113,7 @@ class TestCrossReference:
         assert len(results[0].issues) == 0
 
     def test_campaign_name_mapping_resolves_match(self):
-        campaigns = [
-            {
-                "campaign_name": "brand_campaign",
-                "campaign_id": "1",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("brand_campaign", "1", "google", 500.0, 100, 5000)]
         utm_events = {("partner_q1", "google"): 30}
         mappings = TeamMappings(
             source_to_integration={},
@@ -201,16 +129,7 @@ class TestCrossReference:
         assert len(results[0].issues) == 0
 
     def test_both_mappings_together(self):
-        campaigns = [
-            {
-                "campaign_name": "brand_campaign",
-                "campaign_id": "1",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("brand_campaign", "1", "google", 500.0, 100, 5000)]
         utm_events = {("partner_q1", "partner_blog"): 55}
         mappings = TeamMappings(
             source_to_integration={"partner_blog": "google"},
@@ -237,16 +156,7 @@ class TestCrossReferenceFieldPreferences:
         ],
     )
     def test_field_preference_matching(self, match_field, utm_value, should_match):
-        campaigns = [
-            {
-                "campaign_name": "Brand Campaign",
-                "campaign_id": "abc123",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("Brand Campaign", "abc123", "google", 500.0, 100, 5000)]
         utm_events = {(utm_value, "google"): 42}
         mappings = TeamMappings(
             source_to_integration={},
@@ -267,22 +177,8 @@ class TestCrossReferenceFieldPreferences:
 
     def test_mixed_preferences_per_source(self):
         campaigns = [
-            {
-                "campaign_name": "Google Brand",
-                "campaign_id": "g123",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            },
-            {
-                "campaign_name": "Meta Brand",
-                "campaign_id": "m456",
-                "source_name": "meta",
-                "spend": 300.0,
-                "clicks": 80,
-                "impressions": 3000,
-            },
+            Campaign("Google Brand", "g123", "google", 500.0, 100, 5000),
+            Campaign("Meta Brand", "m456", "meta", 300.0, 80, 3000),
         ]
         utm_events = {
             ("g123", "google"): 30,
@@ -307,16 +203,7 @@ class TestCrossReferenceFieldPreferences:
         assert meta.event_count == 20
 
     def test_campaign_id_with_aliases_fallback(self):
-        campaigns = [
-            {
-                "campaign_name": "brand_campaign",
-                "campaign_id": "abc123",
-                "source_name": "google",
-                "spend": 500.0,
-                "clicks": 100,
-                "impressions": 5000,
-            }
-        ]
+        campaigns = [Campaign("brand_campaign", "abc123", "google", 500.0, 100, 5000)]
         utm_events = {("partner_q1", "google"): 30}
         mappings = TeamMappings(
             source_to_integration={},
@@ -333,9 +220,7 @@ class TestCrossReferenceFieldPreferences:
 
 class TestBuildAllUtmEvents:
     def test_auto_matched(self):
-        campaigns = [
-            {"campaign_name": "brand", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
         utm_events = {("brand", "google"): 100}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
@@ -346,9 +231,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign == "brand"
 
     def test_fully_unmatched(self):
-        campaigns = [
-            {"campaign_name": "brand", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
         utm_events = {("unknown", "facebook"): 50}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
@@ -359,9 +242,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign is None
 
     def test_campaign_auto_source_none(self):
-        campaigns = [
-            {"campaign_name": "brand", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
         utm_events = {("brand", "adwords"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
@@ -372,9 +253,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign == "brand"
 
     def test_source_auto_campaign_none(self):
-        campaigns = [
-            {"campaign_name": "brand", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
         utm_events = {("unknown_campaign", "google"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
@@ -385,9 +264,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign is None
 
     def test_mapped_campaign_and_source(self):
-        campaigns = [
-            {"campaign_name": "brand_campaign", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand_campaign", "1", "google", 0, 0, 0)]
         utm_events = {("partner_q1", "partner_blog"): 55}
         mappings = TeamMappings(
             source_to_integration={"partner_blog": "google"},
@@ -403,9 +280,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign == "brand_campaign"
 
     def test_field_preference_affects_matching(self):
-        campaigns = [
-            {"campaign_name": "Brand Campaign", "campaign_id": "abc123", "source_name": "google"},
-        ]
+        campaigns = [Campaign("Brand Campaign", "abc123", "google", 0, 0, 0)]
         utm_events = {("abc123", "google"): 30}
         mappings = TeamMappings(
             source_to_integration={},
@@ -421,9 +296,7 @@ class TestBuildAllUtmEvents:
         assert result[0].matched_campaign == "Brand Campaign"
 
     def test_sorted_unmatched_first(self):
-        campaigns = [
-            {"campaign_name": "brand", "campaign_id": "1", "source_name": "google"},
-        ]
+        campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
         utm_events = {
             ("brand", "google"): 10,
             ("orphan_a", "meta"): 50,
@@ -594,15 +467,15 @@ class TestRunUtmAudit(BaseTest):
         spend: float = 500.0,
         clicks: int = 100,
         impressions: int = 5000,
-    ) -> dict:
-        return {
-            "campaign_name": campaign_name,
-            "campaign_id": campaign_id,
-            "source_name": source_name,
-            "spend": spend,
-            "clicks": clicks,
-            "impressions": impressions,
-        }
+    ) -> Campaign:
+        return Campaign(
+            campaign_name=campaign_name,
+            campaign_id=campaign_id,
+            source_name=source_name,
+            spend=spend,
+            clicks=clicks,
+            impressions=impressions,
+        )
 
     @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
     @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")

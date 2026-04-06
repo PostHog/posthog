@@ -1,7 +1,4 @@
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum
-from typing import Any
 
 from posthog.schema import DateRange, NativeMarketingSource
 
@@ -13,69 +10,16 @@ from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
-
-
-class UtmIssueSeverity(StrEnum):
-    ERROR = "error"
-    WARNING = "warning"
-
-
-@dataclass
-class UtmIssue:
-    field: str
-    severity: UtmIssueSeverity
-    message: str
-
-
-@dataclass
-class CampaignAuditResult:
-    campaign_name: str
-    campaign_id: str
-    source_name: str
-    spend: float
-    clicks: int
-    impressions: int
-    has_utm_events: bool
-    event_count: int
-    issues: list[UtmIssue] = field(default_factory=list)
-
-
-class MatchType(StrEnum):
-    NONE = "none"
-    AUTO = "auto"  # matched directly by name/id
-    MAPPED = "mapped"  # matched via manual campaign_name_mappings or custom_source_mappings
-
-
-@dataclass
-class UtmEvent:
-    utm_campaign: str
-    utm_source: str
-    event_count: int
-    campaign_match: str  # MatchType value
-    source_match: str  # MatchType value
-    matched_campaign: str | None
-
-
-@dataclass
-class UtmAuditResponse:
-    total_campaigns: int
-    campaigns_with_issues: int
-    campaigns_without_issues: int
-    total_spend_at_risk: float
-    results: list[CampaignAuditResult]
-    all_utm_events: list[UtmEvent]
-
-
-@dataclass
-class TeamMappings:
-    """Resolved mappings from the team's marketing analytics config."""
-
-    # utm_source -> integration source name (e.g. "partner_blog" -> "google")
-    source_to_integration: dict[str, str]
-    # clean_campaign -> set of raw utm values (e.g. "brand_campaign" -> {"partner_q1", "brand_q1"})
-    campaign_aliases: dict[str, set[str]]
-    # lowercase source_name -> "campaign_name" | "campaign_id"
-    field_preferences: dict[str, str]
+from products.marketing_analytics.backend.services.types import (
+    Campaign,
+    CampaignAuditResult,
+    MatchType,
+    TeamMappings,
+    UtmAuditResponse,
+    UtmEvent,
+    UtmIssue,
+    UtmIssueSeverity,
+)
 
 
 def _load_team_mappings(team: Team) -> TeamMappings:
@@ -183,7 +127,7 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
     )
 
 
-def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[dict[str, Any]]:
+def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Campaign]:
     """Get all campaigns with spend from marketing integrations."""
     context = QueryContext(
         date_range=date_range,
@@ -224,14 +168,14 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[di
     campaigns = []
     for row in result.results or []:
         campaigns.append(
-            {
-                "campaign_name": row[0] or "",
-                "campaign_id": row[1] or "",
-                "source_name": row[2] or "",
-                "spend": float(row[3] or 0),
-                "clicks": int(row[4] or 0),
-                "impressions": int(row[5] or 0),
-            }
+            Campaign(
+                campaign_name=row[0] or "",
+                campaign_id=row[1] or "",
+                source_name=row[2] or "",
+                spend=float(row[3] or 0),
+                clicks=int(row[4] or 0),
+                impressions=int(row[5] or 0),
+            )
         )
     return campaigns
 
@@ -280,17 +224,17 @@ def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
     return mappings.source_to_integration.get(utm_source, utm_source)
 
 
-def _get_match_value(campaign: dict[str, Any], mappings: TeamMappings) -> str:
+def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
     """Get the campaign value to match against utm_campaign, based on field preference."""
-    source_name_lower = campaign["source_name"].lower().strip()
+    source_name_lower = campaign.source_name.lower().strip()
     match_field = mappings.field_preferences.get(source_name_lower, "campaign_name")
     if match_field == "campaign_id":
-        return campaign["campaign_id"].lower().strip()
-    return campaign["campaign_name"].lower().strip()
+        return campaign.campaign_id.lower().strip()
+    return campaign.campaign_name.lower().strip()
 
 
 def _build_all_utm_events(
-    campaigns: list[dict[str, Any]],
+    campaigns: list[Campaign],
     utm_events: dict[tuple[str, str], int],
     mappings: TeamMappings,
 ) -> list[UtmEvent]:
@@ -303,19 +247,18 @@ def _build_all_utm_events(
     campaign_lookup: dict[str, tuple[str, str]] = {}
     for campaign in campaigns:
         match_value = _get_match_value(campaign, mappings)
-        campaign_name = campaign["campaign_name"]
-        campaign_name_lower = campaign_name.lower().strip()
+        campaign_name_lower = campaign.campaign_name.lower().strip()
         if match_value not in campaign_lookup:
-            campaign_lookup[match_value] = (campaign_name, MatchType.AUTO)
+            campaign_lookup[match_value] = (campaign.campaign_name, MatchType.AUTO)
         # Add aliases (mapped)
         for alias in mappings.campaign_aliases.get(campaign_name_lower, set()):
             if alias not in campaign_lookup:
-                campaign_lookup[alias] = (campaign_name, MatchType.MAPPED)
+                campaign_lookup[alias] = (campaign.campaign_name, MatchType.MAPPED)
 
     # Pre-compute source lookup: source_name -> match_type
     source_lookup: dict[str, str] = {}
     for campaign in campaigns:
-        source_name_lower = campaign["source_name"].lower().strip()
+        source_name_lower = campaign.source_name.lower().strip()
         if source_name_lower not in source_lookup:
             source_lookup[source_name_lower] = MatchType.AUTO
     # Add custom source mappings (mapped)
@@ -357,7 +300,7 @@ def _build_all_utm_events(
 
 
 def _cross_reference(
-    campaigns: list[dict[str, Any]],
+    campaigns: list[Campaign],
     utm_events: dict[tuple[str, str], int],
     mappings: TeamMappings,
 ) -> list[CampaignAuditResult]:
@@ -373,14 +316,11 @@ def _cross_reference(
     results: list[CampaignAuditResult] = []
 
     for campaign in campaigns:
-        campaign_name = campaign["campaign_name"]
-        campaign_id = campaign["campaign_id"]
-        source_name = campaign["source_name"]
-        campaign_name_lower = campaign_name.lower().strip()
-        source_name_lower = source_name.lower().strip()
+        campaign_name_lower = campaign.campaign_name.lower().strip()
+        source_name_lower = campaign.source_name.lower().strip()
         match_value = _get_match_value(campaign, mappings)
         match_field = mappings.field_preferences.get(source_name_lower, "campaign_name")
-        match_display = campaign_id if match_field == "campaign_id" else campaign_name
+        match_display = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
 
         # Collect all utm_campaign values that match this campaign
         matching_keys = {match_value}
@@ -416,7 +356,7 @@ def _cross_reference(
                     field="utm_source",
                     severity=UtmIssueSeverity.WARNING,
                     message=f"Campaign '{match_display}' has {campaign_only_count} events but utm_source "
-                    f"doesn't match '{source_name}'. Map the source to fix this.",
+                    f"doesn't match '{campaign.source_name}'. Map the source to fix this.",
                 )
             )
 
@@ -424,12 +364,12 @@ def _cross_reference(
 
         results.append(
             CampaignAuditResult(
-                campaign_name=campaign_name,
-                campaign_id=campaign["campaign_id"],
-                source_name=source_name,
-                spend=campaign["spend"],
-                clicks=campaign["clicks"],
-                impressions=campaign["impressions"],
+                campaign_name=campaign.campaign_name,
+                campaign_id=campaign.campaign_id,
+                source_name=campaign.source_name,
+                spend=campaign.spend,
+                clicks=campaign.clicks,
+                impressions=campaign.impressions,
                 has_utm_events=has_utm_events,
                 event_count=exact_count,
                 issues=issues,
