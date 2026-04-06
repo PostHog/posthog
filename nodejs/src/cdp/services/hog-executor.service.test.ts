@@ -1141,10 +1141,9 @@ describe('Hog Executor', () => {
                 method: 'GET',
             })
 
-            const result = await executor.executeFetch(invocation, { maxFetchRetries: 0 })
+            const result = await executor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 })
 
-            // The executeFetch part considers this not finished from an overall hog function perspective
-            expect(result.finished).toBe(false)
+            expect(result.finished).toBe(true)
             expect(result.error).toBeInstanceOf(Error)
             expect(result.error!.message).toContain('HTTP fetch failed on attempt 1')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
