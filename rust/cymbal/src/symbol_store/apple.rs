@@ -158,9 +158,7 @@ impl ParsedAppleSymbols {
         //    CU's line table records a relative path but the manifest was built
         //    from the callee CU's absolute path (Swift WMO common case).
         let basename = std::path::Path::new(dwarf_path).file_name()?.to_str()?;
-        let mut candidates = sources
-            .iter()
-            .filter(|(k, _)| k.ends_with(basename));
+        let mut candidates = sources.iter().filter(|(k, _)| k.ends_with(basename));
         let first = candidates.next();
         // Only use the fallback if there is exactly one candidate (no ambiguity).
         if first.is_some() && candidates.next().is_none() {
