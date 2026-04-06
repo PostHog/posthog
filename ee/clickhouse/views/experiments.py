@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
+from posthog.api.documentation import extend_schema_field
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -48,18 +49,247 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
+EXPERIMENT_METRIC_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Experiment metric. Set kind to 'ExperimentMetric' and metric_type to one of: "
+        "'mean' (requires source with EventsNode), "
+        "'funnel' (requires series array of EventsNode/ActionsNode steps), "
+        "'ratio' (requires numerator and denominator EventsNode). "
+        "Optional fields: name, uuid, conversion_window, goal ('increase' or 'decrease')."
+    ),
+    "required": ["kind", "metric_type"],
+    "properties": {
+        "kind": {
+            "type": "string",
+            "enum": ["ExperimentMetric"],
+            "description": "Must be 'ExperimentMetric'.",
+        },
+        "metric_type": {
+            "type": "string",
+            "enum": ["mean", "funnel", "ratio", "retention"],
+            "description": "Type of metric measurement.",
+        },
+        "name": {
+            "type": "string",
+            "description": "Human-readable metric name.",
+        },
+        "uuid": {
+            "type": "string",
+            "description": "Unique identifier for the metric. Auto-generated if not provided.",
+        },
+        "source": {
+            "type": "object",
+            "description": "For mean metrics: EventsNode with 'kind' and 'event' fields.",
+            "properties": {
+                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
+                "event": {"type": "string", "description": "Event name, e.g. '$pageview'."},
+            },
+        },
+        "series": {
+            "type": "array",
+            "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
+                    "event": {"type": "string"},
+                },
+            },
+        },
+        "numerator": {
+            "type": "object",
+            "description": "For ratio metrics: the numerator EventsNode.",
+            "properties": {
+                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
+                "event": {"type": "string"},
+            },
+        },
+        "denominator": {
+            "type": "object",
+            "description": "For ratio metrics: the denominator EventsNode.",
+            "properties": {
+                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
+                "event": {"type": "string"},
+            },
+        },
+        "goal": {
+            "type": "string",
+            "enum": ["increase", "decrease"],
+            "description": "Whether higher or lower values indicate success.",
+        },
+        "conversion_window": {
+            "type": "integer",
+            "description": "Conversion window duration.",
+        },
+    },
+}
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "nullable": True,
+        "items": EXPERIMENT_METRIC_SCHEMA,
+    }
+)
+class ExperimentMetricsField(serializers.JSONField):
+    """JSONField annotated with the ExperimentMetric schema for OpenAPI generation."""
+
+    pass
+
+
+EXPERIMENT_PARAMETERS_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": "Configuration object containing variant definitions and minimum detectable effect.",
+    "properties": {
+        "feature_flag_variants": {
+            "type": "array",
+            "description": "Experiment variants. If not specified, defaults to 50/50 control/test split.",
+            "items": {
+                "type": "object",
+                "required": ["key", "rollout_percentage"],
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Variant key (e.g., 'control', 'variant_a', 'new_design').",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable variant name.",
+                    },
+                    "rollout_percentage": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of users to show this variant.",
+                    },
+                },
+            },
+        },
+        "minimum_detectable_effect": {
+            "type": "number",
+            "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30%% for most experiments.",
+        },
+    },
+}
+
+
+@extend_schema_field(EXPERIMENT_PARAMETERS_SCHEMA)
+class ExperimentParametersField(serializers.JSONField):
+    pass
+
+
+EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": "Exposure configuration for the experiment.",
+    "properties": {
+        "filterTestAccounts": {
+            "type": "boolean",
+            "description": "Whether to filter out internal test accounts.",
+        },
+        "exposure_config": {
+            "type": "object",
+            "description": "Custom exposure event configuration.",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["ExperimentEventExposureConfig"],
+                },
+                "event": {
+                    "type": "string",
+                    "description": "Custom exposure event name.",
+                },
+            },
+        },
+    },
+}
+
+
+@extend_schema_field(EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA)
+class ExperimentExposureCriteriaField(serializers.JSONField):
+    pass
+
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
-    feature_flag_key = serializers.CharField(source="get_feature_flag_key")
+    feature_flag_key = serializers.CharField(
+        source="get_feature_flag_key",
+        help_text="Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
     holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+        queryset=ExperimentHoldout.objects.all(),
+        source="holdout",
+        required=False,
+        allow_null=True,
+        help_text="ID of a holdout group to exclude from the experiment.",
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        allow_null=True,
+        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
     allow_unknown_events = serializers.BooleanField(required=False, default=False, write_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the experiment.",
+    )
+    description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Description of the experiment hypothesis and expected outcomes.",
+    )
+    parameters = ExperimentParametersField(
+        required=False,
+        allow_null=True,
+        help_text="Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.",
+    )
+    metrics = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).",
+    )
+    metrics_secondary = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Secondary experiment metrics array for additional measurements.",
+    )
+    exposure_criteria = ExperimentExposureCriteriaField(
+        required=False,
+        allow_null=True,
+        help_text="Exposure configuration including filter test accounts and custom exposure events.",
+    )
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Comment about the experiment conclusion.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the experiment is archived.",
+    )
+    type = serializers.ChoiceField(
+        choices=["web", "product"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
