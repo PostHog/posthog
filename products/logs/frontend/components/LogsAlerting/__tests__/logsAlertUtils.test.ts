@@ -3,6 +3,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import {
     buildLogsAlertFilterConfig,
     buildLogsAlertHogFunctionPayload,
+    buildLogsAlertResolvedWebhookBody,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
@@ -23,12 +24,16 @@ describe('logsAlertUtils', () => {
             ])
         })
 
-        it('includes $logs_alert_firing event filter', () => {
+        it('includes both $logs_alert_firing and $logs_alert_resolved event filters', () => {
             const config = buildLogsAlertFilterConfig('alert-123')
 
             expect(config.events).toEqual([
                 {
                     id: '$logs_alert_firing',
+                    type: 'events',
+                },
+                {
+                    id: '$logs_alert_resolved',
                     type: 'events',
                 },
             ])
@@ -101,6 +106,7 @@ describe('logsAlertUtils', () => {
             })
             expect(payload.inputs?.url).toEqual({ value: 'https://example.com/hook' })
             expect(payload.inputs?.body?.value).toMatchObject({
+                event: 'firing',
                 alert_name: '{event.properties.alert_name}',
                 threshold_count: '{event.properties.threshold_count}',
                 window_minutes: '{event.properties.window_minutes}',
@@ -117,6 +123,21 @@ describe('logsAlertUtils', () => {
             const payload = buildLogsAlertHogFunctionPayload('alert-5', undefined, notification)
 
             expect(payload.name).toBe('Alert: Webhook https://example.com/hook')
+        })
+    })
+
+    describe('buildLogsAlertResolvedWebhookBody', () => {
+        it('returns resolved webhook body with all expected fields', () => {
+            const body = buildLogsAlertResolvedWebhookBody()
+
+            expect(body).toEqual({
+                event: 'resolved',
+                alert_name: '{event.properties.alert_name}',
+                result_count: '{event.properties.result_count}',
+                threshold_count: '{event.properties.threshold_count}',
+                window_minutes: '{event.properties.window_minutes}',
+                logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
+            })
         })
     })
 })

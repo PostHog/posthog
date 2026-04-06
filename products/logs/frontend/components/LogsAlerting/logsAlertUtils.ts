@@ -1,4 +1,8 @@
-import { LOGS_ALERT_FIRING_EVENT_ID, LOGS_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import {
+    LOGS_ALERT_FIRING_EVENT_ID,
+    LOGS_ALERT_FIRING_SUB_TEMPLATE_ID,
+    LOGS_ALERT_RESOLVED_EVENT_ID,
+} from 'lib/constants'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -36,6 +40,10 @@ export const buildLogsAlertFilterConfig = (alertId: string): CyclotronJobFilters
     events: [
         {
             id: LOGS_ALERT_FIRING_EVENT_ID,
+            type: 'events',
+        },
+        {
+            id: LOGS_ALERT_RESOLVED_EVENT_ID,
             type: 'events',
         },
     ],
@@ -79,6 +87,7 @@ export function buildLogsAlertHogFunctionPayload(
             url: { value: notification.webhookUrl },
             body: {
                 value: {
+                    event: 'firing',
                     alert_name: '{event.properties.alert_name}',
                     threshold_count: '{event.properties.threshold_count}',
                     window_minutes: '{event.properties.window_minutes}',
@@ -86,5 +95,16 @@ export function buildLogsAlertHogFunctionPayload(
                 },
             },
         },
+    }
+}
+
+export function buildLogsAlertResolvedWebhookBody(): Record<string, string> {
+    return {
+        event: 'resolved',
+        alert_name: '{event.properties.alert_name}',
+        result_count: '{event.properties.result_count}',
+        threshold_count: '{event.properties.threshold_count}',
+        window_minutes: '{event.properties.window_minutes}',
+        logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
     }
 }
