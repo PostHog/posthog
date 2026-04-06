@@ -1,10 +1,11 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
 
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -98,6 +99,20 @@ const RecentFiltersEmptyState = (): JSX.Element => {
     )
 }
 
+const PinnedFiltersEmptyState = (): JSX.Element => {
+    const { searchQuery } = useValues(taxonomicFilterLogic)
+    const hasSearch = searchQuery.trim().length > 0
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasSearch
+                    ? 'No pinned items match your search.'
+                    : 'No pinned items yet. Hover over any item and click the pin icon to keep it handy here.'}
+            </p>
+        </div>
+    )
+}
+
 const PageviewUrlsEmptyState = (): JSX.Element => {
     const { hasPageview } = getProjectEventExistence()
     return (
@@ -143,6 +158,7 @@ const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>>
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
+    [TaxonomicFilterGroupType.PinnedFilters]: PinnedFiltersEmptyState,
     [TaxonomicFilterGroupType.PageviewUrls]: PageviewUrlsEmptyState,
     [TaxonomicFilterGroupType.Screens]: ScreensEmptyState,
     [TaxonomicFilterGroupType.EmailAddresses]: EmailAddressesEmptyState,

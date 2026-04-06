@@ -1,4 +1,10 @@
-from products.signals.backend.temporal.actionability_judge import actionability_judge_activity
+from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
+from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
+from products.signals.backend.temporal.backfill_error_tracking import (
+    BackfillErrorTrackingWorkflow,
+    emit_backfill_signal_activity,
+    fetch_error_tracking_issues_activity,
+)
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
     flush_signals_to_s3_activity,
@@ -29,7 +35,6 @@ from products.signals.backend.temporal.reingestion import (
 )
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
-from products.signals.backend.temporal.summarize_signals import summarize_signals_activity
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     fetch_signals_for_report_activity,
@@ -37,10 +42,12 @@ from products.signals.backend.temporal.summary import (
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    publish_report_completed_activity,
     reset_report_to_potential_activity,
 )
 
 WORKFLOWS = [
+    BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
     BufferSignalsWorkflow,
@@ -52,7 +59,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    actionability_judge_activity,
+    emit_backfill_signal_activity,
+    fetch_error_tracking_issues_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
@@ -70,13 +78,15 @@ ACTIVITIES = [
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    publish_report_completed_activity,
     reingest_signals_activity,
     reset_report_to_potential_activity,
+    run_agentic_report_activity,
     run_signal_semantic_search_activity,
     report_safety_judge_activity,
     safety_filter_activity,
+    select_repository_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
-    summarize_signals_activity,
 ]

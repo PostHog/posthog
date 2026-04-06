@@ -21,6 +21,8 @@ export const API_SCOPES: APIScope[] = [
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
+    { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
+    { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
@@ -121,6 +123,8 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
 
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
+
 export const API_KEY_SCOPE_PRESETS: {
     value: string
     label: string
@@ -168,6 +172,13 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     read: 'Read',
     write: 'Write',
 }
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    isCloudOnly?: boolean
+}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

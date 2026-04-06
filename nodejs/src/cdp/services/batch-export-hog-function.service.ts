@@ -33,7 +33,7 @@ const batchExportRequestBodySchema = z.object({
         elements_chain: z.string().default(''),
         person_properties: z.string().optional(),
     }),
-    invocation_id: z.string().uuid().optional(),
+    invocation_id: z.guid().optional(),
 })
 
 export class BatchExportHogFunctionService {

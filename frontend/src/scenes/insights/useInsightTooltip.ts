@@ -105,7 +105,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
     if (!instance) {
         const tooltipEl = document.createElement('div')
         tooltipEl.id = `InsightTooltipWrapper-${id}`
-        tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.classList.add('InsightTooltipWrapper', 'ph-no-capture')
         tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
         tooltipEl.style.pointerEvents = 'none'
         document.body.appendChild(tooltipEl)
@@ -225,6 +225,12 @@ export function unpinTooltip(id: string): void {
     if (closeButton) {
         closeButton.style.opacity = '0'
     }
+    const closeColumnContent = instance.element.querySelector<HTMLElement>(
+        'th.InsightTooltip__close-column .LemonTable__header-content'
+    )
+    if (closeColumnContent) {
+        closeColumnContent.style.opacity = '0'
+    }
 
     onUnpinCallback?.()
 }
@@ -242,6 +248,12 @@ export function pinTooltip(id: string, onUnpin?: () => void): void {
     const closeButton = instance.element.querySelector<HTMLElement>('.InsightTooltip__close')
     if (closeButton) {
         closeButton.style.opacity = '1'
+    }
+    const closeColumnContent = instance.element.querySelector<HTMLElement>(
+        'th.InsightTooltip__close-column .LemonTable__header-content'
+    )
+    if (closeColumnContent) {
+        closeColumnContent.style.opacity = '1'
     }
 }
 

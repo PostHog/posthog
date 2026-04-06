@@ -23,12 +23,14 @@ import {
     IngestionConsumerConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
+    PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -63,6 +65,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
+    PersonHogConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -85,8 +88,6 @@ export class IngestionGeneralServer implements NodeServer {
     private config: IngestionGeneralServerConfig
 
     private postgres?: PostgresRouter
-    private kafkaProducer?: KafkaProducerWrapper
-    private kafkaMetricsProducer?: KafkaProducerWrapper
     private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
@@ -118,11 +119,6 @@ export class IngestionGeneralServer implements NodeServer {
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE!)
         logger.info('👍', 'Postgres Router ready')
 
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        logger.info('👍', 'Kafka ready')
-
         logger.info('🤔', 'Connecting to ingestion Redis...')
         this.redisPool = createRedisPoolFromConfig({
             connection: createIngestionRedisConnectionConfig(this.config),
@@ -140,10 +136,27 @@ export class IngestionGeneralServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personRepository = new PostgresPersonRepository(this.postgres, {
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         })
-        const groupRepository = new PostgresGroupRepository(this.postgres)
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+
+        const groupRepository = buildGroupRepository(
+            personhogClient,
+            postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            clientLabel
+        )
+
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
         const internalCaptureService = new InternalCaptureService(this.config)
@@ -159,7 +172,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-        const clickhouseGroupRepository = new ClickhouseGroupRepository(this.kafkaProducer)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
@@ -181,17 +193,6 @@ export class IngestionGeneralServer implements NodeServer {
                 return consumer.service
             })
         } else {
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                kafkaProducer: this.kafkaMetricsProducer,
-                teamManager,
-                internalCaptureService,
-            }
-
             // Resolve ingestion outputs — producer creation blocks until the broker
             // is reachable (rdkafka retries indefinitely), so the server will hang
             // here if a broker is down and the pod never becomes healthy.
@@ -203,12 +204,22 @@ export class IngestionGeneralServer implements NodeServer {
                 this.ingestionProducerRegistry,
                 INGESTION_OUTPUT_DEFINITIONS
             )
+            const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+            const hogTransformerDeps: HogTransformerServiceDeps = {
+                geoipService,
+                postgres: this.postgres,
+                pubSub: this.pubsub,
+                encryptedFields,
+                integrationManager,
+                monitoringOutputs: ingestionOutputs,
+                teamManager,
+                internalCaptureService,
+            }
 
             const ingestionDeps: IngestionConsumerDeps = {
                 postgres: this.postgres,
                 redisPool: this.redisPool,
-                kafkaProducer: this.kafkaProducer,
-                kafkaMetricsProducer: this.kafkaMetricsProducer,
                 outputs: ingestionOutputs,
                 teamManager,
                 groupTypeManager,
@@ -262,7 +273,7 @@ export class IngestionGeneralServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,

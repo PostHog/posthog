@@ -33,7 +33,7 @@ export interface CleanupResources {
     redisPools: RedisPool[]
     postgres?: PostgresRouter
     pubsub?: PubSub
-    additionalCleanup?: () => void
+    additionalCleanup?: () => void | Promise<void>
 }
 
 /** Minimal interface used by index.ts to interact with any server type. */
@@ -155,7 +155,7 @@ export class ServerLifecycle {
         for (const pool of resources.redisPools) {
             await pool.clear()
         }
-        resources.additionalCleanup?.()
+        await resources.additionalCleanup?.()
 
         logger.info('💤', ' Shutting down completed. Exiting...')
 

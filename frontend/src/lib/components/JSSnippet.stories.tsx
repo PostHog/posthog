@@ -4,7 +4,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { JSSnippet } from './JSSnippet'
 
-const meta: Meta<typeof JSSnippet> = {
+const meta: Meta = {
     title: 'Components/JSSnippet',
     component: JSSnippet,
     decorators: [
@@ -17,7 +17,7 @@ const meta: Meta<typeof JSSnippet> = {
 }
 export default meta
 
-type Story = StoryObj<typeof JSSnippet>
+type Story = StoryObj<{}>
 
 export const Default: Story = {
     parameters: {

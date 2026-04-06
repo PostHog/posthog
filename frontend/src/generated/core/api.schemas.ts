@@ -1112,10 +1112,11 @@ export interface SharingConfigurationApi {
  * `firebase` - Firebase
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
+ * `stripe` - Stripe
  */
-export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
+export type KindBa9EnumApi = (typeof KindBa9EnumApi)[keyof typeof KindBa9EnumApi]
 
-export const Kind8d6EnumApi = {
+export const KindBa9EnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -1144,6 +1145,7 @@ export const Kind8d6EnumApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    Stripe: 'stripe',
 } as const
 
 /**
@@ -1151,7 +1153,7 @@ export const Kind8d6EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind8d6EnumApi
+    kind: KindBa9EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1173,7 +1175,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind8d6EnumApi
+    kind?: KindBa9EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1199,6 +1201,49 @@ export interface GitHubRepoApi {
 
 export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
+}
+
+export interface ProjectSecretAPIKeyApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    readonly value: string
+    /** @nullable */
+    readonly mask_value: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly last_used_at: string | null
+    /** @nullable */
+    readonly last_rolled_at: string | null
+    scopes: string[]
+}
+
+export interface PaginatedProjectSecretAPIKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProjectSecretAPIKeyApi[]
+}
+
+export interface PatchedProjectSecretAPIKeyApi {
+    readonly id?: string
+    /** @maxLength 40 */
+    label?: string
+    readonly value?: string
+    /** @nullable */
+    readonly mask_value?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly last_used_at?: string | null
+    /** @nullable */
+    readonly last_rolled_at?: string | null
+    scopes?: string[]
 }
 
 /**
@@ -1271,91 +1316,6 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-}
-
-/**
- * * `FeatureFlag` - feature flag
- */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
-
-export const ModelNameEnumApi = {
-    FeatureFlag: 'FeatureFlag',
-} as const
-
-/**
- * * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
- * `yearly` - yearly
- */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
-
-export const RecurrenceIntervalEnumApi = {
-    Daily: 'daily',
-    Weekly: 'weekly',
-    Monthly: 'monthly',
-    Yearly: 'yearly',
-} as const
-
-export interface ScheduledChangeApi {
-    readonly id: number
-    readonly team_id: number
-    /** @maxLength 200 */
-    record_id: string
-    model_name: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly updated_at: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
-export interface PaginatedScheduledChangeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScheduledChangeApi[]
-}
-
-export interface PatchedScheduledChangeApi {
-    readonly id?: number
-    readonly team_id?: number
-    /** @maxLength 200 */
-    record_id?: string
-    model_name?: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at?: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly updated_at?: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at?: string | null
-    /** @nullable */
-    end_date?: string | null
 }
 
 /**
@@ -1983,6 +1943,17 @@ export type IntegrationsGithubBranchesRetrieveParams = {
     repo: string
 }
 
+export type ProjectSecretApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type PropertyDefinitionsListParams = {
     /**
      * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
@@ -2048,6 +2019,11 @@ export type PropertyDefinitionsListParams = {
  * @minLength 1
  */
     type?: PropertyDefinitionsListType
+    /**
+     * Filter by verified status. True returns only verified, false returns only unverified.
+     * @nullable
+     */
+    verified?: boolean | null
 }
 
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
@@ -2058,17 +2034,6 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
-
-export type ScheduledChangesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
 
 export type SubscriptionsListParams = {
     /**

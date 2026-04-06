@@ -635,6 +635,10 @@
         "chromium": 7.1,
         "webkit": 2.6
     },
+    "frontend/src/scenes/data-pipelines/batch-exports/BatchExportScene.stories.tsx": {
+        "chromium": 45.0,
+        "webkit": 14.0
+    },
     "frontend/src/scenes/data-warehouse/settings/source/Schemas.stories.tsx": {
         "chromium": 6.9,
         "webkit": 2.6

@@ -15,7 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { OutputTab } from './outputPaneLogic'
-import { getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -75,6 +75,16 @@ const MOCK_VIEW = {
     status: null,
     last_run_at: null,
     latest_error: null,
+} as any
+
+const MOCK_DRAFT = {
+    id: 'test-draft',
+    name: 'Test draft',
+    query: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 2',
+    },
+    saved_query_id: MOCK_VIEW.id,
 } as any
 
 function createMockMonaco(): any {
@@ -183,6 +193,92 @@ describe('sqlEditorLogic', () => {
             window.history.replaceState({}, '', `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT_SHORT_ID}`)
 
             expect(logic.values.titleSectionProps.name).toEqual('Loading insight...')
+        })
+
+        it('closes an insight into an unsaved query without clearing SQL or visualization settings', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState(
+                {},
+                '',
+                `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT.short_id}#${JSON.stringify({ insight: MOCK_INSIGHT.short_id })}`
+            )
+            logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, MOCK_INSIGHT)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSourceQuery({
+                ...MOCK_INSIGHT_QUERY,
+                display: ChartDisplayType.BoldNumber,
+            })
+            logic.actions.setInsightLoading(true)
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic)
+                .toDispatchActions(['closeEditingObject', 'setInsightLoading', 'setViewLoading', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: null,
+                    insightLoading: false,
+                    queryInput: MOCK_INSIGHT_QUERY.source.query,
+                    titleSectionProps: partial({
+                        name: 'New SQL query',
+                    }),
+                    sourceQuery: partial({
+                        display: ChartDisplayType.BoldNumber,
+                    }),
+                })
+
+            expect(window.location.hash).not.toContain('insight')
+            expect(window.location.search).not.toContain('open_insight')
+        })
+
+        it('closes a view into an unsaved query without clearing SQL or visualization settings', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState(
+                {},
+                '',
+                `${urls.sqlEditor()}?open_view=${MOCK_VIEW.id}#${JSON.stringify({ view: MOCK_VIEW.id })}`
+            )
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: MOCK_VIEW.query.query,
+                },
+                display: ChartDisplayType.ActionsBar,
+            })
+            logic.actions.setViewLoading(true)
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic)
+                .toDispatchActions(['closeEditingObject', 'setInsightLoading', 'setViewLoading', 'updateTab'])
+                .toMatchValues({
+                    editingView: undefined,
+                    viewLoading: false,
+                    queryInput: MOCK_VIEW.query.query,
+                    titleSectionProps: partial({
+                        name: 'New SQL query',
+                    }),
+                    sourceQuery: partial({
+                        display: ChartDisplayType.ActionsBar,
+                    }),
+                })
+
+            expect(window.location.hash).not.toContain('view')
+            expect(window.location.search).not.toContain('open_view')
         })
     })
 
@@ -298,8 +394,40 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('activeTabMatchesUrlTarget', () => {
+        it.each([
+            [
+                'insight tab vs matching insight target',
+                { name: 'Insight', insight: MOCK_INSIGHT },
+                { insightShortId: MOCK_INSIGHT_SHORT_ID },
+                true,
+            ],
+            ['view tab vs matching view target', { name: 'View', view: MOCK_VIEW }, { viewId: MOCK_VIEW.id }, true],
+            [
+                'draft tab vs matching draft target',
+                { name: 'Draft', draft: MOCK_DRAFT },
+                { draftId: MOCK_DRAFT.id },
+                true,
+            ],
+            ['plain tab vs empty target', { name: 'Untitled' }, {}, true],
+            ['plain tab vs insight target', { name: 'Untitled' }, { insightShortId: MOCK_INSIGHT_SHORT_ID }, false],
+            ['plain tab vs view target', { name: 'Untitled' }, { viewId: MOCK_VIEW.id }, false],
+            ['plain tab vs draft target', { name: 'Untitled' }, { draftId: MOCK_DRAFT.id }, false],
+        ])('%s', (_, tab, target, expected) => {
+            expect(
+                activeTabMatchesUrlTarget(
+                    {
+                        uri: createMockMonaco().Uri.parse('tab-1'),
+                        ...tab,
+                    },
+                    target
+                )
+            ).toEqual(expected)
+        })
+    })
+
     describe('open_view behavior', () => {
-        it('switches to the materialization tab when opening a view from the URL', async () => {
+        it('respects the requested output tab when opening a view from the URL', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -307,19 +435,19 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id, output_tab: OutputTab.Results })
+            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }, { output_tab: OutputTab.Results })
 
             await expectLogic(logic)
-                .toDispatchActions(['setActiveTab', 'setViewLoading', 'editView', 'createTab', 'updateTab'])
+                .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
                 .toMatchValues({
                     editingView: partial({
                         id: MOCK_VIEW.id,
                     }),
-                    outputActiveTab: OutputTab.Materialization,
+                    outputActiveTab: OutputTab.Results,
                 })
         })
 
-        it('switches to the materialization tab when opening a view directly', async () => {
+        it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -330,13 +458,57 @@ describe('sqlEditorLogic', () => {
             logic.actions.editView(MOCK_VIEW.query.query, MOCK_VIEW)
 
             await expectLogic(logic)
-                .toDispatchActions(['setActiveTab', 'createTab', 'updateTab'])
+                .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     editingView: partial({
                         id: MOCK_VIEW.id,
                     }),
-                    outputActiveTab: OutputTab.Materialization,
+                    outputActiveTab: OutputTab.Results,
                 })
+        })
+    })
+
+    describe('output tab hash parameter', () => {
+        it('restores the selected output tab from the hash', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT 1',
+                output_tab: OutputTab.Visualization,
+            })
+
+            await expectLogic(logic).toDispatchActions(['setActiveTab', 'createTab', 'updateTab']).toMatchValues({
+                outputActiveTab: OutputTab.Visualization,
+            })
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
+        })
+
+        it('replaces the hash output tab when the selected tab changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setActiveTab(OutputTab.Visualization)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 1')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
         })
     })
 

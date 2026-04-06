@@ -5,6 +5,8 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from posthog.hogql.functions.bot_ua_fixtures import BOT_USER_AGENTS
+
 from posthog.demo.products.hedgebox.taxonomy import (
     SITE_URL,
     URL_FILES,
@@ -16,91 +18,6 @@ from posthog.demo.products.hedgebox.taxonomy import (
 )
 from posthog.models import Team
 from posthog.models.event.util import create_event
-
-BOT_USER_AGENTS = {
-    "ai_agent": [
-        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot",
-        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ClaudeBot/1.0; +https://anthropic.com",
-        "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
-        "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/bot)",
-        "Mozilla/5.0 (compatible; Google-Extended; +https://developers.google.com/search/docs/crawling-indexing/google-extended)",
-        "CCBot/2.0 (https://commoncrawl.org/faq/)",
-        "anthropic-ai (https://anthropic.com)",
-        "cohere-ai",
-        "meta-externalagent/1.1",
-        "Bytespider",
-        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
-        "Claude-Web/1.0 (https://anthropic.com)",
-        "Meta-ExternalFetcher/1.0 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
-        "Diffbot/0.1 (+http://www.diffbot.com)",
-        "omgili/0.5 +http://omgili.com",
-        "Webzio-Extended/1.0 (+https://webz.io)",
-        "Mozilla/5.0 (compatible; Timpibot/0.9; +https://www.timpi.io)",
-    ],
-    "search_crawler": [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15 Applebot/0.1",
-        "Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)",
-        "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-        "Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-        "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-        "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
-        "DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)",
-        "Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)",
-    ],
-    "seo_crawler": [
-        "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
-        "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
-        "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
-        "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
-        "Mozilla/5.0 (compatible; PetalBot; +https://webmaster.petalsearch.com/site/petalbot)",
-    ],
-    "social_crawler": [
-        "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
-        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-        "Twitterbot/1.0",
-        "LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)",
-        "Pinterest/0.2 (+http://www.pinterest.com/)",
-        "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
-        "TelegramBot (like TwitterBot)",
-        "WhatsApp/2.23.2.79 A",
-    ],
-    "monitoring": [
-        "Pingdom.com_bot_version_1.4_(http://www.pingdom.com/)",
-        "Mozilla/5.0 (compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)",
-        "Site24x7 (https://www.site24x7.com)",
-        "Mozilla/5.0 (compatible; StatusCake)",
-        "Datadog/Synthetics",
-    ],
-    "http_client": [
-        "curl/7.88.1",
-        "curl/8.1.2",
-        "Wget/1.21.3",
-        "python-requests/2.31.0",
-        "axios/1.4.0",
-        "node-fetch/3.3.1",
-        "Go-http-client/1.1",
-        "Java/17.0.1",
-        "okhttp/4.10.0",
-        "Apache-HttpClient/4.5.14 (Java/17.0.1)",
-        "libwww-perl/6.67",
-        "Scrapy/2.9.0 (+https://scrapy.org)",
-    ],
-    "headless_browser": [
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/114.0.5735.198 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Puppeteer",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Playwright",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Selenium",
-    ],
-    "regular_browser": [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    ],
-}
 
 # Crawl patterns per bot category - bots visit different pages based on their purpose
 CRAWL_PATTERNS: dict[str, list[str]] = {

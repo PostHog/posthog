@@ -39,14 +39,12 @@ function ConnectOAuthButton({
     name,
     url,
     description,
-    oauthProviderKind,
     type = 'primary',
     disabledReason,
 }: {
     name: string
     url: string
     description: string
-    oauthProviderKind?: string
     type?: 'primary' | 'secondary'
     disabledReason?: string | null
 }): JSX.Element {
@@ -66,7 +64,6 @@ function ConnectOAuthButton({
                         url,
                         auth_type: 'oauth',
                         description,
-                        ...(oauthProviderKind ? { oauth_provider_kind: oauthProviderKind } : {}),
                     })
                     if (result?.redirect_url) {
                         window.location.href = result.redirect_url
@@ -302,7 +299,6 @@ export function McpStoreSettings(): JSX.Element {
                                                 name={server.name}
                                                 url={server.url}
                                                 description={server.description}
-                                                oauthProviderKind={server.oauth_provider_kind}
                                                 type="secondary"
                                                 disabledReason={restrictedReason}
                                             />
