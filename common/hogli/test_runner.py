@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import tomllib
 import platform
 import subprocess
 from dataclasses import dataclass, field
@@ -117,17 +118,11 @@ def _find_nearest(file_path: str, target_filename: str) -> Path | None:
 
 def _parse_cargo_package_name(cargo_toml: Path) -> str | None:
     """Extract the package name from a Cargo.toml [package] section."""
-    in_package = False
-    for line in cargo_toml.read_text().splitlines():
-        stripped = line.strip()
-        if stripped == "[package]":
-            in_package = True
-        elif stripped.startswith("[") and in_package:
-            break
-        elif in_package and stripped.startswith("name"):
-            _, _, value = stripped.partition("=")
-            return value.strip().strip('"').strip("'")
-    return None
+    try:
+        data = tomllib.loads(cargo_toml.read_text())
+        return data.get("package", {}).get("name")
+    except (tomllib.TOMLDecodeError, OSError):
+        return None
 
 
 def _parse_package_json_name(package_json: Path) -> str | None:

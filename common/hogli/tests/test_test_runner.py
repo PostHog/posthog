@@ -176,6 +176,23 @@ class TestDetectTestType:
         assert config.test_type == "playwright"
         assert config.command == ["pnpm", "exec", "playwright", "test", "playwright/e2e"]
 
+    # -- Product directory (Turbo) tests --
+
+    def test_product_root_uses_turbo(self) -> None:
+        config = detect_test_type("products/alerts")
+        assert config.test_type == "turbo"
+        assert config.command == ["pnpm", "turbo", "run", "backend:test", "--filter=@posthog/products-alerts"]
+
+    def test_product_root_trailing_slash_uses_turbo(self) -> None:
+        config = detect_test_type("products/alerts/")
+        assert config.test_type == "turbo"
+        assert config.command == ["pnpm", "turbo", "run", "backend:test", "--filter=@posthog/products-alerts"]
+
+    def test_product_subdirectory_uses_pytest(self) -> None:
+        config = detect_test_type("products/error_tracking/backend/test")
+        assert config.test_type == "python"
+        assert config.command == ["pytest", "-s", "products/error_tracking/backend/test"]
+
     # -- Edge cases --
 
     def test_unknown_file_raises(self) -> None:
