@@ -28,8 +28,11 @@ tools:
         list: true
         title: List all cohorts
         description: >
-            List all cohorts in the project. Returns a summary of each cohort (name, description, count, type).
+
+            List all cohorts in the project. Returns a summary of each cohort including 
+            id, name, description, count (person count), is_static (cohort type), and created_at timestamp.
             Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,
+
             and query definition.
         response:
             include:
