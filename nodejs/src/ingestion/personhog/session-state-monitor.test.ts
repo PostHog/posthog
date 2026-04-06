@@ -1,0 +1,260 @@
+import {
+    personhogConnectionEstablishmentSeconds,
+    personhogConnectionState,
+    personhogConnectionStateTransitionsTotal,
+} from './metrics'
+import { type SessionState, SessionStateMonitor } from './session-state-monitor'
+
+jest.mock('./metrics', () => ({
+    personhogConnectionState: {
+        labels: jest.fn().mockReturnValue({ set: jest.fn() }),
+    },
+    personhogConnectionStateTransitionsTotal: {
+        labels: jest.fn().mockReturnValue({ inc: jest.fn() }),
+    },
+    personhogConnectionEstablishmentSeconds: {
+        labels: jest.fn().mockReturnValue({ observe: jest.fn() }),
+    },
+}))
+
+const mockStateGauge = personhogConnectionState as jest.Mocked<typeof personhogConnectionState>
+const mockTransitions = personhogConnectionStateTransitionsTotal as jest.Mocked<
+    typeof personhogConnectionStateTransitionsTotal
+>
+const mockEstablishment = personhogConnectionEstablishmentSeconds as jest.Mocked<
+    typeof personhogConnectionEstablishmentSeconds
+>
+
+function makeMockSessionManager(initialState: SessionState = 'closed') {
+    let currentState: SessionState = initialState
+    return {
+        get authority() {
+            return 'http://localhost:50051'
+        },
+        state: () => currentState,
+        setState: (s: SessionState) => {
+            currentState = s
+        },
+        request: jest.fn().mockResolvedValue({} as any),
+        notifyResponseByteRead: jest.fn(),
+        connect: jest.fn(),
+        abort: jest.fn(),
+    }
+}
+
+describe('SessionStateMonitor', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+        jest.clearAllMocks()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it('sets initial state gauge on construction', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        expect(mockStateGauge.labels).toHaveBeenCalledWith({ state: 'closed', client: 'test-client' })
+        expect(mockStateGauge.labels({ state: 'closed', client: 'test-client' }).set).toHaveBeenCalledWith(1)
+
+        monitor.close()
+    })
+
+    it('tracks state transitions on poll', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+        jest.clearAllMocks()
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockTransitions.labels).toHaveBeenCalledWith({
+            from_state: 'closed',
+            to_state: 'connecting',
+            client: 'test-client',
+        })
+        expect(
+            mockTransitions.labels({ from_state: 'closed', to_state: 'connecting', client: 'test-client' }).inc
+        ).toHaveBeenCalled()
+
+        monitor.close()
+    })
+
+    it('tracks connection establishment latency (connecting -> open)', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+
+        inner.setState('open')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockEstablishment.labels).toHaveBeenCalledWith({ client: 'test-client' })
+        expect(mockEstablishment.labels({ client: 'test-client' }).observe).toHaveBeenCalledTimes(1)
+        const latency = (mockEstablishment.labels({ client: 'test-client' }).observe as jest.Mock).mock.calls[0][0]
+        expect(latency).toBeGreaterThanOrEqual(0)
+
+        monitor.close()
+    })
+
+    it('tracks connection establishment latency (connecting -> idle)', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+
+        inner.setState('idle')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockEstablishment.labels({ client: 'test-client' }).observe).toHaveBeenCalledTimes(1)
+
+        monitor.close()
+    })
+
+    it('does not record latency when connecting transitions to error', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+
+        inner.setState('error')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockEstablishment.labels({ client: 'test-client' }).observe).not.toHaveBeenCalled()
+
+        monitor.close()
+    })
+
+    it('does not record latency for open without prior connecting', () => {
+        const inner = makeMockSessionManager('idle')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        inner.setState('open')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockEstablishment.labels({ client: 'test-client' }).observe).not.toHaveBeenCalled()
+
+        monitor.close()
+    })
+
+    it('tracks reconnection latency across multiple cycles', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+
+        // First connection
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+        inner.setState('open')
+        jest.advanceTimersByTime(1000)
+
+        // Disconnect and reconnect
+        inner.setState('closed')
+        jest.advanceTimersByTime(1000)
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+        inner.setState('idle')
+        jest.advanceTimersByTime(1000)
+
+        expect(mockEstablishment.labels({ client: 'test-client' }).observe).toHaveBeenCalledTimes(2)
+
+        monitor.close()
+    })
+
+    it('updates state gauge — sets active to 1 and others to 0', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+        jest.clearAllMocks()
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(1000)
+
+        // connecting=1, all others=0
+        expect(mockStateGauge.labels).toHaveBeenCalledWith({ state: 'connecting', client: 'test-client' })
+        expect(mockStateGauge.labels({ state: 'connecting', client: 'test-client' }).set).toHaveBeenCalledWith(1)
+        expect(mockStateGauge.labels({ state: 'closed', client: 'test-client' }).set).toHaveBeenCalledWith(0)
+
+        monitor.close()
+    })
+
+    it('detects transitions around request() calls', async () => {
+        const inner = makeMockSessionManager('idle')
+        // Use a very long poll interval so only request() detects the change
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 600_000)
+        jest.clearAllMocks()
+
+        inner.setState('open')
+        await monitor.request('POST', '/test', {}, {})
+
+        expect(mockTransitions.labels).toHaveBeenCalledWith({
+            from_state: 'idle',
+            to_state: 'open',
+            client: 'test-client',
+        })
+
+        monitor.close()
+    })
+
+    it('detects transitions when request() throws', async () => {
+        const inner = makeMockSessionManager('idle')
+        inner.request.mockRejectedValueOnce(new Error('connection lost'))
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 600_000)
+        jest.clearAllMocks()
+
+        inner.setState('error')
+        await expect(monitor.request('POST', '/test', {}, {})).rejects.toThrow('connection lost')
+
+        expect(mockTransitions.labels).toHaveBeenCalledWith({
+            from_state: 'idle',
+            to_state: 'error',
+            client: 'test-client',
+        })
+
+        monitor.close()
+    })
+
+    it('delegates authority to inner manager', () => {
+        const inner = makeMockSessionManager()
+        const monitor = new SessionStateMonitor(inner as any, 'test-client')
+        expect(monitor.authority).toBe('http://localhost:50051')
+        monitor.close()
+    })
+
+    it('delegates notifyResponseByteRead to inner manager', () => {
+        const inner = makeMockSessionManager()
+        const monitor = new SessionStateMonitor(inner as any, 'test-client')
+        const fakeStream = {} as any
+        monitor.notifyResponseByteRead(fakeStream)
+        expect(inner.notifyResponseByteRead).toHaveBeenCalledWith(fakeStream)
+        monitor.close()
+    })
+
+    it('ignores same-state polls', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+        jest.clearAllMocks()
+
+        // Multiple polls with no state change
+        jest.advanceTimersByTime(5000)
+
+        expect(mockTransitions.labels).not.toHaveBeenCalled()
+
+        monitor.close()
+    })
+
+    it('close() stops polling', () => {
+        const inner = makeMockSessionManager('closed')
+        const monitor = new SessionStateMonitor(inner as any, 'test-client', 1000)
+        monitor.close()
+        jest.clearAllMocks()
+
+        inner.setState('connecting')
+        jest.advanceTimersByTime(5000)
+
+        expect(mockTransitions.labels).not.toHaveBeenCalled()
+    })
+})

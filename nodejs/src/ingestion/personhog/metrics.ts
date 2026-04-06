@@ -1,4 +1,27 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
+
+// -- Connection-level metrics (mirrors Python _ChannelStateMonitor) --
+
+export const personhogConnectionState = new Gauge({
+    name: 'personhog_nodejs_grpc_connection_state',
+    help: 'Current gRPC connection state (1 = active state)',
+    labelNames: ['state', 'client'] as const,
+})
+
+export const personhogConnectionStateTransitionsTotal = new Counter({
+    name: 'personhog_nodejs_grpc_connection_state_transitions_total',
+    help: 'gRPC connection state transitions',
+    labelNames: ['from_state', 'to_state', 'client'] as const,
+})
+
+export const personhogConnectionEstablishmentSeconds = new Histogram({
+    name: 'personhog_nodejs_grpc_connection_establishment_seconds',
+    help: 'Time to establish a gRPC connection (connecting to open/idle)',
+    labelNames: ['client'] as const,
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+})
+
+// -- Request-level metrics --
 
 export const personhogRequestsTotal = new Counter({
     name: 'personhog_requests_total',
