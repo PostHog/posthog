@@ -62,7 +62,7 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded px-4 py-6 w-full items-center justify-center text-center text-balance"
+            className="flex flex-col flex-1 min-h-0 h-full rounded px-4 py-6 w-full items-center justify-center text-center text-balance"
         >
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
@@ -76,7 +76,7 @@ export function InsightRefreshDataHint({ onRetry }: { onRetry: () => void }): JS
     return (
         <div
             data-attr="insight-refresh-data-hint"
-            className="flex flex-col flex-1 rounded px-4 py-6 w-full items-center justify-center text-center text-balance gap-3"
+            className="flex flex-col flex-1 min-h-0 h-full rounded px-4 py-6 w-full items-center justify-center text-center text-balance gap-3"
         >
             <IconInfo className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">Chart data didn&apos;t load</h2>

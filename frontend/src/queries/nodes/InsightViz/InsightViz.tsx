@@ -154,7 +154,14 @@ export function InsightViz({
                                         embedded={isEmbedded}
                                     />
                                 )}
-                                {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
+                                <div
+                                    className={clsx(
+                                        'flex flex-1 flex-col min-h-0 h-full',
+                                        !isEmbedded && 'overflow-auto'
+                                    )}
+                                >
+                                    {display}
+                                </div>
                             </div>
                         </BindLogic>
                     </BindLogic>
