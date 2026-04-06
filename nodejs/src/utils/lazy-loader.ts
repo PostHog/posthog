@@ -286,15 +286,18 @@ export class LazyLoader<T> {
         const results = await Promise.all(keyPromises)
 
         // Values are already in the cache via the buffer's setValues call.
-        // For keys the loader omitted (resolved to null), cache null so
-        // repeated "not found" lookups don't hit the DB again.
+        // For keys the loader omitted (resolved to null), update the cache
+        // so deleted/disabled items don't serve stale data.
         const now = Date.now()
         const result: LazyLoaderMap<T> = {}
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i]
-            if (!(key in this.cache) && results[i] === null) {
+            if (results[i] === null && this.cache[key] !== null) {
+                const isNewKey = !(key in this.cache)
                 this.cache[key] = null
-                this.cacheSize++
+                if (isNewKey) {
+                    this.cacheSize++
+                }
                 this.lastUsed[key] = now
                 const jitter = Math.floor(Math.random() * this.refreshJitterMs)
                 this.cacheUntil[key] = now + this.refreshNullAgeMs + jitter
