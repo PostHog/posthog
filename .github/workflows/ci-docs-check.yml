@@ -56,7 +56,7 @@ jobs:
               if: steps.source-check.outputs.changed == 'true'
               uses: actions/setup-node@v6
               with:
-                  node-version: 24
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
