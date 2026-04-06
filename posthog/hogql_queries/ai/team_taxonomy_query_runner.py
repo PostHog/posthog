@@ -21,8 +21,8 @@ try:
         WELL_KNOWN_EVENT_NAMES as WELL_KNOWN_EVENT_NAMES,
     )
 except ImportError:
-    IGNORED_EVENT_NAMES: list[str] = []
-    WELL_KNOWN_EVENT_NAMES: list[str] = []
+    IGNORED_EVENT_NAMES = []
+    WELL_KNOWN_EVENT_NAMES = []
 
 DEFAULT_LIMIT = 500
 

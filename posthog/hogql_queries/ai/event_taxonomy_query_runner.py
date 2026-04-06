@@ -104,6 +104,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
+                ORDER BY total_count DESC, key ASC
             """,
             placeholders={
                 "from_query": self._get_subquery(),

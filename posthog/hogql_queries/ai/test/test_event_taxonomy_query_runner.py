@@ -381,12 +381,12 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
         ).calculate()
         self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].property, "prop")
-        self.assertEqual(response.results[0].sample_values, ["10"])
-        self.assertEqual(response.results[0].sample_count, 1)
-        self.assertEqual(response.results[1].property, "$host")
-        self.assertEqual(response.results[1].sample_values, ["posthog.com", "us.posthog.com"])
-        self.assertEqual(response.results[1].sample_count, 2)
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["posthog.com", "us.posthog.com"])
+        self.assertEqual(response.results[0].sample_count, 2)
+        self.assertEqual(response.results[1].property, "prop")
+        self.assertEqual(response.results[1].sample_values, ["10"])
+        self.assertEqual(response.results[1].sample_count, 1)
 
     def test_property_taxonomy_includes_events_with_partial_property_matches(self):
         _create_person(
@@ -411,11 +411,11 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
         ).calculate()
         self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].property, "prop")
-        self.assertEqual(response.results[0].sample_values, ["10"])
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["us.posthog.com"])
         self.assertEqual(response.results[0].sample_count, 1)
-        self.assertEqual(response.results[1].property, "$host")
-        self.assertEqual(response.results[1].sample_values, ["us.posthog.com"])
+        self.assertEqual(response.results[1].property, "prop")
+        self.assertEqual(response.results[1].sample_values, ["10"])
         self.assertEqual(response.results[1].sample_count, 1)
 
     def test_query_count(self):

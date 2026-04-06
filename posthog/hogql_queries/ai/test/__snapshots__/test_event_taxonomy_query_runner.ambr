@@ -50,6 +50,8 @@
               value
      ORDER BY count DESC)
   GROUP BY key
+  ORDER BY total_count DESC,
+           key ASC
   LIMIT 501
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
