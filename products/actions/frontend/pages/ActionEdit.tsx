@@ -469,13 +469,18 @@ function MatchingEvents({
 }
 
 function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {
-    const { filteredReferences, referencesSearch } = useValues(actionEditLogic(logicProps))
+    const { filteredReferences, referencesSearch, referencesLoading } = useValues(actionEditLogic(logicProps))
     const { setReferencesSearch } = useActions(actionEditLogic(logicProps))
 
     return (
         <div className="flex flex-col gap-4">
             <LemonInput type="search" placeholder="Search..." value={referencesSearch} onChange={setReferencesSearch} />
-            <LemonTable dataSource={filteredReferences} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
+            <LemonTable
+                dataSource={filteredReferences}
+                columns={REFERENCES_COLUMNS}
+                pagination={{ pageSize: 10 }}
+                loading={referencesLoading}
+            />
         </div>
     )
 }
