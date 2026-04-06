@@ -234,7 +234,7 @@ export function WhenStep(): JSX.Element {
                 )}
             </WizardSection>
 
-            <section className="space-y-2">
+            <section className="space-y-2 border-t border-border pt-5">
                 <label className="text-sm font-medium">Delay before showing</label>
                 <div className="flex items-center gap-2">
                     <LemonInput
