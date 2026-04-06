@@ -818,9 +818,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
 
-        # Use the PostHog team_id as the duckgres org identifier
-        team_id = str(self.team_id)
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
+        # Use the PostHog organization_id as the duckgres org identifier
+        org_id = str(self.team.organization_id)
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
         headers = {}
         if token:
             headers["X-Duckgres-Internal-Secret"] = token
@@ -829,13 +829,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             resp = http_requests.request(method, url, json=json_body, headers=headers, timeout=30)
             return Response(resp.json(), status=resp.status_code)
         except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", url=url, team_id=team_id)
+            logger.warning("Provisioning API timeout", url=url, org_id=org_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
         except http_requests.ConnectionError:
-            logger.warning("Provisioning API unreachable", url=url, team_id=team_id)
+            logger.warning("Provisioning API unreachable", url=url, org_id=org_id)
             return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
-            logger.exception("Provisioning API error", url=url, team_id=team_id)
+            logger.exception("Provisioning API error", url=url, org_id=org_id)
             return Response(
                 {"error": "An error occurred contacting the provisioning service"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
