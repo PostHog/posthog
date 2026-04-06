@@ -467,3 +467,12 @@ interfaces = [
     "products.mcp_analytics.backend.facade",
     "products.mcp_analytics.backend.presentation.views",
 ]
+
+[[modules]]
+path = "products.platform_features"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.platform_features.backend.facade",
+    "products.platform_features.backend.presentation.views",
+]
