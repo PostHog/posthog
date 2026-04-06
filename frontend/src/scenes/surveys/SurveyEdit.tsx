@@ -68,10 +68,10 @@ import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues 
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
-import { setPreferredSurveyEditor } from './surveyEditorPreference'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -257,6 +257,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         editingSurvey,
         loadSurvey,
     } = useActions(surveyLogic)
+    const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -316,7 +317,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     type="tertiary"
                                     size="small"
                                     to={`${urls.surveyWizard(id)}#preserveLocalChanges=true`}
-                                    onClick={() => setPreferredSurveyEditor('guided')}
+                                    onClick={() => setPreferredEditor('guided')}
                                 >
                                     Guided editor
                                 </LemonButton>

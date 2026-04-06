@@ -18,8 +18,8 @@ import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
-import { getPreferredSurveyEditor } from './surveyEditorPreference'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 import { SurveyView } from './SurveyView'
 
 export const scene: SceneExport<SurveyLogicProps> = {
@@ -31,6 +31,7 @@ export const scene: SceneExport<SurveyLogicProps> = {
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({
@@ -47,10 +48,10 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     // Only for brand-new surveys without a hash (deep links with hash params
     // like #fromTemplate or #preserveLocalChanges should be respected).
     useEffect(() => {
-        if (id === 'new' && getPreferredSurveyEditor() === 'guided' && !window.location.hash) {
+        if (id === 'new' && preferredEditor === 'guided' && !window.location.hash) {
             router.actions.replace(urls.surveyWizard('new'))
         }
-    }, [id])
+    }, [id, preferredEditor])
 
     /**
      * Logic that cleans up surveyLogic state when the component unmounts.

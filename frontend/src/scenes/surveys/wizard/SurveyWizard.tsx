@@ -20,9 +20,9 @@ import { SurveyQuestionBranchingType } from '~/types'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
-import { getPreferredSurveyEditor, setPreferredSurveyEditor } from '../surveyEditorPreference'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
+import { surveysLogic } from '../surveysLogic'
 import { doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
@@ -68,14 +68,17 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
+    const { preferredEditor } = useValues(surveysLogic)
+    const { setPreferredEditor } = useActions(surveysLogic)
+
     // Redirect to the full editor if that's the user's persisted preference.
     // Only do this for brand-new surveys without a hash — deep links with hash
     // params (templates, preserveLocalChanges) should be respected.
     useEffect(() => {
-        if (!isEditing && getPreferredSurveyEditor() === 'full' && !window.location.hash) {
+        if (!isEditing && preferredEditor === 'full' && !window.location.hash) {
             router.actions.replace(urls.survey('new'))
         }
-    }, [isEditing])
+    }, [isEditing, preferredEditor])
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({
@@ -103,7 +106,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }, [maxPreviewIndex])
 
     const handleCustomizeMore = (): void => {
-        setPreferredSurveyEditor('full')
+        setPreferredEditor('full')
         const target = isEditing
             ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
             : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
