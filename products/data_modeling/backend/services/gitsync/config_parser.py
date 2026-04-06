@@ -19,8 +19,10 @@ teams / environments within it. So it is scoped at the "Organization" level.
     models_directory = "models"  # relative to repo root and user configurable
 
 A dag.toml lives inside each directory which should denote a separate DAG within a team. It
-configures DAG level settings like sync frequency.
+configures DAG level settings like sync frequency. The optional name field overrides the
+directory-derived DAG name.
 
+    name = "Finance Pipeline"
     sync_frequency = "1h"
     description = "Core business metrics refreshed hourly"
 
@@ -80,6 +82,7 @@ class EnvironmentConfig:
 class DAGConfig:
     """Parsed representation of a dag.toml file."""
 
+    name: str = ""
     sync_frequency: str = DEFAULT_SYNC_FREQUENCY
     description: str = ""
 
@@ -192,7 +195,7 @@ def parse_project_config(content: str) -> ProjectConfig:
     )
 
 
-_VALID_DAG_KEYS = {"sync_frequency", "description"}
+_VALID_DAG_KEYS = {"name", "sync_frequency", "description"}
 
 _VALID_PROJECT_SECTIONS = {"project", "environment", "environments", "settings"}
 
@@ -215,9 +218,12 @@ def parse_dag_config(content: str) -> DAGConfig:
     if unknown_keys:
         raise ValueError(f"Unknown keys in dag.toml: {', '.join(sorted(unknown_keys))}")
 
+    name = data.get("name", "")
     sync_frequency = data.get("sync_frequency", DEFAULT_SYNC_FREQUENCY)
     description = data.get("description", "")
 
+    if not isinstance(name, str):
+        raise ValueError(f"name must be a string, got {type(name).__name__}")
     if not isinstance(sync_frequency, str):
         raise ValueError(f"sync_frequency must be a string, got {type(sync_frequency).__name__}")
     if not isinstance(description, str):
@@ -228,6 +234,7 @@ def parse_dag_config(content: str) -> DAGConfig:
         raise ValueError(f"Invalid sync_frequency {sync_frequency!r}. Valid values: {valid}")
 
     return DAGConfig(
+        name=name,
         sync_frequency=sync_frequency,
         description=description,
     )
@@ -268,11 +275,14 @@ def serialize_project_config(
 
 def serialize_dag_config(
     *,
+    name: str = "",
     sync_frequency: str = DEFAULT_SYNC_FREQUENCY,
     description: str = "",
 ) -> str:
     """Serialize a DagConfig to a dag.toml string."""
     lines: list[str] = []
+    if name:
+        lines.append(f'name = "{_escape_toml(name)}"')
     if description:
         lines.append(f'description = "{_escape_toml(description)}"')
     lines.append(f'sync_frequency = "{_escape_toml(sync_frequency)}"')
