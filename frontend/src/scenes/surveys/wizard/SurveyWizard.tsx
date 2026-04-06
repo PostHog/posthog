@@ -20,6 +20,7 @@ import { SurveyQuestionBranchingType } from '~/types'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
+import { getPreferredSurveyEditor, setPreferredSurveyEditor } from '../surveyEditorPreference'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
@@ -67,6 +68,15 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
+    // Redirect to the full editor if that's the user's persisted preference.
+    // Only do this for brand-new surveys without a hash — deep links with hash
+    // params (templates, preserveLocalChanges) should be respected.
+    useEffect(() => {
+        if (!isEditing && getPreferredSurveyEditor() === 'full' && !window.location.hash) {
+            router.actions.replace(urls.survey('new'))
+        }
+    }, [isEditing])
+
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({
         identifier: 'edit_survey',
@@ -93,6 +103,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }, [maxPreviewIndex])
 
     const handleCustomizeMore = (): void => {
+        setPreferredSurveyEditor('full')
         const target = isEditing
             ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
             : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`

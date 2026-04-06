@@ -68,6 +68,7 @@ import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues 
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { setPreferredSurveyEditor } from './surveyEditorPreference'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -315,6 +316,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     type="tertiary"
                                     size="small"
                                     to={`${urls.surveyWizard(id)}#preserveLocalChanges=true`}
+                                    onClick={() => setPreferredSurveyEditor('guided')}
                                 >
                                     Guided editor
                                 </LemonButton>

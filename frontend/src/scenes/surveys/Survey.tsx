@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
@@ -17,6 +18,7 @@ import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
+import { getPreferredSurveyEditor } from './surveyEditorPreference'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
 
@@ -40,6 +42,15 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
             }
         },
     })
+
+    // Redirect to the guided wizard if that's the user's persisted preference.
+    // Only for brand-new surveys without a hash (deep links with hash params
+    // like #fromTemplate or #preserveLocalChanges should be respected).
+    useEffect(() => {
+        if (id === 'new' && getPreferredSurveyEditor() === 'guided' && !window.location.hash) {
+            router.actions.replace(urls.surveyWizard('new'))
+        }
+    }, [id])
 
     /**
      * Logic that cleans up surveyLogic state when the component unmounts.
