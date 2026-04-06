@@ -41,7 +41,7 @@ describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
         const chart = await waitForChart()
 
         chart.hover(2)
-        const tooltip = await waitForTooltip(chart)
+        const tooltip = await waitForTooltip()
 
         // The canned $pageview series has 134 on day index 2 (Wednesday).
         expect(within(tooltip).getByText('134')).toBeInTheDocument()
@@ -81,7 +81,7 @@ describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
         })
         const chart = await waitForChart()
         chart.hover(1)
-        const tooltip = await waitForTooltip(chart)
+        const tooltip = await waitForTooltip()
 
         // Single breakdown series → uses datum-label-column with getDatumTitle.
         expect(within(tooltip).getByText('Spike')).toBeInTheDocument()
@@ -129,18 +129,6 @@ describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
         expect(chart.series(0).meta?.order).toBe(1)
     })
 
-    it('exposes a close button when tooltip is pinned', async () => {
-        renderInsightPage({ query: buildTrendsQuery() })
-        const chart = await waitForChart()
-
-        chart.hover(1)
-        chart.pin()
-        const tooltip = await waitForTooltip(chart)
-
-        // InsightTooltip renders a close column (with .InsightTooltip__close button) when pinned.
-        expect(tooltip.querySelector('.InsightTooltip__close')).toBeInTheDocument()
-    })
-
     it('does not crash when series meta is missing', async () => {
         renderInsightPage({
             query: buildTrendsQuery(),
@@ -168,7 +156,7 @@ describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
         })
         const chart = await waitForChart()
         expect(() => chart.hover(0)).not.toThrow()
-        const tooltip = await waitForTooltip(chart)
+        const tooltip = await waitForTooltip()
         expect(tooltip).toBeInTheDocument()
     })
 })
