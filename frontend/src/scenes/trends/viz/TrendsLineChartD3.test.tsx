@@ -21,7 +21,7 @@ import '@testing-library/jest-dom'
 import { cleanup, within } from '@testing-library/react'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, renderInsightPage, waitForChart, waitForTooltip } from '~/test/insight-testing'
+import { buildTrendsQuery, renderInsightPage, trendsSeries, waitForChart, waitForTooltip } from '~/test/insight-testing'
 
 describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
     afterEach(cleanup)
@@ -32,8 +32,8 @@ describe('TrendsLineChartD3 + TrendsTooltip bridge', () => {
 
         expect(chart.renderer).toBe('hog-charts')
         expect(chart.seriesNames).toEqual(['$pageview'])
-        expect(chart.labels).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
-        expect(chart.series(0).data).toEqual([45, 82, 134, 210, 95])
+        expect(chart.labels).toEqual(trendsSeries.pageviews.labels)
+        expect(chart.series(0).data).toEqual(trendsSeries.pageviews.data)
     })
 
     it('shows series letter and formatted count in tooltip on hover', async () => {
