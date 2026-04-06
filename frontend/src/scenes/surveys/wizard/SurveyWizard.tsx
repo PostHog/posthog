@@ -23,7 +23,7 @@ import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
-import { doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
+import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
@@ -71,14 +71,21 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { preferredEditor } = useValues(surveysLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
 
-    // Redirect to the full editor if that's the user's persisted preference.
-    // Only do this for brand-new surveys without a hash — deep links with hash
-    // params (templates, preserveLocalChanges) should be respected.
+    // Redirect to the full editor when appropriate:
+    //  - brand-new survey + user prefers full editor (per-user preference)
+    //  - existing survey that uses wizard-unsupported fields (capability gate)
+    // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
+    // respected and bypass the redirect.
     useEffect(() => {
-        if (!isEditing && preferredEditor === 'full' && !window.location.hash) {
-            router.actions.replace(urls.survey('new'))
+        if (window.location.hash) {
+            return
         }
-    }, [isEditing, preferredEditor])
+        if (!isEditing && preferredEditor === 'full') {
+            router.actions.replace(urls.survey('new'))
+        } else if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
+            router.actions.replace(`${urls.survey(id)}?edit=true`)
+        }
+    }, [isEditing, preferredEditor, survey, surveyLoading, id])
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({

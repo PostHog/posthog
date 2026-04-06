@@ -63,11 +63,10 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { getSurveyResponse, isThumbQuestion } from './utils'
+import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -231,12 +230,12 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
                                                 ? undefined
                                                 : () => editingSurvey(true)
                                         }
                                         to={
-                                            survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
                                                 ? urls.surveyWizard(id)
                                                 : undefined
                                         }

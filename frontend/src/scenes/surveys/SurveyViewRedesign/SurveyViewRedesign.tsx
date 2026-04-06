@@ -27,6 +27,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -49,7 +50,6 @@ import {
     Survey,
     SurveyEventName,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SurveyDraftContent } from './SurveyDraftContent'
@@ -305,12 +305,12 @@ export function SurveyViewRedesign(): JSX.Element {
                             <LemonButton
                                 data-attr="edit-survey"
                                 onClick={
-                                    survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
                                         ? undefined
                                         : () => editingSurvey(true)
                                 }
                                 to={
-                                    survey.type === SurveyType.Popover && preferredEditor === 'guided'
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
                                         ? urls.surveyWizard(survey.id)
                                         : undefined
                                 }

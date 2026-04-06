@@ -72,6 +72,7 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
+import { canUseSurveyWizard } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -311,7 +312,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     forceEdit
                     actions={
                         <>
-                            {survey.type === SurveyType.Popover && (
+                            {canUseSurveyWizard(survey) && (
                                 <LemonButton
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
