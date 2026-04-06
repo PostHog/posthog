@@ -75,26 +75,41 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_PROPERTIES_UPDATE_ALL: false,
         },
         outputs: new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: 'events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-            [AI_EVENTS_OUTPUT]: {
-                topic: 'ai_events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-            [INGESTION_WARNINGS_OUTPUT]: {
-                topic: 'ingestion_warnings_topic',
-                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-            },
-            [PERSONS_OUTPUT]: {
-                topic: 'persons_topic',
-                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-            },
-            [PERSON_DISTINCT_IDS_OUTPUT]: {
-                topic: 'person_distinct_ids_topic',
-                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-            },
+            [EVENTS_OUTPUT]: [
+                {
+                    topic: 'events_topic',
+                    producer: { produce: mockProduce } as any,
+                    producerName: 'test',
+                },
+            ],
+            [AI_EVENTS_OUTPUT]: [
+                {
+                    topic: 'ai_events_topic',
+                    producer: { produce: mockProduce } as any,
+                    producerName: 'test',
+                },
+            ],
+            [INGESTION_WARNINGS_OUTPUT]: [
+                {
+                    topic: 'ingestion_warnings_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
+            [PERSONS_OUTPUT]: [
+                {
+                    topic: 'persons_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
+            [PERSON_DISTINCT_IDS_OUTPUT]: [
+                {
+                    topic: 'person_distinct_ids_topic',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
         }),
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),

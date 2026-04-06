@@ -106,12 +106,19 @@ class Command(BaseCommand):
             default=5,
             help="Number of concurrent child workflows to run (default: 5)",
         )
+        parser.add_argument(
+            "--person-id",
+            type=str,
+            required=False,
+            help="Optional: Specific person ID (UUID) to filter the backfill for. If provided, only processes properties for this person",
+        )
 
     def handle(self, *args, **options):
         team_id = options["team_id"]
         cohort_id = options.get("cohort_id")
         batch_size = options["batch_size"]
         concurrent_workflows = options["concurrent_workflows"]
+        person_id = options.get("person_id")
 
         # Get cohorts to process
         if cohort_id:
@@ -214,6 +221,7 @@ class Command(BaseCommand):
             cohort_ids=cohort_ids,
             batch_size=batch_size,
             concurrent_workflows=concurrent_workflows,
+            person_id=person_id,
         )
 
         self.stdout.write(
@@ -237,6 +245,7 @@ class Command(BaseCommand):
         cohort_ids: list[int],
         batch_size: int,
         concurrent_workflows: int,
+        person_id: str | None = None,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
 
@@ -257,6 +266,8 @@ class Command(BaseCommand):
                 cohort_ids=cohort_ids,
                 batch_size=batch_size,
                 concurrent_workflows=concurrent_workflows,
+                person_id=person_id,
+                single_cohort_mode=len(cohort_ids) == 1,  # True when exactly one cohort is being processed
             )
 
             # Generate unique workflow ID (one per team, based on timestamp)

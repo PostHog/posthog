@@ -493,6 +493,7 @@ export type AssistantTool =
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'
+    | 'run_hog_eval_test'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

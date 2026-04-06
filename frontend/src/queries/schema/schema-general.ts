@@ -137,6 +137,7 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
     WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
+    WebNotableChangesQuery = 'WebNotableChangesQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
@@ -217,6 +218,7 @@ export type AnyDataNode =
     | WebPageURLSearchQuery
     | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -285,6 +287,7 @@ export type QuerySchema =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebNotableChangesQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrossRevenueQuery
@@ -1089,6 +1092,11 @@ export interface HeatmapGradientStop {
     color: string
 }
 
+export enum HeatmapSortOrder {
+    Asc = 'asc',
+    Desc = 'desc',
+}
+
 export interface HeatmapSettings {
     xAxisColumn?: string
     yAxisColumn?: string
@@ -1100,6 +1108,8 @@ export interface HeatmapSettings {
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'
+    sortColumn?: string
+    sortOrder?: HeatmapSortOrder
 }
 
 export interface YAxisSettings {
@@ -1377,6 +1387,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default true */
+    excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
 }
@@ -1401,6 +1413,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'excludeBoxPlotOutliers',
     'hideWeekends',
 ])
 
@@ -2529,16 +2542,27 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /* Error Tracking */
+
+/** @title ErrorTrackingOrderBy */
+export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    /** Field to sort results by. */
+    orderBy: ErrorTrackingOrderBy
+    /** Sort direction. */
     orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
     dateRange: DateRange
+    /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
+    /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
     volumeResolution: integer
     withAggregations?: boolean
@@ -2812,12 +2836,15 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** @title LogsOrderBy */
+export type LogsOrderBy = 'latest' | 'earliest'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
+    orderBy?: LogsOrderBy
     searchTerm?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
@@ -2926,7 +2953,7 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
+    orderBy?: LogsOrderBy
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
@@ -3854,7 +3881,13 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z)
+     * or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
+     */
     date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
@@ -4222,10 +4255,17 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: EventTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
@@ -4765,6 +4805,29 @@ export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
 
+export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
+    kind: NodeKind.WebNotableChangesQuery
+    limit?: integer
+}
+
+export interface WebNotableChangeItem {
+    dimension_type: string
+    dimension_value: string
+    metric: string
+    current_value: number
+    previous_value: number
+    percent_change: number
+    impact_score: number
+}
+
+export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebNotableChangeItem[]
+    samplingRate?: SamplingRate
+    usedPreAggregatedTables?: boolean
+}
+
+export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
+
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery extends Omit<
@@ -5145,13 +5208,19 @@ export interface SourceFieldInputConfig {
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
+export interface SourceFieldSelectConfigOption {
+    label: string
+    value: string
+    fields?: SourceFieldConfig[]
+}
+
 export interface SourceFieldSelectConfig {
     type: 'select'
     name: string
     label: string
     required: boolean
     defaultValue: string
-    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
 }
 

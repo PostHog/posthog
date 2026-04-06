@@ -1,12 +1,15 @@
 """
 Integration tests using the official Anthropic Python SDK through the gateway.
 
-Skipped unless ANTHROPIC_API_KEY is set.
+Skipped unless ANTHROPIC_API_KEY is set (for anthropic provider) or
+LLM_GATEWAY_BEDROCK_REGION_NAME / AWS_REGION / AWS_DEFAULT_REGION is set
+(for bedrock provider).
 Run with: pytest tests/integration/test_anthropic_sdk.py -v
 """
 
 import base64
 import os
+from dataclasses import dataclass
 from typing import Any
 from urllib.request import urlopen
 
@@ -14,17 +17,53 @@ import pytest
 from anthropic import Anthropic, BadRequestError
 from anthropic.types import TextBlock, ToolParam, ToolUseBlock
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+from .conftest import BEDROCK_REGION, TEST_POSTHOG_API_KEY
 
-pytestmark = pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 
 
+@dataclass
+class SDKTestConfig:
+    client: Anthropic
+    model: str
+    provider: str
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(
+            "anthropic",
+            id="anthropic",
+            marks=pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"),
+        ),
+        pytest.param(
+            "bedrock",
+            id="bedrock",
+            marks=pytest.mark.skipif(not BEDROCK_REGION, reason="Bedrock region not configured"),
+        ),
+    ]
+)
+def sdk_config(request) -> SDKTestConfig:
+    if request.param == "anthropic":
+        url = request.getfixturevalue("gateway_url")
+        client = Anthropic(api_key=TEST_POSTHOG_API_KEY, base_url=url)
+        return SDKTestConfig(client=client, model="claude-3-haiku-20240307", provider="anthropic")
+    else:
+        url = request.getfixturevalue("bedrock_gateway_url")
+        client = Anthropic(
+            api_key=TEST_POSTHOG_API_KEY,
+            base_url=url,
+            default_headers={"X-PostHog-Provider": "bedrock"},
+        )
+        return SDKTestConfig(client=client, model="claude-haiku-4-5", provider="bedrock")
+
+
 class TestAnthropicMessages:
-    def test_non_streaming_request(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_non_streaming_request(self, sdk_config: SDKTestConfig):
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
             max_tokens=10,
         )
@@ -38,9 +77,9 @@ class TestAnthropicMessages:
         assert response.usage.input_tokens > 0
         assert response.usage.output_tokens > 0
 
-    def test_streaming_request(self, anthropic_client: Anthropic):
-        with anthropic_client.messages.stream(
-            model="claude-3-haiku-20240307",
+    def test_streaming_request(self, sdk_config: SDKTestConfig):
+        with sdk_config.client.messages.stream(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'hi' and nothing else."}],
             max_tokens=10,
         ) as stream:
@@ -49,9 +88,9 @@ class TestAnthropicMessages:
         assert text is not None
         assert len(text) > 0
 
-    def test_with_system_message(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_with_system_message(self, sdk_config: SDKTestConfig):
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             system="You are a helpful assistant that only says 'OK'.",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=10,
@@ -62,9 +101,9 @@ class TestAnthropicMessages:
         assert isinstance(first_block, TextBlock)
         assert first_block.text is not None
 
-    def test_with_temperature(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_with_temperature(self, sdk_config: SDKTestConfig):
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'test'"}],
             max_tokens=10,
             temperature=0.0,
@@ -77,9 +116,9 @@ class TestAnthropicMessages:
 
 
 class TestAnthropicMultipleModels:
-    def test_haiku_request(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_haiku_request(self, sdk_config: SDKTestConfig):
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'A'"}],
             max_tokens=5,
         )
@@ -89,15 +128,15 @@ class TestAnthropicMultipleModels:
         assert isinstance(first_block, TextBlock)
         assert first_block.text is not None
 
-    def test_sequential_requests_same_model(self, anthropic_client: Anthropic):
-        response1 = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_sequential_requests_same_model(self, sdk_config: SDKTestConfig):
+        response1 = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say '1'"}],
             max_tokens=5,
         )
 
-        response2 = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+        response2 = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say '2'"}],
             max_tokens=5,
         )
@@ -109,17 +148,17 @@ class TestAnthropicMultipleModels:
         assert first_block1.text is not None
         assert first_block2.text is not None
 
-    def test_streaming_then_non_streaming(self, anthropic_client: Anthropic):
-        with anthropic_client.messages.stream(
-            model="claude-3-haiku-20240307",
+    def test_streaming_then_non_streaming(self, sdk_config: SDKTestConfig):
+        with sdk_config.client.messages.stream(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'stream'"}],
             max_tokens=10,
         ) as stream:
             text = stream.get_final_text()
         assert len(text) > 0
 
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'sync'"}],
             max_tokens=10,
         )
@@ -129,7 +168,7 @@ class TestAnthropicMultipleModels:
 
 
 class TestAnthropicToolUse:
-    def test_tool_definition_and_response(self, anthropic_client: Anthropic):
+    def test_tool_definition_and_response(self, sdk_config: SDKTestConfig):
         tools: list[ToolParam] = [
             {
                 "name": "get_weather",
@@ -145,8 +184,8 @@ class TestAnthropicToolUse:
             }
         ]
 
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "What's the weather in Paris?"}],
             tools=tools,
             max_tokens=200,
@@ -161,7 +200,7 @@ class TestAnthropicToolUse:
             assert isinstance(tool_use.input, dict)
             assert "location" in tool_use.input
 
-    def test_tool_choice_forced(self, anthropic_client: Anthropic):
+    def test_tool_choice_forced(self, sdk_config: SDKTestConfig):
         tools: list[ToolParam] = [
             {
                 "name": "calculate",
@@ -176,8 +215,8 @@ class TestAnthropicToolUse:
             }
         ]
 
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[{"role": "user", "content": "What is 2+2?"}],
             tools=tools,
             tool_choice={"type": "tool", "name": "calculate"},
@@ -190,9 +229,12 @@ class TestAnthropicToolUse:
 
 
 class TestAnthropicVision:
-    def test_image_url_input(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_image_url_input(self, sdk_config: SDKTestConfig):
+        if sdk_config.provider == "bedrock":
+            pytest.skip("Bedrock does not support URL image source")
+
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[
                 {
                     "role": "user",
@@ -214,12 +256,12 @@ class TestAnthropicVision:
         assert isinstance(first_block, TextBlock)
         assert first_block.text is not None
 
-    def test_image_base64_input(self, anthropic_client: Anthropic):
+    def test_image_base64_input(self, sdk_config: SDKTestConfig):
         image_data = urlopen(TEST_IMAGE_URL).read()
         base64_image = base64.standard_b64encode(image_data).decode("utf-8")
 
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             messages=[
                 {
                     "role": "user",
@@ -247,9 +289,9 @@ class TestAnthropicVision:
 
 
 class TestAnthropicMultiTurn:
-    def test_conversation_history(self, anthropic_client: Anthropic):
-        response = anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+    def test_conversation_history(self, sdk_config: SDKTestConfig):
+        response = sdk_config.client.messages.create(
+            model=sdk_config.model,
             system="You are a helpful assistant. Be very brief.",
             messages=[
                 {"role": "user", "content": "My name is Alice."},
@@ -274,22 +316,22 @@ class TestAnthropicValidationErrors:
         ],
     )
     def test_invalid_parameters_rejected(
-        self, anthropic_client: Anthropic, invalid_param: str, value: float, expected_error: str
+        self, sdk_config: SDKTestConfig, invalid_param: str, value: float, expected_error: str
     ):
         kwargs: dict[str, Any] = {
-            "model": "claude-3-haiku-20240307",
+            "model": sdk_config.model,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 10,
             invalid_param: value,
         }
         with pytest.raises(BadRequestError) as exc_info:
-            anthropic_client.messages.create(**kwargs)
+            sdk_config.client.messages.create(**kwargs)
         assert expected_error in str(exc_info.value).lower()
 
-    def test_empty_messages_rejected(self, anthropic_client: Anthropic):
+    def test_empty_messages_rejected(self, sdk_config: SDKTestConfig):
         with pytest.raises(BadRequestError) as exc_info:
-            anthropic_client.messages.create(
-                model="claude-3-haiku-20240307",
+            sdk_config.client.messages.create(
+                model=sdk_config.model,
                 messages=[],
                 max_tokens=10,
             )

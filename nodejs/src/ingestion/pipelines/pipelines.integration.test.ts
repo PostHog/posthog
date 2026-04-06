@@ -131,9 +131,11 @@ describe('Pipeline Integration Tests', () => {
 
         pipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'test-dlq-topic', producer: mockKafkaProducer },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
-                [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockKafkaProducer },
+                [DLQ_OUTPUT]: [{ topic: 'test-dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                ],
             }),
             promiseScheduler: mockPromiseScheduler,
         }
@@ -1007,9 +1009,13 @@ describe('Pipeline Integration Tests', () => {
                 )
                 .handleResults({
                     outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
-                        [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
-                        [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockKafkaProducer },
+                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                        [OVERFLOW_OUTPUT]: [
+                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
+                        [INGESTION_WARNINGS_OUTPUT]: [
+                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
                     }),
                     promiseScheduler: mockPromiseScheduler,
                 })
@@ -1175,9 +1181,13 @@ describe('Pipeline Integration Tests', () => {
                 )
                 .handleResults({
                     outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
-                        [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
-                        [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockKafkaProducer },
+                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                        [OVERFLOW_OUTPUT]: [
+                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
+                        [INGESTION_WARNINGS_OUTPUT]: [
+                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
                     }),
                     promiseScheduler: mockPromiseScheduler,
                 })
@@ -1277,9 +1287,13 @@ describe('Pipeline Integration Tests', () => {
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
                     outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
-                        [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
-                        [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockKafkaProducer },
+                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                        [OVERFLOW_OUTPUT]: [
+                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
+                        [INGESTION_WARNINGS_OUTPUT]: [
+                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
                     }),
                     promiseScheduler: mockPromiseScheduler,
                 })
@@ -1395,9 +1409,13 @@ describe('Pipeline Integration Tests', () => {
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
                     outputs: new IngestionOutputs({
-                        [DLQ_OUTPUT]: { topic: 'dlq-topic', producer: mockKafkaProducer },
-                        [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockKafkaProducer },
-                        [INGESTION_WARNINGS_OUTPUT]: { topic: 'ingestion_warnings_test', producer: mockKafkaProducer },
+                        [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
+                        [OVERFLOW_OUTPUT]: [
+                            { topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
+                        [INGESTION_WARNINGS_OUTPUT]: [
+                            { topic: 'ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                        ],
                     }),
                     promiseScheduler: mockPromiseScheduler,
                 })

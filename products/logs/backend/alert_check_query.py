@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from posthog.schema import (
     DateRange,
     FilterLogicalOperator,
-    HogQLFilters,
+    HogQLQueryModifiers,
     HogQLQueryResponse,
     IntervalType,
     LogsQuery,
@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -83,7 +83,24 @@ class AlertCheckQuery:
             exact_timerange=True,
         )
         builder = LogsFilterBuilder(logs_query, team, query_date_range)
-        self.where_expr = builder.where()
+        base_where = builder.where()
+
+        # Add explicit timestamp bounds using a half-open interval [from, to).
+        # This ensures adjacent alert windows don't double-count logs at the boundary.
+        # LogsFilterBuilder.where() includes a {filters} placeholder that resolves
+        # to `true` when no HogQLFilters are passed to execute_hogql_query.
+        self.where_expr = ast.And(
+            exprs=[
+                base_where,
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=date_from),
+                        "date_to": ast.Constant(value=date_to),
+                    },
+                ),
+            ]
+        )
 
     def execute(self) -> AlertCheckCountResult:
         """Return a single aggregate count for the alert window."""
@@ -148,7 +165,7 @@ class AlertCheckQuery:
             workload=Workload.LOGS,
             settings=self.SETTINGS,
             limit_context=LimitContext.QUERY,
-            filters=HogQLFilters(dateRange=self.date_range),
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
 
     def _tag(self) -> None:

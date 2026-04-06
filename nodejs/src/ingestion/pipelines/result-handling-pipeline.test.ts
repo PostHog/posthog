@@ -70,12 +70,15 @@ describe('ResultHandlingPipeline', () => {
 
         config = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockDlqProducer },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockRedirectProducer },
-                [INGESTION_WARNINGS_OUTPUT]: {
-                    topic: 'ingestion_warnings_test',
-                    producer: mockIngestionWarningsProducer,
-                },
+                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockDlqProducer, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockRedirectProducer, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    {
+                        topic: 'ingestion_warnings_test',
+                        producer: mockIngestionWarningsProducer,
+                        producerName: 'test',
+                    },
+                ],
             }),
             promiseScheduler: mockPromiseScheduler,
         }
@@ -612,12 +615,15 @@ describe('Integration tests', () => {
 
         config = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockDlqProducer },
-                [OVERFLOW_OUTPUT]: { topic: 'overflow-topic', producer: mockRedirectProducer },
-                [INGESTION_WARNINGS_OUTPUT]: {
-                    topic: 'ingestion_warnings_test',
-                    producer: mockIngestionWarningsProducer,
-                },
+                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockDlqProducer, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockRedirectProducer, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    {
+                        topic: 'ingestion_warnings_test',
+                        producer: mockIngestionWarningsProducer,
+                        producerName: 'test',
+                    },
+                ],
             }),
             promiseScheduler: mockPromiseScheduler,
         }
