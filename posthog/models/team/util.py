@@ -68,13 +68,15 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
     The RPC handles PersonDistinctId deletion automatically.
     Uses _personhog_routed per team for consistent gate/metrics/fallback.
     """
+    from functools import partial
+
     from posthog.models.person.util import _personhog_routed
 
     for team_id in team_ids:
         _personhog_routed(
             "delete_persons_for_team",
-            lambda tid=team_id: _delete_persons_for_team_via_personhog(tid),
-            lambda tid=team_id: _delete_persons_for_team_via_orm(tid),
+            partial(_delete_persons_for_team_via_personhog, team_id),
+            partial(_delete_persons_for_team_via_orm, team_id),
             team_id=team_id,
         )
 

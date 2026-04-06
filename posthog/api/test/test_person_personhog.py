@@ -188,7 +188,10 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
         assert resp.content == b""
-        self._assert_personhog_called("delete_persons")
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert list(calls[0].request.person_uuids) == [str(person.uuid)]
 
     def test_destroy_removes_person_from_postgres(self):
         person = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
@@ -227,15 +230,18 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
-        self._assert_personhog_called("delete_persons")
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
 
         if not self.personhog:
             assert Person.objects.filter(team_id=self.team.pk).count() == 0
             assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
 
     def test_bulk_delete_by_distinct_ids(self):
-        self._seed_person(team=self.team, distinct_ids=["did-1"])
-        self._seed_person(team=self.team, distinct_ids=["did-2"])
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
 
         resp = self.client.post(
             "/api/person/bulk_delete/",
@@ -243,7 +249,10 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
-        self._assert_personhog_called("delete_persons")
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert calls[0].request.team_id == self.team.pk
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
 
         if not self.personhog:
             assert Person.objects.filter(team_id=self.team.pk).count() == 0
