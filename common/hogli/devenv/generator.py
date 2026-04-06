@@ -276,7 +276,7 @@ printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
 printf '  {bold}Processes:{reset} {process_count} active\\n'
 echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
-printf '  {gray}Press {reset}{blue}t{reset}{gray} in phrocs to configure running services{reset}\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
 """
         return {"shell": shell}
 
