@@ -1,9 +1,13 @@
+import {
+    LOGS_ALERT_FIRING_EVENT_ID,
+    LOGS_ALERT_RESOLVED_EVENT_ID,
+} from 'lib/constants'
+
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     buildLogsAlertFilterConfig,
     buildLogsAlertHogFunctionPayload,
-    buildLogsAlertResolvedWebhookBody,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
@@ -24,16 +28,16 @@ describe('logsAlertUtils', () => {
             ])
         })
 
-        it('includes both $logs_alert_firing and $logs_alert_resolved event filters', () => {
+        it('includes both firing and resolved event filters', () => {
             const config = buildLogsAlertFilterConfig('alert-123')
 
             expect(config.events).toEqual([
                 {
-                    id: '$logs_alert_firing',
+                    id: LOGS_ALERT_FIRING_EVENT_ID,
                     type: 'events',
                 },
                 {
-                    id: '$logs_alert_resolved',
+                    id: LOGS_ALERT_RESOLVED_EVENT_ID,
                     type: 'events',
                 },
             ])
@@ -41,7 +45,7 @@ describe('logsAlertUtils', () => {
     })
 
     describe('buildLogsAlertHogFunctionPayload', () => {
-        it('builds slack notification payload with channel and workspace', () => {
+        it('builds slack payload with conditional blocks and both-event filter', () => {
             const notification: PendingLogsAlertNotification = {
                 type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
                 slackWorkspaceId: 42,
@@ -60,8 +64,15 @@ describe('logsAlertUtils', () => {
             })
             expect(payload.inputs?.slack_workspace).toEqual({ value: 42 })
             expect(payload.inputs?.channel).toEqual({ value: 'C123' })
-            expect(payload.filters?.events?.[0].id).toBe('$logs_alert_firing')
-            expect(payload.filters?.properties?.[0].value).toBe('alert-1')
+            expect(payload.filters?.events).toHaveLength(2)
+            expect(payload.filters?.events?.[0].id).toBe(LOGS_ALERT_FIRING_EVENT_ID)
+            expect(payload.filters?.events?.[1].id).toBe(LOGS_ALERT_RESOLVED_EVENT_ID)
+
+            // Slack blocks use if() conditionals for firing vs resolved copy
+            const headerText = payload.inputs?.blocks?.value?.[0]?.text?.text
+            expect(headerText).toContain("if(event.event == '$logs_alert_resolved'")
+            expect(headerText).toContain('has resolved')
+            expect(headerText).toContain('is firing')
         })
 
         it('uses fallback name when alertName is undefined for slack', () => {
@@ -89,7 +100,7 @@ describe('logsAlertUtils', () => {
             expect(payload.name).toBe('My Alert: Slack #channel')
         })
 
-        it('builds webhook notification payload with URL', () => {
+        it('builds webhook payload with conditional event discriminator', () => {
             const notification: PendingLogsAlertNotification = {
                 type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
                 webhookUrl: 'https://example.com/hook',
@@ -106,12 +117,15 @@ describe('logsAlertUtils', () => {
             })
             expect(payload.inputs?.url).toEqual({ value: 'https://example.com/hook' })
             expect(payload.inputs?.body?.value).toMatchObject({
-                event: 'firing',
+                event: "{if(event.event == '$logs_alert_resolved', 'resolved', 'firing')}",
                 alert_name: '{event.properties.alert_name}',
+                result_count: '{event.properties.result_count}',
                 threshold_count: '{event.properties.threshold_count}',
+                threshold_operator: '{event.properties.threshold_operator}',
                 window_minutes: '{event.properties.window_minutes}',
                 logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
             })
+            expect(payload.filters?.events).toHaveLength(2)
         })
 
         it('uses fallback name when alertName is undefined for webhook', () => {
@@ -123,21 +137,6 @@ describe('logsAlertUtils', () => {
             const payload = buildLogsAlertHogFunctionPayload('alert-5', undefined, notification)
 
             expect(payload.name).toBe('Alert: Webhook https://example.com/hook')
-        })
-    })
-
-    describe('buildLogsAlertResolvedWebhookBody', () => {
-        it('returns resolved webhook body with all expected fields', () => {
-            const body = buildLogsAlertResolvedWebhookBody()
-
-            expect(body).toEqual({
-                event: 'resolved',
-                alert_name: '{event.properties.alert_name}',
-                result_count: '{event.properties.result_count}',
-                threshold_count: '{event.properties.threshold_count}',
-                window_minutes: '{event.properties.window_minutes}',
-                logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
-            })
         })
     })
 })
