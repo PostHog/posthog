@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -25,6 +26,13 @@ from posthog.models.event_filter_config import (
 )
 from posthog.models.team.team import Team
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+
+class SingletonSchema(AutoSchema):
+    """Prevents drf-spectacular from wrapping list responses in an array — this is a singleton resource."""
+
+    def _is_list_view(self, serializer=None) -> bool:
+        return False
 
 
 class EventFilterConfigSerializer(serializers.ModelSerializer):
@@ -75,6 +83,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = EventFilterConfigSerializer
     queryset = EventFilterConfig.objects.all()
     pagination_class = None
+    schema = SingletonSchema()
 
     def _get_or_create(self) -> EventFilterConfig:
         config, _ = EventFilterConfig.objects.get_or_create(
@@ -133,6 +142,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "kind": params["kind"].split(",") if params.get("kind") else None,
         }
 
+    @extend_schema(responses={200: AppMetricResponseSerializer})
     @action(detail=False, methods=["GET"], url_path="metrics")
     def metrics(self, request: Request, **kwargs):
         params = self._parse_metrics_params(request)
@@ -141,6 +151,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = fetch_app_metrics_trends(**params)
         return Response(AppMetricResponseSerializer(instance=data).data)
 
+    @extend_schema(responses={200: AppMetricsTotalsResponseSerializer})
     @action(detail=False, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, **kwargs):
         params = self._parse_metrics_params(request)
