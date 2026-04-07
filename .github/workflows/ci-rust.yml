@@ -87,6 +87,7 @@ jobs:
                       "embedding-worker": 98,
                       "feature-flags": 241,
                       "health": 8,
+                      "ingestion-consumer": 5,
                       "hogvm": 5,
                       "k8s-awareness": 60,
                       "kafka-assigner": 30,
