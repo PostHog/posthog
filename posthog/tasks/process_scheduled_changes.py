@@ -9,6 +9,7 @@ from django.utils import timezone
 
 import structlog
 from celery import current_task
+from croniter import croniter
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
@@ -21,6 +22,10 @@ models = {"FeatureFlag": FeatureFlag}
 
 # Maximum number of retry attempts before marking as permanently failed
 MAX_RETRY_ATTEMPTS = 5
+
+# Cap for the catch-up loop when skipping missed recurring executions.
+# Prevents runaway iteration if a schedule has been dormant for a long time.
+MAX_CATCHUP_ITERATIONS = 1000
 
 # Prometheus metric for tracking missed scheduled executions
 SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
@@ -107,6 +112,20 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
+def compute_next_run_cron(cron_expr: str, current: datetime) -> datetime:
+    """
+    Compute the next scheduled run time from a cron expression.
+
+    Args:
+        cron_expr: A standard 5-field cron expression (e.g., "0 9 * * 1-5" for weekdays at 9am).
+        current: The reference datetime to compute the next run from.
+
+    Returns:
+        The next datetime matching the cron expression after `current`.
+    """
+    return croniter(cron_expr, current).get_next(datetime)
+
+
 def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
@@ -120,10 +139,20 @@ def process_scheduled_changes() -> None:
             )
 
             for scheduled_change in scheduled_changes:
-                # Skip paused recurring schedules (is_recurring=false but has recurrence_interval)
-                # These are "paused" and should not execute until resumed
-                is_paused = not scheduled_change.is_recurring and scheduled_change.recurrence_interval
+                # Skip paused recurring schedules (is_recurring=false but has a recurrence config).
+                # A schedule is paused when is_recurring is false yet it still carries either a
+                # recurrence_interval or a cron_expression — the config is retained so it can be resumed.
+                has_recurrence_config = scheduled_change.recurrence_interval or scheduled_change.cron_expression
+                is_paused = not scheduled_change.is_recurring and has_recurrence_config
                 if is_paused:
+                    continue
+
+                # Skip recurring schedules that have passed their end_date without executing.
+                # This prevents a stale schedule from firing one last time after the window has closed.
+                now = timezone.now()
+                if scheduled_change.end_date and scheduled_change.end_date <= now and has_recurrence_config:
+                    scheduled_change.executed_at = now
+                    scheduled_change.save()
                     continue
 
                 try:
@@ -134,20 +163,50 @@ def process_scheduled_changes() -> None:
                         scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
                     )
 
-                    # Handle recurring vs one-time schedules
-                    if scheduled_change.is_recurring and scheduled_change.recurrence_interval:
+                    # Handle recurring vs one-time schedules.
+                    # A recurring schedule uses either a cron expression or a fixed recurrence interval.
+                    is_recurring_schedule = scheduled_change.is_recurring and (
+                        scheduled_change.cron_expression or scheduled_change.recurrence_interval
+                    )
+                    if is_recurring_schedule:
                         # Compute next run time, handling delayed execution
-                        next_run = compute_next_run(
-                            scheduled_change.scheduled_at,
-                            scheduled_change.recurrence_interval,
-                        )
+                        cron_expr = scheduled_change.cron_expression
+                        interval = scheduled_change.recurrence_interval
+
+                        if cron_expr:
+                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at)
+                            interval_label = "cron"
+                        else:
+                            assert interval is not None
+                            next_run = compute_next_run(scheduled_change.scheduled_at, interval)
+                            interval_label = interval
+
                         # If task execution was delayed and next_run is still in the past, skip ahead
                         # to avoid immediate re-trigger or missed executions piling up
                         now = timezone.now()
                         skipped_count = 0
-                        while next_run <= now:
-                            next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
+                        while next_run <= now and skipped_count < MAX_CATCHUP_ITERATIONS:
+                            if cron_expr:
+                                next_run = compute_next_run_cron(cron_expr, next_run)
+                            else:
+                                assert interval is not None
+                                next_run = compute_next_run(next_run, interval)
                             skipped_count += 1
+
+                        # If we hit the cap and next_run is still in the past, jump directly
+                        # to the first occurrence after now to prevent an infinite re-execution loop.
+                        if next_run <= now:
+                            logger.error(
+                                "Recurring schedule hit catch-up cap; jumping to next occurrence after now",
+                                scheduled_change_id=scheduled_change.id,
+                                skipped_count=skipped_count,
+                                interval=interval_label,
+                            )
+                            if cron_expr:
+                                next_run = compute_next_run_cron(cron_expr, now)
+                            else:
+                                assert interval is not None
+                                next_run = compute_next_run(now, interval)
 
                         # Log and track if we skipped executions due to delayed processing
                         # (skipped_count > 1 means we skipped more than just advancing to the next run)
@@ -157,12 +216,10 @@ def process_scheduled_changes() -> None:
                                 "Recurring schedule skipped executions due to delayed processing",
                                 scheduled_change_id=scheduled_change.id,
                                 missed_count=missed_count,
-                                interval=scheduled_change.recurrence_interval,
+                                interval=interval_label,
                                 next_run=next_run.isoformat(),
                             )
-                            SCHEDULED_CHANGE_MISSED_EXECUTIONS.labels(
-                                interval=scheduled_change.recurrence_interval
-                            ).inc(missed_count)
+                            SCHEDULED_CHANGE_MISSED_EXECUTIONS.labels(interval=interval_label).inc(missed_count)
 
                         # Check if end_date has passed - if so, mark as completed
                         if scheduled_change.end_date and next_run > scheduled_change.end_date:

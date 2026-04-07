@@ -92,8 +92,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
-        mock_feature_enabled.assert_called_once()
-        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+        legacy_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-endpoints-disabled"
+        ]
+        self.assertEqual(len(legacy_calls), 1)
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -2674,6 +2676,49 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # insight 3 is not included in response
         self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
+    def test_get_recent_insights_with_feature_flag_query_based(self) -> None:
+        """Query-based insights store breakdown config in the query JSON field, not filters."""
+        query_with_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "$feature/my-test-flag",
+                },
+            },
+        }
+        query_without_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "email",
+                },
+            },
+        }
+
+        insight_with_flag = Insight.objects.create(
+            query=query_with_flag,
+            team=self.team,
+            short_id="query_flag1",
+        )
+        Insight.objects.create(
+            query=query_without_flag,
+            team=self.team,
+            short_id="query_noflag",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=my-test-flag")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids_in_response = [r["id"] for r in response_data["results"]]
+        self.assertCountEqual(ids_in_response, [insight_with_flag.id])
+
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
     ) -> None:
@@ -3576,6 +3621,76 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "override value!"
+
+    def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Organization", code_name="organization", default_value="default", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.organization}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        base_query_params: dict[str, str] = {
+            "from_dashboard": str(dashboard.pk),
+            "refresh": "blocking",
+            "tile_filters_override": json.dumps({"date_from": "all", "explicitDate": False}),
+        }
+
+        some_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Some org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        another_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Another org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert some_org_response["filters_hash"] != another_org_response["filters_hash"]
 
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""

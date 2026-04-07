@@ -7,7 +7,12 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DashboardTemplateScope, DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
+import {
+    DashboardTemplateListParams,
+    DashboardTemplateScope,
+    DashboardTemplateType,
+    TemplateAvailabilityContext,
+} from '~/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 
@@ -17,18 +22,35 @@ export interface DashboardTemplateProps {
     onItemClick?: (template: DashboardTemplateType) => void
     redirectAfterCreation?: boolean
     availabilityContexts?: TemplateAvailabilityContext[]
+    className?: string
+}
+
+export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
+    listQuery?: Partial<Pick<DashboardTemplateListParams, 'is_featured'>>
+}
+
+/** Kea key segment for listQuery.is_featured — false vs omitted only diverge for global-scoped lists (API treats them differently). */
+function listQueryFeaturedKeySegment(p: DashboardTemplatesLogicProps): 'featured' | 'not-featured' | 'all' {
+    if (p.listQuery?.is_featured === true) {
+        return 'featured'
+    }
+    if (p.scope === 'global' && p.listQuery?.is_featured === false) {
+        return 'not-featured'
+    }
+    return 'all'
 }
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
-    props({} as DashboardTemplateProps),
-    key(({ scope }) => scope ?? 'unknown'),
+    props({} as DashboardTemplatesLogicProps),
+    key((p: DashboardTemplatesLogicProps) => `${p.scope ?? 'default'}-${listQueryFeaturedKeySegment(p)}`),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
         setTemplateFilter: (search: string) => ({ search }),
+        setTemplateNameOrdering: (ordering: '' | 'template_name' | '-template_name') => ({ ordering }),
     }),
     reducers({
         templateFilter: [
@@ -39,16 +61,37 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
+        templateNameOrdering: [
+            '' as '' | 'template_name' | '-template_name',
+            {
+                setTemplateNameOrdering: (_, { ordering }) => ordering,
+            },
+        ],
+        // lazyLoaders has no "loaded" flag; empty API results must not look "unfetched" forever (see urlToAction /dashboard).
+        allTemplatesLoaded: [
+            false,
+            {
+                getAllTemplatesSuccess: () => true,
+            },
+        ],
     }),
     lazyLoaders(({ props, values }) => ({
         allTemplates: [
             [] as DashboardTemplateType[],
             {
                 getAllTemplates: async () => {
-                    const params = {
+                    const logicProps = props as DashboardTemplatesLogicProps
+                    const featuredOnly = logicProps.listQuery?.is_featured === true
+                    // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
+                    // `urlToAction` when the Templates tab or another surface leaves `?templateFilter=` on /dashboard.
+                    const useSearch = !featuredOnly && values.templateFilter.length > 2
+                    const params: DashboardTemplateListParams = {
                         // the backend doesn't know about a default scope
-                        scope: props.scope !== 'default' ? props.scope : undefined,
-                        search: values.templateFilter.length > 2 ? values.templateFilter : undefined,
+                        scope: logicProps.scope !== 'default' ? logicProps.scope : undefined,
+                        search: useSearch ? values.templateFilter : undefined,
+                        // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
+                        ordering: useSearch ? undefined : values.templateNameOrdering || undefined,
+                        ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
                     return page.results
@@ -61,11 +104,20 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             await breakpoint(400)
             actions.getAllTemplates()
         },
+        setTemplateNameOrdering: () => {
+            actions.getAllTemplates()
+        },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
-            if (searchParams.templateFilter) {
-                actions.setTemplateFilter(searchParams.templateFilter)
+            const raw = searchParams.templateFilter
+            const filter = Array.isArray(raw) ? raw[0] : raw
+            const next = typeof filter === 'string' ? filter : ''
+            // Same value as URL: skip setTemplateFilter — its listener debounces and would refetch (modal flicker).
+            if (values.templateFilter !== next) {
+                actions.setTemplateFilter(next)
+            } else if (!values.allTemplatesLoading && !values.allTemplatesLoaded) {
+                actions.getAllTemplates()
             }
         },
     })),

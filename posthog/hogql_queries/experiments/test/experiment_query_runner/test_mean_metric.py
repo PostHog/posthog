@@ -1088,3 +1088,227 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         # test_1: 3 unique, test_2: 1 unique → sum = 4
         self.assertEqual(test_variant.sum, 4)
         self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-15T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_only_count_matured_users(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            conversion_window=7,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Mature user: exposed Jan 2, conversion window ends Jan 9 (before now=Jan 15)
+        _create_person(distinct_ids=["user_mature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 50},
+        )
+
+        # Immature user: exposed Jan 10, conversion window ends Jan 17 (after now=Jan 15)
+        _create_person(distinct_ids=["user_immature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-10T13:00:00Z",
+            properties={feature_flag_property: "control", "amount": 100},
+        )
+
+        # Mature test user
+        _create_person(distinct_ids=["user_mature_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={feature_flag_property: "test", "amount": 75},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Only mature users should be counted (1 control, 1 test)
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 50)
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 75)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_hogql_count_metric_with_winsorization(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, count: int) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "category": f"cat_{i}",
+                    },
+                }
+                for i in range(count)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                "control_1": _create_events_for_user("control", 1),
+                "control_2": _create_events_for_user("control", 3),
+                "control_3": _create_events_for_user("control", 3),
+                "control_4": _create_events_for_user("control", 3),
+                "control_5": _create_events_for_user("control", 3),
+                "control_6": _create_events_for_user("control", 3),
+                "control_7": _create_events_for_user("control", 3),
+                "control_8": _create_events_for_user("control", 3),
+                "control_9": _create_events_for_user("control", 3),
+                "control_10": _create_events_for_user("control", 100),
+                "test_1": _create_events_for_user("test", 2),
+                "test_2": _create_events_for_user("test", 4),
+                "test_3": _create_events_for_user("test", 4),
+                "test_4": _create_events_for_user("test", 4),
+                "test_5": _create_events_for_user("test", 4),
+                "test_6": _create_events_for_user("test", 4),
+                "test_7": _create_events_for_user("test", 4),
+                "test_8": _create_events_for_user("test", 4),
+                "test_9": _create_events_for_user("test", 4),
+                "test_10": _create_events_for_user("test", 4),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # HOGQL count() with winsorization - this should not fail with
+        # "There is no supertype for types Float64, UInt64" because count()
+        # returns UInt64 while quantile() returns Float64
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="count(properties.category)",
+            ),
+            lower_bound_percentile=0.1,
+            upper_bound_percentile=0.9,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        self.assertEqual(result.baseline.number_of_samples, 10)
+        self.assertEqual(result.variant_results[0].number_of_samples, 10)

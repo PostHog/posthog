@@ -1,47 +1,48 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { ConversationDisplay as ConversationDisplayComponent } from './ConversationDisplay'
+import { ConversationDisplay as ConversationDisplayComponent, ConversationDisplayProps } from './ConversationDisplay'
 
-const meta: Meta<typeof ConversationDisplayComponent> = {
+const meta: Meta<ConversationDisplayProps> = {
     title: 'Scenes-App/LLM Analytics/Conversation Display',
     component: ConversationDisplayComponent,
+    render: ({ eventProperties, eventId }) => {
+        return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />
+    },
 }
 export default meta
+type Story = StoryObj<ConversationDisplayProps>
 
-const Template: StoryFn = ({ eventProperties, eventId }) => {
-    return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />
-}
-
-export const Basic = Template.bind({})
-Basic.args = {
-    eventProperties: {
-        $ai_input: [
-            { role: 'system', content: 'You are a good bot.' },
-            { role: 'user', content: 'Hello!' },
-            { role: 'assistant', content: 'Hi there!' },
-            { role: 'user', content: 'How are you?' },
-        ],
-        $ai_output: {
-            choices: [{ role: 'assistant', content: 'I am doing well, thank you!' }],
+export const Basic: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Hello!' },
+                { role: 'assistant', content: 'Hi there!' },
+                { role: 'user', content: 'How are you?' },
+            ],
+            $ai_output: {
+                choices: [{ role: 'assistant', content: 'I am doing well, thank you!' }],
+            },
+            $ai_input_tokens: 8,
+            $ai_output_tokens: 6,
+            $ai_latency: 0.123,
+            $ai_total_cost_usd: 0.0007,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
         },
-        $ai_input_tokens: 8,
-        $ai_output_tokens: 6,
-        $ai_latency: 0.123,
-        $ai_total_cost_usd: 0.0007,
-        $ai_model: 'gpt-9',
-        $ai_http_status: 200,
     },
 }
 
-export const Markdown = Template.bind({})
-Markdown.args = {
-    eventProperties: {
-        $ai_input: [
-            { role: 'system', content: 'You are a good bot.' },
-            { role: 'user', content: 'What is the meaning of life?' },
-            {
-                role: 'assistant',
-                content: `# The Meaning of Life 🌟
+export const Markdown: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'What is the meaning of life?' },
+                {
+                    role: 'assistant',
+                    content: `# The Meaning of Life 🌟
 
 ## A Philosophical Journey
 
@@ -55,7 +56,7 @@ Markdown.args = {
 2. Western Thought
 3. Modern Interpretations
 
-> "The meaning of life is to find your gift. The purpose of life is to give it away." 
+> "The meaning of life is to find your gift. The purpose of life is to give it away."
 > - Pablo Picasso
 
 #### Code Example
@@ -78,109 +79,113 @@ def meaning_of_life():
 ![Life Image](https://res.cloudinary.com/dmukukwp6/image/upload/q_100/v1/posthog.com/src/components/Home/Slider/images/product-analytics-hog)
 
 ~~There is no meaning~~ There is meaning everywhere!`,
+                },
+                { role: 'user', content: "Wow, I'm going to need some time to ponder." },
+            ],
+            $ai_output: {
+                choices: [{ role: 'assistant', content: 'Sure thing! I will be here when you are ready.' }],
             },
-            { role: 'user', content: "Wow, I'm going to need some time to ponder." },
-        ],
-        $ai_output: {
-            choices: [{ role: 'assistant', content: 'Sure thing! I will be here when you are ready.' }],
+            $ai_input_tokens: 8,
+            $ai_output_tokens: 6,
+            $ai_latency: 0.123,
+            $ai_total_cost_usd: 0.0007,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
         },
-        $ai_input_tokens: 8,
-        $ai_output_tokens: 6,
-        $ai_latency: 0.123,
-        $ai_total_cost_usd: 0.0007,
-        $ai_model: 'gpt-9',
-        $ai_http_status: 200,
     },
 }
 
-export const Tools = Template.bind({})
-Tools.args = {
-    eventProperties: {
-        $ai_tools: [
-            {
-                function: {
-                    name: 'foo',
-                    parameters: {
-                        additionalProperties: false,
-                        properties: {
-                            thing: {
-                                description: 'The thing to thingify.',
-                                type: 'string',
-                            },
-                        },
-                        required: ['thing'],
-                        type: 'object',
-                    },
-                    strict: true,
-                },
-                type: 'function',
-            },
-        ],
-        $ai_input: [
-            { role: 'system', content: 'You are a good bot.' },
-            { role: 'user', content: 'Please foo "Bar!"' },
-        ],
-        $ai_output: {
-            choices: [
+export const Tools: Story = {
+    args: {
+        eventProperties: {
+            $ai_tools: [
                 {
-                    role: 'assistant',
-                    content: '',
-                    tool_calls: [
-                        {
-                            function: {
-                                arguments: '{"thing":"Bar!"}',
-                                name: 'foo',
+                    function: {
+                        name: 'foo',
+                        parameters: {
+                            additionalProperties: false,
+                            properties: {
+                                thing: {
+                                    description: 'The thing to thingify.',
+                                    type: 'string',
+                                },
                             },
-                            id: 'call_81KeSSme8dNjnyK3xK59uNzu',
-                            index: 0,
-                            type: 'function',
+                            required: ['thing'],
+                            type: 'object',
                         },
-                    ],
+                        strict: true,
+                    },
+                    type: 'function',
                 },
             ],
-        },
-        $ai_input_tokens: 8,
-        $ai_output_tokens: 6,
-        $ai_latency: 0.123,
-        $ai_total_cost_usd: 0.0007,
-        $ai_model: 'gpt-9',
-        $ai_http_status: 400,
-    },
-}
-
-export const Error = Template.bind({})
-Error.args = {
-    eventProperties: {
-        $ai_input: [
-            { role: 'system', content: 'You are a good bot.' },
-            { role: 'user', content: 'Please foo "Bar!"' },
-        ],
-        $ai_model: 'gpt-9',
-        $ai_http_status: 400,
-    },
-}
-
-export const Anthropic = Template.bind({})
-Anthropic.args = {
-    eventProperties: {
-        $ai_input: [
-            {
-                role: 'system',
-                content: [
-                    { type: 'text', text: 'You are a good bot.' },
-                    { type: 'text', text: 'Answer with Foo.' },
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Please foo "Bar!"' },
+            ],
+            $ai_output: {
+                choices: [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                function: {
+                                    arguments: '{"thing":"Bar!"}',
+                                    name: 'foo',
+                                },
+                                id: 'call_81KeSSme8dNjnyK3xK59uNzu',
+                                index: 0,
+                                type: 'function',
+                            },
+                        ],
+                    },
                 ],
             },
-            { role: 'user', content: 'Hello!' },
-            { role: 'assistant', content: 'Foo' },
-            { role: 'user', content: 'How are you?' },
-        ],
-        $ai_output_choices: [{ type: 'text', text: 'Foo' }],
-        $ai_input_tokens: 8,
-        $ai_output_tokens: 6,
-        $ai_latency: 0.123,
-        $ai_total_cost_usd: 0.0007,
-        $ai_model: 'gpt-9',
-        $ai_http_status: 200,
+            $ai_input_tokens: 8,
+            $ai_output_tokens: 6,
+            $ai_latency: 0.123,
+            $ai_total_cost_usd: 0.0007,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 400,
+        },
+    },
+}
+
+export const Error: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Please foo "Bar!"' },
+            ],
+            $ai_model: 'gpt-9',
+            $ai_http_status: 400,
+        },
+    },
+}
+
+export const Anthropic: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                {
+                    role: 'system',
+                    content: [
+                        { type: 'text', text: 'You are a good bot.' },
+                        { type: 'text', text: 'Answer with Foo.' },
+                    ],
+                },
+                { role: 'user', content: 'Hello!' },
+                { role: 'assistant', content: 'Foo' },
+                { role: 'user', content: 'How are you?' },
+            ],
+            $ai_output_choices: [{ type: 'text', text: 'Foo' }],
+            $ai_input_tokens: 8,
+            $ai_output_tokens: 6,
+            $ai_latency: 0.123,
+            $ai_total_cost_usd: 0.0007,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
     },
 }

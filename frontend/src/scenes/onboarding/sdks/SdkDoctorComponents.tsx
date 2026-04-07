@@ -94,7 +94,22 @@ const activityPageUrlForSdkVersion = (sdkType: SdkType, version: string): string
 
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
-        title: 'Version',
+        title: (
+            <span>
+                VERSION{' '}
+                <Tooltip
+                    title={
+                        <>
+                            Click on a version number to view events captured.
+                            <br />
+                            Hover over status for version age and/or suggestion.
+                        </>
+                    }
+                >
+                    <IconInfo />
+                </Tooltip>
+            </span>
+        ),
         dataIndex: 'version',
         render: function RenderVersion(_, record) {
             return (

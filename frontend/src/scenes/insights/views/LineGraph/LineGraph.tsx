@@ -40,9 +40,9 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { getDatumTitle, TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,6 +65,45 @@ function truncateString(str: string, num: number): string {
 }
 
 const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
+
+export function onTooltipClick(
+    datasetIndex: number,
+    dataIndex: number,
+    datasets: GraphDataset[],
+    onClick?: (payload: GraphPointPayload) => void
+): void {
+    const dataset = datasets[datasetIndex]
+    if (!dataset) {
+        return
+    }
+
+    const referencePoint: GraphPoint = {
+        datasetIndex,
+        index: dataIndex,
+        element: {} as any,
+        dataset,
+    }
+
+    const crossDataset = datasets
+        .filter((_dt) => !_dt.dotted)
+        .map((_dt) => ({
+            ..._dt,
+            personUrl: _dt.persons_urls?.[dataIndex]?.url,
+            pointValue: _dt.data[dataIndex],
+        }))
+
+    onClick?.({
+        points: {
+            pointsIntersectingLine: [],
+            pointsIntersectingClick: [referencePoint],
+            clickedPointNotLine: true,
+            referencePoint,
+        },
+        index: dataIndex,
+        crossDataset,
+        seriesId: dataset.id,
+    })
+}
 
 export function onChartClick(
     event: ChartEvent,
@@ -287,7 +326,9 @@ export function LineGraph_({
     )
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
+        isPinnable: true,
+    })
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -303,6 +344,7 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+    const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
     const zoomPluginOptions = useChartZoom({
         datasets,
@@ -555,13 +597,17 @@ export function LineGraph_({
     Chart.register(annotationPlugin)
     Chart.register(chartTrendline)
 
-    const MAX_CHART_DATASETS = 50
+    // Chart.js locks up the main thread when rendering too many series, effectively
+    // freezing the browser. Cap the dataset count to keep the UI responsive.
+    const MAX_CHART_DATASETS = 150
+
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
             }
+
             if (filteredDatasets.length > MAX_CHART_DATASETS) {
                 filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
             }
@@ -817,9 +863,33 @@ export function LineGraph_({
                                         dateRange={insightData?.resolved_date_range}
                                         showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
                                         formatCompareLabel={tooltipConfig?.formatCompareLabel}
+                                        onClose={pinTooltip ? () => unpinTooltip(tooltipId) : undefined}
+                                        onRowClick={
+                                            onClick
+                                                ? (datum) => {
+                                                      onTooltipClick(
+                                                          datum.datasetIndex,
+                                                          datum.dataIndex,
+                                                          processedDatasets,
+                                                          onClick
+                                                      )
+                                                      unpinTooltip(tooltipId)
+                                                  }
+                                                : undefined
+                                        }
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+                                            if (hasBreakdown && !hasMultipleSeries) {
+                                                const title = getDatumTitle(
+                                                    datum,
+                                                    breakdownFilter,
+                                                    tooltipConfig?.formatCompareLabel
+                                                )
+
+                                                return <div className="datum-label-column">{title}</div>
+                                            }
 
                                             return (
                                                 <div className="datum-label-column">
@@ -946,7 +1016,39 @@ export function LineGraph_({
                     }
                 },
                 onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                    onChartClick(event, chart, processedDatasets, onClick)
+                    if (!pinTooltip) {
+                        onChartClick(event, chart, processedDatasets, onClick)
+                        return
+                    }
+
+                    // Only pin if the tooltip has multiple data points to choose from
+                    const tooltipBody = chart.tooltip?.body
+                    if (!tooltipBody || tooltipBody.length <= 1) {
+                        onChartClick(event, chart, processedDatasets, onClick)
+                        return
+                    }
+
+                    // Show the crosshair on click if it was enabled initially
+                    if ((chart as any).crosshair) {
+                        ;(chart as any).crosshair.enabled = true
+                    }
+
+                    const events = [...(chart.options.events ?? [])]
+                    chart.options.events = []
+                    chart.update('none')
+                    showTooltip()
+
+                    pinTooltip(() => {
+                        // Hide crosshair on tooltip unpin
+                        if ((chart as any).crosshair) {
+                            ;(chart as any).crosshair.enabled = false
+                        }
+
+                        // Reset chart back to initial events
+                        chart.options.events = events
+                        chart.setActiveElements([])
+                        chart.update('none')
+                    })
                 },
             }
 
@@ -1157,6 +1259,7 @@ export function LineGraph_({
             hideTooltip,
             showTooltip,
             getTooltip,
+            pinTooltip,
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,

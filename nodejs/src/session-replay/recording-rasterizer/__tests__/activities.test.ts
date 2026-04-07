@@ -124,9 +124,9 @@ describe('rasterizeRecordingActivity', () => {
             expect.objectContaining({ session_id: 'test-session-123' }),
             expect.stringContaining('ph-video-'),
             playerHtml,
+            expect.any(Function),
             undefined,
-            expect.any(Object),
-            expect.any(Function)
+            expect.any(Object)
         )
     })
 
@@ -141,7 +141,8 @@ describe('rasterizeRecordingActivity', () => {
             expect.any(String),
             'my-bucket',
             'exports/mp4/team-99/task-42',
-            expect.any(String)
+            expect.any(String),
+            expect.any(Function)
         )
     })
 

@@ -32,6 +32,7 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -52,6 +53,7 @@ import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegis
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -548,14 +550,14 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { users_affected, total_users } = blastRadius
+    const { affected, total } = blastRadius
 
-    if (users_affected != null && total_users != null) {
-        const exceeded = users_affected > BLAST_RADIUS_LIMIT
+    if (affected != null && total != null) {
+        const exceeded = affected > BLAST_RADIUS_LIMIT
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
+                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
                 {exceeded && (
                     <div className="text-danger text-xs">
@@ -570,6 +572,16 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     return null
 }
 
+function BatchScheduleSection(): JSX.Element {
+    return (
+        <>
+            <LemonDivider />
+            <LemonLabel>Schedule</LemonLabel>
+            <RecurringSchedulePicker />
+        </>
+    )
+}
+
 function StepTriggerConfigurationBatch({
     action,
     config,
@@ -578,9 +590,10 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="flex flex-col gap-2 my-2">
+        <div className="flex flex-col gap-2 my-2 w-full">
             <div>
                 <span className="font-semibold">This batch will include</span>{' '}
                 <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
@@ -618,6 +631,8 @@ function StepTriggerConfigurationBatch({
                     operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                 />
             </div>
+
+            {featureFlags[FEATURE_FLAGS.WORKFLOWS_RECURRING_SCHEDULES] && <BatchScheduleSection />}
         </div>
     )
 }

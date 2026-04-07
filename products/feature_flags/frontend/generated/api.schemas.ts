@@ -838,10 +838,10 @@ export interface UserBlastRadiusRequestApi {
 }
 
 export interface UserBlastRadiusResponseApi {
-    /** Number of users matching the condition */
-    users_affected: number
-    /** Total number of users in the project */
-    total_users: number
+    /** Number of entities matching the condition (users or groups depending on group_type_index) */
+    affected: number
+    /** Total number of entities of this type in the project */
+    total: number
 }
 
 /**
@@ -903,6 +903,11 @@ export interface ScheduledChangeApi {
 * `monthly` - monthly
 * `yearly` - yearly */
     recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at: string | null
     /**
@@ -956,6 +961,11 @@ export interface PatchedScheduledChangeApi {
 * `monthly` - monthly
 * `yearly` - yearly */
     recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
     /** @nullable */
     readonly last_executed_at?: string | null
     /**

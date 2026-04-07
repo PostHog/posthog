@@ -1,9 +1,7 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
 
@@ -29,7 +27,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
@@ -39,10 +36,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
-    connect(() => ({
-        values: [teamLogic, ['currentTeam']],
-    })),
-    reducers(({ values }) => ({
+    reducers(() => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
         userPreferenceSidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
         urlOverrideSidebarOpen: [
@@ -56,15 +50,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPreferredSidebarStacking: (_, { stacking }) => stacking,
-            },
-        ],
-        quickFilterProperties: [
-            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
-            {
-                persist: true,
-            },
-            {
-                setQuickFilterProperties: (_, { properties }) => properties,
             },
         ],
         speed: [

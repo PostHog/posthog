@@ -2,14 +2,18 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 
+from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
     NotificationOnlyResourceType,
     NotificationType,
     Priority,
+    SourceType,
     TargetType,
 )
 from products.notifications.backend.logic import create_notification
@@ -66,6 +70,71 @@ class TestCreateNotification(BaseTest):
         resolver = RecipientsResolver()
         with pytest.raises(ValueError, match="Unknown target type"):
             resolver.resolve("nonexistent_type", "123", self.team.id)  # type: ignore[arg-type]
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_invalidates_cache_for_resolved_users(self, mock_publish, mock_ff):
+        user2 = User.objects.create_and_join(self.organization, "cache_test@test.com", "password")
+        key1 = _unread_count_cache_key(self.user.id, self.organization.id)
+        key2 = _unread_count_cache_key(user2.id, self.organization.id)
+        cache.set(key1, 3, 60)
+        cache.set(key2, 7, 60)
+
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.ALERT_FIRING,
+            title="Cache invalidation test",
+            body="",
+            target_type=TargetType.ORGANIZATION,
+            target_id=str(self.organization.id),
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            create_notification(data)
+
+        assert cache.get(key1) is None
+        assert cache.get(key2) is None
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_with_source_type_and_id(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            source_type=SourceType.DASHBOARD,
+            source_id="abc123",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            event = create_notification(data)
+
+        assert event is not None
+        assert event.source_type == "dashboard"
+        assert event.source_id == "abc123"
+
+        mock_publish.assert_called_once()
+        kafka_data = mock_publish.call_args[0][0]
+        assert kafka_data.source_type == "dashboard"
+        assert kafka_data.source_id == "abc123"
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_without_source_type(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert event.source_type is None
+        assert event.source_id is None
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
     def test_feature_flag_disabled_returns_none(self, mock_ff):

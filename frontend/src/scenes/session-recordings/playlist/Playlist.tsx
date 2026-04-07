@@ -100,6 +100,7 @@ export function Playlist({
         visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
+        summarizeDisabledReason,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -333,7 +334,7 @@ export function Playlist({
                             fullWidth
                             size="small"
                             className="mt-2"
-                            disabledReason={!firstItem ? 'No recordings in the list' : undefined}
+                            disabledReason={summarizeDisabledReason}
                         >
                             Summarize these recordings
                             <LemonTag type="warning" size="small" className="ml-auto uppercase">

@@ -101,6 +101,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
     [Scene.Health]: () => import('./health/HealthScene'),
+    [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),

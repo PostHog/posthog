@@ -54,11 +54,15 @@ from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person, get_person_by_pk_or_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import (
+    delete_person,
+    get_person_by_pk_or_uuid,
+    get_persons_by_distinct_ids,
+    get_persons_by_uuids,
+)
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -66,17 +70,15 @@ from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUno
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id
+from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -387,8 +389,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PersonsWebSustainedThrottle(),
         ]
 
-    stickiness_class = Stickiness
-
     def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -626,7 +626,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PropertyValuesQueryResponse,
             PropertyValuesQueryRunner,
         )
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
         with tracer.start_as_current_span("person_api_property_values") as span:
             key = request.GET.get("key")
@@ -642,7 +642,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
-            force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+            refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -651,11 +651,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     search_value=value,
                 ),
             )
-            execution_mode = (
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-                if force_refresh
-                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            )
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
@@ -1053,26 +1051,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
-    @action(methods=["GET"], detail=False)
-    def stickiness(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
-        filter = prepare_actor_query_filter(filter)
-
-        target_entity = get_target_entity(filter)
-
-        people = self.stickiness_class().people(target_entity, filter, team, request)
-        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all recordings associated with this person.",
@@ -1139,6 +1117,29 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for distinct_id in person.distinct_ids:
                 if distinct_id in requested:
                     results[distinct_id] = person_data
+
+        return response.Response({"results": results})
+
+    @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
+    def batch_by_uuids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        uuids = request.data.get("uuids", [])
+
+        if not isinstance(uuids, list) or len(uuids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        uuids = uuids[:MAX_BATCH_SIZE]
+
+        try:
+            uuids = [str(uuid.UUID(u)) for u in uuids]
+        except (ValueError, AttributeError):
+            raise ValidationError("One or more UUIDs are invalid.")
+
+        persons = get_persons_by_uuids(self.team, uuids)
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
         return response.Response({"results": results})
 
@@ -1398,7 +1399,7 @@ def paginated_result(
     return format_paginated_url(request, offset, limit) if count >= limit else None
 
 
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter, StickinessFilter)
+T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
 
 
 def prepare_actor_query_filter(filter: T) -> T:

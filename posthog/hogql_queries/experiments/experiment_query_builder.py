@@ -1,5 +1,7 @@
 from typing import Optional, Union, cast
 
+from django.utils import timezone
+
 from posthog.schema import (
     ActionsNode,
     Breakdown,
@@ -84,9 +86,11 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         force_precomputation: bool = False,
+        only_count_matured_users: bool = False,
     ):
         self.team = team
         self.metric = metric
+        self.only_count_matured_users = only_count_matured_users
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -233,6 +237,49 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window_unit,
             )
         return 0
+
+    def _get_maturity_window_seconds(self) -> int:
+        """
+        Returns the total maturity window in seconds.
+        For retention metrics: conversion_window + retention_window_end.
+        For other metrics: conversion_window.
+        Returns 0 if no conversion window is configured.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds == 0:
+            return 0
+
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            retention_window_end_seconds = conversion_window_to_seconds(
+                self.metric.retention_window_end,
+                self.metric.retention_window_unit,
+            )
+            return conversion_window_seconds + retention_window_end_seconds
+
+        return conversion_window_seconds
+
+    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause expression to filter out users whose conversion window
+        hasn't elapsed yet, or None if the feature is not enabled.
+        """
+        if self.metric is None:
+            return None
+        if not self.only_count_matured_users:
+            return None
+
+        maturity_seconds = self._get_maturity_window_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -1063,6 +1110,11 @@ class ExperimentQueryBuilder:
                     agg_call = build_aggregation_call(
                         aggregation_function, inner_value_expr, params=params, distinct=distinct
                     )
+                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
+                    # incompatible with Float64 in ClickHouse greatest/least functions used
+                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
+                    if not aggregation_needs_numeric_input(aggregation_function):
+                        agg_call = ast.Call(name="toFloat", args=[agg_call])
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
@@ -1217,6 +1269,14 @@ class ExperimentQueryBuilder:
                 breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause()
+        if maturity_having is not None:
+            if exposure_query.having is None:
+                exposure_query.having = maturity_having
+            else:
+                exposure_query.having = ast.And(exprs=[exposure_query.having, maturity_having])
+
         return exposure_query
 
     def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
@@ -1270,6 +1330,15 @@ class ExperimentQueryBuilder:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
+
         return query
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
@@ -1288,6 +1357,11 @@ class ExperimentQueryBuilder:
         # Note: uses < for time_window_max (exclusive end for bucket boundaries)
         # vs <= in normal query (inclusive end for experiment boundary)
         # Keep in sync with _build_exposure_select_query
+        #
+        # The time_window_min/max placeholders define the job's cache window
+        # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
+        # the scan to the actual experiment dates so that variant aggregation
+        # only considers events within the experiment.
         query_string = """
             SELECT
                 {entity_key} AS entity_id,
@@ -1300,6 +1374,8 @@ class ExperimentQueryBuilder:
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
+                AND timestamp >= {experiment_date_from}
+                AND timestamp <= {experiment_date_to}
                 AND {event_predicate}
                 AND {test_accounts_filter}
                 AND {variant_property} IN {variants}
@@ -1313,6 +1389,8 @@ class ExperimentQueryBuilder:
             "test_accounts_filter": self._build_test_accounts_filter(),
             "variant_property": self._build_variant_property(),
             "variants": ast.Constant(value=self.variants),
+            "experiment_date_from": self.date_range_query.date_from_as_hogql(),
+            "experiment_date_to": self.date_range_query.date_to_as_hogql(),
         }
 
         return query_string, placeholders

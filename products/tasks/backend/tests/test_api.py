@@ -1,5 +1,7 @@
 import json
 import time
+import uuid
+from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
@@ -10,11 +12,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, Task, TaskRun
+from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 
 # Test RSA private key for JWT tests (RS256)
@@ -49,20 +52,25 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 
 
 class BaseTaskAPITest(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
-    user: User
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
+        cls.organization.members.add(cls.user)
+        OrganizationMembership.objects.filter(user=cls.user, organization=cls.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
 
     def setUp(self):
         self.client = APIClient()
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
-        self.organization.members.add(self.user)
-        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-            level=OrganizationMembership.Level.ADMIN
-        )
         self.client.force_authenticate(self.user)
 
         # Enable tasks feature flag by default
@@ -207,6 +215,40 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
 
+    def test_create_task_with_signal_report_same_team(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["signal_report"], str(report.id))
+
+    def test_create_task_with_signal_report_different_team_rejected(self):
+        from products.signals.backend.models import SignalReport
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = SignalReport.objects.create(team=other_team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-team Task",
+                "description": "Should be rejected",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -254,6 +296,41 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(latest_run["task"], str(task.id))
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
+        task = self.create_task()
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Restricted env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["example.com"],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(sandbox_environment.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
+        mock_workflow.assert_called_once()
+
+    def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": "550e8400-e29b-41d4-a716-446655440000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
 
     @parameterized.expand(
         [
@@ -374,6 +451,74 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(task_ids), len(expected_task_ids))
         for expected_id in expected_task_ids:
             self.assertIn(expected_id, task_ids)
+
+
+class TestTaskInternalFilterAPI(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        self.external_task = self.create_task("External Task")
+        self.internal_task = Task.objects.create(
+            team=self.team,
+            title="Internal Task",
+            description="Internal Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+    def test_list_excludes_internal_tasks_by_default(self):
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_false_excludes_internal_tasks(self):
+        response = self.client.get("/api/projects/@current/tasks/?internal=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_internal_field_in_response(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["internal"])
+
+    def test_retrieve_internal_task_by_id(self):
+        response = self.client.get(f"/api/projects/@current/tasks/{self.internal_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_is_settable_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Internal Task via API", "description": "Created as internal", "internal": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["internal"])
+
+    def test_internal_field_defaults_to_false_on_create(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Normal Task", "description": "No internal flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["internal"])
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -2021,3 +2166,261 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertNotIn("secret-host", response.json()["error"])
         self.assertNotIn("DNS", response.json()["error"])
         self.assertEqual(response.json()["error"], "Failed to send command to agent server")
+
+
+class TestSandboxEnvironmentAPI(BaseTaskAPITest):
+    base_url = "/api/projects/@current/sandbox_environments/"
+
+    def detail_url(self, env_id):
+        return f"{self.base_url}{env_id}/"
+
+    def test_create_environment(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "My Sandbox",
+                "network_access_level": "custom",
+                "allowed_domains": ["api.example.com"],
+                "include_default_domains": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["name"], "My Sandbox")
+        self.assertEqual(data["network_access_level"], "custom")
+        self.assertIn("api.example.com", data["allowed_domains"])
+        self.assertIn("api.example.com", data["effective_domains"])
+        self.assertIn("github.com", data["effective_domains"])
+
+    def test_create_environment_sets_created_by(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Test Env", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        env = SandboxEnvironment.objects.get(id=response.json()["id"])
+        self.assertEqual(env.created_by, self.user)
+        self.assertEqual(env.team, self.team)
+
+    def test_list_environments(self):
+        SandboxEnvironment.objects.create(team=self.team, name="Env 1", created_by=self.user)
+        SandboxEnvironment.objects.create(team=self.team, name="Env 2", created_by=self.user)
+
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_retrieve_environment_includes_effective_domains(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Detail Env",
+            network_access_level="trusted",
+            created_by=self.user,
+        )
+        response = self.client.get(self.detail_url(env.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("effective_domains", response.json())
+
+    def test_update_environment(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="Old Name", created_by=self.user)
+        response = self.client.patch(
+            self.detail_url(env.id),
+            {"name": "New Name", "network_access_level": "custom", "allowed_domains": ["new.example.com"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        env.refresh_from_db()
+        self.assertEqual(env.name, "New Name")
+        self.assertEqual(env.allowed_domains, ["new.example.com"])
+
+    def test_delete_environment(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="To Delete", created_by=self.user)
+        response = self.client.delete(self.detail_url(env.id))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
+
+    def test_private_environment_only_visible_to_creator(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=other_user)
+        SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
+
+        response = self.client.get(self.base_url)
+        names = [e["name"] for e in response.json()["results"]]
+        self.assertIn("My Private", names)
+        self.assertNotIn("Private", names)
+
+    def test_public_environment_visible_to_all(self):
+        other_user = User.objects.create_user(email="other2@example.com", first_name="Other2", password="password")
+        self.organization.members.add(other_user)
+
+        SandboxEnvironment.objects.create(team=self.team, name="Public Env", private=False, created_by=other_user)
+
+        response = self.client.get(self.base_url)
+        names = [e["name"] for e in response.json()["results"]]
+        self.assertIn("Public Env", names)
+
+    def test_full_access_returns_empty_effective_domains(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Full", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], [])
+
+    def test_trusted_returns_default_domains(self):
+        from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Trusted", "network_access_level": "trusted"},
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], DEFAULT_TRUSTED_DOMAINS)
+
+    def test_custom_without_defaults_returns_only_custom(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Custom Only",
+                "network_access_level": "custom",
+                "allowed_domains": ["only-this.com"],
+                "include_default_domains": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], ["only-this.com"])
+
+    def test_invalid_env_var_key_rejected(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Bad Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {"123invalid": "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_environment_variables_never_returned(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Secret Env",
+                "network_access_level": "full",
+                "environment_variables": {"SECRET_KEY": "supersecret"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertNotIn("environment_variables", data)
+        self.assertTrue(data["has_environment_variables"])
+
+        detail = self.client.get(self.detail_url(data["id"])).json()
+        self.assertNotIn("environment_variables", detail)
+        self.assertTrue(detail["has_environment_variables"])
+
+        list_data = self.client.get(self.base_url).json()
+        for env in list_data["results"]:
+            self.assertNotIn("environment_variables", env)
+
+    def test_has_environment_variables_false_when_empty(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "No Vars", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_environment_variables"])
+
+    def test_custom_with_defaults_merges_without_duplicates(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Dedup Test",
+                "network_access_level": "custom",
+                "allowed_domains": ["github.com", "custom.io"],
+                "include_default_domains": True,
+            },
+            format="json",
+        )
+        effective = response.json()["effective_domains"]
+        self.assertEqual(effective.count("github.com"), 1)
+        self.assertIn("custom.io", effective)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_stores_sandbox_environment_id_in_state(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Test Env", network_access_level="trusted", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(env.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_run = TaskRun.objects.filter(task=task).latest("created_at")
+        self.assertEqual(task_run.state.get("sandbox_environment_id"), str(env.id))
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_rejects_invalid_sandbox_environment_id(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(uuid.uuid4())},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_rejects_other_team_sandbox_environment(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        env = SandboxEnvironment.objects.create(
+            team=other_team, name="Other Team Env", network_access_level="full", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(env.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_without_sandbox_environment_backward_compatible(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_run = TaskRun.objects.filter(task=task).latest("created_at")
+        self.assertNotIn("sandbox_environment_id", task_run.state)

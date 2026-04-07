@@ -19,7 +19,7 @@ import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
-type RichMarkdownEditorProps = {
+export type RichMarkdownEditorProps = {
     value?: string
     onChange?: (value: string) => void
     minRows?: number
@@ -80,9 +80,17 @@ export function RichMarkdownEditor({
     })
 
     useEffect(() => {
-        if (editor && autoFocus && getTiptapEditorDom(editor)) {
-            editor.commands.focus()
+        if (!editor || !autoFocus || !getTiptapEditorDom(editor)) {
+            return
         }
+        // Defer past TipTap init + same-tick React effects (e.g. controlled setContent). Safari often
+        // interleaves these in one turn; synchronous focus() can throw "Applying a mismatched transaction".
+        const id = window.setTimeout(() => {
+            if (!editor.isDestroyed) {
+                editor.commands.focus()
+            }
+        }, 0)
+        return () => window.clearTimeout(id)
     }, [editor, autoFocus, editor?.isInitialized])
 
     useMarkdownEditorControlledAndFormEffects({

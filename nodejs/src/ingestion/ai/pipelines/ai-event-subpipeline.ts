@@ -4,13 +4,13 @@ import { createProcessGroupsStep } from '~/ingestion/event-processing/process-gr
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { EventHeaders, Team } from '../../../types'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
+import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
@@ -37,13 +37,14 @@ export interface AiEventSubpipelineInput {
 
 export interface AiEventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<
+        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
-    kafkaProducer: KafkaProducerWrapper
     splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
     topHog: TopHogWrapper
@@ -61,7 +62,6 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         hogTransformer,
         personsStore,
         groupStore,
-        kafkaProducer,
         splitAiEventsConfig,
         groupId,
         topHog,
@@ -103,7 +103,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         .pipe(createProcessAiEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
-            topHog(createProcessPersonsStep(options, kafkaProducer, personsStore), [
+            topHog(createProcessPersonsStep(options, outputs, personsStore), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,

@@ -90,7 +90,6 @@ const UniversalSearch = ({
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                             popupAnchorElement={floatingRef.current}
-                            useVerticalLayout={true}
                         />
                     </div>
                 }

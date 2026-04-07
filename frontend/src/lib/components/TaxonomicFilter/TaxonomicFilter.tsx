@@ -45,7 +45,6 @@ export function TaxonomicFilter({
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     maxContextOptions,
-    useVerticalLayout,
     allowNonCapturedEvents = false,
     hogQLGlobals,
     definitionPopoverRenderer,
@@ -79,7 +78,6 @@ export function TaxonomicFilter({
         hideBehavioralCohorts,
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
-        useVerticalLayout,
         autoSelectItem: true,
         allowNonCapturedEvents,
         maxContextOptions,
@@ -132,7 +130,6 @@ export function TaxonomicFilter({
                         focusInput={focusInput}
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
-                        useVerticalLayout={useVerticalLayout}
                         definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 )}

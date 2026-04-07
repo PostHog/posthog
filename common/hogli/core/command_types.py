@@ -12,7 +12,13 @@ import click
 from hogli.core.manifest import get_services_for_command
 
 
-def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: bool = False) -> None:
+def _run(
+    command: list[str] | str,
+    *,
+    env: dict[str, str] | None = None,
+    shell: bool = False,
+    cwd: str | Path | None = None,
+) -> None:
     """Execute a shell command."""
     from hogli.core.manifest import REPO_ROOT
 
@@ -30,7 +36,7 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
     try:
         subprocess.run(
             command,
-            cwd=REPO_ROOT,
+            cwd=cwd or REPO_ROOT,
             env={**os.environ, **(env or {})},
             check=True,
             shell=shell,

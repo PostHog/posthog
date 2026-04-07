@@ -18,7 +18,7 @@ class TestSlackImageIngest(SimpleTestCase):
         assert image_bytes is None
         mock_build_opener.assert_not_called()
 
-    @patch("products.conversations.backend.slack._save_image_to_uploaded_media")
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
     def test_extract_slack_files_copies_to_uploaded_media(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
         mock_download.return_value = VALID_PNG_BYTES
@@ -44,7 +44,7 @@ class TestSlackImageIngest(SimpleTestCase):
         mock_download.assert_called_once()
         mock_save.assert_called_once()
 
-    @patch("products.conversations.backend.slack._save_image_to_uploaded_media")
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
     def test_extract_slack_files_skips_failed_downloads(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
         mock_download.return_value = None
@@ -66,7 +66,7 @@ class TestSlackImageIngest(SimpleTestCase):
         assert images == []
         mock_save.assert_not_called()
 
-    @patch("products.conversations.backend.slack._save_image_to_uploaded_media")
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
     def test_extract_slack_files_skips_invalid_image_payload(
         self, mock_download: MagicMock, mock_save: MagicMock
