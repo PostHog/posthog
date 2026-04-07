@@ -41,27 +41,6 @@
         },
         "short_id": {
             "type": "string"
-        },
-        "type": {
-            "anyOf": [
-                {
-                    "anyOf": [
-                        {
-                            "description": "* `collection` - Collection\n* `filters` - Filters",
-                            "enum": ["collection", "filters"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
         }
     },
     "required": ["short_id"],
