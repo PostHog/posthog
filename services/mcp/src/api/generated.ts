@@ -30632,7 +30632,7 @@ export namespace Schemas {
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
-      /** Follow-up user message to include in the resumed run's prompt. */
+      /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
