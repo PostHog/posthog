@@ -230,7 +230,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(
-        child=serializers.DictField(),
+        child=serializers.JSONField(),
         required=False,
         allow_null=True,
         help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
