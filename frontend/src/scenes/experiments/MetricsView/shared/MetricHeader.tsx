@@ -101,7 +101,7 @@ export const MetricHeader = ({
     readOnly,
 }: {
     displayOrder?: number
-    metric: any
+    metric: ExperimentMetric
     metricType: any
     isPrimaryMetric: boolean
     experiment: Experiment
@@ -142,7 +142,7 @@ export const MetricHeader = ({
                                     icon={<IconPencil fontSize="12" />}
                                     tooltip="Edit"
                                     onClick={() => {
-                                        if (metric.isSharedMetric) {
+                                        if (metric.isSharedMetric && metric.sharedMetricId) {
                                             /**
                                              * this is for legacy experiments support
                                              */
@@ -184,7 +184,7 @@ export const MetricHeader = ({
                                          * For shared metrics we open the duplicate form
                                          * after a confirmation.
                                          */
-                                        if (metric.isSharedMetric) {
+                                        if (metric.isSharedMetric && metric.sharedMetricId) {
                                             LemonDialog.open({
                                                 title: 'Duplicate this shared metric?',
                                                 content: (

@@ -6,7 +6,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
 import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'
@@ -17,11 +17,11 @@ import { getDefaultMetricTitle, getMetricTag } from '../MetricsView/shared/utils
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from './sharedMetricDetailsModalLogic'
 
-function MetricSummary({
-    metric,
-}: {
-    metric: ExperimentMetric & { sharedMetricId: number; name?: string }
-}): JSX.Element {
+function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | null {
+    if (!metric.sharedMetricId) {
+        return null
+    }
+
     return (
         <div className="border rounded bg-surface-primary p-4">
             <div className="space-y-3">
@@ -70,6 +70,10 @@ export function SharedMetricDetailsModal({
     const { isModalOpen, sharedMetric, context } = useValues(sharedMetricDetailsModalLogic)
     const { closeSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
+    if (!sharedMetric || !sharedMetric.sharedMetricId) {
+        return null
+    }
+
     return (
         <LemonModal
             isOpen={isModalOpen}
@@ -83,6 +87,9 @@ export function SharedMetricDetailsModal({
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
+                                    if (!sharedMetric.sharedMetricId) {
+                                        return
+                                    }
                                     onDelete(sharedMetric.sharedMetricId, context)
                                     closeSharedMetricDetailModal()
                                 }}

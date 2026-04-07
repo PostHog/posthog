@@ -9,10 +9,7 @@ export const sharedMetricDetailsModalLogic = kea<sharedMetricDetailsModalLogicTy
     path(['scenes', 'experiments', 'Metrics', 'sharedMetricDetailsModalLogic']),
 
     actions({
-        openSharedMetricDetailModal: (
-            metric: ExperimentMetric & { sharedMetricId: number },
-            context: MetricContext
-        ) => ({
+        openSharedMetricDetailModal: (metric: ExperimentMetric, context: MetricContext) => ({
             metric,
             context,
         }),
@@ -28,7 +25,7 @@ export const sharedMetricDetailsModalLogic = kea<sharedMetricDetailsModalLogicTy
             },
         ],
         sharedMetric: [
-            null as (ExperimentMetric & { sharedMetricId: number }) | null,
+            null as ExperimentMetric | null,
             {
                 openSharedMetricDetailModal: (_, { metric }) => metric,
                 closeSharedMetricDetailModal: () => null,
