@@ -32182,18 +32182,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsStickinessRetrieveParams = {
-    format?: EnvironmentsPersonsStickinessRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsStickinessRetrieveFormat = typeof EnvironmentsPersonsStickinessRetrieveFormat[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat];
-
-
-    export const EnvironmentsPersonsStickinessRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsTrendsRetrieveParams = {
     format?: EnvironmentsPersonsTrendsRetrieveFormat;
     };
@@ -35335,18 +35323,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat;
-    };
-
-    export type PersonsStickinessRetrieveFormat = typeof PersonsStickinessRetrieveFormat[keyof typeof PersonsStickinessRetrieveFormat];
-
-
-    export const PersonsStickinessRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

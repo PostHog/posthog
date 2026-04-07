@@ -35,7 +35,6 @@ import type {
     PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
     PersonsSplitCreateParams,
-    PersonsStickinessRetrieveParams,
     PersonsTrendsRetrieveParams,
     PersonsUpdateParams,
     PersonsUpdatePropertyCreateParams,
@@ -769,36 +768,6 @@ export const personsResetPersonDistinctIdCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(personApi),
-    })
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const getPersonsStickinessRetrieveUrl = (projectId: string, params?: PersonsStickinessRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/stickiness/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/stickiness/`
-}
-
-export const personsStickinessRetrieve = async (
-    projectId: string,
-    params?: PersonsStickinessRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsStickinessRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 
