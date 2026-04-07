@@ -5608,6 +5608,9 @@ export namespace Schemas {
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
+    * `linear` - Linear
+    * `time_decay` - Time Decay
+    * `position_based` - Position Based
      */
     export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
 
@@ -5615,6 +5618,9 @@ export namespace Schemas {
     export const AttributionModeEnum = {
       FirstTouch: 'first_touch',
       LastTouch: 'last_touch',
+      Linear: 'linear',
+      TimeDecay: 'time_decay',
+      PositionBased: 'position_based',
     } as const;
 
     export interface RunSummary {
