@@ -637,17 +637,28 @@ describe('LLM Analytics utils', () => {
             expect(result[0].content).toEqual([{ type: 'text', text: 'Custom response' }])
         })
 
-        it('parses stringified structured content blocks for role-based messages', () => {
-            const stringifiedStructuredMessage = {
-                role: 'user',
-                content: JSON.stringify([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }]),
-            }
-
-            const result = normalizeMessage(stringifiedStructuredMessage, 'user')
+        it.each([
+            [
+                'single text block',
+                {
+                    role: 'user',
+                    content: JSON.stringify([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }]),
+                },
+                [{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }],
+            ],
+            ['plain string stays plain', { role: 'user', content: 'plain text' }, 'plain text'],
+            ['invalid JSON falls back to raw string', { role: 'user', content: '[not json' }, '[not json'],
+            [
+                'unknown block types stay as raw string',
+                { role: 'user', content: JSON.stringify([{ type: 'schema', definition: { foo: 'bar' } }]) },
+                '[{"type":"schema","definition":{"foo":"bar"}}]',
+            ],
+        ])('handles stringified structured content in OpenAI-compatible messages: %s', (_label, message, expectedContent) => {
+            const result = normalizeMessage(message, 'user')
 
             expect(result).toHaveLength(1)
             expect(result[0].role).toBe('user')
-            expect(result[0].content).toEqual([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }])
+            expect(result[0].content).toEqual(expectedContent)
         })
 
         it('handles LiteLLM choice wrapper and preserves nested role', () => {

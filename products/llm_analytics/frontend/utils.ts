@@ -717,13 +717,33 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
     return roleMap[lowercased] || lowercased
 }
 
+const STRUCTURED_CONTENT_TYPES = new Set([
+    'text',
+    'output_text',
+    'input_text',
+    'function',
+    'image',
+    'input_image',
+    'image_url',
+    'file',
+    'audio',
+    'document',
+])
+
 function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
     try {
         const parsed = JSON.parse(content)
         if (
             Array.isArray(parsed) &&
             parsed.length > 0 &&
-            parsed.every((item) => item && typeof item === 'object' && 'type' in item && typeof item.type === 'string')
+            parsed.every(
+                (item) =>
+                    item &&
+                    typeof item === 'object' &&
+                    'type' in item &&
+                    typeof item.type === 'string' &&
+                    STRUCTURED_CONTENT_TYPES.has(item.type)
+            )
         ) {
             return parsed as MultiModalContentItem[]
         }
@@ -1005,10 +1025,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         return [
             {
                 role: roleToUse,
-                content:
-                    typeof rawMessage.content === 'string'
-                        ? parseStringifiedStructuredContent(rawMessage.content)
-                        : rawMessage.content,
+                content: rawMessage.content,
             },
         ]
     }
