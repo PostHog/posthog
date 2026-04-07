@@ -1,4 +1,9 @@
-from posthog.temporal.data_imports.sources.stripe.constants import CUSTOMER_RESOURCE_NAME, INVOICE_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
 
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.customer import build
@@ -39,6 +44,20 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         self.assertBuiltQueryStructure(query, str(customer_table.id), f"stripe.{self.external_data_source.prefix}")
 
         # Print and snapshot the generated HogQL query (should be different from customer-only)
+        query_sql = query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+
+    def test_build_customer_query_with_all_schemas_for_metadata_resolution(self):
+        self.setup_stripe_external_data_source(
+            schemas=[CUSTOMER_RESOURCE_NAME, INVOICE_RESOURCE_NAME, SUBSCRIPTION_RESOURCE_NAME, CHARGE_RESOURCE_NAME]
+        )
+        customer_table = self.get_stripe_table_by_schema_name(CUSTOMER_RESOURCE_NAME)
+
+        query = build(self.stripe_handle)
+
+        self.assertQueryContainsFields(query.query, CUSTOMER_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(customer_table.id), f"stripe.{self.external_data_source.prefix}")
+
         query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
@@ -92,6 +111,18 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
 
         with self.assertRaises(ValueError):
             build(handle)
+
+    def test_build_customer_query_with_customer_and_subscription_schemas(self):
+        self.setup_stripe_external_data_source(schemas=[CUSTOMER_RESOURCE_NAME, SUBSCRIPTION_RESOURCE_NAME])
+        customer_table = self.get_stripe_table_by_schema_name(CUSTOMER_RESOURCE_NAME)
+
+        query = build(self.stripe_handle)
+
+        self.assertQueryContainsFields(query.query, CUSTOMER_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(customer_table.id), f"stripe.{self.external_data_source.prefix}")
+
+        query_sql = query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_customer_query_contains_required_fields(self):
         """Test that the generated query contains all required customer fields."""
