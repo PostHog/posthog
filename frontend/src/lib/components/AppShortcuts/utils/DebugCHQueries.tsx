@@ -103,14 +103,14 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders(({ props }: { props: { insightId?: string; experimentId?: number } }) => ({
+    loaders(({ props }: { props: { insightId?: number; experimentId?: number } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
                 loadDebugResponse: async () => {
                     const params = new URLSearchParams()
                     if (props.insightId) {
-                        params.append('insight_id', props.insightId)
+                        params.append('insight_id', String(props.insightId))
                     } else if (props.experimentId) {
                         params.append('experiment_id', String(props.experimentId))
                     }

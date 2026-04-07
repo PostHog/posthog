@@ -35,8 +35,12 @@ class DebugCHQueries(viewsets.ViewSet):
         except:
             return None
 
+    _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
+
     def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
         """Build a WHERE clause filtering on a log_comment JSON field."""
+        if filter_key not in self._ALLOWED_FILTER_KEYS:
+            raise ValueError(f"Invalid filter_key: {filter_key!r}")
         return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
 
     def hourly_stats(self, filter_key: str, filter_value: str):
