@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EventFilterConfigApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedGroupUsageMetricListApi,
@@ -31,6 +32,48 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Single event filter per team. Auto-creates on first access.
+GET  /event_filter/ — returns the config
+POST /event_filter/ — updates the config (upsert)
+GET  /event_filter/metrics/ — time-series metrics
+GET  /event_filter/metrics/totals/ — aggregate totals
+ */
+export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/event_filter/metrics/`
+}
+
+export const eventFilterMetricsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EventFilterConfigApi> => {
+    return apiMutator<EventFilterConfigApi>(getEventFilterMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Single event filter per team. Auto-creates on first access.
+GET  /event_filter/ — returns the config
+POST /event_filter/ — updates the config (upsert)
+GET  /event_filter/metrics/ — time-series metrics
+GET  /event_filter/metrics/totals/ — aggregate totals
+ */
+export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+}
+
+export const eventFilterMetricsTotalsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EventFilterConfigApi> => {
+    return apiMutator<EventFilterConfigApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getGroupsTypesMetricsListUrl = (
     projectId: string,

@@ -14301,6 +14301,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `disabled` - Disabled
+    * `dry_run` - Dry Run
+    * `live` - Live
+     */
+    export type EventFilterConfigModeEnum = typeof EventFilterConfigModeEnum[keyof typeof EventFilterConfigModeEnum];
+
+
+    export const EventFilterConfigModeEnum = {
+      Disabled: 'disabled',
+      DryRun: 'dry_run',
+      Live: 'live',
+    } as const;
+
+    export interface EventFilterConfig {
+      readonly id: string;
+      mode?: EventFilterConfigModeEnum;
+      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
+      filter_tree?: unknown | null;
+      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
+      test_cases?: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * * `DateTime` - DateTime
     * `String` - String
     * `Numeric` - Numeric
@@ -19977,6 +20002,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Evaluation[];
+    }
+
+    export interface PaginatedEventFilterConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EventFilterConfig[];
     }
 
     export interface PaginatedEventSchemaList {
@@ -32648,6 +32682,17 @@ export namespace Schemas {
      * Search in name or description
      */
     search?: string;
+    };
+
+    export type EventFilterListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type HealthIssuesListParams = {
