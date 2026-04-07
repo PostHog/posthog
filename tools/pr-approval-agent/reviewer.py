@@ -297,9 +297,12 @@ class Reviewer:
             for r in pr.reviews:
                 safe_user = _sanitize_untrusted(r["user"], max_len=50)
                 safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
-                review_scope = "current head" if r.get("is_current_head") else "older commit"
-                if r.get("commit_id") and not r.get("is_current_head"):
+                if r.get("is_current_head"):
+                    review_scope = "current head"
+                elif r.get("commit_id"):
                     review_scope = f"older commit {r['commit_id'][:7]}"
+                else:
+                    review_scope = "older commit"
                 body_part = f": {safe_body}" if safe_body else ""
                 lines.append(f"  - @{safe_user} [{r['state']}, {review_scope}]{body_part}")
             reviews_text = "\n".join(lines)

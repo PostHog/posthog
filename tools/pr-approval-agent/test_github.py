@@ -1,5 +1,7 @@
 """Tests for GitHub review normalization used by the PR approval agent."""
 
+import pytest
+
 from github import _normalize_reviews_for_prompt
 
 
@@ -44,19 +46,32 @@ def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> N
     ]
 
 
-def test_normalize_reviews_filters_untrusted_reviewers() -> None:
+@pytest.mark.parametrize(
+    "author_association,user_type,expected_count",
+    [
+        pytest.param("MEMBER", "User", 1, id="member-reviewer"),
+        pytest.param("OWNER", "User", 1, id="owner-reviewer"),
+        pytest.param("COLLABORATOR", "User", 1, id="collaborator-reviewer"),
+        pytest.param("BOT", "User", 1, id="bot-association"),
+        pytest.param("NONE", "Bot", 1, id="bot-user-type"),
+        pytest.param("NONE", "User", 0, id="untrusted-reviewer"),
+    ],
+)
+def test_normalize_reviews_filters_by_trust_source(
+    author_association: str, user_type: str, expected_count: int
+) -> None:
     normalized = _normalize_reviews_for_prompt(
         [
             {
-                "user": {"login": "external-user", "type": "User"},
+                "user": {"login": "reviewer", "type": user_type},
                 "state": "COMMENTED",
-                "body": "Should not be included",
+                "body": "Review body",
                 "commit_id": "abc123",
                 "submitted_at": "2026-04-07T20:14:03Z",
-                "author_association": "NONE",
+                "author_association": author_association,
             }
         ],
         "abc123",
     )
 
-    assert normalized == []
+    assert len(normalized) == expected_count
