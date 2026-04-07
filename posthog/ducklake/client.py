@@ -150,7 +150,13 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
         # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
-            cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS ({})").format(qualified, psql.SQL(sql)))
+            cur.execute(
+                psql.SQL("""
+                    CREATE OR REPLACE TABLE {} AS (
+                        {}
+                    )
+                """).format(qualified, psql.SQL(sql))
+            )
     row_count = 0
     try:
         with psycopg.connect(conninfo) as conn:
