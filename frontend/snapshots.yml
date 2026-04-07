@@ -2302,6 +2302,10 @@ snapshots:
         hash: v1.k794b7964.c59d91b5bdd228cc59cb157421b58c69c9c97974486abb5bb7a2d82ea09f5ef6.qAu4u-xuXZ6TV0PLnGgBmeUJswJFobI7t7vu2osZPOw
     lemon-ui-lemon-drawer--lemon-drawer--light:
         hash: v1.k794b7964.883f36e8a62c7b9d9bcf2c6f8a5435ff50a9376f93e6a95d1d57a827a54b1ee6.HwKLxGwLpQ81Angb_GiffCr1OYs14DNK2M23IjsapaE
+    lemon-ui-lemon-drawer--resizable--dark:
+        hash: v1.k794b7964.df5bec15075583267d46203349463c501a8529f6c1e4e7675c3652e90d1b912e.rYYeIgTo1qGansqL8m0-PI07zszlr0m4dahnQYVYD7c
+    lemon-ui-lemon-drawer--resizable--light:
+        hash: v1.k794b7964.3ea3028e75466f159d7cd31189223d934b39c71a8392f49bf5e8da2a2e230d61.YNq8bOVHBmZFvdbWWM5jyUX0aOIugisLgWFKqWE9aok
     lemon-ui-lemon-drawer--transparent-overlay--dark:
         hash: v1.k794b7964.d70991b7bad91bb2451d1dbaa0916aba0a7f1e3ffc14a1f0fb08e86c71402c58.3TRjAFQ3gBe7t_3fN_alwuNYSaD7ey8Xh72ddRjueF4
     lemon-ui-lemon-drawer--transparent-overlay--light:
