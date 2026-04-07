@@ -26,6 +26,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
@@ -40,6 +41,7 @@ from posthog.models.utils import (
 )
 from posthog.utils import get_instance_region
 
+from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
@@ -627,10 +629,6 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     Returns True if activation succeeded, False otherwise.
     """
     try:
-        from posthog.cloud_utils import get_cached_instance_license
-
-        from ee.billing.billing_manager import build_billing_token
-
         license = get_cached_instance_license()
         if not license:
             capture_exception(Exception("No license found for SPT billing activation"))
@@ -720,16 +718,23 @@ def provisioning_resources_create(request: Request) -> Response:
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
+    billing_activated = False
     payment_credentials = request.data.get("payment_credentials")
     if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
         spt_token = payment_credentials.get("stripe_payment_token")
         if spt_token:
-            _activate_billing_with_spt(team, user, spt_token)
+            billing_activated = _activate_billing_with_spt(team, user, spt_token)
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
+    _capture_provisioning_event(
+        "resource_created",
+        "success",
+        service_id=resolved_service_id,
+        team_id=team_id,
+        billing_activated=billing_activated,
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
