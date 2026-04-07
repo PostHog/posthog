@@ -1,0 +1,5 @@
+export { ClientWarningsConsumer } from './consumer'
+export type { ClientWarningsConsumerDeps } from './consumer'
+export { createClientWarningsPipeline } from './pipeline'
+export { registerClientWarningsOutputs } from './config/outputs'
+export { registerProducers } from './config/producers'
