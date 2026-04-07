@@ -648,7 +648,9 @@ export function FeatureFlagReleaseConditions({
                 )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && !showBucketingIdentifierUI && (
                 <div className="centered flex items-center gap-2">
-                    Match by
+                    <LemonLabel info="Changing match criteria may remove existing variants or payloads.">
+                        Match by
+                    </LemonLabel>
                     <LemonSelect
                         size="small"
                         dropdownMatchSelectWidth={false}
@@ -687,7 +689,12 @@ export function FeatureFlagReleaseConditions({
             )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
                 <div className="mb-4">
-                    <LemonLabel className="mb-2">Match by</LemonLabel>
+                    <LemonLabel
+                        className="mb-2"
+                        info="Changing match criteria may remove existing variants or payloads."
+                    >
+                        Match by
+                    </LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
                         value={
