@@ -281,6 +281,64 @@ describe('Endpoints', { concurrent: false }, () => {
         })
     })
 
+    describe('endpoint-openapi-spec tool', () => {
+        const openapiSpecTool = GENERATED_TOOLS['endpoint-openapi-spec']!()
+        const createTool = GENERATED_TOOLS['endpoint-create']!()
+        const updateTool = GENERATED_TOOLS['endpoint-update']!()
+
+        it('should return an OpenAPI 3.0 spec for an endpoint', async () => {
+            const name = endpointName('openapi')
+            await createTool.handler(context, {
+                name,
+                query: HOGQL_PAGEVIEW_QUERY,
+                description: 'OpenAPI spec test endpoint',
+            })
+            createdEndpointNames.push(name)
+
+            const result = await openapiSpecTool.handler(context, { name })
+            const spec = parseToolResponse(result)
+
+            expect(spec.openapi).toBe('3.0.3')
+            expect(spec.info.title).toBe(name)
+            expect(spec.info.description).toBe('OpenAPI spec test endpoint')
+            expect(spec.paths).toBeTruthy()
+
+            const runPath = Object.keys(spec.paths)[0]!
+            expect(runPath).toContain(`/endpoints/${name}/run`)
+            expect(spec.paths[runPath].post).toBeTruthy()
+            expect(spec.components.securitySchemes.PersonalAPIKey).toBeTruthy()
+        })
+
+        it('should return the spec for a specific version', async () => {
+            const name = endpointName('openapi-ver')
+            await createTool.handler(context, {
+                name,
+                query: HOGQL_PAGEVIEW_QUERY,
+                description: 'Version 1',
+            })
+            createdEndpointNames.push(name)
+
+            // Update query to create version 2
+            await updateTool.handler(context, {
+                name,
+                query: HOGQL_EVENT_COUNT_QUERY,
+                description: 'Version 2',
+            })
+
+            // Fetch spec for version 1
+            const v1Result = await openapiSpecTool.handler(context, { name, version: 1 })
+            const v1Spec = parseToolResponse(v1Result)
+            expect(v1Spec.info.version).toBe('1')
+            expect(v1Spec.info.description).toBe('Version 1')
+
+            // Fetch spec for version 2
+            const v2Result = await openapiSpecTool.handler(context, { name, version: 2 })
+            const v2Spec = parseToolResponse(v2Result)
+            expect(v2Spec.info.version).toBe('2')
+            expect(v2Spec.info.description).toBe('Version 2')
+        })
+    })
+
     describe('Lifecycle workflows', () => {
         const createTool = GENERATED_TOOLS['endpoint-create']!()
         const getTool = GENERATED_TOOLS['endpoint-get']!()
