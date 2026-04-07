@@ -45,6 +45,7 @@
         "quill:dev": "pnpm --filter=@posthog/quill dev",
         "quill:build": "pnpm --filter=@posthog/quill build",
         "quill:storybook": "pnpm --filter=@posthog/quill storybook",
+        "quill:publish": "pnpm quill:build && pnpm --filter @posthog/quill-tokens publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill-primitives publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill-components publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill-blocks publish --tag alpha --no-git-checks",
         "// DEPRECATED - use hogli start instead": "",
         "start": "./bin/start",
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true; [ ! -f bin/fix-rdkafka-paths ] || bin/fix-rdkafka-paths",

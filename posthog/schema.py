@@ -74,6 +74,14 @@ class AlertConditionType(StrEnum):
     RELATIVE_DECREASE = "relative_decrease"
 
 
+class AlertScheduleRestrictionWindow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: str
+    start: str
+
+
 class AlertState(StrEnum):
     FIRING = "Firing"
     NOT_FIRING = "Not firing"
@@ -613,6 +621,9 @@ class AssistantUpdateEvent(BaseModel):
 class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
+    LINEAR = "linear"
+    TIME_DECAY = "time_decay"
+    POSITION_BASED = "position_based"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -4784,6 +4795,13 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class AlertScheduleRestriction(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocked_windows: list[AlertScheduleRestrictionWindow]
 
 
 class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):

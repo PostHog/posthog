@@ -1,7 +1,12 @@
 {
     "name": "@posthog/quill-tokens",
-    "version": "0.0.1",
-    "private": true,
+    "version": "0.1.0-alpha.0",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "packages/quill/packages/tokens"
+    },
     "files": [
         "src",
         "dist"
@@ -20,6 +25,9 @@
         "./tailwind.css": "./dist/tailwind.css",
         "./tailwind-lib.css": "./dist/tailwind-lib.css",
         "./color-system.css": "./dist/color-system.css"
+    },
+    "publishConfig": {
+        "access": "public"
     },
     "scripts": {
         "build": "tsx src/build.ts && vite build",

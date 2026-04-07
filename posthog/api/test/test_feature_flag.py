@@ -6299,6 +6299,45 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_with_explicit_null"
         assert response["results"][0]["status"] == "STALE"
 
+    @parameterized.expand(
+        [
+            (
+                "json_null_variant",
+                {
+                    "groups": [{"rollout_percentage": 100, "properties": [], "variant": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                    },
+                },
+                False,  # JSON null variant is not a real override, should not be stale
+            ),
+            (
+                "empty_multivariate_object",
+                {
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "multivariate": {},
+                },
+                True,  # empty multivariate {} should be treated like no multivariate
+            ),
+        ]
+    )
+    def test_get_flags_with_stale_filter_jsonb_edge_cases(self, flag_key, flag_filters, expect_stale):
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=flag_key,
+                active=True,
+                filters=flag_filters,
+            )
+
+        response = self.client.get("/api/projects/@current/feature_flags?active=STALE").json()
+        is_in_results = any(f["key"] == flag_key for f in response["results"])
+        assert is_in_results == expect_stale
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(
