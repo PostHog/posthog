@@ -388,6 +388,9 @@ runcmd:
         print("📝 Creating test user and fetching API keys via Django shell...", flush=True)
         setup_script = "\n".join(
             [
+                "import os, django",
+                "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'posthog.settings')",
+                "django.setup()",
                 "from posthog.models import User, Organization, Team, PersonalAPIKey",
                 "from posthog.models.utils import generate_random_token_personal, mask_key_value, hash_key_value",
                 "team = Team.objects.first()",
@@ -405,7 +408,7 @@ runcmd:
         )
         encoded_script = base64.b64encode(setup_script.encode()).decode()
         result = self.run_ssh_command(
-            f"cd /hobby && sudo -E docker-compose -f docker-compose.yml exec -T web bash -c 'echo {encoded_script} | base64 -d | python manage.py shell'",
+            f"cd /hobby && sudo -E docker-compose -f docker-compose.yml exec -T web bash -c 'echo {encoded_script} | base64 -d > /tmp/setup.py && python /tmp/setup.py'",
             timeout=60,
         )
         if result["exit_code"] != 0:
