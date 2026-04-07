@@ -5210,6 +5210,282 @@
           "row_count": null,
           "type": "system"
       },
+      "system.logs_alerts": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "threshold_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "threshold_count",
+                  "id": null,
+                  "name": "threshold_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "threshold_operator": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "threshold_operator",
+                  "id": null,
+                  "name": "threshold_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "window_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "window_minutes",
+                  "id": null,
+                  "name": "window_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "check_interval_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_interval_minutes",
+                  "id": null,
+                  "name": "check_interval_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "state": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "state",
+                  "id": null,
+                  "name": "state",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "evaluation_periods": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "evaluation_periods",
+                  "id": null,
+                  "name": "evaluation_periods",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "datapoints_to_alarm": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "datapoints_to_alarm",
+                  "id": null,
+                  "name": "datapoints_to_alarm",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "cooldown_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cooldown_minutes",
+                  "id": null,
+                  "name": "cooldown_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "snooze_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snooze_until",
+                  "id": null,
+                  "name": "snooze_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "next_check_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "next_check_at",
+                  "id": null,
+                  "name": "next_check_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_notified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_notified_at",
+                  "id": null,
+                  "name": "last_notified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "consecutive_failures": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "consecutive_failures",
+                  "id": null,
+                  "name": "consecutive_failures",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.logs_alerts",
+          "name": "system.logs_alerts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.logs_views": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "short_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "short_id",
+                  "id": null,
+                  "name": "short_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "pinned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned",
+                  "id": null,
+                  "name": "pinned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.logs_views",
+          "name": "system.logs_views",
+          "row_count": null,
+          "type": "system"
+      },
       "system.insights": {
           "fields": {
               "id": {
@@ -10117,6 +10393,282 @@
           },
           "id": "system.insight_variables",
           "name": "system.insight_variables",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.logs_alerts": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "threshold_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "threshold_count",
+                  "id": null,
+                  "name": "threshold_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "threshold_operator": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "threshold_operator",
+                  "id": null,
+                  "name": "threshold_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "window_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "window_minutes",
+                  "id": null,
+                  "name": "window_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "check_interval_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_interval_minutes",
+                  "id": null,
+                  "name": "check_interval_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "state": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "state",
+                  "id": null,
+                  "name": "state",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "evaluation_periods": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "evaluation_periods",
+                  "id": null,
+                  "name": "evaluation_periods",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "datapoints_to_alarm": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "datapoints_to_alarm",
+                  "id": null,
+                  "name": "datapoints_to_alarm",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "cooldown_minutes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cooldown_minutes",
+                  "id": null,
+                  "name": "cooldown_minutes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "snooze_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snooze_until",
+                  "id": null,
+                  "name": "snooze_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "next_check_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "next_check_at",
+                  "id": null,
+                  "name": "next_check_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_notified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_notified_at",
+                  "id": null,
+                  "name": "last_notified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "consecutive_failures": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "consecutive_failures",
+                  "id": null,
+                  "name": "consecutive_failures",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.logs_alerts",
+          "name": "system.logs_alerts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.logs_views": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "short_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "short_id",
+                  "id": null,
+                  "name": "short_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "pinned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned",
+                  "id": null,
+                  "name": "pinned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.logs_views",
+          "name": "system.logs_views",
           "row_count": null,
           "type": "system"
       },
