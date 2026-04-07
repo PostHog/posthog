@@ -65,6 +65,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
+import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
 import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
@@ -106,6 +108,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -116,7 +119,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     useFileSystemLogView({
         type: 'survey',
         ref: surveyId,
-        enabled: Boolean(surveyId && !surveyLoading),
+        enabled: Boolean(surveyId && !isInitialSurveyLoad),
     })
 
     useEffect(() => {
@@ -129,7 +132,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
 
     return (
         <div>
-            {surveyLoading ? (
+            {isInitialSurveyLoad ? (
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
@@ -421,6 +424,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyLoading,
         surveyAsInsightURL,
         isAnyResultsLoading,
+        resultsRequeryInProgress,
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
@@ -430,6 +434,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         propertyFilters,
     } = useValues(surveyLogic)
     const { clearFilters } = useActions(surveyLogic)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     /**
      * custom column renderer that does:
@@ -486,64 +491,78 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     }, [survey.questions])
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
     return (
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
-            <SurveyStatsSummary />
-            {isAnyResultsLoading || atLeastOneResponse ? (
+            {isRefreshingResults || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestionV2 />
-                    <LemonButton
-                        type="primary"
-                        data-attr="survey-results-explore"
-                        icon={<IconGraph />}
-                        to={surveyAsInsightURL}
-                        className="max-w-40"
+                    <SurveyResultsRefreshStatus visible={isRefreshingResults} />
+                    <div
+                        aria-busy={isRefreshingResults}
+                        className={
+                            isRefreshingResults
+                                ? 'opacity-75 transition-opacity duration-200 ease-out'
+                                : 'opacity-100 transition-opacity duration-200 ease-out'
+                        }
                     >
-                        Explore results
-                    </LemonButton>
-                    {!disableEventsTable &&
-                        (surveyLoading ? (
-                            <LemonSkeleton />
-                        ) : (
-                            <div className="survey-table-results">
-                                <Query
-                                    query={dataTableQuery}
-                                    context={{
-                                        columns: surveyColumnRenderers,
-                                        rowProps: (record: unknown) => {
-                                            // "mute" archived records
-                                            if (typeof record !== 'object' || !record || !('result' in record)) {
-                                                return {}
-                                            }
-                                            const result = record.result
-                                            if (!Array.isArray(result)) {
-                                                return {}
-                                            }
-                                            return {
-                                                className:
-                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
-                                                        ? 'opacity-50'
-                                                        : undefined,
-                                            }
-                                        },
-                                    }}
-                                />
-                            </div>
-                        ))}
+                        <SurveyStatsSummary />
+                        <SurveyResponsesByQuestionV2 />
+                        <LemonButton
+                            type="primary"
+                            data-attr="survey-results-explore"
+                            icon={<IconGraph />}
+                            to={surveyAsInsightURL}
+                            className="max-w-40"
+                        >
+                            Explore results
+                        </LemonButton>
+                        {!disableEventsTable &&
+                            (isInitialSurveyLoad ? (
+                                <LemonSkeleton />
+                            ) : (
+                                <div className="survey-table-results">
+                                    <Query
+                                        query={dataTableQuery}
+                                        context={{
+                                            columns: surveyColumnRenderers,
+                                            rowProps: (record: unknown) => {
+                                                // "mute" archived records
+                                                if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                    return {}
+                                                }
+                                                const result = record.result
+                                                if (!Array.isArray(result)) {
+                                                    return {}
+                                                }
+                                                return {
+                                                    className:
+                                                        result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                            ? 'opacity-50'
+                                                            : undefined,
+                                                }
+                                            },
+                                        }}
+                                    />
+                                </div>
+                            ))}
+                    </div>
                 </>
             ) : (
-                <SurveyNoResponsesBanner
-                    type="survey"
-                    isFiltered={hasActiveFilters}
-                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
-                    activeFilterTypes={{
-                        dateRange: hasActiveDateRange,
-                        answerFilters: hasActiveAnswerFilters,
-                        propertyFilters: propertyFilters.length > 0,
-                    }}
-                />
+                <>
+                    <SurveyStatsSummary />
+                    <SurveyNoResponsesBanner
+                        type="survey"
+                        isFiltered={hasActiveFilters}
+                        onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                        activeFilterTypes={{
+                            dateRange: hasActiveDateRange,
+                            answerFilters: hasActiveAnswerFilters,
+                            propertyFilters: propertyFilters.length > 0,
+                        }}
+                    />
+                </>
             )}
         </div>
     )
