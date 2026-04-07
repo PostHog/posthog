@@ -365,6 +365,12 @@ class Command(BaseCommand):
         total_missing = sum(len(m) for _, m in missing_by_export)
         logger.info(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s)")
 
+        if not options["dry_run"]:
+            confirm = input(f"Proceed with backfilling {total_missing} interval(s)? [y/N] ")
+            if confirm.lower() != "y":
+                logger.info("Aborted")
+                return
+
         overlap_policy_map = {
             "buffer_all": temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
             "allow_all": temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
