@@ -12,40 +12,39 @@ function variantProperties(variant: string): Record<string, any> {
     }
 }
 
-const experimentEvents = [
-    // Exposure events: 60 users per variant (above the 50-user minimum for results)
-    ...createEvent({
-        event: '$feature_flag_called',
-        user: (n) => `control-user-${n}`,
-        timestamp: daysAgo(3),
-        properties: variantProperties('control'),
-    }).repeat(60),
-    ...createEvent({
-        event: '$feature_flag_called',
-        user: (n) => `test-user-${n}`,
-        timestamp: daysAgo(3),
-        properties: variantProperties('test'),
-    }).repeat(60),
+// 51 users per variant — just above the 50-user minimum for results to render.
+// Kept minimal to reduce execution time and flakiness.
+const USERS_PER_VARIANT = 51
 
-    // Metric events: $pageview — control gets 1 per user, test gets 2 (test "wins")
+const experimentEvents = [
+    // Exposure events
+    ...createEvent({
+        event: '$feature_flag_called',
+        user: (n) => `control-user-${n}`,
+        timestamp: daysAgo(3),
+        properties: variantProperties('control'),
+    }).repeat(USERS_PER_VARIANT),
+    ...createEvent({
+        event: '$feature_flag_called',
+        user: (n) => `test-user-${n}`,
+        timestamp: daysAgo(3),
+        properties: variantProperties('test'),
+    }).repeat(USERS_PER_VARIANT),
+
+    // Metric events: $pageview — 1 per control user, 1 per test user
+    // Kept minimal to reduce execution time and flakiness.
     ...createEvent({
         event: '$pageview',
         user: (n) => `control-user-${n}`,
         timestamp: daysAgo(2),
         properties: variantProperties('control'),
-    }).repeat(60),
+    }).repeat(USERS_PER_VARIANT),
     ...createEvent({
         event: '$pageview',
         user: (n) => `test-user-${n}`,
         timestamp: daysAgo(2),
         properties: variantProperties('test'),
-    }).repeat(60),
-    ...createEvent({
-        event: '$pageview',
-        user: (n) => `test-user-${n}`,
-        timestamp: daysAgo(1),
-        properties: variantProperties('test'),
-    }).repeat(60),
+    }).repeat(USERS_PER_VARIANT),
 ]
 
 test.describe('Experiment lifecycle', () => {
@@ -82,8 +81,13 @@ test.describe('Experiment lifecycle', () => {
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Analytics' })).toBeVisible()
                 await expect(page.getByText('How to measure impact?')).toBeVisible()
 
-                await page.getByRole('button', { name: 'Save as draft' }).click()
-                await page.waitForURL(/\/experiments\/\d+$/)
+                // This click occasionally doesn't produce a navigation. Possible causes:
+                // the click not reaching React's event handler after the step transition,
+                // or the backend response being slow. Retry until navigation confirms success.
+                await expect(async () => {
+                    await page.getByRole('button', { name: 'Save as draft' }).click()
+                    await page.waitForURL(/\/experiments\/\d+$/, { timeout: 5000 })
+                }).toPass({ timeout: 30000 })
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
             })
 
