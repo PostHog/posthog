@@ -119,14 +119,6 @@
             {
                 "forbid": [
                     {
-                        "element": "Layout",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Tabs",
-                        "message": "use <LemonTabs> instead"
-                    },
-                    {
                         "element": "Space",
                         "message": "use flex or space utility classes instead"
                     },
@@ -135,36 +127,8 @@
                         "message": "use Spinner instead"
                     },
                     {
-                        "element": "Badge",
-                        "message": "use LemonBadge instead"
-                    },
-                    {
-                        "element": "InputNumber",
-                        "message": "use LemonInput with type=\"number\" instead"
-                    },
-                    {
-                        "element": "Collapse",
-                        "message": "use <LemonCollapse> instead"
-                    },
-                    {
-                        "element": "Slider",
-                        "message": "use <LemonSlider> instead"
-                    },
-                    {
-                        "element": "Checkbox",
-                        "message": "use <LemonCheckbox> instead"
-                    },
-                    {
                         "element": "MonacoEditor",
                         "message": "use <CodeEditor> instead"
-                    },
-                    {
-                        "element": "Typography",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Input.TextArea",
-                        "message": "use <LemonTextArea> instead"
                     },
                     {
                         "element": "ReactMarkdown",
@@ -173,54 +137,6 @@
                     {
                         "element": "a",
                         "message": "use <Link> instead"
-                    },
-                    {
-                        "element": "Tag",
-                        "message": "use <LemonTag> instead"
-                    },
-                    {
-                        "element": "Alert",
-                        "message": "use <LemonBanner> instead"
-                    },
-                    {
-                        "element": "ReactJson",
-                        "message": "use <JSONViewer> for dark mode support instead"
-                    },
-                    {
-                        "element": "Radio",
-                        "message": "use <LemonRadio> instead"
-                    },
-                    {
-                        "element": "Skeleton",
-                        "message": "use <LemonSkeleton> instead"
-                    },
-                    {
-                        "element": "Divider",
-                        "message": "use <LemonDivider> instead"
-                    },
-                    {
-                        "element": "Popconfirm",
-                        "message": "use <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Button",
-                        "message": "use <LemonButton> instead"
-                    },
-                    {
-                        "element": "Input",
-                        "message": "use <LemonInput> instead"
-                    },
-                    {
-                        "element": "Modal",
-                        "message": "use <LemonModal> or <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Select",
-                        "message": "use <LemonSelect> instead"
-                    },
-                    {
-                        "element": "Progress",
-                        "message": "use <LemonProgress> instead"
                     }
                 ]
             }

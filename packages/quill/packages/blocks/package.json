@@ -1,0 +1,40 @@
+{
+    "name": "@posthog/quill-blocks",
+    "version": "0.0.1",
+    "private": true,
+    "files": [
+        "src",
+        "dist"
+    ],
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "default": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "vite build"
+    },
+    "dependencies": {
+        "@posthog/quill-components": "workspace:^",
+        "@posthog/quill-primitives": "workspace:^",
+        "@posthog/quill-tokens": "workspace:^"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.1.17",
+        "@vitejs/plugin-react": "^5.1.1",
+        "vite": "^6.3.5",
+        "vite-plugin-dts": "^4.5.4"
+    },
+    "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "tailwindcss": "^4.0.0"
+    }
+}

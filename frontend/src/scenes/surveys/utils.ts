@@ -417,6 +417,27 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Some fields can only be edited in the full editor — opening such a survey
+// in the wizard would hide those values from the user, so we route them to
+// the full editor regardless of their general editor preference. Keep this
+// list in sync with what the wizard's steps actually expose.
+export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
+    if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // Adaptive sampling — WhenStep exposes a simple responses_limit but not
+    // the adaptive sampling controls
+    if (survey.response_sampling_limit || survey.response_sampling_start_date) {
+        return false
+    }
+    // Property-based targeting filters — WhereStep handles linked_flag
+    // (release conditions) but not targeting_flag_filters
+    if (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) {
+        return false
+    }
+    return true
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {

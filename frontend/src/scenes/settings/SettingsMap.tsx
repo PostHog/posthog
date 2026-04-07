@@ -38,6 +38,12 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
+import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
+import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
+import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
+import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -876,6 +882,56 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.heatmaps,
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Conversations',
+        group: 'Products',
+        flag: 'PRODUCT_SUPPORT',
+        settings: [
+            {
+                id: 'conversations-api',
+                title: 'Conversations',
+                component: <ApiSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                component: <NotificationsSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-widget',
+                title: 'In-app widget',
+                component: <WidgetSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-slack',
+                title: 'Slack channel',
+                component: <SlackSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-email',
+                title: 'Email channel',
+                component: <EmailSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-workflows',
+                title: 'Workflows',
+                component: <WorkflowsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
             },
         ],
     },

@@ -4662,6 +4662,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-consumer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "rand 0.8.5",
+ "rdkafka",
+ "reqwest 0.12.28",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

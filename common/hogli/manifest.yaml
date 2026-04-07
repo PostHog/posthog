@@ -521,9 +521,6 @@ tests:
     test:js:
         cmd: pnpm --filter=@posthog/frontend test
         description: Run JavaScript test suite
-    test:run:
-        bin_script: tests
-        description: Interactive test runner with watch mode and changed file detection
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests

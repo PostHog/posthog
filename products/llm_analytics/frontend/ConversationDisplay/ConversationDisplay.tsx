@@ -1,4 +1,3 @@
-import { useActions } from 'kea'
 import React from 'react'
 
 import { IconPlay } from '@posthog/icons'
@@ -8,7 +7,7 @@ import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
@@ -19,8 +18,6 @@ export interface ConversationDisplayProps {
 }
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
-
     const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
     const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
     const { input, output, isLoading } = useAIData({
@@ -30,7 +27,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
     })
 
     const handleOpenInPlayground = (): void => {
-        setupPlaygroundFromEvent({
+        openInPlayground({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
             input,

@@ -28,7 +28,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
     })),
     loaders(({ props }) => ({
         blastRadius: [
-            null as { users_affected: number; total_users: number } | null,
+            null as { affected: number; total: number } | null,
             {
                 loadBlastRadius: async () => {
                     if (!props.filters) {

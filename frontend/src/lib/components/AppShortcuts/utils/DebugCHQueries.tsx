@@ -454,6 +454,34 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             </LemonTag>
                                         ) : null}
                                     </div>
+                                    {item.logComment.product === 'experiments' ? (
+                                        <div className="flex flex-wrap gap-1">
+                                            {typeof item.logComment.experiment_name === 'string' ? (
+                                                <LemonTag type="highlight" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Experiment:</span>{' '}
+                                                    <span>{item.logComment.experiment_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_metric_name === 'string' ? (
+                                                <LemonTag type="completion" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Metric:</span>{' '}
+                                                    <span>{item.logComment.experiment_metric_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_execution_path === 'string' ? (
+                                                <LemonTag
+                                                    type={
+                                                        item.logComment.experiment_execution_path === 'precomputed'
+                                                            ? 'success'
+                                                            : 'default'
+                                                    }
+                                                    className="inline-block"
+                                                >
+                                                    {item.logComment.experiment_execution_path}
+                                                </LemonTag>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>
