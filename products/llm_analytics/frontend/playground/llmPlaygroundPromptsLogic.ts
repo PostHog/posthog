@@ -81,8 +81,16 @@ export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
  */
 let pendingPlaygroundSetup: PlaygroundSetupPayload | null = null
 
-export function queuePlaygroundSetup(payload: PlaygroundSetupPayload): void {
+/** Queue a setup payload and navigate to the playground. */
+export function openInPlayground(payload: PlaygroundSetupPayload): void {
     pendingPlaygroundSetup = payload
+    // Clear if urlToAction never fires (e.g. same-URL push that kea-router deduplicates).
+    setTimeout(() => {
+        if (pendingPlaygroundSetup === payload) {
+            pendingPlaygroundSetup = null
+        }
+    }, 0)
+    router.actions.push(urls.llmAnalyticsPlayground())
 }
 
 function consumePendingPlaygroundSetup(): PlaygroundSetupPayload | null {

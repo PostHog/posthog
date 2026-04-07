@@ -79,7 +79,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { queuePlaygroundSetup } from './playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -1496,8 +1496,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            queuePlaygroundSetup({ model, provider, input: loadedInput, tools })
-            router.actions.push(urls.llmAnalyticsPlayground())
+            openInPlayground({ model, provider, input: loadedInput, tools })
         }
 
         return (

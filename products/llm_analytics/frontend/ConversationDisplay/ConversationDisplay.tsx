@@ -1,16 +1,13 @@
-import { router } from 'kea-router'
 import React from 'react'
 
 import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { queuePlaygroundSetup } from '../playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
@@ -30,12 +27,11 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
     })
 
     const handleOpenInPlayground = (): void => {
-        queuePlaygroundSetup({
+        openInPlayground({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
             input,
         })
-        router.actions.push(urls.llmAnalyticsPlayground())
     }
 
     const tools = eventProperties.$ai_tools
