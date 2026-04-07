@@ -333,6 +333,7 @@ class TestBotDefinitionsDataStructure:
             assert bot_def.name, f"Bot definition for {pattern} missing name"
             assert bot_def.category, f"Bot definition for {pattern} missing category"
             assert bot_def.traffic_type, f"Bot definition for {pattern} missing traffic_type"
+            assert bot_def.operator, f"Bot definition for {pattern} missing operator"
 
     def test_traffic_types_are_valid(self):
         valid_types = {"AI Agent", "Bot", "Automation"}
