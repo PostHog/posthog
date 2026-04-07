@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+import structlog
 import temporalio.client
 
 from posthog.batch_exports.models import BatchExport, BatchExportRun
@@ -13,7 +14,7 @@ from posthog.temporal.common.client import connect
 
 from products.batch_exports.backend.service import align_timestamp_to_interval
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # Statuses that count as "covered" — the run either succeeded or is still in progress
@@ -216,7 +217,7 @@ async def run_backfills(
 
     for export, missing_intervals in missing_by_export:
         logger.info(
-            f"{export.name} (id={export.id}, team={export.team_id}, "
+            f"Batch export '{export.name}' (id={export.id}, team={export.team_id}, "
             f"interval={export.interval}) — {len(missing_intervals)} missing"
         )
 
@@ -374,5 +375,5 @@ class Command(BaseCommand):
             run_backfills(missing_by_export, options["dry_run"], overlap_policy, options["no_delay"]),
         )
 
-        prefix = "[DRY RUN] " if options["dry_run"] else ""
-        logger.info(f"{prefix}Backfill complete: {total_backfills} backfills, {failed_exports} failed exports")
+        if not options["dry_run"]:
+            logger.info(f"Backfill complete: {total_backfills} backfills, {failed_exports} failed exports")
