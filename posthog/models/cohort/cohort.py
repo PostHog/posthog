@@ -696,18 +696,23 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
                 persons_query = Person.objects.db_manager(db_read).filter(team_id=team_id).filter(uuid__in=batch)
                 if insert_in_clickhouse:
-                    # No need to exclude existing members here — the CH
-                    # INSERT template already has a NOT IN clause that
-                    # handles deduplication.
+                    # Exclude existing cohort members via a subquery on
+                    # CohortPeople so we don't insert duplicates into the
+                    # ReplacingMergeTree (duplicates persist until async merge).
+                    insert_uuids_query = persons_query.exclude(
+                        id__in=CohortPeople.objects.using(db_write)
+                        .filter(cohort_id=self.id)
+                        .values_list("person_id", flat=True)
+                    )
                     insert_static_cohort(
-                        list(persons_query.values_list("uuid", flat=True)),
+                        list(insert_uuids_query.values_list("uuid", flat=True)),
                         self.pk,
                         team_id=team_id,
                     )
 
-                # Use a LEFT JOIN to exclude persons already in the cohort,
-                # avoiding loading all existing member IDs into Python. Both
-                # tables are on the same persons DB so this join works.
+                # Exclude existing members via a LEFT JOIN so the exclusion
+                # stays entirely within the database. Both tables are on
+                # the same persons DB so this join works.
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = f"""
                     INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
