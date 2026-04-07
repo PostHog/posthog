@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -74,6 +75,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = ["create"]
     serializer_class = EventFilterConfigSerializer
     queryset = EventFilterConfig.objects.all()
+    pagination_class = None
 
     def _get_or_create(self) -> EventFilterConfig:
         config, _ = EventFilterConfig.objects.get_or_create(
@@ -82,11 +84,20 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return config
 
+    @extend_schema(
+        responses={200: EventFilterConfigSerializer},
+        description="Returns the singleton event filter config for the team. Auto-creates with defaults on first access.",
+    )
     def list(self, request, **kwargs):
         config = self._get_or_create()
         serializer = self.get_serializer(config)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=EventFilterConfigSerializer,
+        responses={200: EventFilterConfigSerializer},
+        description="Upsert the event filter config. Accepts partial updates.",
+    )
     def create(self, request, **kwargs):
         config = self._get_or_create()
         serializer = self.get_serializer(config, data=request.data, partial=True)
