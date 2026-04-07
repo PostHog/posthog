@@ -45,7 +45,7 @@ class ChangeRequestFilterSet(django_filters.FilterSet):
 
 
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "change_request"
+    scope_object = "approvals"
     scope_object_write_actions = ["approve", "reject", "cancel"]
     queryset = ChangeRequest.objects.all().order_by("-created_at")
     permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
@@ -158,7 +158,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
 
 class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "approval_policy"
+    scope_object = "approvals"
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")
     serializer_class = ApprovalPolicySerializer
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions, PremiumFeaturePermission]

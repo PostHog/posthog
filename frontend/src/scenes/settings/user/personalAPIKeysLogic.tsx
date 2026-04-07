@@ -154,9 +154,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
 
-                // Hide approval-related scopes unless the org has the APPROVALS feature
+                // Hide approvals scope unless the org has the APPROVALS feature
                 if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
-                    scopes = scopes.filter((scope) => scope.key !== 'change_request' && scope.key !== 'approval_policy')
+                    scopes = scopes.filter((scope) => scope.key !== 'approvals')
                 }
 
                 if (!searchTerm.trim()) {

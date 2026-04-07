@@ -746,7 +746,7 @@ class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'comment:read'"
 
 
-class TestPersonalAPIKeysWithApprovalScopes(PersonalAPIKeysBaseTest):
+class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
         self.organization_membership.level = 8  # Admin, required for approval_policies write
@@ -756,47 +756,38 @@ class TestPersonalAPIKeysWithApprovalScopes(PersonalAPIKeysBaseTest):
             {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
         ]
         self.organization.save()
-
-    def test_change_request_read_scope_allows_list(self):
-        self.key.scopes = ["change_request:read"]
+        self.key.scopes = ["approvals:read"]
         self.key.save()
-        response = self._do_request(f"/api/environments/{self.team.id}/change_requests/")
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    def test_read_scope_allows_list(self, endpoint):
+        response = self._do_request(f"/api/environments/{self.team.id}/{endpoint}/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_change_request_read_scope_forbids_approve(self):
+    def test_read_scope_forbids_change_request_approve(self):
         cr = self._create_change_request()
-        self.key.scopes = ["change_request:read"]
-        self.key.save()
         response = self.client.post(
             f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
             headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "API key missing required scope 'change_request:write'"
+        assert response.json()["detail"] == "API key missing required scope 'approvals:write'"
 
-    def test_approval_policy_read_scope_allows_list(self):
-        self.key.scopes = ["approval_policy:read"]
-        self.key.save()
-        response = self._do_request(f"/api/environments/{self.team.id}/approval_policies/")
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_approval_policy_read_scope_forbids_create(self):
-        self.key.scopes = ["approval_policy:read"]
-        self.key.save()
+    def test_read_scope_forbids_approval_policy_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/approval_policies/",
             data={"action_key": "feature_flag.enable", "approver_config": {"quorum": 1, "users": [self.user.id]}},
             headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "API key missing required scope 'approval_policy:write'"
+        assert response.json()["detail"] == "API key missing required scope 'approvals:write'"
 
-    def test_change_request_scope_does_not_grant_approval_policy_access(self):
-        self.key.scopes = ["change_request:read"]
+    def test_denies_access_with_unrelated_scope(self):
+        self.key.scopes = ["feature_flag:read"]
         self.key.save()
-        response = self._do_request(f"/api/environments/{self.team.id}/approval_policies/")
+        response = self._do_request(f"/api/environments/{self.team.id}/change_requests/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "API key missing required scope 'approval_policy:read'"
+        assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
 
     def _create_change_request(self):
         from posthog.approvals.models import ChangeRequest, ChangeRequestState
