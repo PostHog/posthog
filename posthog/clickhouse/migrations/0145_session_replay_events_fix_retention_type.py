@@ -30,13 +30,13 @@ operations = [
     run_sql_with_exceptions(DROP_RETENTION_PERIOD_DAYS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(
         DROP_RETENTION_PERIOD_DAYS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(DROP_RETENTION_PERIOD_DAYS_SESSION_REPLAY_EVENTS_TABLE_SQL(), sharded=True),
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(
         ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_SESSION_REPLAY_EVENTS_TABLE_SQL(), sharded=True),
     # and then recreate the materialized views and kafka tables

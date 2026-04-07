@@ -20,6 +20,7 @@ export function createPersonHogClient(config: PersonHogConfig): PersonHogClient 
 
     return PersonHogClient.fromConfig({
         addr: config.PERSONHOG_ADDR,
+        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
         useTls: config.PERSONHOG_TLS,
         timeoutMs: config.PERSONHOG_TIMEOUT_MS,
         readMaxBytes: config.PERSONHOG_READ_MAX_BYTES,
@@ -27,6 +28,8 @@ export function createPersonHogClient(config: PersonHogConfig): PersonHogClient 
         pingIntervalMs: config.PERSONHOG_PING_INTERVAL_MS,
         pingTimeoutMs: config.PERSONHOG_PING_TIMEOUT_MS,
         pingIdleConnection: config.PERSONHOG_PING_IDLE_CONNECTION,
+        idleConnectionTimeoutMs: config.PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS,
+        stateMonitorPollIntervalMs: config.PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS,
     })
 }
 

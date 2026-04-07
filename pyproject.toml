@@ -281,6 +281,7 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
+force-exclude = true
 exclude = [
     ".git",
     "./.semgrep",
@@ -288,6 +289,7 @@ exclude = [
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",
+    "products/*/skills/*/scripts",
 ]
 
 [tool.ruff.lint]

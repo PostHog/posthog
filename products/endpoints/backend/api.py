@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import serializers, status, viewsets
@@ -100,6 +101,13 @@ from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
+)
+from products.endpoints.backend.serializers import (
+    EndpointMaterializationSerializer,
+    EndpointRequestSerializer,
+    EndpointResponseSerializer,
+    EndpointRunResponseSerializer,
+    EndpointVersionResponseSerializer,
 )
 
 from common.hogvm.python.utils import HogVMException
@@ -271,6 +279,13 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    partial_update=extend_schema(
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
+        description="Update an existing endpoint.",
+    ),
+)
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -283,6 +298,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "versions",
         "openapi_spec",
         "materialization_preview",
+        "materialization_status",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -326,10 +342,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None
 
-    def _build_materialization_info(self, version: EndpointVersion) -> dict:
+    def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
         if version.saved_query:
-            return {
+            result = {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
@@ -342,12 +358,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     version.saved_query.sync_frequency_interval
                 ),
             }
+        else:
+            can_mat, reason = version.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
 
-        can_mat, reason = version.can_materialize()
-        return {
-            "can_materialize": can_mat,
-            "reason": reason if not can_mat else None,
-        }
+        if endpoint_name is not None:
+            result["name"] = endpoint_name
+        return result
 
     def _serialize(
         self,
@@ -389,6 +409,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
+            "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
@@ -399,16 +420,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
             result["version_created_at"] = version.created_at.isoformat()
+            result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
 
+    @extend_schema(
+        responses={200: EndpointResponseSerializer(many=True)},
+        description="List all endpoints for the team.",
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            results = [self._serialize(endpoint, request) for endpoint in page]
+            return self.get_paginated_response(results)
         results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
+    @extend_schema(
+        responses={200: EndpointVersionResponseSerializer},
+        description="Retrieve an endpoint, or a specific version via ?version=N.",
+    )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
         endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
@@ -606,8 +640,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self._validate_sync_frequency(data.sync_frequency)
 
     @extend_schema(
-        request=EndpointRequest,
-        description="Create a new endpoint",
+        request=EndpointRequestSerializer,
+        responses={201: EndpointResponseSerializer},
+        description="Create a new endpoint.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create a new endpoint."""
@@ -676,7 +711,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_name": data.name,
                 },
@@ -709,7 +744,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._validate_hogql_query(data.query)
 
     @extend_schema(
-        request=EndpointRequest,
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
         description="Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.",
     )
     def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
@@ -724,6 +760,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Soft-delete via PATCH {deleted: true} — reuses destroy() logic, returns 200 with body for MCP
+        if data.deleted is True:
+            self.destroy(request, name=name)
+            return Response({"success": True}, status=status.HTTP_200_OK)
 
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 
@@ -797,6 +838,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     target_version.is_active = data.is_active
                     update_fields.append("is_active")
                 if update_fields:
+                    update_fields.append("updated_at")
                     target_version.save(update_fields=update_fields)
 
             # Step 4: Handle materialization state (only if endpoint should be active)
@@ -940,7 +982,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_id": endpoint.id,
                     "saved_query_id": current_version.saved_query.id if current_version.saved_query else None,
@@ -1040,7 +1082,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
         version.saved_query = saved_query
         version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides"])
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -1563,7 +1605,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
             }
-            tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
+            tag_queries(
+                workload=Workload.ENDPOINTS,
+                warehouse_query=True,
+                endpoint_version=version.version if version else None,
+            )
 
             result = self._execute_query_and_respond(
                 query_request_data,
@@ -1844,6 +1890,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
 
             cache_age = version.cache_age_seconds if version else None
+            tag_queries(endpoint_version=version.version if version else None)
 
             return self._execute_query_and_respond(
                 query_request_data,
@@ -1875,6 +1922,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRunRequest,
+        responses={200: EndpointRunResponseSerializer},
         description="Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.",
     )
     @action(methods=["GET", "POST"], detail=True)
@@ -2017,9 +2065,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
 
-        if version_obj and isinstance(result.data, dict):
-            result.data["endpoint_version"] = version_obj.version
-            result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
+        if isinstance(result.data, dict):
+            result.data["name"] = endpoint.name
+            if version_obj:
+                result.data["endpoint_version"] = version_obj.version
+                result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
         return result
 
@@ -2141,6 +2191,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         tag_queries(client_query_id=query_id)
 
     @extend_schema(
+        responses={200: EndpointVersionResponseSerializer(many=True)},
         description="List all versions for an endpoint.",
     )
     @action(methods=["GET"], detail=True)
@@ -2150,12 +2201,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns versions in descending order (latest first).
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
-        versions = endpoint.versions.all()
-
-        results = [self._serialize(v) for v in versions]
-        return Response(results)
+        versions_qs = endpoint.versions.all()
+        page = self.paginate_queryset(versions_qs)
+        if page is not None:
+            results = [self._serialize(v) for v in page]
+            return self.get_paginated_response(results)
+        results = [self._serialize(v) for v in versions_qs]
+        return Response({"results": results})
 
     @extend_schema(
+        responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
     @action(methods=["GET"], detail=True, url_path="materialization_status")
@@ -2175,7 +2230,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             version = endpoint.get_version()
 
-        return Response(self._build_materialization_info(version))
+        return Response(self._build_materialization_info(version, endpoint_name=endpoint.name))
 
     @validated_request(
         MaterializationPreviewRequestSerializer,

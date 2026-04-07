@@ -112,16 +112,14 @@ export function aggregateClusterMetrics(
         let costCount = 0
         let latencyCount = 0
         let tokenCount = 0
-        let itemsWithErrors = 0
+        let errorCount = 0
         let totalItemsWithData = 0
 
         for (const itemId of Object.keys(cluster.traces)) {
             const metrics = itemMetrics[itemId]
             if (metrics) {
                 totalItemsWithData++
-                if (metrics.errorCount > 0) {
-                    itemsWithErrors++
-                }
+                errorCount += metrics.errorCount
                 if (metrics.cost !== null && metrics.cost > 0) {
                     totalCost += metrics.cost
                     costCount++
@@ -143,8 +141,8 @@ export function aggregateClusterMetrics(
             avgLatency: latencyCount > 0 ? totalLatency / latencyCount : null,
             avgTokens: tokenCount > 0 ? totalTokens / tokenCount : null,
             totalCost: costCount > 0 ? totalCost : null,
-            errorRate: totalItemsWithData > 0 ? itemsWithErrors / totalItemsWithData : null,
-            errorCount: itemsWithErrors,
+            errorRate: totalItemsWithData > 0 ? Math.min(1.0, errorCount / totalItemsWithData) : null,
+            errorCount,
             itemCount: totalItemsWithData,
         }
     }

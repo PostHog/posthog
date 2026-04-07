@@ -55,7 +55,9 @@ urlencoding = "2.1.3"
 rayon = "1.11.0"
 similar = "2.7"
 open = "5"
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
+tempfile = "3"
+zstd = "0.13"
 symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
 

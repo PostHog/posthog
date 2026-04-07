@@ -35,25 +35,31 @@ import { KafkaProducerWrapper } from '../../src/kafka/producer'
 
 export function createTestMonitoringOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
-        [APP_METRICS_OUTPUT]: { topic: KAFKA_APP_METRICS_2, producer: kafkaProducer },
-        [LOG_ENTRIES_OUTPUT]: { topic: KAFKA_LOG_ENTRIES, producer: kafkaProducer },
+        [APP_METRICS_OUTPUT]: [{ topic: KAFKA_APP_METRICS_2, producer: kafkaProducer, producerName: 'test' }],
+        [LOG_ENTRIES_OUTPUT]: [{ topic: KAFKA_LOG_ENTRIES, producer: kafkaProducer, producerName: 'test' }],
     })
 }
 
 export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
-        [EVENTS_OUTPUT]: { topic: KAFKA_EVENTS_JSON, producer: kafkaProducer },
-        [AI_EVENTS_OUTPUT]: { topic: KAFKA_CLICKHOUSE_AI_EVENTS_JSON, producer: kafkaProducer },
-        [HEATMAPS_OUTPUT]: { topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS, producer: kafkaProducer },
-        [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaProducer },
-        [DLQ_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, producer: kafkaProducer },
-        [OVERFLOW_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, producer: kafkaProducer },
-        [ASYNC_OUTPUT]: { topic: KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC, producer: kafkaProducer },
-        [GROUPS_OUTPUT]: { topic: KAFKA_GROUPS, producer: kafkaProducer },
-        [PERSONS_OUTPUT]: { topic: KAFKA_PERSON, producer: kafkaProducer },
-        [PERSON_DISTINCT_IDS_OUTPUT]: { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer },
-        [APP_METRICS_OUTPUT]: { topic: KAFKA_APP_METRICS_2, producer: kafkaProducer },
-        [LOG_ENTRIES_OUTPUT]: { topic: KAFKA_LOG_ENTRIES, producer: kafkaProducer },
-        [TOPHOG_OUTPUT]: { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaProducer },
+        [EVENTS_OUTPUT]: [{ topic: KAFKA_EVENTS_JSON, producer: kafkaProducer, producerName: 'test' }],
+        [AI_EVENTS_OUTPUT]: [{ topic: KAFKA_CLICKHOUSE_AI_EVENTS_JSON, producer: kafkaProducer, producerName: 'test' }],
+        [HEATMAPS_OUTPUT]: [{ topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS, producer: kafkaProducer, producerName: 'test' }],
+        [INGESTION_WARNINGS_OUTPUT]: [
+            { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaProducer, producerName: 'test' },
+        ],
+        [DLQ_OUTPUT]: [{ topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, producer: kafkaProducer, producerName: 'test' }],
+        [OVERFLOW_OUTPUT]: [
+            { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, producer: kafkaProducer, producerName: 'test' },
+        ],
+        [ASYNC_OUTPUT]: [{ topic: KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC, producer: kafkaProducer, producerName: 'test' }],
+        [GROUPS_OUTPUT]: [{ topic: KAFKA_GROUPS, producer: kafkaProducer, producerName: 'test' }],
+        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: kafkaProducer, producerName: 'test' }],
+        [PERSON_DISTINCT_IDS_OUTPUT]: [
+            { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer, producerName: 'test' },
+        ],
+        [APP_METRICS_OUTPUT]: [{ topic: KAFKA_APP_METRICS_2, producer: kafkaProducer, producerName: 'test' }],
+        [LOG_ENTRIES_OUTPUT]: [{ topic: KAFKA_LOG_ENTRIES, producer: kafkaProducer, producerName: 'test' }],
+        [TOPHOG_OUTPUT]: [{ topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaProducer, producerName: 'test' }],
     })
 }
