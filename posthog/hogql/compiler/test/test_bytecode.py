@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
-
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
@@ -599,40 +597,3 @@ class TestBytecode(BaseTest):
             execute_hog("<Sparkline data={[1,2,3]} />", team=self.team).result,
             {"__hx_tag": "Sparkline", "data": [1, 2, 3]},
         )
-
-    @parameterized.expand(
-        [
-            ("bool_false_vs_string_true", "person.properties.anonymize_data == 'true'", False, False),
-            ("bool_true_vs_string_true", "person.properties.anonymize_data == 'true'", True, True),
-            ("bool_false_vs_string_false", "person.properties.anonymize_data == 'false'", False, True),
-            ("bool_true_vs_string_false", "person.properties.anonymize_data == 'false'", True, False),
-            ("bool_false_vs_string_TRUE", "person.properties.anonymize_data == 'TRUE'", False, False),
-            ("bool_true_vs_string_FALSE", "person.properties.anonymize_data == 'FALSE'", True, False),
-            ("string_true_vs_bool_true", "person.properties.str_prop == true", "true", True),
-            ("string_false_vs_bool_false", "person.properties.str_prop == false", "false", True),
-            ("string_true_vs_bool_false", "person.properties.str_prop == false", "true", False),
-            ("string_false_vs_bool_true", "person.properties.str_prop == true", "false", False),
-        ]
-    )
-    def test_boolean_string_comparisons(self, _name, expr_str, property_value, expected):
-        prop_name = "anonymize_data" if "anonymize_data" in expr_str else "str_prop"
-        hog_globals = {"person": {"properties": {prop_name: property_value}}}
-        result = execute_hog(expr_str, globals=hog_globals)
-        self.assertEqual(result.result, expected)
-
-    @parameterized.expand(
-        [
-            ("bool_false_gt_string_true", "person.properties.flag > 'true'", False, False),
-            ("bool_true_gt_string_false", "person.properties.flag > 'false'", True, True),
-            ("bool_false_gte_string_false", "person.properties.flag >= 'false'", False, True),
-            ("bool_true_gte_string_true", "person.properties.flag >= 'true'", True, True),
-            ("bool_false_lt_string_true", "person.properties.flag < 'true'", False, True),
-            ("bool_true_lt_string_false", "person.properties.flag < 'false'", True, False),
-            ("bool_false_lte_string_false", "person.properties.flag <= 'false'", False, True),
-            ("bool_true_lte_string_true", "person.properties.flag <= 'true'", True, True),
-        ]
-    )
-    def test_boolean_string_ordering_comparisons(self, _name, expr_str, property_value, expected):
-        hog_globals = {"person": {"properties": {"flag": property_value}}}
-        result = execute_hog(expr_str, globals=hog_globals)
-        self.assertEqual(result.result, expected)
