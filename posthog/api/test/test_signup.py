@@ -1978,18 +1978,18 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
