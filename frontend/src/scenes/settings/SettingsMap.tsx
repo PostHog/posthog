@@ -38,6 +38,12 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
+import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
+import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
+import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
+import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -881,6 +887,56 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-conversations',
+        title: 'Conversations',
+        group: 'Products',
+        flag: 'PRODUCT_SUPPORT',
+        settings: [
+            {
+                id: 'conversations-api',
+                title: 'Conversations',
+                component: <ApiSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                component: <NotificationsSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-widget',
+                title: 'In-app widget',
+                component: <WidgetSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-slack',
+                title: 'Slack channel',
+                component: <SlackSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-email',
+                title: 'Email channel',
+                component: <EmailSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+            {
+                id: 'conversations-workflows',
+                title: 'Workflows',
+                component: <WorkflowsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['conversation', 'ticket', 'message', 'support'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
         group: 'Products',
@@ -1017,6 +1073,34 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: 'ERROR_TRACKING_SETTINGS_SPLIT',
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
+                component: <ErrorTrackingIntegrations />,
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-error-tracking-configuration',
+        title: 'Error tracking',
+        group: 'Products',
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                description:
+                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
+                docsUrl: 'https://posthog.com/docs/error-tracking',
+                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
+                component: <ExceptionAutocaptureToggle />,
+                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                flag: '!ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-alerting',
@@ -1024,6 +1108,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
                 component: <ErrorTrackingAlerting />,
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description: 'Filter out exceptions that match the given filters.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-spike-detection',
@@ -1044,21 +1135,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Define rules for how errors are grouped together into issues.',
                 component: <GroupingRules />,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
-            },
-            {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description:
-                    'Drop exceptions by type or message before they create issues. Rules are evaluated both client-side and server-side.',
-                component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
-                id: 'error-tracking-integrations',
-                title: 'Integrations',
-                description: 'Connect error tracking with external services like GitHub or Linear.',
-                component: <ErrorTrackingIntegrations />,
-                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',

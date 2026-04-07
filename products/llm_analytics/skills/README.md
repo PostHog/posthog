@@ -8,6 +8,9 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 
 - **exploring-llm-traces** — how to query, inspect, and debug LLM traces via MCP tools.
   Covers the `$ai_*` event schema, content detail levels, and step-by-step debugging workflows.
+- **exploring-llm-clusters** — how to investigate LLM analytics clustering results,
+  compare cluster behavior, compute metrics, and drill into individual traces.
+- **skills-store** — discover and use shared team skills stored as prompts in PostHog.
 
 ## Adding a new skill
 

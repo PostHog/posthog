@@ -138,16 +138,26 @@ export class SessionRecordingIngester {
         }
 
         const outputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaMetadataProducer },
-            [DLQ_OUTPUT]: {
-                topic: config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
-                producer: kafkaMessageProducer,
-            },
-            [OVERFLOW_OUTPUT]: {
-                topic: config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
-                producer: kafkaMessageProducer,
-            },
-            [TOPHOG_OUTPUT]: { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaMetadataProducer },
+            [INGESTION_WARNINGS_OUTPUT]: [
+                { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaMetadataProducer, producerName: 'default' },
+            ],
+            [DLQ_OUTPUT]: [
+                {
+                    topic: config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
+                    producer: kafkaMessageProducer,
+                    producerName: 'default',
+                },
+            ],
+            [OVERFLOW_OUTPUT]: [
+                {
+                    topic: config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
+                    producer: kafkaMessageProducer,
+                    producerName: 'default',
+                },
+            ],
+            [TOPHOG_OUTPUT]: [
+                { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaMetadataProducer, producerName: 'default' },
+            ],
         })
 
         this.topHog = new TopHog({

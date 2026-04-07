@@ -11,8 +11,8 @@ export async function capturePlayback(
     player: PlayerController,
     captureConfig: CaptureConfig,
     outputPath: string,
-    log: Logger = createLogger(),
-    onProgress?: () => void
+    onProgress: () => void,
+    log: Logger = createLogger()
 ): Promise<
     Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
 > {
@@ -55,20 +55,45 @@ export async function capturePlayback(
                 },
                 'capture progress'
             )
-            onProgress?.()
+            onProgress()
         }
     })
+
+    // Log the actual rejection reason when a frame capture fails. This fires
+    // with the original error from frame.evaluate() or beginFrame before
+    // captureStopped is emitted.
+    recorder.on('frameCaptureFailed', (reason: unknown) => {
+        log.error({ err: reason, frames: frameCount }, 'frame capture failed')
+    })
+
+    // Monitor page lifecycle events that can terminate capture.
+    // Named functions so we can remove them in the finally block — the page
+    // is pooled and reused, so anonymous listeners would accumulate.
+    let captureDone = false
+    const onPageClose = (): void => {
+        if (!captureDone) {
+            log.error({ frames: frameCount }, 'page closed during capture')
+        }
+    }
+    const onPageError = (err: Error): void => {
+        if (!captureDone) {
+            log.error({ err, frames: frameCount }, 'page error during capture')
+        }
+    }
+    page.on('close', onPageClose)
+    page.on('error', onPageError)
 
     // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
     // hangs forever. Listen for captureStopped to break out of the loop.
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
-    recorder.on('captureStopped', () => {
+    const onCaptureStopped = (): void => {
         log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
         const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         captureAborted = err
         captureAbortReject?.(err)
-    })
+    }
+    recorder.on('captureStopped', onCaptureStopped)
 
     let virtualElapsed = 0
     let truncated = false
@@ -77,12 +102,17 @@ export async function capturePlayback(
         const vp = page.viewport()
         log.info({ fps: captureConfig.captureFps, width: vp?.width, height: vp?.height }, 'capture started')
 
+        // Install after recorder.start() — puppeteer-capture overrides rAF/setTimeout/setInterval
+        // during start(), and this wraps those overrides with try/catch so individual player JS
+        // errors are swallowed instead of killing the entire capture.
+        await player.installCallbackErrorGuards()
+
         await player.startPlayback()
         log.info('playback started')
 
         const checkIntervalMs = 250
 
-        while (virtualElapsed < captureConfig.captureTimeoutMs) {
+        while (virtualElapsed < captureConfig.maxVirtualTimeMs) {
             if (captureAborted) {
                 throw captureAborted
             }
@@ -111,19 +141,28 @@ export async function capturePlayback(
             }
         }
 
-        if (virtualElapsed >= captureConfig.captureTimeoutMs) {
+        if (virtualElapsed >= captureConfig.maxVirtualTimeMs) {
             log.warn(
-                { timeout_s: captureConfig.captureTimeoutMs / 1000, frames: frameCount },
-                'capture timeout reached'
+                { max_virtual_s: captureConfig.maxVirtualTimeMs / 1000, frames: frameCount },
+                'max virtual time reached, truncating'
             )
             truncated = true
         }
     } finally {
+        captureDone = true
         captureAbortReject = null
+        page.off('close', onPageClose)
+        page.off('error', onPageError)
+        // puppeteer-capture's PuppeteerCapture extends EventEmitter but only
+        // declares `on` in its type — `off` exists at runtime.
+        ;(recorder as any).off('captureStopped', onCaptureStopped)
         try {
             await recorder.stop()
-        } catch {
-            // ffmpeg process may already be dead
+        } catch (stopErr) {
+            // recorder.stop() throws the stored _error when capture was
+            // terminated by page close, session disconnect, or ffmpeg crash.
+            // Log it so we can see the actual root cause.
+            log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
         }
     }
 

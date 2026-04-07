@@ -94,6 +94,8 @@ async def _create_task_and_trigger(
     context: CustomPromptSandboxContext,
     branch: str = "master",
     step_name: str = "",
+    origin_product: str | None = None,
+    signal_report_id: str | None = None,
 ):
     from posthog.models.team.team import Team
 
@@ -101,22 +103,18 @@ async def _create_task_and_trigger(
 
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    kwargs: dict[str, Any] = {
-        "team": team,
-        "title": title,
-        "description": description,
-        "origin_product": Task.OriginProduct.USER_CREATED,
-        "user_id": context.user_id,
-        "repository": context.repository,
-        "create_pr": False,
-        "mode": "background",
-        "branch": branch if branch and branch != "master" else None,
-    }
-    if context.sandbox_environment_id is not None:
-        kwargs["sandbox_environment_id"] = context.sandbox_environment_id
-    if context.posthog_mcp_scopes is not None:
-        kwargs["posthog_mcp_scopes"] = context.posthog_mcp_scopes
-    task = await sync_to_async(Task.create_and_run)(**kwargs)
+    task = await sync_to_async(Task.create_and_run)(
+        team=team,
+        title=title,
+        description=description,
+        origin_product=Task.OriginProduct(origin_product) if origin_product else Task.OriginProduct.USER_CREATED,
+        user_id=context.user_id,
+        repository=context.repository,
+        create_pr=False,
+        mode="background",
+        branch=branch if branch and branch != "master" else None,
+        signal_report_id=signal_report_id,
+    )
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")

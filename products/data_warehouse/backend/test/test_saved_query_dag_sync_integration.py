@@ -4,8 +4,8 @@ from unittest.mock import patch
 from rest_framework import status
 
 from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.models.dag import DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.node import NodeType
-from products.data_modeling.backend.services.saved_query_dag_sync import get_dag_id
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
@@ -34,7 +34,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(node.saved_query.name, "dag_sync_create_test")
         self.assertEqual(node.type, NodeType.VIEW)
         assert node.dag is not None
-        self.assertEqual(node.dag.name, get_dag_id(self.team.id))
+        self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
 
     def test_update_saved_query_syncs_to_dag(self):
         # create
