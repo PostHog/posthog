@@ -1,6 +1,10 @@
-import random as random_module
-
 from django.test import TestCase
+
+from hypothesis import (
+    given,
+    settings,
+    strategies as st,
+)
 
 from posthog.schema import ProductItemCategory, ProductKey
 
@@ -14,6 +18,14 @@ from products.growth.backend.cross_sell_candidate_selector import (
     SAME_CATEGORY_WEIGHT_BUMP,
     CrossSellCandidateSelector,
 )
+
+ALL_PRODUCT_PATHS = sorted(set(Products.get_product_paths()))
+ALL_CATEGORIES = list(ProductItemCategory)
+PRODUCTS_BY_CATEGORY = Products.get_products_by_category()
+
+# Hypothesis strategies
+product_paths_st = st.frozensets(st.sampled_from(ALL_PRODUCT_PATHS))
+categories_st = st.frozensets(st.sampled_from(ALL_CATEGORIES))
 
 
 def _make_selector(
@@ -248,95 +260,75 @@ class TestCrossSellCandidateSelectorGetWeightedCandidates(TestCase):
                 )
 
 
-class TestCrossSellCandidateSelectorPropertyTests(TestCase):
-    """Property tests that exercise the selector with many random inputs."""
+def _assert_selector_invariants(selector: CrossSellCandidateSelector) -> None:
+    weighted = selector._get_weighted_candidates()
+    candidate_paths = {path for path, _ in weighted}
+    all_paths = set(ALL_PRODUCT_PATHS)
 
-    def setUp(self):
-        super().setUp()
-        self.all_product_paths = sorted(set(Products.get_product_paths()))
-        self.products_by_category = Products.get_products_by_category()
+    assert not candidate_paths & selector.user_excluded_products, (
+        f"Candidates include excluded products: {candidate_paths & selector.user_excluded_products}"
+    )
+    assert candidate_paths <= all_paths, f"Candidates include invalid paths: {candidate_paths - all_paths}"
 
-    def _assert_selector_invariants(
+    for cat in selector.ignored_categories:
+        ignored_paths = set(PRODUCTS_BY_CATEGORY.get(cat, []))
+        assert not candidate_paths & ignored_paths, (
+            f"Candidates from ignored category {cat}: {candidate_paths & ignored_paths}"
+        )
+
+    for _, weight in weighted:
+        assert weight >= 1
+
+
+class TestCrossSellCandidateSelectorPropertyTests:
+    @given(enabled=product_paths_st)
+    @settings(max_examples=200, deadline=None)
+    def test_invariants_across_random_states(self, enabled: frozenset[str]):
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=set(enabled),
+            ignored_categories=DEFAULT_IGNORED_CATEGORIES,
+        )
+        _assert_selector_invariants(selector)
+
+    @given(enabled=product_paths_st, ignored=categories_st)
+    @settings(max_examples=200, deadline=None)
+    def test_invariants_with_random_ignored_categories(
+        self, enabled: frozenset[str], ignored: frozenset[ProductItemCategory]
+    ):
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=set(enabled),
+            ignored_categories=set(ignored),
+        )
+        _assert_selector_invariants(selector)
+
+    @given(
+        enabled=product_paths_st,
+        dismissed=product_paths_st,
+    )
+    @settings(max_examples=200, deadline=None)
+    def test_invariants_with_dismissed_products(self, enabled: frozenset[str], dismissed: frozenset[str]):
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=set(enabled),
+            ignored_categories=DEFAULT_IGNORED_CATEGORIES,
+            user_excluded_products=set(enabled | dismissed),
+        )
+        _assert_selector_invariants(selector)
+
+    @given(
+        enabled=product_paths_st,
+        dismissed=product_paths_st,
+        ignored=categories_st,
+    )
+    @settings(max_examples=200, deadline=None)
+    def test_invariants_all_dimensions(
         self,
-        selector: CrossSellCandidateSelector,
-        trial_label: str,
-    ) -> None:
-        weighted = selector._get_weighted_candidates()
-        candidate_paths = {path for path, _ in weighted}
-        all_paths = set(self.all_product_paths)
-
-        excluded_overlap = candidate_paths & selector.user_excluded_products
-        assert not excluded_overlap, f"[{trial_label}] candidates include excluded products: {excluded_overlap}"
-
-        invalid = candidate_paths - all_paths
-        assert not invalid, f"[{trial_label}] candidates include invalid paths: {invalid}"
-
-        for cat in selector.ignored_categories:
-            ignored_paths = set(self.products_by_category.get(cat, []))
-            leaked = candidate_paths & ignored_paths
-            assert not leaked, f"[{trial_label}] candidates from ignored category {cat}: {leaked}"
-
-        for _, weight in weighted:
-            assert weight >= 1, f"[{trial_label}] weight must be >= 1"
-
-    def test_invariants_across_random_states(self):
-        rng = random_module.Random(42)
-
-        for trial in range(200):
-            num_enabled = rng.randint(0, min(10, len(self.all_product_paths)))
-            enabled = set(rng.sample(self.all_product_paths, num_enabled))
-
-            selector = CrossSellCandidateSelector(
-                user_enabled_products=enabled,
-                ignored_categories=DEFAULT_IGNORED_CATEGORIES,
-            )
-            self._assert_selector_invariants(selector, f"trial={trial}, enabled={num_enabled}")
-
-    def test_invariants_with_random_ignored_categories(self):
-        rng = random_module.Random(456)
-        all_categories = list(ProductItemCategory)
-
-        for trial in range(100):
-            num_ignored = rng.randint(0, len(all_categories) - 1)
-            ignored = set(rng.sample(all_categories, num_ignored))
-            num_enabled = rng.randint(0, 5)
-            enabled = set(rng.sample(self.all_product_paths, num_enabled))
-
-            selector = CrossSellCandidateSelector(
-                user_enabled_products=enabled,
-                ignored_categories=ignored,
-            )
-            self._assert_selector_invariants(selector, f"trial={trial}, ignored={len(ignored)}, enabled={num_enabled}")
-
-    def test_invariants_at_saturation(self):
-        rng = random_module.Random(789)
-
-        for trial in range(50):
-            num_enabled = rng.randint(len(self.all_product_paths) - 5, len(self.all_product_paths))
-            enabled = set(rng.sample(self.all_product_paths, num_enabled))
-
-            selector = CrossSellCandidateSelector(
-                user_enabled_products=enabled,
-                ignored_categories=DEFAULT_IGNORED_CATEGORIES,
-            )
-            self._assert_selector_invariants(selector, f"trial={trial}, enabled={num_enabled}")
-
-    def test_invariants_with_dismissed_products(self):
-        rng = random_module.Random(321)
-
-        for trial in range(100):
-            num_enabled = rng.randint(0, min(8, len(self.all_product_paths)))
-            enabled = set(rng.sample(self.all_product_paths, num_enabled))
-
-            remaining = [p for p in self.all_product_paths if p not in enabled]
-            num_dismissed = rng.randint(0, min(5, len(remaining)))
-            dismissed = set(rng.sample(remaining, num_dismissed))
-
-            selector = CrossSellCandidateSelector(
-                user_enabled_products=enabled,
-                ignored_categories=DEFAULT_IGNORED_CATEGORIES,
-                user_excluded_products=enabled | dismissed,
-            )
-            self._assert_selector_invariants(
-                selector, f"trial={trial}, enabled={num_enabled}, dismissed={num_dismissed}"
-            )
+        enabled: frozenset[str],
+        dismissed: frozenset[str],
+        ignored: frozenset[ProductItemCategory],
+    ):
+        selector = CrossSellCandidateSelector(
+            user_enabled_products=set(enabled),
+            ignored_categories=set(ignored),
+            user_excluded_products=set(enabled | dismissed),
+        )
+        _assert_selector_invariants(selector)
