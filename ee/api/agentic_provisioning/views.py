@@ -660,6 +660,19 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
         return False
 
 
+def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
+    """Try to activate billing with an SPT from payment_credentials.
+
+    Returns True if succeeded, False if failed, None if no SPT was present.
+    """
+    payment_credentials = request.data.get("payment_credentials")
+    if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
+        spt_token = payment_credentials.get("stripe_payment_token")
+        if spt_token:
+            return _activate_billing_with_spt(team, user, spt_token)
+    return None
+
+
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
     try:
@@ -720,23 +733,24 @@ def provisioning_resources_create(request: Request) -> Response:
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
-    billing_activated = False
-    payment_credentials = request.data.get("payment_credentials")
-    if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
-        spt_token = payment_credentials.get("stripe_payment_token")
-        if spt_token:
-            billing_activated = _activate_billing_with_spt(team, user, spt_token)
+    billing_result = _try_activate_billing_with_spt(request, team, user)
+    if billing_result is False:
+        return Response(
+            {
+                "status": "error",
+                "id": str(team_id),
+                "error": {
+                    "code": "requires_payment_credentials",
+                    "message": "Billing activation failed",
+                },
+            },
+            status=400,
+        )
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event(
-        "resource_created",
-        "success",
-        service_id=resolved_service_id,
-        team_id=team_id,
-        billing_activated=billing_activated,
-    )
+    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
