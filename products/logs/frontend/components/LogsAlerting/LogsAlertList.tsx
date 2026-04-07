@@ -11,6 +11,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     LogsAlertConfigurationApi,
     LogsAlertSparklineBucketApi,
+    LogsAlertConfigurationStateEnumApi,
     ThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -35,6 +36,13 @@ function alertSparklineData(sparkline: readonly LogsAlertSparklineBucketApi[] | 
     ]
 }
 
+const SNOOZE_DURATIONS = [
+    { label: '30 minutes', minutes: 30 },
+    { label: '1 hour', minutes: 60 },
+    { label: '4 hours', minutes: 240 },
+    { label: '24 hours', minutes: 1440 },
+]
+
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
@@ -42,8 +50,15 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 
 export function LogsAlertList(): JSX.Element {
     const { alerts, alertsLoading } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, viewCheckHistory } =
-        useActions(logsAlertingLogic)
+    const {
+        setEditingAlert,
+        setIsCreating,
+        deleteAlert,
+        toggleAlertEnabled,
+        viewCheckHistory,
+        snoozeAlert,
+        unsnoozeAlert,
+    } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
         {
@@ -58,7 +73,7 @@ export function LogsAlertList(): JSX.Element {
         {
             title: 'Status',
             dataIndex: 'state',
-            render: (_, alert) => <LogsAlertStateIndicator state={alert.state} />,
+            render: (_, alert) => <LogsAlertStateIndicator state={alert.state} snoozeUntil={alert.snooze_until} />,
         },
         {
             title: 'Threshold',
@@ -102,6 +117,18 @@ export function LogsAlertList(): JSX.Element {
                                     label: 'View history',
                                     onClick: () => viewCheckHistory(alert),
                                 },
+                                alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
+                                    ? {
+                                          label: 'Unsnooze',
+                                          onClick: () => unsnoozeAlert(alert.id),
+                                      }
+                                    : {
+                                          label: 'Snooze',
+                                          items: SNOOZE_DURATIONS.map((d) => ({
+                                              label: d.label,
+                                              onClick: () => snoozeAlert(alert.id, d.minutes),
+                                          })),
+                                      },
                                 {
                                     label: 'Edit',
                                     onClick: () => setEditingAlert(alert),

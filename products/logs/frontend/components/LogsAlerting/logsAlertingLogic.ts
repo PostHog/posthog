@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -38,6 +39,8 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         closeCheckHistory: true,
         setCheckHistoryOutcome: (outcome: string) => ({ outcome }),
         loadCheckHistoryPage: (url: string) => ({ url }),
+        snoozeAlert: (alertId: string, durationMinutes: number) => ({ alertId, durationMinutes }),
+        unsnoozeAlert: (alertId: string) => ({ alertId }),
     }),
 
     reducers({
@@ -146,6 +149,27 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         },
         setCheckHistoryOutcome: () => {
             actions.loadCheckHistory()
+        },
+        snoozeAlert: async ({ alertId, durationMinutes }) => {
+            const projectId = String(values.currentTeamId)
+            const snoozeUntil = dayjs().add(durationMinutes, 'minute').toISOString()
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: snoozeUntil })
+                lemonToast.success('Alert snoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to snooze alert')
+            }
+        },
+        unsnoozeAlert: async ({ alertId }) => {
+            const projectId = String(values.currentTeamId)
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: null })
+                lemonToast.success('Alert unsnoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to unsnooze alert')
+            }
         },
     })),
 
