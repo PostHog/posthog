@@ -72,6 +72,34 @@ export interface PlaygroundSetupPayload {
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 
 /**
+ * Module-level store for a pending playground setup payload. External callers (trace scene,
+ * conversation display) write here before navigating to the playground, so the tab-keyed
+ * instance can pick it up in urlToAction and run setupPlaygroundFromEvent on itself.
+ *
+ * This avoids the fragile "transfer from default instance" pattern, which breaks when the
+ * source component unmounts before the playground's urlToAction fires.
+ */
+let pendingPlaygroundSetup: PlaygroundSetupPayload | null = null
+
+/** Queue a setup payload and navigate to the playground. */
+export function openInPlayground(payload: PlaygroundSetupPayload): void {
+    pendingPlaygroundSetup = payload
+    // Clear if urlToAction never fires (e.g. same-URL push that kea-router deduplicates).
+    setTimeout(() => {
+        if (pendingPlaygroundSetup === payload) {
+            pendingPlaygroundSetup = null
+        }
+    }, 0)
+    router.actions.push(urls.llmAnalyticsPlayground())
+}
+
+function consumePendingPlaygroundSetup(): PlaygroundSetupPayload | null {
+    const payload = pendingPlaygroundSetup
+    pendingPlaygroundSetup = null
+    return payload
+}
+
+/**
  * Returns a human-readable label for the linked source, e.g. `prompt "my-prompt"` or `evaluation "my-eval"`.
  * Returns null when no source is linked.
  */
@@ -979,25 +1007,15 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
 
-            // External callers (trace scene, conversation display) dispatch
-            // setupPlaygroundFromEvent on the default-keyed instance (no tabId).
-            // Transfer that state to this tab-keyed instance.
+            // External callers (trace scene, conversation display) queue a setup payload
+            // before navigating here. Consume it and run setupPlaygroundFromEvent on this
+            // tab-keyed instance so all state (model, messages, pendingTargetModel, etc.)
+            // is initialised correctly.
             if (props.tabId) {
-                const defaultLogic = llmPlaygroundPromptsLogic.findMounted({})
-                if (defaultLogic) {
-                    const defaultConfigs = defaultLogic.values.promptConfigs
-                    const hasContent =
-                        defaultConfigs.length > 1 ||
-                        defaultConfigs[0]?.messages.length > 0 ||
-                        defaultConfigs[0]?.systemPrompt !== DEFAULT_SYSTEM_PROMPT
-                    if (hasContent) {
-                        actions.setPromptConfigs(defaultConfigs)
-                        actions.setActivePromptId(defaultLogic.values.activePromptId)
-                        // Reset the default instance without triggering its resetPlayground
-                        // listener, which would modify the current tab's URL params.
-                        defaultLogic.actions.setPromptConfigs([createPromptConfig()])
-                        return
-                    }
+                const pending = consumePendingPlaygroundSetup()
+                if (pending) {
+                    actions.setupPlaygroundFromEvent(pending)
+                    return
                 }
             }
 

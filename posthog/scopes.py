@@ -18,6 +18,8 @@ APIScopeObject = Literal[
     "batch_import",
     "cohort",
     "conversation",
+    "customer_analytics",
+    "customer_journey",
     "customer_profile_config",
     "dashboard",
     "dashboard_template",

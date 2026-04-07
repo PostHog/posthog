@@ -9,6 +9,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
@@ -21,6 +22,14 @@ import { userLogic } from 'scenes/userLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import {
+    DEFAULT_STATE,
+    isOneTimeSchedule,
+    ONE_TIME_RRULE,
+    parseRRuleToState,
+    stateToRRule,
+} from './hogflows/steps/components/rrule-helpers'
+import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
     type HogFlow,
@@ -140,9 +149,11 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
-        setPendingSchedule: (schedule: { rrule: string; starts_at: string; timezone?: string } | null) => ({
-            schedule,
-        }),
+        setScheduleState: (scheduleState: ScheduleState) => ({ scheduleState }),
+        setScheduleStartsAt: (startsAt: string | null) => ({ startsAt }),
+        setScheduleStartsAtFromPicker: (pickerDate: string | null) => ({ pickerDate }),
+        setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
+        setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
@@ -270,18 +281,82 @@ export const workflowLogic = kea<workflowLogicType>([
                 setSchedules: (_, { schedules }) => schedules,
             },
         ],
-        pendingSchedule: [
-            false as { rrule: string; starts_at: string; timezone?: string } | null | false,
+        scheduleState: [
+            { ...DEFAULT_STATE } as ScheduleState,
             {
-                setPendingSchedule: (_, { schedule }) => schedule,
-                setSchedules: () => false,
-                resetWorkflow: () => false,
+                setScheduleState: (_, { scheduleState }) => scheduleState,
+                setSchedules: (_, { schedules }) => {
+                    const schedule = schedules[0]
+                    if (schedule && !isOneTimeSchedule(schedule.rrule)) {
+                        return parseRRuleToState(schedule.rrule)
+                    }
+                    return { ...DEFAULT_STATE }
+                },
+            },
+        ],
+        scheduleStartsAt: [
+            null as string | null,
+            {
+                setScheduleStartsAt: (_, { startsAt }) => startsAt,
+                setSchedules: (_, { schedules }) => schedules[0]?.starts_at ?? null,
+            },
+        ],
+        scheduleTimezone: [
+            dayjs.tz.guess() as string,
+            {
+                setScheduleTimezone: (_, { timezone }) => timezone,
+                setSchedules: (_, { schedules }) => schedules[0]?.timezone ?? dayjs.tz.guess(),
+            },
+        ],
+        isScheduleRepeating: [
+            false as boolean,
+            {
+                setScheduleRepeating: (_, { repeating }) => repeating,
+                setSchedules: (_, { schedules }) => {
+                    const schedule = schedules[0]
+                    return !!schedule && !isOneTimeSchedule(schedule.rrule)
+                },
             },
         ],
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
         currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
+        pendingSchedule: [
+            (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],
+            (
+                currentSchedule,
+                scheduleState,
+                scheduleStartsAt,
+                scheduleTimezone,
+                isScheduleRepeating
+            ): { rrule: string; starts_at: string; timezone?: string } | null | false => {
+                // Build what the schedule would look like from current reducer state
+                if (!scheduleStartsAt) {
+                    // No start date set - if there was a saved schedule, this means delete it
+                    return currentSchedule ? null : false
+                }
+
+                const rrule = isScheduleRepeating ? stateToRRule(scheduleState, scheduleStartsAt) : ONE_TIME_RRULE
+                const newSchedule = { rrule, starts_at: scheduleStartsAt, timezone: scheduleTimezone }
+
+                // Compare with saved schedule to detect changes
+                if (!currentSchedule) {
+                    // No saved schedule exists, so any non-null value is a pending change
+                    return newSchedule
+                }
+
+                const savedRRule = currentSchedule.rrule
+                const savedStartsAt = currentSchedule.starts_at
+                const savedTimezone = currentSchedule.timezone ?? dayjs.tz.guess()
+
+                if (rrule === savedRRule && scheduleStartsAt === savedStartsAt && scheduleTimezone === savedTimezone) {
+                    return false // No changes
+                }
+
+                return newSchedule
+            },
+        ],
         hasUnsavedChanges: [
             (s) => [s.workflowChanged, s.pendingSchedule],
             (formChanged, pendingSchedule): boolean => formChanged || pendingSchedule !== false,
@@ -455,6 +530,30 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        setScheduleStartsAtFromPicker: ({ pickerDate }) => {
+            if (!pickerDate) {
+                actions.setScheduleStartsAt(null)
+                return
+            }
+            // The picker returns browser-local time. Reinterpret as the schedule timezone.
+            const wallClock = dayjs(pickerDate).startOf('minute').format('YYYY-MM-DDTHH:mm:ss')
+            actions.setScheduleStartsAt(dayjs.tz(wallClock, values.scheduleTimezone).toISOString())
+        },
+        setScheduleTimezone: ({ timezone, previousTimezone }) => {
+            // When timezone changes, keep the wall-clock time the same by reinterpreting
+            // the current starts_at in the new timezone.
+            const oldTz = previousTimezone ?? dayjs.tz.guess()
+            if (values.scheduleStartsAt) {
+                const wallClock = dayjs(values.scheduleStartsAt).tz(oldTz).format('YYYY-MM-DDTHH:mm:ss')
+                actions.setScheduleStartsAt(dayjs.tz(wallClock, timezone).toISOString())
+            }
+        },
+        resetWorkflow: () => {
+            // Re-initialize schedule reducers from the saved schedule.
+            // Using setSchedules resets all reducers atomically without triggering
+            // the setScheduleTimezone listener's wall-clock reinterpretation.
+            actions.setSchedules(values.schedules)
+        },
         saveWorkflowPartial: async ({ workflow }) => {
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {

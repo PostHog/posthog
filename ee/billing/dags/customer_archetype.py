@@ -716,7 +716,17 @@ def archetype_classify_and_sync(archetype_account_data: pl.DataFrame):
 archetype_job = dagster.define_asset_job(
     name="customer_archetype_job",
     selection=["archetype_account_data", "archetype_classify_and_sync"],
-    tags={"owner": JobOwners.TEAM_BILLING.value},
+    tags={
+        "owner": JobOwners.TEAM_BILLING.value,
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "16Gi"},
+                }
+            }
+        },
+    },
 )
 
 

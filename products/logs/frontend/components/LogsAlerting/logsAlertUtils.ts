@@ -1,4 +1,8 @@
-import { LOGS_ALERT_FIRING_EVENT_ID, LOGS_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import {
+    LOGS_ALERT_FIRING_EVENT_ID,
+    LOGS_ALERT_FIRING_SUB_TEMPLATE_ID,
+    LOGS_ALERT_RESOLVED_EVENT_ID,
+} from 'lib/constants'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -38,12 +42,82 @@ export const buildLogsAlertFilterConfig = (alertId: string): CyclotronJobFilters
             id: LOGS_ALERT_FIRING_EVENT_ID,
             type: 'events',
         },
+        {
+            id: LOGS_ALERT_RESOLVED_EVENT_ID,
+            type: 'events',
+        },
     ],
 })
 
-const LOGS_ALERT_SLACK_INPUTS =
+const LOGS_ALERT_SLACK_BLOCKS = [
+    {
+        type: 'header',
+        text: {
+            type: 'plain_text',
+            text: "Log alert '{event.properties.alert_name}' {if(event.event == '$logs_alert_resolved', 'has resolved', 'is firing')}",
+        },
+    },
+    {
+        type: 'section',
+        text: {
+            type: 'mrkdwn',
+            text: "*{if(event.event == '$logs_alert_resolved', 'Current count', 'Threshold breached')}:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+        },
+    },
+    {
+        type: 'context',
+        elements: [
+            {
+                type: 'mrkdwn',
+                text: [
+                    '{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(',
+                    "if(length(event.properties.severity_levels) > 0, concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')), ''),",
+                    "if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0, ' | ', ''),",
+                    "if(length(event.properties.service_names) > 0, concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')), '')",
+                    "), 'All log levels and services')}",
+                ].join(''),
+            },
+            { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+        ],
+    },
+    { type: 'divider' },
+    {
+        type: 'actions',
+        elements: [
+            {
+                url: '{project.url}/logs?{event.properties.logs_url_params}',
+                text: { text: 'View logs', type: 'plain_text' },
+                type: 'button',
+            },
+        ],
+    },
+]
+
+const BASE_SLACK_INPUTS =
     HOG_FUNCTION_SUB_TEMPLATES[LOGS_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === 'template-slack')
         ?.inputs ?? {}
+
+const LOGS_ALERT_SLACK_INPUTS = {
+    ...BASE_SLACK_INPUTS,
+    blocks: { value: LOGS_ALERT_SLACK_BLOCKS },
+    text: {
+        value: "Log alert '{event.properties.alert_name}' {if(event.event == '$logs_alert_resolved', 'has resolved', 'is firing')}",
+    },
+}
+
+const LOGS_ALERT_WEBHOOK_BODY: Record<string, string> = {
+    event: "{if(event.event == '$logs_alert_resolved', 'resolved', 'firing')}",
+    alert_id: '{event.properties.alert_id}',
+    alert_name: '{event.properties.alert_name}',
+    result_count: '{event.properties.result_count}',
+    threshold_count: '{event.properties.threshold_count}',
+    threshold_operator: '{event.properties.threshold_operator}',
+    window_minutes: '{event.properties.window_minutes}',
+    service_names: '{event.properties.service_names}',
+    severity_levels: '{event.properties.severity_levels}',
+    logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
+    triggered_at: '{event.properties.triggered_at}',
+}
 
 export function buildLogsAlertHogFunctionPayload(
     alertId: string,
@@ -77,14 +151,7 @@ export function buildLogsAlertHogFunctionPayload(
         template_id: 'template-webhook',
         inputs: {
             url: { value: notification.webhookUrl },
-            body: {
-                value: {
-                    alert_name: '{event.properties.alert_name}',
-                    threshold_count: '{event.properties.threshold_count}',
-                    window_minutes: '{event.properties.window_minutes}',
-                    logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
-                },
-            },
+            body: { value: LOGS_ALERT_WEBHOOK_BODY },
         },
     }
 }

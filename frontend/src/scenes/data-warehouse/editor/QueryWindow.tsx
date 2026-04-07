@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -60,8 +60,15 @@ export function QueryWindow({
         sendRawQueryEnabled,
     } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSendRawQuery } =
-        useActions(sqlEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        setSendRawQuery,
+        openMaterializationModal,
+    } = useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
@@ -144,6 +151,17 @@ export function QueryWindow({
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    {editingView ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDatabase />}
+                            onClick={() => openMaterializationModal(editingView)}
+                            data-attr="sql-editor-materialization-button"
+                        >
+                            Materialization
+                        </LemonButton>
+                    ) : null}
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -222,7 +240,7 @@ export function QueryWindow({
                 }}
             />
 
-            <InternalQueryWindow tabId={tabId} />
+            <InternalQueryWindow />
         </div>
     )
 }
@@ -310,14 +328,14 @@ function RunButton(): JSX.Element {
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane />
 })
 
 function CollapsedConnectionSelector({

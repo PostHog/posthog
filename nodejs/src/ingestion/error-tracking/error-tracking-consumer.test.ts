@@ -160,11 +160,13 @@ describe('ErrorTrackingConsumer', () => {
         mockHogTransformer = createMockHogTransformer()
         const deps = {
             outputs: new IngestionOutputs({
-                events: { topic: config.outputTopic, producer: hub.kafkaProducer },
-                ingestion_warnings: { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer },
-                dlq: { topic: config.dlqTopic, producer: hub.kafkaProducer },
-                overflow: { topic: config.overflowTopic || '', producer: hub.kafkaProducer },
-                tophog: { topic: 'clickhouse_tophog_test', producer: hub.kafkaProducer },
+                events: [{ topic: config.outputTopic, producer: hub.kafkaProducer, producerName: 'test' }],
+                ingestion_warnings: [
+                    { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer, producerName: 'test' },
+                ],
+                dlq: [{ topic: config.dlqTopic, producer: hub.kafkaProducer, producerName: 'test' }],
+                overflow: [{ topic: config.overflowTopic || '', producer: hub.kafkaProducer, producerName: 'test' }],
+                tophog: [{ topic: 'clickhouse_tophog_test', producer: hub.kafkaProducer, producerName: 'test' }],
             }),
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,

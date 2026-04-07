@@ -43,7 +43,7 @@
             "type": "boolean"
         },
         "filterTestAccounts": {
-            "default": false,
+            "default": true,
             "description": "Exclude internal and test users by applying the respective filters.",
             "type": "boolean"
         },
