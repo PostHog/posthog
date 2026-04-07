@@ -184,7 +184,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || 'Untitled heatmap',
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
@@ -203,7 +203,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || 'Untitled heatmap',
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
@@ -228,7 +228,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                 common_filters: values.commonFilters,
                 heatmap_filters: values.heatmapFilters,
-                filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                filename: `heatmap-${values.name || 'Untitled heatmap'}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
     })),
