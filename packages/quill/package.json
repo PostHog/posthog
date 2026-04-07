@@ -7,19 +7,9 @@
         "dev": "pnpm --filter @posthog/quill-web dev",
         "storybook": "pnpm build && (pnpm --filter @posthog/quill-tokens build:watch & pnpm --filter @posthog/quill-storybook storybook)",
         "build": "pnpm -r --filter '@posthog/quill-*' build",
-        "lint": "eslint .",
-        "format": "prettier --write \"**/*.{ts,tsx}\"",
         "typecheck": "pnpm -r typecheck"
     },
     "devDependencies": {
-        "@eslint/js": "^9.39.1",
-        "eslint": "^9.39.1",
-        "eslint-plugin-react-hooks": "^7.0.1",
-        "eslint-plugin-react-refresh": "^0.4.24",
-        "globals": "^16.5.0",
-        "prettier": "^3.8.1",
-        "prettier-plugin-tailwindcss": "^0.7.2",
-        "typescript": "~5.9.3",
-        "typescript-eslint": "^8.46.4"
+        "typescript": "~5.9.3"
     }
 }
