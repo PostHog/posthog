@@ -35,9 +35,9 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 /**
- * Single event filter per team. Auto-creates on first access.
-GET  /event_filter/ — returns the config
-POST /event_filter/ — updates the config (upsert)
+ * Single event filter per team.
+GET  /event_filter/ — returns the config (or null if not yet created)
+POST /event_filter/ — creates or updates the config (upsert)
 GET  /event_filter/metrics/ — time-series metrics
 GET  /event_filter/metrics/totals/ — aggregate totals
  */
@@ -56,9 +56,9 @@ export const eventFilterMetricsRetrieve = async (
 }
 
 /**
- * Single event filter per team. Auto-creates on first access.
-GET  /event_filter/ — returns the config
-POST /event_filter/ — updates the config (upsert)
+ * Single event filter per team.
+GET  /event_filter/ — returns the config (or null if not yet created)
+POST /event_filter/ — creates or updates the config (upsert)
 GET  /event_filter/metrics/ — time-series metrics
 GET  /event_filter/metrics/totals/ — aggregate totals
  */
