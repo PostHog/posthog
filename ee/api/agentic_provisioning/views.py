@@ -26,7 +26,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
@@ -41,7 +40,6 @@ from posthog.models.utils import (
 )
 from posthog.utils import get_instance_region
 
-from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
@@ -629,6 +627,10 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     Returns True if activation succeeded, False otherwise.
     """
     try:
+        from posthog.cloud_utils import get_cached_instance_license
+
+        from ee.billing.billing_manager import build_billing_token
+
         license = get_cached_instance_license()
         if not license:
             capture_exception(Exception("No license found for SPT billing activation"))
