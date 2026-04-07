@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
+import { BillingSeats } from './BillingSeats'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
@@ -23,16 +24,19 @@ const tabs: { key: BillingSectionId; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
+    { key: 'seats', label: 'Seats' },
 ]
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
 
-    const section = location.pathname.includes('spend')
-        ? 'spend'
-        : location.pathname.includes('usage')
-          ? 'usage'
-          : 'overview'
+    const section = location.pathname.includes('seats')
+        ? 'seats'
+        : location.pathname.includes('spend')
+          ? 'spend'
+          : location.pathname.includes('usage')
+            ? 'usage'
+            : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -68,6 +72,7 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
+            {section === 'seats' && <BillingSeats />}
         </div>
     )
 }
