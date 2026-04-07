@@ -88,6 +88,10 @@
         ],
         "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
+        "frontend/src/lib/constants.tsx": [
+            "bin/hogli lint:feature-flags:fix",
+            "bin/hogli format:js"
+        ],
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
