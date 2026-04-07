@@ -150,13 +150,17 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
         # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
-            cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS {}").format(qualified, sql))
-    with psycopg.connect(conninfo) as conn:
-        _set_search_path(conn, extra_schemas=[safe_schema])
-        with conn.cursor() as cur:
-            cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
-            row = cur.fetchone()
-            row_count = int(row[0]) if row else 0
+            cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS ({})").format(qualified, psql.SQL(sql)))
+    row_count = 0
+    try:
+        with psycopg.connect(conninfo) as conn:
+            _set_search_path(conn, extra_schemas=[safe_schema])
+            with conn.cursor() as cur:
+                cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
+                row = cur.fetchone()
+                row_count = int(row[0]) if row else 0
+    except Exception:
+        pass
     # capture new table size — best-effort, don't block materialization
     file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     return DuckLakeTableResult(
