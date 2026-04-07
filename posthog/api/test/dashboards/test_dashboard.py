@@ -14,10 +14,11 @@ from dateutil.parser import isoparse
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import DateRange, EventPropertyFilter, EventsNode, TrendsQuery
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -1376,7 +1377,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
 
-        query = filter_to_query(filter_dict).model_dump()
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator="exact")],
+            dateRange=DateRange(date_from="-7d"),
+        ).model_dump()
 
         # cache insight results for trends with a -7d date from
         response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query})
@@ -1398,7 +1403,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         filter_dict["date_from"] = "-24h"
         response = self.client.post(
             f"/api/projects/{self.team.id}/query/",
-            data={"query": filter_to_query(filter_dict).model_dump()},
+            data={
+                "query": TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator="exact")],
+                    dateRange=DateRange(date_from="-24h"),
+                ).model_dump()
+            },
         )
 
         self.assertEqual(response.status_code, 200)
