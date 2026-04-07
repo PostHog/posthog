@@ -233,6 +233,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
+                max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
             )
 
             # TODO: Use multiple consumers

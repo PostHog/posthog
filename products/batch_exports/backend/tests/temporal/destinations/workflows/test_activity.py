@@ -177,7 +177,8 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
         )
 
     assert len(handler.error_data) == 1  # First request failed...
-    assert not len(handler.data)  # And it wasn't retried
+    error_request = handler.error_data.pop()
+    assert error_request not in handler.data  # And it wasn't retried
 
 
 @pytest.mark.parametrize("error", [429, 500], indirect=True)
