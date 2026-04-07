@@ -42,6 +42,8 @@ class SdkOutdatedCheck(HealthCheck):
     kind = "sdk_outdated"
     owner = JobOwners.TEAM_GROWTH
     policy = DEFAULT_EXECUTION_POLICY
+    schedule = "0 8 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         github_data = _load_github_sdk_data()

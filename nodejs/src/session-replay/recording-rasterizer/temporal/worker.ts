@@ -58,7 +58,7 @@ async function buildTLSConfig() {
         )
     }
 
-    let systemCAs = Buffer.alloc(0)
+    let systemCAs: Buffer<ArrayBufferLike> = Buffer.alloc(0)
     try {
         systemCAs = await fs.readFile('/etc/ssl/certs/ca-certificates.crt')
     } catch {

@@ -150,3 +150,16 @@ message UpdatePersonPropertiesResponse {
   // Whether any properties were actually changed.
   bool updated = 2;
 }
+
+// DeletePersonsRequest deletes persons from Postgres by UUID.
+// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
+// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+message DeletePersonsRequest {
+  int64 team_id = 1;
+  // Person UUIDs to delete. Max 1000 per request.
+  repeated string person_uuids = 2;
+}
+
+message DeletePersonsResponse {
+  int64 deleted_count = 1;
+}

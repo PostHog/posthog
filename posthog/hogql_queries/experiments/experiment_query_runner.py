@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
@@ -72,6 +73,7 @@ MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
+    actors_query: Optional[ExperimentActorsQuery] = None
 
     def __init__(
         self,
@@ -411,6 +413,84 @@ class ExperimentQueryRunner(QueryRunner):
                     )
 
         return variants + variants_missing
+
+    def to_actors_query(self) -> ast.SelectQuery:
+        """
+        Generate actors query for experiment funnels.
+
+        This method reuses the existing funnel actors query infrastructure by:
+        1. Creating a FunnelsQuery-like structure from the ExperimentFunnelMetric
+        2. Building a FunnelQueryContext with the experiment parameters
+        3. Delegating to FunnelUDF.actor_query() which handles all the complexity
+
+        This ensures we get the same behavior as regular funnel actors queries,
+        including proper conversion/dropoff filtering and recording support.
+        """
+        # Ensure actors_query is set (should be set by InsightActorsQueryRunner before calling this)
+        if self.actors_query is None:
+            raise ValidationError("actors_query must be set before calling to_actors_query()")
+
+        # Only support funnel metrics for now
+        if not isinstance(self.metric, ExperimentFunnelMetric):
+            raise ValidationError("Actors query only supported for funnel experiment metrics")
+
+        # Import here to avoid circular dependencies
+        from posthog.schema import BreakdownFilter, BreakdownType, FunnelsActorsQuery, FunnelsFilter, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        # Build a FunnelsQuery from the experiment configuration
+        # This allows us to reuse all the existing funnel query infrastructure
+        # Note: We add breakdown by feature flag to enable variant filtering via funnelStepBreakdown
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            series=self.metric.series,
+            dateRange=self.date_range,
+            filterTestAccounts=self.experiment.exposure_criteria.filterTestAccounts
+            if self.experiment.exposure_criteria
+            else False,
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=self.metric.funnel_order_type,
+                funnelWindowInterval=self.metric.conversion_window or 14,
+                funnelWindowIntervalUnit=self.metric.conversion_window_unit,
+            ),
+            # Set aggregation group type if experiment uses groups
+            aggregation_group_type_index=self.group_type_index,
+            # CRITICAL: Add breakdown by feature flag to enable filtering by variant
+            # Without this, funnelStepBreakdown won't work to filter actors by variant
+            breakdownFilter=BreakdownFilter(
+                breakdown=f"$feature/{self.feature_flag.key}",
+                breakdown_type=BreakdownType.EVENT,
+            ),
+        )
+
+        # Create a FunnelQueryContext
+        funnel_context = FunnelQueryContext(
+            query=funnels_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+        # Adapt the ExperimentActorsQuery to FunnelsActorsQuery format
+        # This maps variant filtering (funnelStepBreakdown) to the breakdown system
+        funnel_actors_query = FunnelsActorsQuery(
+            kind="FunnelsActorsQuery",
+            source=funnels_query,
+            funnelStep=self.actors_query.funnelStep,
+            funnelStepBreakdown=self.actors_query.funnelStepBreakdown,  # Variant key
+            includeRecordings=self.actors_query.includeRecordings,
+        )
+
+        # Set the actors query on the context
+        funnel_context.actorsQuery = funnel_actors_query
+
+        # Use FunnelUDF to generate the actors query
+        # This is the same code path used by regular funnel actors queries
+        funnel_udf = FunnelUDF(context=funnel_context)
+        return funnel_udf.actor_query()
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

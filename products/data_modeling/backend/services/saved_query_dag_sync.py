@@ -110,6 +110,7 @@ def resolve_dependency_to_node(
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
+    dag: DAG | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -123,6 +124,7 @@ def sync_saved_query_to_dag(
     Args:
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
+        dag: Optional DAG to use. If not provided, uses the default team DAG.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     """
@@ -130,8 +132,8 @@ def sync_saved_query_to_dag(
 
     extra_properties = extra_properties or {}
     team = saved_query.team
-    dag_id = get_dag_id(team.id)
-    dag, _ = DAG.objects.get_or_create(team=team, name=dag_id)
+    if dag is None:
+        dag = DAG.get_or_create_default(team)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
@@ -180,7 +182,7 @@ def sync_saved_query_to_dag(
                 **extra_properties,
                 "error_type": "cycle",
                 "error_message": error_message,
-                "original_dag_id": dag_id,
+                "original_dag_id": str(dag.id),
                 "detected_at": timezone.now().isoformat(),
             }
             target.save()
@@ -194,7 +196,7 @@ def sync_saved_query_to_dag(
                     **extra_properties,
                     "error_type": "cycle",
                     "error_message": error_message,
-                    "original_dag_id": dag_id,
+                    "original_dag_id": str(dag.id),
                     "detected_at": timezone.now().isoformat(),
                 },
             ).save(skip_validation=True)
@@ -240,7 +242,7 @@ def sync_saved_query_to_dag(
                         **extra_properties,
                         "error_type": "cycle",
                         "error_message": str(e),
-                        "original_dag_id": dag_id,
+                        "original_dag_id": str(dag.id),
                         "detected_at": timezone.now().isoformat(),
                     },
                 ).save(skip_validation=True)

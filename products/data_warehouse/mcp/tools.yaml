@@ -385,6 +385,15 @@ tools:
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
+    data-warehouse-deprovision-create:
+        operation: data_warehouse_deprovision_create
+        enabled: false
+    data-warehouse-provision-create:
+        operation: data_warehouse_provision_create
+        enabled: false
+    data-warehouse-warehouse-status-retrieve:
+        operation: data_warehouse_warehouse_status_retrieve
+        enabled: false
     external-data-sources-create-webhook-create:
         operation: external_data_sources_create_webhook_create
         enabled: false
@@ -400,6 +409,9 @@ tools:
     external-data-sources-delete-webhook-create:
         operation: external_data_sources_delete_webhook_create
         enabled: false
+    data-warehouse-check-database-name-retrieve:
+        operation: data_warehouse_check_database_name_retrieve
+        enabled: false
     warehouse-saved-query-folders-list:
         operation: warehouse_saved_query_folders_list
         enabled: false
@@ -414,4 +426,7 @@ tools:
         enabled: false
     warehouse-saved-query-folders-destroy:
         operation: warehouse_saved_query_folders_destroy
+        enabled: false
+    data-warehouse-reset-password-create:
+        operation: data_warehouse_reset_password_create
         enabled: false
