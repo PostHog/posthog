@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1084_ducklake_add_organization_fk"),
+        ("posthog", "1085_ducklake_backfill_organization"),
     ]
 
     operations = [

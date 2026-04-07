@@ -7,29 +7,29 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
-import { experimentLogic } from '../../experimentLogic'
-import { isLaunched } from '../../experimentsLogic'
-import { VariantTag } from '../../ExperimentView/components'
-import { ChartEmptyState } from '../../MetricsView/shared/ChartEmptyState'
-import { ChartLoadingState } from '../../MetricsView/shared/ChartLoadingState'
-import { useChartColors } from '../../MetricsView/shared/colors'
-import { GridLines } from '../../MetricsView/shared/GridLines'
-import { MetricHeader } from '../../MetricsView/shared/MetricHeader'
 import {
-    calculateDelta,
-    conversionRateForVariant,
-    countDataForVariant,
-    credibleIntervalForVariant,
-    exposureCountDataForVariant,
+    legacyCalculateDelta,
+    legacyConversionRateForVariant,
+    legacyCountDataForVariant,
+    legacyCredibleIntervalForVariant,
+    legacyExposureCountDataForVariant,
 } from '../calculations/legacyExperimentCalculations'
-import { ChartModal } from './ChartModal'
-import { MetricsChartLayout } from './MetricsChartLayout'
-import { SignificanceHighlight } from './SignificanceHighlight'
-import { VariantTooltip } from './VariantTooltip'
-import { generateViolinPath } from './violinUtils'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
+import { LegacyChartEmptyState } from './LegacyChartEmptyState'
+import { LegacyChartLoadingState } from './LegacyChartLoadingState'
+import { LegacyChartModal } from './LegacyChartModal'
+import { useLegacyChartColors } from './legacyColors'
+import { LegacyGridLines } from './LegacyGridLines'
+import { LegacyMetricHeader } from './LegacyMetricHeader'
+import { LegacyMetricsChartLayout } from './LegacyMetricsChartLayout'
+import { LegacySignificanceHighlight } from './LegacySignificanceHighlight'
+import { LegacyVariantTooltip } from './LegacyVariantTooltip'
+import { legacyGenerateViolinPath } from './legacyViolinUtils'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -85,7 +85,7 @@ type DeltaChartContextType = {
     openVariantDeltaTimeseriesModal: () => void
 
     // Colors
-    colors: ReturnType<typeof useChartColors>
+    colors: ReturnType<typeof useLegacyChartColors>
 
     // Tooltip state
     tooltip: TooltipState
@@ -143,7 +143,11 @@ function hasEnoughDataForResults(variantExposureCount: number, variantMetricValu
     )
 }
 
-// Individual variant bar component
+/**
+ * @deprecated
+ * Legacy variant bar component for DeltaChart.
+ * Frozen copy for legacy experiments - do not modify.
+ */
 function VariantBar({ variant, index }: { variant: any; index: number }): JSX.Element {
     const {
         result,
@@ -168,7 +172,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const interval = credibleIntervalForVariant(result, variant.key, metricType)
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-    const deltaResult = calculateDelta(result, variant.key, metricType)
+    const deltaResult = legacyCalculateDelta(result, variant.key, metricType)
     const delta = deltaResult?.delta || 0
     let hasEnoughData: boolean
 
@@ -224,7 +228,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             {/* Conditional rendering based on hasEnoughData */}
             {hasEnoughData ? (
                 <>
-                    {/* Add variant name using VariantTag */}
+                    {/* Add variant name using LegacyVariantTag */}
                     <foreignObject
                         x={x1 - 8} // Keep same positioning as the text element
                         y={y + barHeight / 2 - 10}
@@ -232,11 +236,11 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         transform="translate(-90, 0)" // Move left to accommodate tag width
                     >
-                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
+                        <LegacyVariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
                     {variant.key === 'control' ? (
                         <path
-                            d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                            d={legacyGenerateViolinPath(x1, x2, y, barHeight, deltaX)}
                             fill={colors.BAR_CONTROL}
                             stroke={colors.BOUNDARY_LINES}
                             strokeWidth={1}
@@ -274,7 +278,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                                 </linearGradient>
                             </defs>
                             <path
-                                d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                                d={legacyGenerateViolinPath(x1, x2, y, barHeight, deltaX)}
                                 fill={`url(#gradient-${metricId}-${variant.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}
@@ -303,7 +307,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 <>
                     {/* Move foreignObject for variant tag to left of 0 point */}
                     <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
-                        <VariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
+                        <LegacyVariantTag className="justify-end mt-0.5" variantKey={variant.key} fontSize={10} />
                     </foreignObject>
 
                     {/* First draw a solid background to cover grid lines */}
@@ -362,7 +366,7 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
                 {/* Create a group for the background elements */}
                 <g className="grid-lines-layer">
                     {/* Vertical grid lines */}
-                    <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                    <LegacyGridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
                 </g>
 
                 {/* Create a group for the variant bars with higher priority */}
@@ -386,7 +390,7 @@ function ChartControls(): JSX.Element {
         <>
             {/* Chart is z-index 100, so we need to be above it */}
             <div className="absolute top-2 left-2 z-[102]">
-                <SignificanceHighlight
+                <LegacySignificanceHighlight
                     displayOrder={displayOrder}
                     isSecondary={isSecondary}
                     metricUuid={metric?.uuid}
@@ -427,7 +431,7 @@ function ChartTooltips(): JSX.Element {
         <>
             {/* Variant result tooltip */}
             {tooltipData && (
-                <VariantTooltip
+                <LegacyVariantTooltip
                     tooltipData={tooltipData}
                     result={result}
                     metricType={metricType}
@@ -441,7 +445,11 @@ function ChartTooltips(): JSX.Element {
     )
 }
 
-// Main chart content component
+/**
+ * @deprecated
+ * Legacy main chart content component for DeltaChart.
+ * Frozen copy for legacy experiments - do not modify.
+ */
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
     const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
@@ -457,12 +465,12 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             </div>
         )
     } else if (resultsLoading) {
-        return <ChartLoadingState height={chartHeight} />
+        return <LegacyChartLoadingState height={chartHeight} />
     }
 
     return (
         <div className="relative w-full max-w-screen">
-            <ChartEmptyState
+            <LegacyChartEmptyState
                 height={chartHeight}
                 experimentStarted={isLaunched(experiment)}
                 metric={metric}
@@ -472,8 +480,12 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     )
 }
 
-// Main DeltaChart component
-export function DeltaChart({
+/**
+ * @deprecated
+ * Legacy main DeltaChart component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyDeltaChart({
     isSecondary,
     result,
     error,
@@ -516,7 +528,7 @@ export function DeltaChart({
     const { viewBoxWidth: VIEW_BOX_WIDTH, horizontalPadding: HORIZONTAL_PADDING } = dimensions
 
     // Colors
-    const colors = useChartColors()
+    const colors = useLegacyChartColors()
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -534,18 +546,7 @@ export function DeltaChart({
     }
 
     // Metric title panel
-    const metricTitlePanel = (
-        <MetricHeader
-            displayOrder={displayOrder}
-            experiment={experiment}
-            metric={metric}
-            metricType={metricType}
-            isPrimaryMetric={!isSecondary}
-            readOnly={true}
-            onDuplicateMetricClick={() => {}}
-            onBreakdownChange={() => {}}
-        />
-    )
+    const metricTitlePanel = <LegacyMetricHeader displayOrder={displayOrder} metric={metric} metricType={metricType} />
 
     // Chart content function that receives the ref from layout
     const chartContent = (chartSvgRef: React.RefObject<SVGSVGElement>): JSX.Element => (
@@ -573,10 +574,10 @@ export function DeltaChart({
 
         // Data transformation functions
         valueToX,
-        credibleIntervalForVariant,
-        conversionRateForVariant,
-        countDataForVariant,
-        exposureCountDataForVariant,
+        credibleIntervalForVariant: legacyCredibleIntervalForVariant,
+        conversionRateForVariant: legacyConversionRateForVariant,
+        countDataForVariant: legacyCountDataForVariant,
+        exposureCountDataForVariant: legacyExposureCountDataForVariant,
 
         // Chart dimensions
         dimensions,
@@ -603,7 +604,7 @@ export function DeltaChart({
 
     return (
         <DeltaChartContext.Provider value={contextValue}>
-            <MetricsChartLayout
+            <LegacyMetricsChartLayout
                 isFirstMetric={isFirstMetric}
                 tickValues={tickValues}
                 chartBound={chartBound}
@@ -614,7 +615,7 @@ export function DeltaChart({
             />
 
             {/* Modal for metric details */}
-            <ChartModal
+            <LegacyChartModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 metric={metric}

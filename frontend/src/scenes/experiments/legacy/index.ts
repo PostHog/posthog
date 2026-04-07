@@ -14,22 +14,35 @@ export { LegacySharedFunnelsMetricForm } from './sharedMetrics/LegacySharedFunne
 
 // Components
 export { LegacyExperimentHeader } from './components/LegacyExperimentHeader'
+export { LegacySummaryTable } from './components/LegacySummaryTable'
 export { LegacyExperimentDate } from './LegacyExperimentDate'
 export { LegacyExperimentDates } from './LegacyExperimentDates'
 export { LegacyExperimentInfo } from './LegacyExperimentInfo'
+export { LegacyResultsQuery } from './components/LegacyResultsQuery'
+export { LegacyExploreButton } from './components/LegacyExploreButton'
 
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
 
 // Metrics View
-export { MetricsViewLegacy } from './metricsView/MetricsViewLegacy'
-export { ChartModal } from './metricsView/ChartModal'
-export { DeltaChart } from './metricsView/DeltaChart'
+export { LegacyMetricsView } from './metricsView/LegacyMetricsView'
+export { LegacyChartModal } from './metricsView/LegacyChartModal'
+export { LegacyDeltaChart } from './metricsView/LegacyDeltaChart'
+export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'
 export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'
-export { MetricsChartLayout } from './metricsView/MetricsChartLayout'
-export { SignificanceHighlight } from './metricsView/SignificanceHighlight'
-export { TickPanel } from './metricsView/TickPanel'
-export { VariantDeltaTimeseries } from './metricsView/VariantDeltaTimeseries'
-export { VariantTooltip } from './metricsView/VariantTooltip'
-export { ViolinPath } from './metricsView/ViolinPath'
-export * from './metricsView/violinUtils'
+export { LegacyMetricsChartLayout } from './metricsView/LegacyMetricsChartLayout'
+export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHighlight'
+export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
+export { LegacyVariantDeltaTimeseries } from './metricsView/LegacyVariantDeltaTimeseries'
+export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
+export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
+export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
+export * from './metricsView/legacyViolinUtils'
+
+// Metrics View - Shared (Legacy)
+export { LegacyChartLoadingState } from './metricsView/LegacyChartLoadingState'
+export { LegacyGridLines } from './metricsView/LegacyGridLines'
+export { LegacyMetricHeader } from './metricsView/LegacyMetricHeader'
+export { LegacyMetricTitle } from './metricsView/LegacyMetricTitle'
+export { useLegacyChartColors, LEGACY_COLORS } from './metricsView/legacyColors'
+export * from './metricsView/legacyUtils'

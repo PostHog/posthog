@@ -1,7 +1,9 @@
-import { useChartColors } from '../../MetricsView/shared/colors'
-import { generateViolinPath } from './violinUtils'
+import { useLegacyChartColors } from './legacyColors'
+import { legacyGenerateViolinPath } from './legacyViolinUtils'
 
-interface ViolinPathProps {
+const CONVERSION_RATE_RECT_WIDTH = 2
+
+interface LegacyViolinPathProps {
     variant: {
         key: string
         [key: string]: any
@@ -15,7 +17,12 @@ interface ViolinPathProps {
     isSecondary: boolean
 }
 
-export function ViolinPath({
+/**
+ * @deprecated
+ * Legacy violin path component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyViolinPath({
     variant,
     x1,
     x2,
@@ -24,16 +31,15 @@ export function ViolinPath({
     deltaX,
     displayOrder,
     isSecondary,
-}: ViolinPathProps): JSX.Element {
-    const colors = useChartColors()
-    const CONVERSION_RATE_RECT_WIDTH = 2
+}: LegacyViolinPathProps): JSX.Element {
+    const colors = useLegacyChartColors()
 
     return (
         <>
             {variant.key === 'control' ? (
                 // Control variant - dashed violin
                 <path
-                    d={generateViolinPath(x1, x2, y, height, deltaX)}
+                    d={legacyGenerateViolinPath(x1, x2, y, height, deltaX)}
                     fill={colors.BAR_CONTROL}
                     stroke={colors.BOUNDARY_LINES}
                     strokeWidth={1}
@@ -63,7 +69,7 @@ export function ViolinPath({
                         </linearGradient>
                     </defs>
                     <path
-                        d={generateViolinPath(x1, x2, y, height, deltaX)}
+                        d={legacyGenerateViolinPath(x1, x2, y, height, deltaX)}
                         fill={`url(#gradient-${displayOrder}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
                     />
                 </>

@@ -23,7 +23,8 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from '../../experimentLogic'
+import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../../utils'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -31,11 +32,15 @@ import {
     legacyCredibleIntervalForVariant,
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
-} from '../legacy/calculations/legacyExperimentCalculations'
-import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
-import { VariantTag } from './components'
+} from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from './LegacyVariantTag'
 
-export function SummaryTable({
+/**
+ * @deprecated
+ * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
+ * For new experiments, use the modern SummaryTable component.
+ */
+export function LegacySummaryTable({
     metric,
     displayOrder = 0,
     isSecondary = false,
@@ -69,7 +74,7 @@ export function SummaryTable({
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <LegacyVariantTag variantKey={item.key} />
                     </div>
                 )
             },

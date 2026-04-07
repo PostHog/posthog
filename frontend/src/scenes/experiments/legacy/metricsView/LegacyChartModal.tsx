@@ -13,12 +13,14 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import type { Experiment } from '~/types'
 
-interface ChartModalProps {
+import { LegacyExploreButton } from '../components/LegacyExploreButton'
+import { LegacyResultsQuery } from '../components/LegacyResultsQuery'
+import { LegacySummaryTable } from '../components/LegacySummaryTable'
+import { LegacyWinningVariantText, LegacySignificanceText } from './LegacyOverview'
+
+interface LegacyChartModalProps {
     isOpen: boolean
     onClose: () => void
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -28,7 +30,12 @@ interface ChartModalProps {
     experiment: Experiment
 }
 
-export function ChartModal({
+/**
+ * @deprecated
+ * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyChartModal({
     isOpen,
     onClose,
     metric,
@@ -36,7 +43,7 @@ export function ChartModal({
     isSecondary,
     result,
     experiment,
-}: ChartModalProps): JSX.Element {
+}: LegacyChartModalProps): JSX.Element {
     const isLegacyResult =
         result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
 
@@ -59,11 +66,11 @@ export function ChartModal({
                     </div>
                     <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                         <div className="items-center inline-flex flex-wrap">
-                            <WinningVariantText result={result} />
-                            <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
+                            <LegacyWinningVariantText result={result} />
+                            <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                         </div>
                     </LemonBanner>
-                    <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
+                    <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                     <LegacyResultsQuery result={result} showTable={true} />
                 </>
             ) : (
@@ -88,11 +95,11 @@ export function ChartModal({
                             )}
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                                 <div className="items-center inline-flex flex-wrap">
-                                    <WinningVariantText result={result} />
-                                    <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
+                                    <LegacyWinningVariantText result={result} />
+                                    <LegacySignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                                 </div>
                             </LemonBanner>
-                            <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
+                            <LegacySummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
                                 <>

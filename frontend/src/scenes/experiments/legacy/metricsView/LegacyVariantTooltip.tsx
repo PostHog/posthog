@@ -3,10 +3,10 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { InsightType, TrendExperimentVariant } from '~/types'
 
-import { VariantTag } from '../../ExperimentView/components'
-import { calculateDelta } from '../calculations/legacyExperimentCalculations'
+import { legacyCalculateDelta } from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
 
-interface VariantTooltipProps {
+interface LegacyVariantTooltipProps {
     tooltipData: {
         x: number
         y: number
@@ -20,7 +20,12 @@ interface VariantTooltipProps {
     credibleIntervalForVariant: (result: any, variant: string, metricType: InsightType) => any
 }
 
-export function VariantTooltip({
+/**
+ * @deprecated
+ * Legacy variant tooltip component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyVariantTooltip({
     tooltipData,
     result,
     metricType,
@@ -28,7 +33,7 @@ export function VariantTooltip({
     countDataForVariant,
     exposureCountDataForVariant,
     credibleIntervalForVariant,
-}: VariantTooltipProps): JSX.Element {
+}: LegacyVariantTooltipProps): JSX.Element {
     return (
         <div
             className="fixed -translate-x-1/2 -translate-y-full bg-[var(--color-bg-surface-primary)] border border-[var(--color-border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md pointer-events-none z-[103] min-w-[300px]"
@@ -39,7 +44,7 @@ export function VariantTooltip({
             }} // Dynamic positioning based on mouse hover position
         >
             <div className="flex flex-col gap-1">
-                <VariantTag variantKey={tooltipData.variant} />
+                <LegacyVariantTag variantKey={tooltipData.variant} />
                 <div className="inline-flex">
                     <span className="text-secondary font-semibold mb-1">Win probability:</span>
                     {result?.probability?.[tooltipData.variant] !== undefined ? (
@@ -112,7 +117,7 @@ export function VariantTooltip({
                             <em className="text-secondary">Baseline</em>
                         ) : (
                             (() => {
-                                const deltaResult = calculateDelta(result, tooltipData.variant, metricType)
+                                const deltaResult = legacyCalculateDelta(result, tooltipData.variant, metricType)
                                 if (!deltaResult) {
                                     return '—'
                                 }

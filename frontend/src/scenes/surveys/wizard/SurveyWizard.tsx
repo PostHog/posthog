@@ -22,7 +22,8 @@ import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
-import { doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
+import { surveysLogic } from '../surveysLogic'
+import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
@@ -35,6 +36,9 @@ import { WizardStepper } from './WizardStepper'
 
 export const scene: SceneExport<SurveyWizardLogicProps> = {
     component: SurveyWizardComponent,
+    // Declaring the logic here keeps it (and its connected surveyLogic) mounted
+    // across tab switches, so unsaved edits and the current step survive re-entry.
+    logic: surveyWizardLogic,
     paramsToProps: ({ params: { id } }): SurveyWizardLogicProps => ({ id: id || 'new' }),
 }
 
@@ -64,6 +68,25 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
+    const { preferredEditor } = useValues(surveysLogic)
+    const { setPreferredEditor } = useActions(surveysLogic)
+
+    // Redirect to the full editor when appropriate:
+    //  - brand-new survey + user prefers full editor (per-user preference)
+    //  - existing survey that uses wizard-unsupported fields (capability gate)
+    // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
+    // respected and bypass the redirect.
+    useEffect(() => {
+        if (window.location.hash) {
+            return
+        }
+        if (!isEditing && preferredEditor === 'full') {
+            router.actions.replace(urls.survey('new'))
+        } else if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
+            router.actions.replace(`${urls.survey(id)}?edit=true`)
+        }
+    }, [isEditing, preferredEditor, survey, surveyLoading, id])
+
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({
         identifier: 'edit_survey',
@@ -90,6 +113,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }, [maxPreviewIndex])
 
     const handleCustomizeMore = (): void => {
+        setPreferredEditor('full')
         const target = isEditing
             ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
             : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
@@ -272,7 +296,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const header = (
         <div className="space-y-3">
             <div className="space-y-1">
-                {backButton}
+                <div className="flex items-center justify-between">
+                    {backButton}
+                    <LemonButton type="secondary" size="small" onClick={handleCustomizeMore}>
+                        Full editor
+                    </LemonButton>
+                </div>
                 <div>
                     <label htmlFor="survey-name" className="text-xs font-medium text-muted">
                         Survey name
@@ -391,13 +420,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                 )}
                             </div>
                         </div>
-
-                        <p className="text-center text-xs text-muted">
-                            Need more control?{' '}
-                            <button type="button" onClick={handleCustomizeMore} className="text-link hover:underline">
-                                Open full editor
-                            </button>
-                        </p>
                     </div>
 
                     {/* Right: Preview */}

@@ -6,11 +6,16 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
-import { getNiceTickValues } from '../../MetricsView/shared/utils'
-import { credibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
-import { DeltaChart } from './DeltaChart'
+import { legacyCredibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
+import { LegacyDeltaChart } from './LegacyDeltaChart'
+import { legacyGetNiceTickValues } from './legacyUtils'
 
-export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+/**
+ * @deprecated
+ * Legacy metrics view component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
@@ -53,7 +58,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
             }
             return variants.flatMap((variant) => {
                 const insightType = getInsightType(metric)
-                const interval = credibleIntervalForVariant(result, variant.key, insightType)
+                const interval = legacyCredibleIntervalForVariant(result, variant.key, insightType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
         })
@@ -62,7 +67,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
     const padding = Math.max(maxAbsValue * 0.05, 0.1)
     const chartBound = maxAbsValue + padding
 
-    const commonTickValues = getNiceTickValues(chartBound)
+    const commonTickValues = legacyGetNiceTickValues(chartBound)
 
     return (
         <div className="mb-4 -mt-2">
@@ -154,7 +159,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                                 : ''
                                     }`}
                                 >
-                                    <DeltaChart
+                                    <LegacyDeltaChart
                                         isSecondary={!!isSecondary}
                                         result={result}
                                         error={errors?.[index]}

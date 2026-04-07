@@ -5,15 +5,20 @@ import {
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 
-import { experimentLogic } from '../experimentLogic'
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
-} from '../legacy/calculations/legacyExperimentCalculations'
-import { VariantTag } from './components'
+} from '../calculations/legacyExperimentCalculations'
+import { LegacyVariantTag } from '../components/LegacyVariantTag'
 
-export function WinningVariantText({
+/**
+ * @deprecated
+ * These components support legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
+ * For new experiments, use the modern Overview components.
+ */
+export function LegacyWinningVariantText({
     result,
 }: {
     result:
@@ -34,7 +39,7 @@ export function WinningVariantText({
 
         return (
             <div className="items-center inline-flex flex-wrap">
-                <VariantTag variantKey={highestProbabilityVariant} />
+                <LegacyVariantTag variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
                 <span className="font-semibold items-center">
                     {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
@@ -47,16 +52,18 @@ export function WinningVariantText({
     return <></>
 }
 
-export function SignificanceText({
+/**
+ * @deprecated
+ * This component supports legacy experiment metrics.
+ * For new experiments, use the modern SignificanceText component.
+ */
+export function LegacySignificanceText({
     metricUuid,
     isSecondary = false,
 }: {
     metricUuid: string
     isSecondary?: boolean
 }): JSX.Element {
-    /**
-     * Remove this functions from the logic and make them pure so this component can be tested
-     */
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
 
     return (
@@ -70,26 +77,6 @@ export function SignificanceText({
                 }`}
                 .
             </span>
-        </div>
-    )
-}
-
-export function Overview({ metricUuid }: { metricUuid: string }): JSX.Element {
-    const { legacyPrimaryMetricsResults, experiment } = useValues(experimentLogic)
-
-    // Find metric index by UUID
-    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
-    const result = index >= 0 ? legacyPrimaryMetricsResults?.[index] : null
-    if (!result) {
-        return <></>
-    }
-
-    return (
-        <div>
-            <div className="items-center inline-flex flex-wrap">
-                <WinningVariantText result={result} />
-                <SignificanceText metricUuid={metricUuid} />
-            </div>
         </div>
     )
 }
