@@ -930,7 +930,7 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
-def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     """Check if the error is an insufficient permissions error."""
     if err.message is None:
         return False
