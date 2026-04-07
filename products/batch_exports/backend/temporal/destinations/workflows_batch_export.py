@@ -37,7 +37,7 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = []
+NON_RETRYABLE_ERROR_TYPES: list[str] = ["NotFoundErrorGroup", "BadRequestErrorGroup"]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -86,6 +86,23 @@ class InternalServerError(aiohttp.ClientResponseError):
     pass
 
 
+class ClientResponseErrorGroup(ExceptionGroup[aiohttp.ClientResponseError]):
+    """Base class for grouped HTTP errors."""
+
+    def derive(self, excs):
+        return ClientResponseErrorGroup(self.message, excs)
+
+
+class BadRequestErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return BadRequestErrorGroup(self.message, excs)
+
+
+class NotFoundErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return NotFoundErrorGroup(self.message, excs)
+
+
 def _make_exception(
     exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
 ) -> aiohttp.ClientResponseError:
@@ -106,6 +123,7 @@ class WorkflowsConsumer(Consumer):
         hog_function_id: str,
         team_id: int,
         session: aiohttp.ClientSession,
+        request_task_group: asyncio.TaskGroup,
         model: str = "events",
         max_concurrent_requests: int = 1_000,
     ):
@@ -120,6 +138,7 @@ class WorkflowsConsumer(Consumer):
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
         self.internal_api_secret = settings.INTERNAL_API_SECRET
+        self.request_task_group = request_task_group
         self._pending_requests: set[Request] = set()
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
@@ -127,9 +146,14 @@ class WorkflowsConsumer(Consumer):
         post = make_retryable_with_exponential_backoff(
             self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
         )
-        task = asyncio.create_task(post(data))
+        task = self.request_task_group.create_task(post(data))
         task.add_done_callback(self._pending_requests.remove)
         self._pending_requests.add(task)
+
+    def _on_request_complete(self, request: Request) -> None:
+        self._pending_requests.remove(request)
+        if (exc := request.exception()) is not None:
+            self.logger.exception("Request failed", exc_info=exc)
 
     async def post(self, data: bytes) -> None:
         async with self._requests_semaphore:
@@ -168,11 +192,7 @@ class WorkflowsConsumer(Consumer):
         Will raise if any requests failed.
         """
         if self._pending_requests:
-            try:
-                await asyncio.gather(*self._pending_requests)
-            except Exception:
-                self.logger.exception("One or more requests failed")
-                raise
+            await asyncio.gather(*self._pending_requests)
 
 
 @dataclasses.dataclass
@@ -224,27 +244,37 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         transformer = JSONLStreamTransformer(max_workers=1)
 
+        # NOTE: We initialize the TaskGroup first so that any errors in setting up
+        # the consumer are not raised in the TaskGroup context.
+        # TODO: The consumer should be refactored.
+        tg = asyncio.TaskGroup()
         async with aiohttp.ClientSession(trust_env=True) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
                 team_id=inputs.batch_export.team_id,
                 session=session,
+                request_task_group=tg,
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
                 max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
             )
-
-            # TODO: Use multiple consumers
-            result = await run_consumer_from_stage(
-                queue=queue,
-                consumer=consumer,
-                producer_task=producer_task,
-                transformer=transformer,
-                # the CDP API expects the JSON columns to be strings
-                json_columns=(),
-            )
+            try:
+                async with tg:
+                    # TODO: Use multiple consumers
+                    result = await run_consumer_from_stage(
+                        queue=queue,
+                        consumer=consumer,
+                        producer_task=producer_task,
+                        transformer=transformer,
+                        # the CDP API expects the JSON columns to be strings
+                        json_columns=(),
+                    )
+            except* BadRequest as exc_group:
+                raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group
+            except* NotFound as exc_group:
+                raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group
 
         return result
 
