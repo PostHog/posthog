@@ -258,7 +258,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             team=self._team,
             betas=[
                 "interleaved-thinking-2025-05-14",
-                "context-1m-2025-08-07",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
             max_tokens=8192 if is_sonnet_4_5 else 16384,

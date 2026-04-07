@@ -99,6 +99,61 @@ export interface PaginatedDataModelingJobListApi {
     results: DataModelingJobApi[]
 }
 
+export interface CheckDatabaseNameResponseApi {
+    name: string
+    available: boolean
+}
+
+export interface DeprovisionWarehouseResponseApi {
+    status: string
+    team: string
+}
+
+export interface ProvisionWarehouseRequestApi {
+    /** Name for the new database */
+    database_name: string
+}
+
+export interface ProvisionWarehouseResponseApi {
+    status: string
+    team: string
+}
+
+export interface ResetPasswordResponseApi {
+    username: string
+    password: string
+}
+
+/**
+ * * `pending` - pending
+ * `provisioning` - provisioning
+ * `ready` - ready
+ * `failed` - failed
+ * `deleting` - deleting
+ * `deleted` - deleted
+ */
+export type WarehouseStatusResponseStateEnumApi =
+    (typeof WarehouseStatusResponseStateEnumApi)[keyof typeof WarehouseStatusResponseStateEnumApi]
+
+export const WarehouseStatusResponseStateEnumApi = {
+    Pending: 'pending',
+    Provisioning: 'provisioning',
+    Ready: 'ready',
+    Failed: 'failed',
+    Deleting: 'deleting',
+    Deleted: 'deleted',
+} as const
+
+export interface WarehouseStatusResponseApi {
+    team_name: string
+    state: WarehouseStatusResponseStateEnumApi
+    status_message: string
+    /** @nullable */
+    ready_at: string | null
+    /** @nullable */
+    failed_at: string | null
+}
+
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
 export const SyncTypeEnumApi = {
@@ -1112,6 +1167,14 @@ export type DataModelingJobsListParams = {
      * @nullable
      */
     saved_query_id?: string | null
+}
+
+export type DataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string
 }
 
 export type ExternalDataSchemasListParams = {

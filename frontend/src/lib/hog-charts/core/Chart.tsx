@@ -73,6 +73,7 @@ export function Chart({
         hideXAxis = false,
         hideYAxis = false,
         showTooltip = true,
+        pinnableTooltip = false,
         showCrosshair = false,
         goalLines,
     } = config ?? {}
@@ -121,7 +122,9 @@ export function Chart({
         labels,
         series: coloredSeries,
         canvasRef,
+        wrapperRef,
         showTooltip,
+        pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
     })

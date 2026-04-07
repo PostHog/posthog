@@ -14,12 +14,14 @@ import type {
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
+    EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
     PaginatedEndpointResponseListApi,
     PaginatedEndpointVersionResponseListApi,
+    PatchedEndpointRequestApi,
     QueryStatusResponseApi,
 } from './api.schemas'
 
@@ -112,14 +114,24 @@ export const endpointsUpdate = async (
     })
 }
 
+/**
+ * Update an existing endpoint.
+ */
 export const getEndpointsPartialUpdateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
-export const endpointsPartialUpdate = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsPartialUpdateUrl(projectId, name), {
+export const endpointsPartialUpdate = async (
+    projectId: string,
+    name: string,
+    patchedEndpointRequestApi: PatchedEndpointRequestApi,
+    options?: RequestInit
+): Promise<EndpointResponseApi> => {
+    return apiMutator<EndpointResponseApi>(getEndpointsPartialUpdateUrl(projectId, name), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEndpointRequestApi),
     })
 }
 
@@ -201,8 +213,12 @@ export const getEndpointsRunRetrieveUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/run/`
 }
 
-export const endpointsRunRetrieve = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunRetrieveUrl(projectId, name), {
+export const endpointsRunRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
@@ -220,8 +236,8 @@ export const endpointsRunCreate = async (
     name: string,
     endpointRunRequestApi: EndpointRunRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunCreateUrl(projectId, name), {
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

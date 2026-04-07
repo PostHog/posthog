@@ -346,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             action: string,
             props?: Record<string, any>
         ) => ({ correlationType, action, props }),
-        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
-        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportPersonPropertyUpdated: (
@@ -1444,12 +1442,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportHelpButtonUsed: (props) => {
             posthog.capture('help button used', props)
-        },
-        reportCorrelationAnalysisFeedback: (props) => {
-            posthog.capture('correlation analysis feedback', props)
-        },
-        reportCorrelationAnalysisDetailedFeedback: (props) => {
-            posthog.capture('correlation analysis detailed feedback', props)
         },
         reportCorrelationInteraction: ({ correlationType, action, props }) => {
             posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })

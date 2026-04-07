@@ -43,6 +43,10 @@
   dockerfile: ./rust/Dockerfile
   project: c1bwj4j4qg
 
+- image: ingestion-consumer
+  dockerfile: ./rust/Dockerfile
+  project: mtvzx98zjn
+
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q

@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertSimulateRequestApi,
+    LogsAlertSimulateResponseApi,
     LogsAlertsListParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -288,6 +290,26 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
     })
 }
 
+/**
+ * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
+ */
+export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/simulate/`
+}
+
+export const logsAlertsSimulateCreate = async (
+    projectId: string,
+    logsAlertSimulateRequestApi: LogsAlertSimulateRequestApi,
+    options?: RequestInit
+): Promise<LogsAlertSimulateResponseApi> => {
+    return apiMutator<LogsAlertSimulateResponseApi>(getLogsAlertsSimulateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
 export const getLogsAttributesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/attributes/`
 }
@@ -327,6 +349,17 @@ export const getLogsQueryCreateUrl = (projectId: string) => {
 
 export const logsQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getLogsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsServicesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/services/`
+}
+
+export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsServicesCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })

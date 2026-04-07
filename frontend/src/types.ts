@@ -269,6 +269,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
@@ -387,6 +388,7 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    organization_member_join_email_disabled?: Record<string, boolean>
 }
 
 export interface InAppNotification {
@@ -5094,6 +5096,7 @@ export type ExportContext = (
 ) & {
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
+    variables_override?: Record<string, any>
 }
 
 export interface ExportedAssetType {
@@ -5149,6 +5152,8 @@ export type APIScopeObject =
     | 'annotation'
     | 'batch_export'
     | 'cohort'
+    | 'customer_analytics'
+    | 'customer_journey'
     | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
@@ -6424,6 +6429,7 @@ export type HogFunctionSubTemplateIdType =
     | 'insight-alert-firing'
     | 'experiment-significant'
     | 'logs-alert-firing'
+    | 'logs-alert-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6855,6 +6861,28 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
+}
+
+export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
+
+export interface DataWarehouseProvisioningConnection {
+    host: string
+    port: number
+    database: string
+    username: string
+}
+
+export interface DataWarehouseProvisioningStatus {
+    org_id: string
+    state: DataWarehouseProvisioningState
+    status_message: string
+    s3_state: DataWarehouseProvisioningState
+    metadata_store_state: DataWarehouseProvisioningState
+    identity_state: DataWarehouseProvisioningState
+    secrets_state: DataWarehouseProvisioningState
+    ready_at: string | null
+    failed_at: string | null
+    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

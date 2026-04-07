@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -100,6 +100,7 @@ import {
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
+    DataWarehouseProvisioningStatus,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -214,6 +215,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import {
     ColumnConfigurationApi,
@@ -741,6 +743,10 @@ export class ApiRequest {
 
     public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
+    }
+
+    public logsServices(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('services')
     }
 
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
@@ -2154,7 +2160,7 @@ const api = {
             }
             return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
-        async listVersions(name: string): Promise<EndpointVersionType[]> {
+        async listVersions(name: string): Promise<CountedPaginatedResponse<EndpointVersionType>> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
     },
@@ -2568,6 +2574,17 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
+            services: {
+                service_name: string
+                log_count: number
+                error_count: number
+                error_rate: number
+            }[]
+            sparkline: { time: string; service_name: string; count: number }[]
+        }> {
+            return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
@@ -5025,6 +5042,42 @@ const api = {
         async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
             return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
+
+        async provisionWarehouse(
+            databaseName: string,
+            options?: ApiMethodOptions
+        ): Promise<{ status: string; org: string; username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('provision')
+                .create({ data: { database_name: databaseName }, ...options } as any)
+        },
+
+        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('deprovision')
+                .create(options as any)
+        },
+
+        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
+            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
+        },
+
+        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('check-database-name')
+                .withQueryString({ name })
+                .get()
+        },
+
+        async resetPassword(): Promise<{ username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('reset_password')
+                .create({} as any)
+        },
     },
 
     externalDataSchemas: {
@@ -5510,8 +5563,8 @@ const api = {
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
         ): Promise<{
-            users_affected: number
-            total_users: number
+            affected: number
+            total: number
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },

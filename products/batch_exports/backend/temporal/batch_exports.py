@@ -553,13 +553,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        external_logger.error(
-            "Batch export for range %s - %s failed with a non-recoverable error: %s",
-            batch_export_run.data_interval_start or "START",
-            batch_export_run.data_interval_end or "END",
-            batch_export_run.latest_error,
-        )
-
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
@@ -568,6 +561,13 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             logger.exception("Failure email notification could not be sent")
         else:
             external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
+
+        external_logger.error(
+            "Batch export for range %s - %s failed with a non-recoverable error: %s",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            batch_export_run.latest_error,
+        )
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,

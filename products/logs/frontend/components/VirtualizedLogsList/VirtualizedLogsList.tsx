@@ -157,8 +157,6 @@ export function VirtualizedLogsList({
         attributeColumnWidths,
         selectedLogIds,
         prettifiedLogIds,
-        linkToLogId,
-        logsCount,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -169,7 +167,6 @@ export function VirtualizedLogsList({
         selectLogRange,
         togglePrettifyLog,
         setFocused,
-        setCursorToLogId,
     } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
 
@@ -233,15 +230,6 @@ export function VirtualizedLogsList({
     )
 
     const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
-
-    // Position cursor at linked log when deep linking (URL -> cursor)
-    useEffect(() => {
-        if (!disableCursor && linkToLogId && logsCount > 0) {
-            setCursorToLogId(linkToLogId)
-            containerRef.current?.focus()
-            containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-    }, [disableCursor, linkToLogId, logsCount, setCursorToLogId])
 
     // Scroll to cursor when requested (subscription fires when cursorIndex changes)
     useEffect(() => {

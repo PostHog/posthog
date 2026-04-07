@@ -1,10 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import type { DashboardTemplateListParams } from '~/types'
+import type { DashboardTemplateListParams, DashboardTemplateType } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 
@@ -80,5 +81,50 @@ describe('dashboardTemplatesLogic', () => {
         await expectLogic(mounted, () => mounted.actions.getAllTemplates()).toFinishAllListeners()
 
         expect(listMock.mock.calls.some(([params]: [DashboardTemplateListParams]) => expectedParams(params))).toBe(true)
+    })
+
+    it('clears the template search when the dashboard list URL no longer includes a search (stale query no longer hides templates)', async () => {
+        router.actions.push('/dashboard', { templateFilter: 'needle' })
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted).toMatchValues({ templateFilter: 'needle' })
+
+        router.actions.push('/dashboard', {})
+
+        await expectLogic(mounted).toMatchValues({ templateFilter: '' })
+    })
+
+    it('does not redundantly refresh the template catalog when the dashboard URL already matches the current search (no flicker on open)', async () => {
+        router.actions.push('/dashboard', {})
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        const setTemplateFilterSpy = jest.spyOn(mounted.actions, 'setTemplateFilter')
+        mounted.mount()
+
+        await expectLogic(mounted).toFinishAllListeners()
+
+        const listCallsAfterOpen = listMock.mock.calls.length
+        expect(setTemplateFilterSpy).not.toHaveBeenCalled()
+
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        expect(listMock.mock.calls.length).toBe(listCallsAfterOpen)
+    })
+
+    it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
+        router.actions.push('/dashboard', {})
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        const stub: Pick<DashboardTemplateType, 'id'> = { id: '1' }
+        listMock.mockResolvedValue({ results: [stub as DashboardTemplateType] })
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted).toFinishAllListeners()
+
+        expect(listMock).toHaveBeenCalled()
     })
 })
