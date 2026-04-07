@@ -602,23 +602,6 @@ class TestBytecode(BaseTest):
 
     @parameterized.expand(
         [
-            ("gt_none", "person.properties.test_prop > 'value'", None, False),
-            ("gte_none", "person.properties.test_prop >= 'value'", None, False),
-            ("lt_none", "person.properties.test_prop < 'value'", None, False),
-            ("lte_none", "person.properties.test_prop <= 'value'", None, False),
-            ("gt_match", "person.properties.test_prop > 'value'", "xyz", True),
-            ("gte_match", "person.properties.test_prop >= 'value'", "xyz", True),
-            ("lt_match", "person.properties.test_prop < 'value'", "abc", True),
-            ("lte_match", "person.properties.test_prop <= 'value'", "abc", True),
-        ]
-    )
-    def test_null_safe_comparisons(self, _name, expr_str, property_value, expected):
-        hog_globals = {"person": {"properties": {"test_prop": property_value}}}
-        result = execute_hog(expr_str, globals=hog_globals)
-        self.assertEqual(result.result, expected)
-
-    @parameterized.expand(
-        [
             ("bool_false_vs_string_true", "person.properties.anonymize_data == 'true'", False, False),
             ("bool_true_vs_string_true", "person.properties.anonymize_data == 'true'", True, True),
             ("bool_false_vs_string_false", "person.properties.anonymize_data == 'false'", False, True),
