@@ -37,6 +37,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
@@ -84,6 +85,23 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
         )
+
+
+def _create_batch_export(team: Team, label: str):
+    from posthog.batch_exports.models import BatchExport, BatchExportDestination
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+
+
+def _create_batch_export_backfill(team: Team, label: str):
+    from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    batch_export = BatchExport.objects.create(
+        team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
+    )
+    return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
 
 
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
@@ -183,6 +201,32 @@ def _create_early_access_feature(team: Team, label: str) -> EarlyAccessFeature:
     return EarlyAccessFeature.objects.create(team=team, name=f"eaf_{label}", stage="draft", feature_flag=flag)
 
 
+def _get_or_create_user_for_team(team: Team, label: str):
+    from posthog.models.user import User
+
+    user = User.objects.filter(organization_membership__organization=team.organization).first()
+    if not user:
+        user = User.objects.create(email=f"test_{label}@posthog.com")
+    return user
+
+
+def _create_endpoint(team: Team, label: str) -> Endpoint:
+    user = _get_or_create_user_for_team(team, label)
+    return Endpoint.objects.create(team=team, name=f"ep_{label}", created_by=user)
+
+
+def _create_endpoint_version(team: Team, label: str) -> EndpointVersion:
+    user = _get_or_create_user_for_team(team, label)
+    endpoint = Endpoint.objects.create(team=team, name=f"ep_for_ver_{label}", created_by=user)
+    return EndpointVersion.objects.create(
+        endpoint=endpoint,
+        team=team,
+        version=1,
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        created_by=user,
+    )
+
+
 def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
@@ -238,6 +282,12 @@ def _create_group_type_mapping(team: Team, label: str) -> GroupTypeMapping:
     )
 
 
+def _create_integration(team: Team, label: str):
+    from posthog.models.integration import Integration
+
+    return Integration.objects.create(team=team, kind="slack", errors="")
+
+
 def _create_insight(team: Team, label: str) -> Insight:
     return Insight.objects.create(team=team, name=f"insight_{label}")
 
@@ -263,6 +313,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("batch_export_backfills", _create_batch_export_backfill),
+    ("batch_exports", _create_batch_export),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
@@ -271,6 +323,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
     ("early_access_features", _create_early_access_feature),
+    ("data_modeling_endpoint_versions", _create_endpoint_version),
+    ("data_modeling_endpoints", _create_endpoint),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),
@@ -284,6 +338,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("hog_functions", _create_hog_function),
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
+    ("integrations", _create_integration),
     ("notebooks", _create_notebook),
     ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),

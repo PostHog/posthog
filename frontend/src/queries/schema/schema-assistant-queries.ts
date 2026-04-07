@@ -3,6 +3,7 @@ import {
     ChartDisplayType,
     FunnelMathType,
     IntervalType,
+    LifecycleToggle,
     PathType,
     PropertyFilterType,
     PropertyOperator,
@@ -11,9 +12,14 @@ import {
 import {
     ActionsNode,
     CompareFilter,
+    DateRange,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingOrderBy,
+    ErrorTrackingQueryStatus,
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
     NodeKind,
@@ -1030,8 +1036,205 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
     pathsFilter: AssistantPathsFilter
 }
 
+export interface AssistantLifecycleEventsNode extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'> {
+    /**
+     * Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.
+     */
+    kind: NodeKind.EventsNode
+    properties?: AssistantPropertyFilter[]
+}
+
+export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
+
+export interface AssistantLifecycleActionsNode extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'> {
+    /**
+     * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
+     * You must provide the action ID in the `id` field and the name in the `name` field.
+     */
+    kind: NodeKind.ActionsNode
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export interface AssistantLifecycleFilter {
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /**
+     * Lifecycles that have been removed from display are not included in this array.
+     * Available values: `new`, `returning`, `resurrecting`, `dormant`.
+     * - `new` - users who performed the event for the first time during the period.
+     * - `returning` - users who were active in the previous period and are active in the current period.
+     * - `resurrecting` - users who were inactive for one or more periods and became active again.
+     * - `dormant` - users who were active in the previous period but are inactive in the current period.
+     */
+    toggledLifecycles?: LifecycleToggle[]
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: LifecycleFilterLegacy['show_legend']
+    /**
+     * Whether the lifecycle bars should be stacked.
+     * @default true
+     */
+    stacked?: boolean
+}
+
+export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.LifecycleQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * Event or action to analyze. Lifecycle insights only support a single series.
+     * @maxLength 1
+     */
+    series: AssistantLifecycleSeriesNode[]
+
+    /**
+     * Properties specific to the lifecycle insight
+     */
+    lifecycleFilter?: AssistantLifecycleFilter
+}
+
+/**
+ * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
+ * token usage, costs, errors, and other metadata. Use for AI observability — debugging
+ * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
+ *
+ * This is a listing tool, not a visualization/insight tool. It does not support series,
+ * breakdowns, or math aggregations. Use property filters and dateRange to narrow results.
+ */
+export interface AssistantTracesQuery {
+    kind: NodeKind.TracesQuery
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Maximum number of traces to return.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of traces to skip for pagination.
+     * @default 0
+     */
+    offset?: integer
+
+    /**
+     * Exclude internal and test users by applying the respective filters.
+     * @default true
+     */
+    filterTestAccounts?: boolean
+
+    /**
+     * Exclude support impersonation traces.
+     * @default false
+     */
+    filterSupportTraces?: boolean
+
+    /**
+     * Property filters to narrow results. Use event properties like `$ai_model`,
+     * `$ai_provider`, `$ai_trace_id`, etc. to filter traces.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+
+    /**
+     * Filter traces by a specific person UUID.
+     */
+    personId?: string
+
+    /**
+     * Filter traces by group key. Requires `groupTypeIndex` to be set.
+     */
+    groupKey?: string
+
+    /**
+     * Group type index when filtering by group.
+     */
+    groupTypeIndex?: integer
+
+    /**
+     * Use random ordering instead of timestamp DESC.
+     * Useful for representative sampling to avoid recency bias.
+     * @default false
+     */
+    randomOrder?: boolean
+}
+
+/**
+ * Fetch a single LLM trace by ID. Returns the full trace with all child events
+ * and their complete properties — use for deep inspection of a specific trace
+ * found via `query-llm-traces-list`.
+ */
+export interface AssistantTraceQuery {
+    kind: NodeKind.TraceQuery
+
+    /**
+     * The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).
+     */
+    traceId: string
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Property filters to narrow events within the trace.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
 export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
     query: string
+}
+
+export interface AssistantErrorTrackingQuery {
+    kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
+    issueId?: string
+    /** Field to sort results by. */
+    orderBy?: ErrorTrackingOrderBy
+    /** Sort direction. */
+    orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
+    dateRange?: DateRange
+    /** Filter by issue status. */
+    status?: ErrorTrackingQueryStatus
+    /** Filter by assignee. */
+    assignee?: ErrorTrackingIssueAssignee | null
+    /** Whether to filter out test accounts. */
+    filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
+    searchQuery?: string
+    /**
+     * Property filters for the query
+     *
+     * @default []
+     */
+    filterGroup?: AssistantPropertyFilter[]
+    /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
+    volumeResolution?: integer
+    limit?: integer
+    offset?: integer
 }

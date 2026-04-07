@@ -25,7 +25,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+import { checkLatestVersionsOnQuery, convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -343,21 +343,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.filtersOverride, s.variablesOverride, s.insightData],
-            (
-                insight: Partial<QueryBasedInsightModel>,
-                filtersOverride,
-                variablesOverride,
-                insightData
-            ): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                // Merge the latest result from insightDataLogic (more up-to-date than insight.result)
-                const insightWithResult =
-                    insightData?.result != null ? { ...insight, result: insightData.result } : insight
                 return [
-                    createMaxContextHelpers.insight(insightWithResult, {
+                    createMaxContextHelpers.insight(insight, {
                         filtersOverride: filtersOverride ?? undefined,
                         variablesOverride: variablesOverride ?? undefined,
                     }),
@@ -435,6 +427,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             } else {
                 upgradedQuery = query
             }
+
+            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
 
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(

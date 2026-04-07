@@ -91,12 +91,12 @@ import {
 } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
-    conversionRateForVariant,
-    expectedRunningTime,
-    getSignificanceDetails,
-    minimumSampleSizePerVariant,
-    recommendedExposureForCountData,
-} from './legacyExperimentCalculations'
+    legacyConversionRateForVariant,
+    legacyExpectedRunningTime,
+    legacyGetSignificanceDetails,
+    legacyMinimumSampleSizePerVariant,
+    legacyRecommendedExposureForCountData,
+} from './legacy/calculations/legacyExperimentCalculations'
 import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
@@ -1697,7 +1697,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     payload?.end_date !== undefined ||
                     payload?.metrics !== undefined ||
                     payload?.metrics_secondary !== undefined ||
-                    payload?.stats_config !== undefined
+                    payload?.stats_config !== undefined ||
+                    payload?.only_count_matured_users !== undefined
                 actions.refreshExperimentResults(forceRefresh, 'config_change')
             }
         },
@@ -2519,14 +2520,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     const results = legacyPrimaryMetricsResults?.[index]
-                    return getSignificanceDetails(results)
+                    return legacyGetSignificanceDetails(results)
                 },
         ],
         recommendedSampleSize: [
             (s) => [s.conversionMetrics, s.variants, s.minimumDetectableEffect],
             (conversionMetrics, variants, minimumDetectableEffect): number => {
                 const conversionRate = conversionMetrics.totalRate * 100
-                const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
+                const sampleSizePerVariant = legacyMinimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
                 const sampleSize = sampleSizePerVariant * variants.length
                 return sampleSize
             },
@@ -2564,16 +2565,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     const conversionRate = conversionMetrics.totalRate * 100
-                    const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
+                    const sampleSizePerVariant = legacyMinimumSampleSizePerVariant(
+                        minimumDetectableEffect,
+                        conversionRate
+                    )
                     const funnelSampleSize = sampleSizePerVariant * variants.length
                     if (experiment?.start_date) {
-                        return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
+                        return legacyExpectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
                     }
-                    return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
+                    return legacyExpectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
                 }
 
                 const trendCount = trendResults[0]?.count
-                const runningTime = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
+                const runningTime = legacyRecommendedExposureForCountData(minimumDetectableEffect, trendCount)
                 return runningTime
             },
         ],
@@ -2678,7 +2682,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         .map((key) => ({
                             key,
                             winProbability: result.probability[key],
-                            conversionRate: conversionRateForVariant(result, key),
+                            conversionRate: legacyConversionRateForVariant(result, key),
                         }))
                         .sort((a, b) => b.winProbability - a.winProbability)
                 },

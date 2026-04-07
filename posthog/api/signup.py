@@ -179,15 +179,16 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
-        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNUP,
-            auth_method=auth_method,
-            turnstile_token=validated_data.get("turnstile_token", ""),
-            challenge_nonce=validated_data.get("challenge_nonce", ""),
-        )
+        if not self.is_social_signup:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=validated_data["email"],
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+                turnstile_token=validated_data.get("turnstile_token", ""),
+                challenge_nonce=validated_data.get("challenge_nonce", ""),
+            )
 
         is_instance_first_user: bool = not User.objects.exists()
 

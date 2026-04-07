@@ -1,1 +1,1 @@
-0020_backfill_endpoint_edges
+0024_endpointversion_updated_at

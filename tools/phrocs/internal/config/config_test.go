@@ -212,6 +212,66 @@ func TestLoad_procListWidth(t *testing.T) {
 	}
 }
 
+func TestLoad_globalShell(t *testing.T) {
+	path := writeYAML(t, "shell: /bin/zsh\nprocs:\n  svc:\n    shell: echo hi\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Shell != "/bin/zsh" {
+		t.Errorf("Shell: got %q, want %q", cfg.Shell, "/bin/zsh")
+	}
+}
+
+func TestLoad_cwd(t *testing.T) {
+	path := writeYAML(t, "procs:\n  svc:\n    shell: echo hi\n    cwd: /tmp/mydir\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Procs["svc"].Cwd != "/tmp/mydir" {
+		t.Errorf("Cwd: got %q, want %q", cfg.Procs["svc"].Cwd, "/tmp/mydir")
+	}
+}
+
+func TestLoadPosthogConfig(t *testing.T) {
+	path := writeYAML(t, `
+procs:
+  svc:
+    shell: echo hi
+_posthog:
+  intents:
+    - web
+    - analytics
+  exclude_units:
+    - celery
+`)
+	cfg, err := LoadPosthogConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil PosthogConfig")
+	}
+	if len(cfg.Intents) != 2 || cfg.Intents[0] != "web" || cfg.Intents[1] != "analytics" {
+		t.Errorf("Intents: got %v, want [web analytics]", cfg.Intents)
+	}
+	if len(cfg.ExcludeUnits) != 1 || cfg.ExcludeUnits[0] != "celery" {
+		t.Errorf("ExcludeUnits: got %v, want [celery]", cfg.ExcludeUnits)
+	}
+}
+
+func TestLoadPosthogConfig_absent(t *testing.T) {
+	path := writeYAML(t, "procs:\n  svc:\n    shell: echo hi\n")
+	cfg, err := LoadPosthogConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != nil {
+		t.Errorf("expected nil when _posthog absent, got %+v", cfg)
+	}
+}
+
 func TestResolveConfigPath(t *testing.T) {
 	t.Run("explicit path is returned as-is", func(t *testing.T) {
 		got, err := ResolveConfigPath("/some/explicit/path.yaml")

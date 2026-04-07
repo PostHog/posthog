@@ -1,6 +1,7 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -15,8 +16,9 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -379,6 +381,20 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
+
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -692,6 +708,80 @@ describe('dashboardLogic', () => {
                     })
             })
 
+            it('save during in-flight dashboard refresh does not abort insight fetches', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                let releaseBarrier: () => void
+                const barrier = new Promise<void>((resolve): void => {
+                    releaseBarrier = resolve
+                })
+
+                const realGetInsightWithRetry =
+                    jest.requireActual<typeof dashboardUtils>('./dashboardUtils').getInsightWithRetry
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(
+                        async (
+                            ...args: Parameters<typeof realGetInsightWithRetry>
+                        ): ReturnType<typeof realGetInsightWithRetry> => {
+                            await barrier
+                            return realGetInsightWithRetry(...args)
+                        }
+                    )
+
+                try {
+                    ;(api.update as jest.Mock).mockClear()
+
+                    // forceRefresh: true so every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    const deadline = Date.now() + 5000
+                    while (getInsightWithRetrySpy.mock.calls.length < 2) {
+                        if (Date.now() > deadline) {
+                            throw new Error('Timed out waiting for insight fetches to start')
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+
+                    const firstTile = dashboard.tiles[0]
+                    const currentLayouts = logic.values.layouts
+                    const modifiedLayouts: any = {
+                        ...currentLayouts,
+                        sm: currentLayouts.sm?.map((layout) =>
+                            layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                        ),
+                    }
+
+                    logic.actions.updateLayouts(modifiedLayouts)
+                    logic.actions.saveEditModeChanges()
+
+                    // Do not use toFinishAllListeners here: it would wait for refreshDashboardItems too,
+                    // while refresh is intentionally blocked on `barrier`.
+                    const saveDeadline = Date.now() + 5000
+                    while ((api.update as jest.Mock).mock.calls.length < 1) {
+                        if (Date.now() > saveDeadline) {
+                            throw new Error('Timed out waiting for saveEditModeChanges to call api.update')
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+                    expect(api.update).toHaveBeenCalledTimes(1)
+
+                    releaseBarrier!()
+                    await refreshDone
+
+                    expect(logic.values.refreshStatus[insight1.short_id]?.refreshed).toBe(true)
+                    expect(logic.values.refreshStatus[insight2.short_id]?.refreshed).toBe(true)
+                } finally {
+                    releaseBarrier!()
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('manual refresh does not update last refresh when insights fail', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -818,6 +908,137 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['setPageVisibility'])
                     .toNotHaveDispatchedActions(['resetInterval'])
             })
+        })
+    })
+
+    describe('dashboard variables', () => {
+        const variableId = '019d4e3a-3ae0-0000-0698-96f9eecd74ef'
+        const baseVariable = {
+            code_name: 'organization',
+            variableId,
+        }
+
+        const mountDashboardWithVariable = async ({
+            urlValue,
+            dashboardOverride,
+            insightOverride,
+        }: {
+            urlValue?: string | null
+            dashboardOverride?: Partial<HogQLVariable>
+            insightOverride?: Partial<HogQLVariable>
+        }): Promise<void> => {
+            router.actions.push(
+                '/',
+                urlValue === undefined
+                    ? {}
+                    : {
+                          [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({
+                              organization: urlValue,
+                          }),
+                      }
+            )
+
+            const insightWithVariable = {
+                ...insightOnDashboard(175, [12]),
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select {variables.organization}',
+                        variables: {
+                            [variableId]: {
+                                ...baseVariable,
+                                ...insightOverride,
+                            },
+                        },
+                    },
+                    chartSettings: {},
+                    tableSettings: {},
+                } as any,
+            }
+
+            const dashboardWithVariableOverride = {
+                ...dashboardResult(12, [tileFromInsight(insightWithVariable)]),
+                persisted_variables: dashboardOverride
+                    ? {
+                          [variableId]: {
+                              ...baseVariable,
+                              ...dashboardOverride,
+                          },
+                      }
+                    : undefined,
+            }
+
+            variableDataLogic.mount()
+            logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(variableDataLogic, () => {
+                variableDataLogic.actions.loadVariablesSuccess([
+                    {
+                        id: variableId,
+                        name: 'Organization',
+                        code_name: 'organization',
+                        type: 'String',
+                        default_value: 'Default org',
+                    },
+                ] as any)
+            }).toMatchValues({
+                variables: [
+                    expect.objectContaining({
+                        id: variableId,
+                        code_name: 'organization',
+                    }),
+                ],
+            })
+        }
+
+        it.each([
+            ['url override (non-null)', 'url-val', undefined, undefined, 'url-val', false],
+            ['url override (null)', null, undefined, undefined, null, true],
+            ['persisted null override', undefined, { value: null, isNull: true }, undefined, null, true],
+            ['insight value fallback', undefined, undefined, { value: 'insight' }, 'insight', undefined],
+            ['default value fallback', undefined, undefined, undefined, 'Default org', undefined],
+        ])(
+            'resolves variable value: %s',
+            async (
+                _name: string,
+                urlValue: string | null | undefined,
+                dashboardOverride: Partial<HogQLVariable> | undefined,
+                insightOverride: Partial<HogQLVariable> | undefined,
+                expectedValue: string | null,
+                expectedIsNull: boolean | undefined
+            ) => {
+                await mountDashboardWithVariable({ urlValue, dashboardOverride, insightOverride })
+
+                expect(logic.values.effectiveVariablesAndAssociatedInsights).toEqual([
+                    {
+                        variable: expect.objectContaining({
+                            id: variableId,
+                            name: 'Organization',
+                            code_name: 'organization',
+                            value: expectedValue,
+                            isNull: expectedIsNull,
+                        }),
+                        insightNames: ['donut'],
+                    },
+                ])
+            }
+        )
+
+        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-override',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
         })
     })
 

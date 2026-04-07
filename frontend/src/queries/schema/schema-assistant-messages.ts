@@ -8,6 +8,7 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
@@ -16,6 +17,7 @@ import type {
 import type {
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
     PathsQuery,
     QuerySchema,
     RetentionQuery,
@@ -182,7 +184,11 @@ export interface FormResumePayload {
     form_answers: MultiQuestionFormAnswers
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload
+export interface FormDismissPayload {
+    action: 'dismiss_form'
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -239,6 +245,7 @@ export type AnyAssistantGeneratedQuery =
     | AssistantRetentionQuery
     | AssistantStickinessQuery
     | AssistantPathsQuery
+    | AssistantLifecycleQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -252,6 +259,7 @@ export interface VisualizationItem {
         | RetentionQuery
         | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -485,6 +493,7 @@ export type AssistantTool =
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'
+    | 'run_hog_eval_test'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

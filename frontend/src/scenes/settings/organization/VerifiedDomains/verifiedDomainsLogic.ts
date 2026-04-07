@@ -48,6 +48,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setScimLogsStatusFilter: (filter: 'all' | 'success' | '4xx' | '5xx') => ({ filter }),
         setScimLogsSearch: (search: string) => ({ search }),
         setScimLogsPage: (page: number) => ({ page }),
+        reloadScimLogs: true,
         setVerifyModal: (id: string | null) => ({ id }),
     }),
     reducers({
@@ -130,7 +131,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                             domain,
                         }
                     )
-                    return [response, ...values.verifiedDomains]
+                    return [...values.verifiedDomains, response]
                 },
                 deleteVerifiedDomain: async (id: string) => {
                     await api.delete(`api/organizations/${values.currentOrganizationId}/domains/${id}`)
@@ -276,6 +277,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setScimLogsPage: ({ page }) => {
             if (values.scimLogsModalId) {
                 actions.loadScimLogs({ domainId: values.scimLogsModalId, page })
+            }
+        },
+        reloadScimLogs: () => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({ domainId: values.scimLogsModalId, page: values.scimLogsPage })
             }
         },
     })),
