@@ -1,5 +1,9 @@
 metadata:
+    devbox:
+        coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -91,6 +95,17 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
+devbox:
+    devbox: null
+    devbox:setup: null
+    devbox:start: null
+    devbox:stop: null
+    devbox:ssh: null
+    devbox:open: null
+    devbox:logs: null
+    devbox:destroy: null
+    devbox:status: null
+    devbox:forward: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -263,6 +278,7 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
+    build: null # Click-defined command; placed here for help categorization
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
@@ -505,9 +521,6 @@ tests:
     test:js:
         cmd: pnpm --filter=@posthog/frontend test
         description: Run JavaScript test suite
-    test:run:
-        bin_script: tests
-        description: Interactive test runner with watch mode and changed file detection
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
@@ -553,6 +566,7 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 tools:
+    doctor: null # Click-defined, placed here for categorization
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling

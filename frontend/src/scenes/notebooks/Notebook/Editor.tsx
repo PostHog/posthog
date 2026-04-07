@@ -194,7 +194,7 @@ export function Editor(): JSX.Element {
             {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
-                    !editor.isActive('comment') ? (
+                    !editor.isSelectionFullyWithinSingleMark('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton

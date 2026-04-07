@@ -3935,9 +3935,9 @@ snapshots:
     scenes-app-data-management--managed-viewsets--light:
         hash: v1.k794b7964.1a00cc56637e440b6c4d4ebb3fdf3674f95b0eae20ced8899a0f21c40de6aa57.zNH2VSbgVz_pLzr1KKDlFYDgD8j3c2IbDXUy4IgNNHE
     scenes-app-data-management-actions--action--dark:
-        hash: v1.k794b7964.5a3c8bd8ce91a349cc8b59f190dcc8408b4b1ca4ba901676989ddd60dac21f2e.EAjOf4yIXrPoN8Gw9b8RCvXFtG762EwwF5eIPk24RP8
+        hash: v1.k794b7964.14f06843aa6a9338c761608a4ab7652acf64811c47e307be29336069127e264a.5YX9rFdnwoC4wuhrc9vIdJLerElFEYEpkL3vNA4G8gs
     scenes-app-data-management-actions--action--light:
-        hash: v1.k794b7964.6723c65171996a3effc0f3ed361570ff9daf3ecc9c7b02081b50325dc91be4be.UCLSwWKIgaE_n1VOZw7E_ZCsaN_78UoZMxa03KuBbss
+        hash: v1.k794b7964.8f5f3a9282db1a2ffcf1b3613291f78f668ff76bbe0806ce45cdd3a7a36a5301.GX7A3JYaLgkRGBfDPDzvIpkfck4idd9EVD4EnwbCPGs
     scenes-app-data-management-actions--actions-list--dark:
         hash: v1.k794b7964.6a14c911a274eeeef4e4f4af38d518cd87d9459945baa398238e8facc186ae7a.FDf8jijdhkb65kyhkl4bkS8dP7mOF2omZRvFb7eAG6w
     scenes-app-data-management-actions--actions-list--light:
@@ -3947,9 +3947,9 @@ snapshots:
     scenes-app-data-management-actions--new-action--light:
         hash: v1.k794b7964.4ca36b6789fb820d7c3b93187dbf1b948c302fab00c51768cd7bc71ccaa35ede.-mzuf7DtZ9Brg_Ld5CNk3VhaYTD8-swRXQHb9nvwGDE
     scenes-app-data-management-actions--screen-action--dark:
-        hash: v1.k794b7964.324cf99e605b968163c92c81b89ca9971920356c0854dd5b2ee4948d99f4a0ca.6JQR6rto5E-clgThxUYu2sXl-0R4_TcKClgayNSyTIY
+        hash: v1.k794b7964.526e80b58d5ecbfa406858cbc58244c7f2c5e9b4fa96355610d5bf4f04589af3.hW-FR7PpVsnU1GjO2ctE8z3OsAI3ymzUclW_qNoMqq8
     scenes-app-data-management-actions--screen-action--light:
-        hash: v1.k794b7964.e30830e0679895b146c5789a9475536791cc7734244ec1b482c4542777bf3e2b.uglu8xu05gY4jdyfH78lRfoNyTy6mpAetnZoxBVk9L4
+        hash: v1.k794b7964.d8bf73932b4afa31b9f38a86a55d96c1e4c12f6970168badd52faccbae7b890f.b6EHh73OZeepK8-PbH0_B-xwdwe_loNTxYBXcCb_95s
     scenes-app-data-management-comments--comments--dark:
         hash: v1.k794b7964.f92f6adf84258a051a53309111d82ddf1716fda3e936e7a99e156ef463d94398.sEZd0u4LuriA2sJ3yRJMLMyBDKKq6YzHHCPsmNjI5UI
     scenes-app-data-management-comments--comments--light:

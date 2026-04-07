@@ -92,7 +92,15 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW, m.isDark))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.servicesCursor,
+			unread:    p.Unread(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	if canScrollDown {
@@ -235,6 +243,22 @@ func (m Model) renderFooter() string {
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
 		return footerStyle.Width(m.width - 2).Render(prompt)
+	} else if m.setupMode {
+		var hint string
+		if m.setupError != "" {
+			escAction := "cancel"
+			if m.setupStep == 2 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 1 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & apply  esc: back"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	}
 
 	if m.searchQuery != "" {

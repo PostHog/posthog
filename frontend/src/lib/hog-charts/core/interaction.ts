@@ -78,6 +78,7 @@ export function buildTooltipContext(
         seriesData,
         position: { x, y },
         canvasBounds,
+        isPinned: false,
     }
 }
 
