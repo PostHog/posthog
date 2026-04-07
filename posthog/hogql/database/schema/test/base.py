@@ -32,6 +32,15 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 TEST_BUCKET_BASE = "test_storage_bucket"
 INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_customers"
+_TEST_DATA_DIR = (
+    Path(__file__).resolve().parents[5]
+    / "products"
+    / "revenue_analytics"
+    / "backend"
+    / "hogql_queries"
+    / "test"
+    / "data"
+)
 
 
 class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
@@ -52,7 +61,7 @@ class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def create_sources(self):
-        invoices_csv_path = Path("products/revenue_analytics/backend/hogql_queries/test/data/stripe_invoices.csv")
+        invoices_csv_path = _TEST_DATA_DIR / "stripe_invoices.csv"
         invoices_table, self.source, credential, _, self.invoices_cleanup_filesystem = (
             create_data_warehouse_table_from_csv(
                 invoices_csv_path,
@@ -63,7 +72,7 @@ class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
             )
         )
 
-        customers_csv_path = Path("products/revenue_analytics/backend/hogql_queries/test/data/stripe_customers.csv")
+        customers_csv_path = _TEST_DATA_DIR / "stripe_customers.csv"
         customers_table, _, _, _, self.customers_cleanup_filesystem = create_data_warehouse_table_from_csv(
             customers_csv_path,
             "stripe_customer",
