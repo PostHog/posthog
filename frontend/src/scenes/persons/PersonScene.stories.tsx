@@ -121,6 +121,32 @@ const meta: Meta = {
                                 query_status: null,
                             },
                         ]
+                    } else if (
+                        query &&
+                        query.kind === 'HogQLQuery' &&
+                        query.values.id === 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+                    ) {
+                        return [
+                            200,
+                            {
+                                columns: ['id', 'distinct_ids', 'properties', 'is_identified', 'created_at'],
+                                results: [
+                                    [
+                                        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                                        ['localhost-dev-user-001'],
+                                        '{"$os": "Mac OS X", "email": "dev@localhost", "$browser": "Chrome", "$initial_host": "localhost:8010", "$internal_or_test_user": true}',
+                                        1,
+                                        '2025-06-01T10:00:00-07:00',
+                                    ],
+                                ],
+                                hasMore: false,
+                                is_cached: true,
+                                cache_key: 'test-datatable-internal',
+                                calculation_trigger: null,
+                                error: '',
+                                query_status: null,
+                            },
+                        ]
                     }
                     // Fallback for other POST /api/query calls that might not be DataTableNode
                     // For example, if other components on this page make different query calls.
@@ -146,6 +172,14 @@ export const PersonNotFound: Story = {
 export const Person: Story = {
     render: () => {
         useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
+
+        return <App />
+    },
+}
+
+export const InternalOrTestUser: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('a1b2c3d4-e5f6-7890-abcd-ef1234567890')))
 
         return <App />
     },

@@ -8,12 +8,13 @@
                     "uuid": "018339dc-735e-0000-fd6a-963eda28b90d",
                     "created_at": "2022-12-16T11:39:56.293451Z",
                     "properties": {
-                        "name": "Francisco Elliott",
-                        "email": "mortgage2056@yandex.com",
-                        "$geoip_country_code": "US"
+                        "name": "Gary TestInternalUser",
+                        "email": "gary@localhost",
+                        "$geoip_country_code": "US",
+                        "$internal_or_test_user": true
                     },
                     "is_identified": false,
-                    "name": "mortgage2056@yandex.com",
+                    "name": "gary@localhost",
                     "distinct_ids": ["90b3bace-3577-50bd-f7f8-6910bfbca6fe", "mT1onBumlvtNdUpw"],
                     "matched_recordings": ["1234567890"],
                     "value_at_data_point": 15

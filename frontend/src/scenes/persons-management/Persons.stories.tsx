@@ -52,6 +52,16 @@ export const Persons: Story = {
                                         '2023-05-08T15:49:38-07:00',
                                         1,
                                     ],
+                                    [
+                                        {
+                                            display_name: 'dev@localhost',
+                                            id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                                            $internal_or_test_user: true,
+                                        },
+                                        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                                        '2023-06-01T10:00:00-07:00',
+                                        1,
+                                    ],
                                 ], // Provide appropriate mock data for your DataTableNode queries
                                 hasMore: false,
                                 is_cached: true,
