@@ -89,7 +89,7 @@ pytestmark = [pytest.mark.asyncio]
             _make_slo_config(),
             True,
             SloOutcome.FAILURE,
-            {},
+            {"error_type": "ApplicationError", "error_message": "boom"},
         ),
         (
             TrackedBusinessFailureWorkflow,

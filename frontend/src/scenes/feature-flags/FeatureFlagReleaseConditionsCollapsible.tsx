@@ -15,7 +15,19 @@ import { useActions, useValues } from 'kea'
 import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
-import { IconCollapse, IconCopy, IconExpand, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    IconBalance,
+    IconCollapse,
+    IconCopy,
+    IconExpand,
+    IconInfo,
+    IconLaptop,
+    IconPeople,
+    IconPerson,
+    IconPlus,
+    IconTrash,
+    IconCheckCircle,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -26,7 +38,6 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -155,7 +166,7 @@ function ConditionHeader({
                 <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">{index + 1}</span>
                 <span className="text-sm break-all">{summary}</span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
                 <span className="text-sm text-muted mr-2">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
@@ -773,6 +784,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
+    // Ref map for focus management
+    const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
     const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
 
     const {
@@ -885,6 +899,39 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const showGroupsOptions = groupTypes.size > 0
 
+    // Compute current selected option (shared between keyboard navigation and selection rendering)
+    const currentSelected = isMixedTargeting
+        ? 'mixed'
+        : releaseFilters.aggregation_group_type_index != null
+          ? 'group'
+          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+            ? 'device'
+            : 'user'
+
+    // Handler for option selection logic (shared by click and keyboard events)
+    const selectMatchByOption = (value: string): void => {
+        if (value === 'user') {
+            setIsMixedTargeting(false)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+        } else if (value === 'device') {
+            setIsMixedTargeting(false)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+        } else if (value === 'group') {
+            setIsMixedTargeting(false)
+            const firstGroupType = groupTypeValues[0]
+            if (firstGroupType) {
+                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+            }
+            onBucketingIdentifierChange?.(null)
+        } else if (value === 'mixed') {
+            setIsMixedTargeting(true)
+            setAggregationGroupTypeIndex(null)
+            onBucketingIdentifierChange?.(null)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -906,170 +953,194 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
-            {/* Two-column layout for Match by selector and Collapse all button */}
-            <div className="flex items-end justify-between mb-2">
-                <div className="flex-1">
-                    {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
-                        <div>
-                            <LemonLabel className="mb-2">Match by</LemonLabel>
-                            <LemonRadio
-                                data-attr="feature-flag-aggregation-filter"
-                                value={
-                                    isMixedTargeting
-                                        ? 'mixed'
-                                        : releaseFilters.aggregation_group_type_index != null
-                                          ? 'group'
-                                          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
-                                            ? 'device'
-                                            : 'user'
+            {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
+                <div>
+                    <LemonLabel className="mb-2" id="match-by-label">
+                        Match by
+                    </LemonLabel>
+                    <div
+                        role="radiogroup"
+                        aria-labelledby="match-by-label"
+                        className="flex flex-wrap gap-3"
+                        data-attr="feature-flag-aggregation-filter"
+                        onKeyDown={(e) => {
+                            // Handle arrow key navigation for radio group
+                            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                                e.preventDefault()
+                                const options = [
+                                    'user',
+                                    ...(onBucketingIdentifierChange ? ['device'] : []),
+                                    ...(showGroupsOptions ? ['group'] : []),
+                                    ...(showGroupsOptions && isMixedTargetingEnabled ? ['mixed'] : []),
+                                ]
+
+                                const currentIndex = options.indexOf(currentSelected)
+                                let nextIndex = currentIndex
+
+                                if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                                    nextIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1
+                                } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                                    nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0
                                 }
-                                onChange={(value: string) => {
-                                    if (value === 'user') {
-                                        setIsMixedTargeting(false)
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                                    } else if (value === 'device') {
-                                        setIsMixedTargeting(false)
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                                    } else if (value === 'group') {
-                                        setIsMixedTargeting(false)
-                                        const firstGroupType = groupTypeValues[0]
-                                        if (firstGroupType) {
-                                            setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+
+                                selectMatchByOption(options[nextIndex])
+
+                                // Focus the newly selected option
+                                optionRefs.current[options[nextIndex]]?.focus()
+                            }
+                        }}
+                    >
+                        {[
+                            {
+                                value: 'user',
+                                icon: <IconPerson className="text-lg" />,
+                                label: 'User',
+                                description: 'Stable assignment for logged-in users based on their distinct ID.',
+                            },
+                            ...(onBucketingIdentifierChange
+                                ? [
+                                      {
+                                          value: 'device',
+                                          icon: <IconLaptop className="text-lg" />,
+                                          label: 'Device',
+                                          description:
+                                              'Stable assignment per device. Good fit for experiments on anonymous users.',
+                                          badge: { type: 'warning' as const, text: 'BETA' },
+                                          learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
+                                      },
+                                  ]
+                                : []),
+                            ...(showGroupsOptions
+                                ? [
+                                      {
+                                          value: 'group',
+                                          icon: <IconPeople className="text-lg" />,
+                                          label: 'Group',
+                                          description:
+                                              'Stable assignment for everyone in an organization, company, or other custom group type.',
+                                      },
+                                  ]
+                                : []),
+                            ...(showGroupsOptions && isMixedTargetingEnabled
+                                ? [
+                                      {
+                                          value: 'mixed',
+                                          icon: <IconBalance className="text-lg" />,
+                                          label: 'User & Group',
+                                          description:
+                                              'Mix user and group targeting across condition sets. Each condition set picks its own targeting type.',
+                                          badge: { type: 'highlight' as const, text: 'NEW' },
+                                      },
+                                  ]
+                                : []),
+                        ].map((option) => {
+                            const isSelected = option.value === currentSelected
+
+                            return (
+                                <div
+                                    key={option.value}
+                                    ref={(el) => {
+                                        optionRefs.current[option.value] = el
+                                    }}
+                                    role="radio"
+                                    aria-checked={isSelected}
+                                    tabIndex={isSelected ? 0 : -1}
+                                    className={`rounded p-3 cursor-pointer transition-colors flex-1 min-w-0 ${
+                                        isSelected
+                                            ? 'bg-accent-highlight-light border-2 border-accent'
+                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                    }`}
+                                    onClick={() => selectMatchByOption(option.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault()
+                                            selectMatchByOption(option.value)
                                         }
-                                        onBucketingIdentifierChange?.(null)
-                                    } else if (value === 'mixed') {
-                                        setIsMixedTargeting(true)
-                                        // Reset flag-level aggregation; each condition set picks its own
-                                        setAggregationGroupTypeIndex(null)
-                                        onBucketingIdentifierChange?.(null)
-                                    }
-                                }}
-                                options={[
-                                    {
-                                        value: 'user',
-                                        label: (
-                                            <div>
-                                                <div className="font-medium">User</div>
-                                                <div className="text-xs text-muted">
-                                                    Stable assignment for logged-in users based on their distinct ID.
+                                    }}
+                                    data-attr={`feature-flag-aggregation-${option.value}`}
+                                >
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-2">
+                                            {option.icon}
+                                            <span className="font-medium flex-1">{option.label}</span>
+                                            {option.badge && (
+                                                <LemonTag type={option.badge.type} size="small">
+                                                    {option.badge.text}
+                                                </LemonTag>
+                                            )}
+                                            {isSelected && <IconCheckCircle className="text-accent text-base" />}
+                                        </div>
+                                        <div className="text-xs text-muted">
+                                            {option.description}
+                                            {option.learnMoreUrl && (
+                                                <>
+                                                    {' '}
+                                                    <Link
+                                                        to={option.learnMoreUrl}
+                                                        target="_blank"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </>
+                                            )}
+                                        </div>
+                                        {/* Group type selector for selected group option */}
+                                        {option.value === 'group' &&
+                                            isSelected &&
+                                            releaseFilters.aggregation_group_type_index != null &&
+                                            !isMixedTargeting && (
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        dropdownMatchSelectWidth={false}
+                                                        data-attr="feature-flag-group-type-select"
+                                                        value={releaseFilters.aggregation_group_type_index}
+                                                        onChange={(value) => {
+                                                            if (value != null) {
+                                                                setAggregationGroupTypeIndex(value)
+                                                            }
+                                                        }}
+                                                        options={groupTypeValues.map((groupType) => ({
+                                                            value: groupType.group_type_index,
+                                                            label: groupType.group_type,
+                                                        }))}
+                                                    />
                                                 </div>
+                                            )}
+                                        {/* Mixed group type selector */}
+                                        {option.value === 'mixed' && isSelected && isMixedTargeting && (
+                                            <div onClick={(e) => e.stopPropagation()}>
+                                                <LemonSelect
+                                                    size="xsmall"
+                                                    dropdownMatchSelectWidth={false}
+                                                    data-attr="feature-flag-mixed-group-type-select"
+                                                    value={mixedGroupTypeIndex}
+                                                    onChange={(value) => {
+                                                        if (value != null) {
+                                                            setMixedGroupTypeIndex(value)
+                                                        }
+                                                    }}
+                                                    options={groupTypeValues.map((groupType) => ({
+                                                        value: groupType.group_type_index,
+                                                        label: groupType.group_type,
+                                                    }))}
+                                                />
                                             </div>
-                                        ),
-                                    },
-                                    ...(onBucketingIdentifierChange
-                                        ? [
-                                              {
-                                                  value: 'device',
-                                                  label: (
-                                                      <div>
-                                                          <div className="font-medium">
-                                                              Device{' '}
-                                                              <LemonTag type="warning" size="small">
-                                                                  BETA
-                                                              </LemonTag>
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment per device. Good fit for experiments on
-                                                              anonymous users.{' '}
-                                                              <Link
-                                                                  to="https://posthog.com/docs/feature-flags/device-bucketing"
-                                                                  target="_blank"
-                                                              >
-                                                                  Learn more
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
-                                    ...(showGroupsOptions
-                                        ? [
-                                              {
-                                                  value: 'group',
-                                                  label: (
-                                                      <div>
-                                                          <div className="flex items-center gap-2">
-                                                              <span className="font-medium">Group</span>
-                                                              {releaseFilters.aggregation_group_type_index != null &&
-                                                                  !isMixedTargeting && (
-                                                                      <LemonSelect
-                                                                          size="xsmall"
-                                                                          dropdownMatchSelectWidth={false}
-                                                                          data-attr="feature-flag-group-type-select"
-                                                                          value={
-                                                                              releaseFilters.aggregation_group_type_index
-                                                                          }
-                                                                          onChange={(value) => {
-                                                                              if (value != null) {
-                                                                                  setAggregationGroupTypeIndex(value)
-                                                                              }
-                                                                          }}
-                                                                          options={groupTypeValues.map((groupType) => ({
-                                                                              value: groupType.group_type_index,
-                                                                              label: groupType.group_type,
-                                                                          }))}
-                                                                      />
-                                                                  )}
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Stable assignment for everyone in an organization,
-                                                              company, or other custom group type.
-                                                          </div>
-                                                      </div>
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
-                                    ...(showGroupsOptions && isMixedTargetingEnabled
-                                        ? [
-                                              {
-                                                  value: 'mixed',
-                                                  label: (
-                                                      <div>
-                                                          <div className="flex items-center gap-2">
-                                                              <span className="font-medium">User & Group</span>
-                                                              <LemonTag type="highlight" size="small">
-                                                                  NEW
-                                                              </LemonTag>
-                                                              {isMixedTargeting && (
-                                                                  <LemonSelect
-                                                                      size="xsmall"
-                                                                      dropdownMatchSelectWidth={false}
-                                                                      data-attr="feature-flag-mixed-group-type-select"
-                                                                      value={mixedGroupTypeIndex}
-                                                                      onChange={(value) => {
-                                                                          if (value != null) {
-                                                                              setMixedGroupTypeIndex(value)
-                                                                          }
-                                                                      }}
-                                                                      options={groupTypeValues.map((groupType) => ({
-                                                                          value: groupType.group_type_index,
-                                                                          label: groupType.group_type,
-                                                                      }))}
-                                                                  />
-                                                              )}
-                                                          </div>
-                                                          <div className="text-xs text-muted">
-                                                              Mix user and group targeting across condition sets. Each
-                                                              condition set picks its own targeting type.
-                                                          </div>
-                                                      </div>
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                                radioPosition="top"
-                            />
-                        </div>
-                    )}
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
-                <div className="flex items-start gap-2">
-                    {filterGroups.length > 1 && (
-                        <>
+            )}
+
+            {filterGroups.length > 1 ? (
+                <div className="relative mt-4">
+                    {/* Expand/collapse controls positioned on top border */}
+                    <div className="absolute top-0 right-4 transform -translate-y-1/2 z-10">
+                        <div className="flex gap-2 bg-bg-light px-2">
                             {openConditions.length < filterGroups.length && (
                                 <LemonButton
                                     size="xsmall"
@@ -1097,34 +1168,157 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     Collapse all
                                 </LemonButton>
                             )}
-                        </>
-                    )}
-                </div>
-            </div>
+                        </div>
+                    </div>
 
-            <div ref={collapseRef}>
-                {isDragDropEnabled ? (
-                    <DndContext
-                        sensors={sensors}
-                        collisionDetection={rectIntersection}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        onDragCancel={() => {
-                            setIsAnyItemDragging(false)
-                            setDraggedGroup(null)
-                        }}
-                    >
-                        <SortableContext
-                            items={filterGroups.map((group: FeatureFlagGroupType) => group.sort_key!)}
-                            strategy={verticalListSortingStrategy}
-                        >
-                            {filterGroups.map((group: FeatureFlagGroupType, index: number) => (
+                    {/* Rounded border box containing conditions */}
+                    <div className="border rounded p-4" ref={collapseRef}>
+                        {isDragDropEnabled ? (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={rectIntersection}
+                                onDragStart={handleDragStart}
+                                onDragEnd={handleDragEnd}
+                                onDragCancel={() => {
+                                    setIsAnyItemDragging(false)
+                                    setDraggedGroup(null)
+                                }}
+                            >
+                                <SortableContext
+                                    items={filterGroups.map((group: FeatureFlagGroupType) => group.sort_key!)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {filterGroups.map((group: FeatureFlagGroupType, index: number) => (
+                                        <React.Fragment key={`fragment-${group.sort_key!}`}>
+                                            {index > 0 && (
+                                                <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
+                                                    or
+                                                </div>
+                                            )}
+                                            <DraggableCondition
+                                                key={`condition-${group.sort_key!}`}
+                                                group={group as FeatureFlagGroupTypeWithSortKey}
+                                                index={index}
+                                                totalGroups={filterGroups.length}
+                                                affectedCounts={affectedCounts}
+                                                totalCounts={totalCounts}
+                                                aggregationTargetName={aggregationTargetName}
+                                                taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                                groupTypes={groupTypes}
+                                                setConditionAggregation={setConditionAggregation}
+                                                isMixedTargetingEnabled={isMixedTargeting}
+                                                mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                                onMoveUp={() => moveConditionSetUp(index)}
+                                                onMoveDown={() => moveConditionSetDown(index)}
+                                                onDuplicate={() => duplicateConditionSet(index)}
+                                                onRemove={() => removeConditionSet(index)}
+                                                updateConditionSet={updateConditionSet}
+                                                filtersTaxonomicOptions={filtersTaxonomicOptions}
+                                                releaseFilters={releaseFilters}
+                                                variants={variants}
+                                                openConditions={openConditions}
+                                                handleOpenConditionsChange={handleOpenConditionsChange}
+                                                flagId={flagId}
+                                                id={id || 'feature-flag-conditions'}
+                                                isAnyItemDragging={isAnyItemDragging}
+                                            />
+                                        </React.Fragment>
+                                    ))}
+                                </SortableContext>
+                                <DragOverlay>
+                                    {draggedGroup ? (
+                                        <div
+                                            className="border rounded bg-bg-light"
+                                            style={{ opacity: 0.9, boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)' }}
+                                        >
+                                            <div className="flex items-center justify-between w-full p-3">
+                                                <div className="flex items-start gap-2 min-w-0">
+                                                    <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">
+                                                        {filterGroups.findIndex(
+                                                            (g: FeatureFlagGroupType) =>
+                                                                g.sort_key === draggedGroup.sort_key
+                                                        ) + 1}
+                                                    </span>
+                                                    <span className="text-sm break-all">
+                                                        {draggedGroup.description ||
+                                                            summarizeProperties(
+                                                                draggedGroup.properties || [],
+                                                                aggregationTargetName(
+                                                                    draggedGroup.aggregation_group_type_index
+                                                                )
+                                                            )}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <span className="text-sm text-muted mr-2">
+                                                        ({draggedGroup.rollout_percentage ?? 100}%
+                                                        {draggedGroup.variant && ` · ${draggedGroup.variant}`})
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                </DragOverlay>
+                            </DndContext>
+                        ) : (
+                            // Fallback to non-draggable conditions when feature flag is disabled
+                            filterGroups.map((group: FeatureFlagGroupType, index: number) => (
                                 <React.Fragment key={`fragment-${group.sort_key!}`}>
                                     {index > 0 && (
                                         <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
                                             or
                                         </div>
                                     )}
+                                    <StaticCondition
+                                        key={`condition-${group.sort_key!}`}
+                                        group={group as FeatureFlagGroupTypeWithSortKey}
+                                        index={index}
+                                        totalGroups={filterGroups.length}
+                                        affectedCounts={affectedCounts}
+                                        totalCounts={totalCounts}
+                                        aggregationTargetName={aggregationTargetName}
+                                        taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
+                                        groupTypes={groupTypes}
+                                        setConditionAggregation={setConditionAggregation}
+                                        isMixedTargetingEnabled={isMixedTargeting}
+                                        mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                        onMoveUp={() => moveConditionSetUp(index)}
+                                        onMoveDown={() => moveConditionSetDown(index)}
+                                        onDuplicate={() => duplicateConditionSet(index)}
+                                        onRemove={() => removeConditionSet(index)}
+                                        updateConditionSet={updateConditionSet}
+                                        filtersTaxonomicOptions={filtersTaxonomicOptions}
+                                        releaseFilters={releaseFilters}
+                                        variants={variants}
+                                        openConditions={openConditions}
+                                        handleOpenConditionsChange={handleOpenConditionsChange}
+                                        flagId={flagId}
+                                        id={id || 'feature-flag-conditions'}
+                                        isAnyItemDragging={false}
+                                    />
+                                </React.Fragment>
+                            ))
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div ref={collapseRef}>
+                    {isDragDropEnabled ? (
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={rectIntersection}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDragCancel={() => {
+                                setIsAnyItemDragging(false)
+                                setDraggedGroup(null)
+                            }}
+                        >
+                            <SortableContext
+                                items={filterGroups.map((group: FeatureFlagGroupType) => group.sort_key!)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                {filterGroups.map((group: FeatureFlagGroupType, index: number) => (
                                     <DraggableCondition
                                         key={`condition-${group.sort_key!}`}
                                         group={group as FeatureFlagGroupTypeWithSortKey}
@@ -1152,50 +1346,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         id={id || 'feature-flag-conditions'}
                                         isAnyItemDragging={isAnyItemDragging}
                                     />
-                                </React.Fragment>
-                            ))}
-                        </SortableContext>
-                        <DragOverlay>
-                            {draggedGroup ? (
-                                <div
-                                    className="border rounded bg-bg-light"
-                                    style={{ opacity: 0.9, boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)' }}
-                                >
-                                    <div className="flex items-center justify-between w-full p-3">
-                                        <div className="flex items-start gap-2 min-w-0">
-                                            <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">
-                                                {filterGroups.findIndex(
-                                                    (g: FeatureFlagGroupType) => g.sort_key === draggedGroup.sort_key
-                                                ) + 1}
-                                            </span>
-                                            <span className="text-sm break-all">
-                                                {draggedGroup.description ||
-                                                    summarizeProperties(
-                                                        draggedGroup.properties || [],
-                                                        aggregationTargetName(draggedGroup.aggregation_group_type_index)
-                                                    )}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <span className="text-sm text-muted mr-2">
-                                                ({draggedGroup.rollout_percentage ?? 100}%
-                                                {draggedGroup.variant && ` · ${draggedGroup.variant}`})
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </DragOverlay>
-                    </DndContext>
-                ) : (
-                    // Fallback to non-draggable conditions when feature flag is disabled
-                    filterGroups.map((group: FeatureFlagGroupType, index: number) => (
-                        <React.Fragment key={`fragment-${group.sort_key!}`}>
-                            {index > 0 && (
-                                <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
-                                    or
-                                </div>
-                            )}
+                                ))}
+                            </SortableContext>
+                        </DndContext>
+                    ) : (
+                        filterGroups.map((group: FeatureFlagGroupType, index: number) => (
                             <StaticCondition
                                 key={`condition-${group.sort_key!}`}
                                 group={group as FeatureFlagGroupTypeWithSortKey}
@@ -1223,12 +1378,12 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 id={id || 'feature-flag-conditions'}
                                 isAnyItemDragging={false}
                             />
-                        </React.Fragment>
-                    ))
-                )}
-            </div>
+                        ))
+                    )}
+                </div>
+            )}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={handleAddConditionSet} className="mt-1">
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={handleAddConditionSet}>
                 Add condition set
             </LemonButton>
         </div>

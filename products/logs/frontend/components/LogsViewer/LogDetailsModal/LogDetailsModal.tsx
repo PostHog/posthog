@@ -82,6 +82,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             onClose={closeLogDetails}
             simple
             width="50vw"
+            resizable
             hideCloseButton
             overlayTransparent
             aria-label="Log details"

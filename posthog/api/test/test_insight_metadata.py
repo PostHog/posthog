@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-MOCK_PATH = "posthog.api.insight_suggestions.hit_openai"
+MOCK_PATH = "posthog.api.insight_metadata.hit_openai"
 
 
 def _make_query(source: dict) -> dict:
@@ -94,3 +94,157 @@ class TestGenerateInsightMetadata(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Name"
         assert response.json()["description"] == "Test description."
+
+    @patch(MOCK_PATH)
+    def test_actors_query_returns_name_and_description(self, mock_openai):
+        mock_openai.return_value = (
+            '{"name": "Persons Who Performed Pageviews", "description": "List of persons who performed pageviews."}',
+            10,
+            20,
+        )
+        actors_query = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                    "trendsFilter": {},
+                    "filterTestAccounts": True,
+                },
+                "day": "2026-03-30T00:00:00Z",
+                "series": 0,
+                "includeRecordings": True,
+            },
+            "orderBy": ["event_count DESC, actor_id DESC"],
+            "search": "",
+        }
+        response = self.client.post(self.url, {"query": actors_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Persons Who Performed Pageviews"
+        call_args = mock_openai.call_args
+        prompt_content = call_args[0][0][1]["content"]
+        assert "ACTORS view" in prompt_content
+        assert "Actor type: persons" in prompt_content
+        assert "$pageview" in prompt_content
+
+    def test_invalid_query_kind_returns_400(self):
+        response = self.client.post(self.url, {"query": {"kind": "SomeRandomQuery"}}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch(MOCK_PATH)
+    def test_actors_funnel_step_context_in_prompt(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        actors_query = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "FunnelsActorsQuery",
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview", "name": "Pageview"},
+                        {"kind": "EventsNode", "event": "$pageleave", "name": "$pageleave"},
+                    ],
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "filterTestAccounts": True,
+                },
+                "funnelStep": -2,
+                "includeRecordings": True,
+            },
+            "orderBy": [],
+            "search": "",
+        }
+        response = self.client.post(self.url, {"query": actors_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "Dropped off at step 2" in prompt_content
+        assert "$pageleave" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_actors_lifecycle_status_in_prompt(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        actors_query = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "source": {
+                    "kind": "LifecycleQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "lifecycleFilter": {},
+                    "filterTestAccounts": True,
+                },
+                "day": "2026-03-26",
+                "status": "resurrecting",
+                "series": 0,
+                "includeRecordings": True,
+            },
+            "orderBy": [],
+            "search": "",
+        }
+        response = self.client.post(self.url, {"query": actors_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "Lifecycle status: resurrecting" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_actors_narrows_to_selected_series(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        actors_query = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview", "name": "Pageview"},
+                        {"kind": "EventsNode", "event": "$pageleave", "name": "Pageleave"},
+                    ],
+                    "trendsFilter": {},
+                    "filterTestAccounts": True,
+                },
+                "day": "2026-03-30T00:00:00Z",
+                "series": 1,
+                "includeRecordings": True,
+            },
+            "orderBy": [],
+            "search": "",
+        }
+        response = self.client.post(self.url, {"query": actors_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "Series: $pageleave" in prompt_content
+        assert "Series: $pageview" not in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_actors_breakdown_value_in_prompt(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        actors_query = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {},
+                    "filterTestAccounts": True,
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                },
+                "day": "2026-03-30T00:00:00Z",
+                "series": 0,
+                "breakdown": "Chrome",
+                "includeRecordings": True,
+            },
+            "orderBy": [],
+            "search": "",
+        }
+        response = self.client.post(self.url, {"query": actors_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "$browser" in prompt_content
+        assert "Chrome" in prompt_content

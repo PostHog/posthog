@@ -356,7 +356,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.updateInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, sourceDashboardId }) => {
+            if (sourceDashboardId != null) {
+                // That payload is only valid on the dashboard that refreshed it (date range, etc. are baked into
+                // `query`). The saved list should show the saved insight definition, not the merged view.
+                return
+            }
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
                 actions.updateInsight(insight)

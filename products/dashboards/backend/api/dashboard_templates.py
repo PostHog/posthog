@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from django.db import IntegrityError
 from django.db.models import Q
+from django.db.models.expressions import OrderBy
+from django.db.models.functions import Lower
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
@@ -29,15 +31,11 @@ logger = structlog.get_logger(__name__)
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
 
 
-def _dashboard_template_ordering_clauses(ordering: str | None) -> list[str] | None:
-    """Return order_by args for list, or None when no ordering / unknown value (no implicit default)."""
-    if ordering is None or ordering == "":
-        return None
+def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
+    """Featured rows first, then case-insensitive alphabetical by `template_name` (or Z–A when `ordering=-template_name`)."""
     if ordering == "-template_name":
-        return ["-template_name"]
-    if ordering == "template_name":
-        return ["template_name"]
-    return None
+        return ["-is_featured", OrderBy(Lower("template_name"), descending=True)]
+    return ["-is_featured", Lower("template_name")]
 
 
 class OnlyStaffCanEditDashboardTemplate(BasePermission):
@@ -111,10 +109,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Sort templates by name when not using `search`. "
-                    "Omit for database default order. "
-                    "Ignored when `search` is set (results stay relevance-ranked). "
-                    "Use `template_name` for A–Z or `-template_name` for Z–A."
+                    "Optional. When not using `search`, results are sorted with featured templates first "
+                    "(`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). "
+                    "When `search` is set, order is featured first, then relevance rank, then case-insensitive name "
+                    "for ties."
                 ),
                 enum=["template_name", "-template_name"],
             ),
@@ -177,10 +175,8 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 rank=build_rank({"template_name": "A", "dashboard_description": "C", "tags": "B"}, search),
             )
             qs = qs.filter(rank__gt=0.05)
-            qs = qs.order_by("-rank")
+            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"))
         else:
-            clauses = _dashboard_template_ordering_clauses(ordering)
-            if clauses is not None:
-                qs = qs.order_by(*clauses)
+            qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
 
         return qs

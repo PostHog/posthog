@@ -26,6 +26,7 @@ import { surveyLogic } from '../../surveyLogic'
 import { surveysLogic } from '../../surveysLogic'
 import { ColorInput } from '../ColorInput'
 import { SurveyThemeSelector } from '../SurveyThemeSelector'
+import { WizardSection } from '../WizardLayout'
 
 export function AppearanceStep(): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -76,16 +77,14 @@ export function AppearanceStep(): JSX.Element {
     const totalPreviewPages = survey.questions.length + (appearance.displayThankYouMessage ? 1 : 0)
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             {/* Left: Controls */}
-            <div className="lg:col-span-2 space-y-4">
-                <div>
-                    <h2 className="text-xl font-semibold mb-1">How should it look?</h2>
-                    <p className="text-secondary text-sm">
-                        Customize colors and styling. You can use CSS variables (e.g. var(--brand-color)) for dynamic
-                        theming.
-                    </p>
-                </div>
+            <div className="space-y-3.5 lg:col-span-2">
+                <WizardSection
+                    title="How should it look?"
+                    description="Customize colors and styling. You can use CSS variables (e.g. var(--brand-color)) for dynamic theming."
+                    descriptionClassName="text-sm"
+                />
 
                 {/* Paywall */}
                 {!surveysStylingAvailable && (
@@ -102,8 +101,7 @@ export function AppearanceStep(): JSX.Element {
                 />
 
                 {/* Color customization */}
-                <div className="space-y-2">
-                    <h3 className="font-medium m-0 text-sm">Fine-tune colors</h3>
+                <WizardSection title="Fine-tune colors" titleClassName="text-sm font-medium">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <LemonField.Pure label="Background" className="gap-1">
                             <ColorInput
@@ -159,7 +157,7 @@ export function AppearanceStep(): JSX.Element {
                             </>
                         )}
                     </div>
-                </div>
+                </WizardSection>
 
                 {/* Branding */}
                 <LemonCheckbox
@@ -184,7 +182,7 @@ export function AppearanceStep(): JSX.Element {
                             header: 'Advanced options',
                             className: 'p-2',
                             content: (
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                         <LemonField.Pure label="Position" className="gap-1">
                                             <LemonSelect

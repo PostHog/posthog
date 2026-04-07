@@ -33,7 +33,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     )
 
     return (
-        <div className="flex items-center gap-2" data-attr="funnel-conversion-window-filter">
+        <div className="flex items-center gap-2 flex-wrap" data-attr="funnel-conversion-window-filter">
             <span className="flex whitespace-nowrap">
                 Conversion window limit
                 <Tooltip
