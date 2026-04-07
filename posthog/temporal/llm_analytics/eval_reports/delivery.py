@@ -23,16 +23,15 @@ SECTION_TITLES = {
     "risk_assessment": "Risk Assessment",
 }
 
-_md = MarkdownIt().enable("table")
+# html=False escapes any raw HTML in the markdown source — defense in depth
+# even though the markdown is produced by our own LLM agent via structured tools.
+_md = MarkdownIt("commonmark", {"html": False}).enable("table")
 _slack_converter = SlackMarkdownConverter()
 
 # Inline styles for email-safe HTML (many clients strip <style> blocks)
-_EMAIL_TABLE_STYLE = (
-    'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
-)
+_EMAIL_TABLE_STYLE = 'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
 _EMAIL_TH_STYLE = (
-    'style="border: 1px solid #ddd; padding: 8px 12px; background-color: #f5f5f5;'
-    ' text-align: left; font-weight: 600;"'
+    'style="border: 1px solid #ddd; padding: 8px 12px; background-color: #f5f5f5; text-align: left; font-weight: 600;"'
 )
 _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
 
@@ -84,12 +83,14 @@ def deliver_email_report(
     report_run,
     targets: list[dict],
     evaluation_name: str,
+    evaluation_id: str,
     project_id: int,
     period_start: str,
     period_end: str,
 ) -> list[str]:
     """Send report via email. Returns list of errors (empty if all succeeded)."""
     from posthog.email import EmailMessage
+    from posthog.utils import absolute_uri
 
     content = EvalReportContent.from_dict(report_run.content)
     errors: list[str] = []
@@ -102,6 +103,7 @@ def deliver_email_report(
             body_parts.append(_render_section_html(section_name, section.content, project_id))
 
     body_html = "\n".join(body_parts)
+    evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
 
     for target in targets:
         if target.get("type") != "email":
@@ -119,6 +121,7 @@ def deliver_email_report(
                         "period_start": period_start,
                         "period_end": period_end,
                         "report_body": body_html,
+                        "evaluation_url": evaluation_url,
                     },
                     reply_to="hey@posthog.com",
                 )
@@ -222,13 +225,19 @@ def deliver_slack_report(
 
 
 def deliver_report(report_id: str, report_run_id: str) -> None:
-    """Deliver a report run via all configured delivery targets."""
+    """Deliver a report run via all configured delivery targets.
+
+    Raises RuntimeError when *all* delivery targets fail, so the calling Temporal
+    activity surfaces the failure and the retry policy can take effect. Partial
+    failures are persisted via delivery_errors but do not raise.
+    """
     from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 
     report = EvaluationReport.objects.select_related("evaluation", "team").get(id=report_id)
     report_run = EvaluationReportRun.objects.get(id=report_run_id)
 
     evaluation_name = report.evaluation.name
+    evaluation_id = str(report.evaluation_id)
     project_id = report.team.id
     team_id = report.team_id
     period_start = report_run.period_start.isoformat()
@@ -241,7 +250,9 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     email_targets = [t for t in targets if t.get("type") == "email"]
     if email_targets:
         all_errors.extend(
-            deliver_email_report(report_run, email_targets, evaluation_name, project_id, period_start, period_end)
+            deliver_email_report(
+                report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
+            )
         )
 
     # Slack delivery
@@ -263,3 +274,7 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
 
     report_run.delivery_errors = all_errors
     report_run.save(update_fields=["delivery_status", "delivery_errors"])
+
+    # Raise on full failure so Temporal retries the activity
+    if report_run.delivery_status == EvaluationReportRun.DeliveryStatus.FAILED:
+        raise RuntimeError(f"All delivery targets failed for report {report_id}: {all_errors}")

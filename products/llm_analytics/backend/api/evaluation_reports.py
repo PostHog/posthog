@@ -42,6 +42,15 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "next_delivery_date", "last_delivered_at", "created_by", "created_at"]
 
+    def validate_evaluation(self, value):
+        # Prevent creating a report in team A that references team B's evaluation:
+        # the FK queryset is unscoped, so a user with access to multiple teams could
+        # otherwise cross tenant boundaries by passing a foreign evaluation id.
+        team = self.context["get_team"]()
+        if value.team_id != team.id:
+            raise serializers.ValidationError("Evaluation does not belong to this team.")
+        return value
+
     def validate_delivery_targets(self, value: list) -> list:
         if not isinstance(value, list) or len(value) == 0:
             raise serializers.ValidationError("At least one delivery target is required.")

@@ -82,6 +82,7 @@ class DeliverReportInput:
 @dataclasses.dataclass
 class UpdateNextDeliveryDateInput:
     report_id: str
+    period_end: str
 
 
 @dataclasses.dataclass

@@ -19,6 +19,10 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
 )
 
 UUID_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`")
+# Strict UUID match for validating IDs before string-interpolating into HogQL.
+# generation_ids reach this code from the LLM, which can relay arbitrary
+# `$ai_target_event_id` property values set by user instrumentation.
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def _ch_ts(iso_str: str) -> str:
@@ -288,7 +292,12 @@ def sample_generation_details(
     if not generation_ids:
         return json.dumps([])
 
-    ids_to_fetch = generation_ids[:20]
+    # Strict UUID validation: generation IDs originate from the LLM and may relay
+    # values from $ai_target_event_id which is set by user instrumentation. Reject
+    # anything that isn't a canonical UUID before interpolating into HogQL.
+    ids_to_fetch = [gid for gid in generation_ids[:20] if _UUID_RE.fullmatch(gid)]
+    if not ids_to_fetch:
+        return json.dumps([])
     ids_str = ", ".join(f"'{gid}'" for gid in ids_to_fetch)
 
     rows = _execute_hogql(

@@ -159,7 +159,11 @@ class TestDeliverReport(SimpleTestCase):
         mock_run_qs.get.return_value = run
         mock_email.return_value = ["send failed"]
 
-        deliver_report("report-id", "run-id")
+        # Full failure must raise so the Temporal activity surfaces it and the
+        # retry policy can take effect — but only after persisting state.
+        with self.assertRaises(RuntimeError) as cm:
+            deliver_report("report-id", "run-id")
+        self.assertIn("send failed", str(cm.exception))
 
         self.assertEqual(run.delivery_status, "failed")
         self.assertEqual(run.delivery_errors, ["send failed"])

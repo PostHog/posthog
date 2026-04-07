@@ -232,7 +232,13 @@ async def deliver_report_activity(
 async def update_next_delivery_date_activity(
     inputs: UpdateNextDeliveryDateInput,
 ) -> None:
-    """Update the report's next_delivery_date and last_delivered_at."""
+    """Update the report's next_delivery_date and last_delivered_at.
+
+    last_delivered_at is set to the report's period_end (captured at the start of
+    this run) rather than the current wall-clock time. This guarantees that the
+    next run's period_start picks up exactly where this run's period_end left off,
+    so any time spent generating/delivering does not create a coverage gap.
+    """
 
     @database_sync_to_async(thread_sensitive=False)
     def update():
@@ -241,7 +247,7 @@ async def update_next_delivery_date_activity(
         from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
 
         report = EvaluationReport.objects.get(id=inputs.report_id)
-        report.last_delivered_at = dt_mod.datetime.now(tz=dt_mod.UTC)
+        report.last_delivered_at = dt_mod.datetime.fromisoformat(inputs.period_end)
         report.set_next_delivery_date()
         report.save(update_fields=["last_delivered_at", "next_delivery_date"])
 

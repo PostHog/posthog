@@ -82,12 +82,24 @@ class EvaluationReport(UUIDTModel):
             byweekday=_to_rrule_weekdays(self.byweekday) if self.byweekday else None,
         )
 
+    SCHEDULE_FIELDS = ("frequency", "byweekday", "start_date")
+
     def set_next_delivery_date(self, from_dt=None):
         now = timezone.now() + timedelta(minutes=15)
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
 
     def save(self, *args, **kwargs):
-        if not self.id or not self.next_delivery_date:
+        recalc = not self.id or not self.next_delivery_date
+        if not recalc and self.id:
+            # If any schedule field changed, recompute next_delivery_date so the
+            # new cadence takes effect immediately rather than after the stale timestamp.
+            try:
+                old = type(self).objects.only(*self.SCHEDULE_FIELDS).get(pk=self.pk)
+                if any(getattr(old, f) != getattr(self, f) for f in self.SCHEDULE_FIELDS):
+                    recalc = True
+            except type(self).DoesNotExist:
+                recalc = True
+        if recalc:
             self.set_next_delivery_date()
             if "update_fields" in kwargs and kwargs["update_fields"] is not None:
                 kwargs["update_fields"].append("next_delivery_date")

@@ -154,7 +154,10 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         if not inputs.manual:
             await temporalio.workflow.execute_activity(
                 update_next_delivery_date_activity,
-                UpdateNextDeliveryDateInput(report_id=inputs.report_id),
+                UpdateNextDeliveryDateInput(
+                    report_id=inputs.report_id,
+                    period_end=context.period_end,
+                ),
                 start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
                 retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
             )
