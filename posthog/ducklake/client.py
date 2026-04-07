@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import psycopg
-from psycopg import sql as psql
+from psycopg import (
+    Cursor,
+    sql as psql,
+)
 from psycopg.conninfo import make_conninfo
 
 from posthog.ducklake.common import get_duckgres_config, sanitize_ducklake_identifier
@@ -113,6 +116,24 @@ def execute_ducklake_query(
     )
 
 
+def _calculate_table_size(cur: Cursor, safe_schema: str, safe_table: str):
+    try:
+        cur.execute(
+            """
+            SELECT t.file_size_bytes
+            FROM ducklake_table_info('ducklake') t
+            JOIN __ducklake_metadata_ducklake.ducklake_schema s
+            ON t.schema_id = s.schema_id AND s.end_snapshot IS NULL
+            WHERE s.schema_name = %s AND t.table_name = %s
+            """,
+            (safe_schema, safe_table),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row and row[0] else 0
+    except Exception:
+        return 0
+
+
 def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
@@ -129,23 +150,7 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
         _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
             # capture previous table size before replacing — best-effort, don't block materialization
-            prev_file_size_bytes = 0
-            try:
-                cur.execute(
-                    """
-                    SELECT t.file_size_bytes
-                    FROM ducklake_table_info('ducklake') t
-                    JOIN __ducklake_metadata_ducklake.ducklake_schema s
-                        ON t.schema_id = s.schema_id
-                        AND s.end_snapshot IS NULL
-                    WHERE s.schema_name = %s AND t.table_name = %s
-                    """,
-                    (safe_schema, safe_table),
-                )
-                prev_row = cur.fetchone()
-                prev_file_size_bytes = int(prev_row[0]) if prev_row and prev_row[0] else 0
-            except Exception:
-                pass
+            previous_file_size_bytes = _calculate_table_size(cur, safe_schema, safe_table)
             cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS {}").format(qualified, sql))
     with psycopg.connect(conninfo) as conn:
         _set_search_path(conn, extra_schemas=[safe_schema])
@@ -153,27 +158,11 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
             cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
             row = cur.fetchone()
             row_count = int(row[0]) if row else 0
-            file_size_bytes = 0
-            try:
-                cur.execute(
-                    """
-                    SELECT t.file_size_bytes
-                    FROM ducklake_table_info('ducklake') t
-                    JOIN __ducklake_metadata_ducklake.ducklake_schema s
-                        ON t.schema_id = s.schema_id
-                        AND s.end_snapshot IS NULL
-                    WHERE s.schema_name = %s AND t.table_name = %s
-                    """,
-                    (safe_schema, safe_table),
-                )
-                size_row = cur.fetchone()
-                file_size_bytes = int(size_row[0]) if size_row and size_row[0] else 0
-            except Exception:
-                pass
+            file_size_bytes = _calculate_table_size(cur, safe_schema, safe_table)
     return DuckLakeTableResult(
         schema_name=safe_schema,
         table_name=safe_table,
         row_count=row_count,
         file_size_bytes=file_size_bytes,
-        file_size_delta_bytes=file_size_bytes - prev_file_size_bytes,
+        file_size_delta_bytes=file_size_bytes - previous_file_size_bytes,
     )
