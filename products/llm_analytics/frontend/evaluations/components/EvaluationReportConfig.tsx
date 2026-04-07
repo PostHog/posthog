@@ -1,24 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import {
-    LemonBadge,
-    LemonButton,
-    LemonDialog,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
-import type { EvaluationReportDeliveryTarget, EvaluationReportFrequency, EvaluationReportRun } from '../types'
-import { EvaluationReportViewer } from './EvaluationReportViewer'
+import type { EvaluationReportDeliveryTarget, EvaluationReportFrequency } from '../types'
 
 const FREQUENCY_OPTIONS = [
     { value: 'hourly' as const, label: 'Hourly' },
@@ -142,9 +132,8 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
 /** Toggle-based report management for existing evaluations */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
-    const { reportRuns, reportRunsLoading, selectedReportRun, activeReport, reportsLoading } = useValues(logic)
-    const { updateReport, deleteReport, loadReportRuns, generateReport, selectReportRun, createReport } =
-        useActions(logic)
+    const { activeReport, reportsLoading } = useValues(logic)
+    const { updateReport, deleteReport, createReport } = useActions(logic)
 
     // Local state: toggle controls form visibility, Save button creates the report
     const [formEnabled, setFormEnabled] = useState(false)
@@ -153,9 +142,18 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     const [slackIntegrationId, setSlackIntegrationId] = useState<number | null>(null)
     const [slackChannelValue, setSlackChannelValue] = useState('')
 
-    if (selectedReportRun) {
-        return <EvaluationReportViewer reportRun={selectedReportRun} onClose={() => selectReportRun(null)} />
-    }
+    // Seed the delivery-target form state from the active report so the user can edit
+    // email/Slack targets without having to disable + recreate the schedule.
+    useEffect(() => {
+        if (!activeReport) {
+            return
+        }
+        const emailTarget = activeReport.delivery_targets.find((t) => t.type === 'email')
+        const slackTarget = activeReport.delivery_targets.find((t) => t.type === 'slack')
+        setEmailValue(emailTarget?.value ?? '')
+        setSlackIntegrationId(slackTarget?.integration_id ?? null)
+        setSlackChannelValue(slackTarget?.channel ?? '')
+    }, [activeReport])
 
     const isEnabled = !!activeReport || formEnabled
 
@@ -225,15 +223,61 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                         />
                     </div>
 
-                    <div className="text-sm text-muted">
-                        Delivering to:{' '}
-                        {activeReport.delivery_targets.map((t: EvaluationReportDeliveryTarget, i: number) => (
-                            <span key={i}>
-                                {t.type === 'email' ? t.value : `Slack: ${t.channel}`}
-                                {i < activeReport.delivery_targets.length - 1 ? ', ' : ''}
-                            </span>
-                        ))}
-                    </div>
+                    <DeliveryTargetsConfig
+                        emailValue={emailValue}
+                        onEmailChange={setEmailValue}
+                        slackIntegrationId={slackIntegrationId}
+                        onSlackIntegrationChange={setSlackIntegrationId}
+                        slackChannelValue={slackChannelValue}
+                        onSlackChannelChange={setSlackChannelValue}
+                    />
+
+                    {(() => {
+                        const currentEmail = activeReport.delivery_targets.find((t) => t.type === 'email')?.value ?? ''
+                        const currentSlack = activeReport.delivery_targets.find((t) => t.type === 'slack')
+                        const currentSlackIntegrationId: number | null = currentSlack?.integration_id ?? null
+                        const currentSlackChannel = currentSlack?.channel ?? ''
+                        const targetsDirty =
+                            emailValue.trim() !== currentEmail ||
+                            slackIntegrationId !== currentSlackIntegrationId ||
+                            slackChannelValue !== currentSlackChannel
+                        const hasAnyTarget = hasEmail || hasSlack
+                        return (
+                            <div className="flex justify-end">
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    loading={reportsLoading}
+                                    disabledReason={
+                                        !targetsDirty
+                                            ? 'No changes to save'
+                                            : !hasAnyTarget
+                                              ? 'Add at least one delivery target'
+                                              : undefined
+                                    }
+                                    onClick={() => {
+                                        const targets: EvaluationReportDeliveryTarget[] = []
+                                        if (hasEmail) {
+                                            targets.push({ type: 'email', value: emailValue.trim() })
+                                        }
+                                        if (hasSlack) {
+                                            targets.push({
+                                                type: 'slack',
+                                                integration_id: slackIntegrationId!,
+                                                channel: slackChannelValue,
+                                            })
+                                        }
+                                        updateReport({
+                                            reportId: activeReport.id,
+                                            data: { delivery_targets: targets },
+                                        })
+                                    }}
+                                >
+                                    Save delivery targets
+                                </LemonButton>
+                            </div>
+                        )
+                    })()}
 
                     {activeReport.next_delivery_date && (
                         <div className="text-sm text-muted">
@@ -241,65 +285,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                         </div>
                     )}
 
-                    <div className="flex items-center gap-2">
-                        <LemonButton size="small" type="secondary" onClick={() => generateReport(activeReport.id)}>
-                            Generate now
-                        </LemonButton>
-                    </div>
-
-                    {/* Report history */}
-                    <LemonDivider className="my-1" />
-                    <div className="flex items-center justify-between">
-                        <h4 className="font-semibold text-sm mb-0">Report history</h4>
-                        <LemonButton
-                            size="xsmall"
-                            onClick={() => loadReportRuns(activeReport.id)}
-                            loading={reportRunsLoading}
-                        >
-                            Load history
-                        </LemonButton>
-                    </div>
-
-                    <LemonTable
-                        dataSource={reportRuns}
-                        loading={reportRunsLoading}
-                        columns={[
-                            {
-                                title: 'Period',
-                                render: (_, run: EvaluationReportRun) =>
-                                    `${new Date(run.period_start).toLocaleDateString()} – ${new Date(run.period_end).toLocaleDateString()}`,
-                            },
-                            {
-                                title: 'Status',
-                                render: (_, run: EvaluationReportRun) => (
-                                    <LemonBadge
-                                        content={run.delivery_status}
-                                        status={
-                                            run.delivery_status === 'delivered'
-                                                ? 'success'
-                                                : run.delivery_status === 'failed'
-                                                  ? 'danger'
-                                                  : 'muted'
-                                        }
-                                    />
-                                ),
-                            },
-                            {
-                                title: 'Created',
-                                render: (_, run: EvaluationReportRun) => new Date(run.created_at).toLocaleString(),
-                            },
-                            {
-                                title: '',
-                                render: (_, run: EvaluationReportRun) => (
-                                    <LemonButton size="xsmall" onClick={() => selectReportRun(run)}>
-                                        View
-                                    </LemonButton>
-                                ),
-                            },
-                        ]}
-                        emptyState="No reports generated yet"
-                        size="small"
-                    />
+                    <p className="text-xs text-muted m-0">Generated reports appear in the Reports tab.</p>
                 </div>
             ) : (
                 formEnabled && (

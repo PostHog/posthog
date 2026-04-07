@@ -1,6 +1,6 @@
 import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
 import type { EvaluationReportRun, EvaluationReportRunContent, EvaluationReportSection } from '../types'
@@ -29,29 +29,13 @@ const SECTION_ORDER = [
 
 const UUID_REGEX = /`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`/g
 
-function renderContentWithLinks(content: string): JSX.Element {
-    const parts: (string | JSX.Element)[] = []
-    let lastIndex = 0
-    let match
-
-    const regex = new RegExp(UUID_REGEX.source, 'g')
-    while ((match = regex.exec(content)) !== null) {
-        if (match.index > lastIndex) {
-            parts.push(content.slice(lastIndex, match.index))
-        }
-        const genId = match[1]
-        parts.push(
-            <Link key={match.index} to={urls.llmAnalyticsTrace(genId)}>
-                <code>{genId.slice(0, 8)}...</code>
-            </Link>
-        )
-        lastIndex = match.index + match[0].length
-    }
-    if (lastIndex < content.length) {
-        parts.push(content.slice(lastIndex))
-    }
-
-    return <span style={{ whiteSpace: 'pre-wrap' }}>{parts}</span>
+// Rewrite `<uuid>` backtick tokens into markdown links so LemonMarkdown renders
+// them as clickable trace links. The generated URL matches the current behaviour
+// of the old renderer — the citation-URL bug is tracked in beads-tracking-17d.
+function linkifyUuids(content: string): string {
+    return content.replace(UUID_REGEX, (_match, uuid: string) => {
+        return `[\`${uuid.slice(0, 8)}...\`](${urls.llmAnalyticsTrace(uuid)})`
+    })
 }
 
 function ReportSectionView({
@@ -64,7 +48,9 @@ function ReportSectionView({
     return (
         <div className="mb-4">
             <h3 className="font-semibold text-sm mb-1">{SECTION_TITLES[sectionKey] || sectionKey}</h3>
-            <div className="text-sm text-default">{renderContentWithLinks(section.content)}</div>
+            <LemonMarkdown lowKeyHeadings className="text-sm">
+                {linkifyUuids(section.content)}
+            </LemonMarkdown>
         </div>
     )
 }
@@ -83,31 +69,38 @@ function DeliveryStatusBadge({ status }: { status: string }): JSX.Element {
 export function EvaluationReportViewer({
     reportRun,
     onClose,
+    compact = false,
 }: {
     reportRun: EvaluationReportRun
     onClose?: () => void
+    /** When true, hides the header/close row — useful when the parent already provides framing (e.g. an expanded table row). */
+    compact?: boolean
 }): JSX.Element {
     const content = reportRun.content as EvaluationReportRunContent
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-base mb-0">Report</h2>
-                    <DeliveryStatusBadge status={reportRun.delivery_status} />
-                </div>
-                {onClose && (
-                    <LemonButton size="small" onClick={onClose}>
-                        Close
-                    </LemonButton>
-                )}
-            </div>
-            <div className="text-xs text-muted mb-3">
-                Period: {new Date(reportRun.period_start).toLocaleString()} –{' '}
-                {new Date(reportRun.period_end).toLocaleString()}
-            </div>
+            {!compact && (
+                <>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <h2 className="font-bold text-base mb-0">Report</h2>
+                            <DeliveryStatusBadge status={reportRun.delivery_status} />
+                        </div>
+                        {onClose && (
+                            <LemonButton size="small" onClick={onClose}>
+                                Close
+                            </LemonButton>
+                        )}
+                    </div>
+                    <div className="text-xs text-muted mb-3">
+                        Period: {new Date(reportRun.period_start).toLocaleString()} –{' '}
+                        {new Date(reportRun.period_end).toLocaleString()}
+                    </div>
 
-            <LemonDivider className="my-3" />
+                    <LemonDivider className="my-3" />
+                </>
+            )}
 
             {SECTION_ORDER.map((key) => {
                 const section = content[key as keyof EvaluationReportRunContent]

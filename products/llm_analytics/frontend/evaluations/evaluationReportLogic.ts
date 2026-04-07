@@ -161,6 +161,14 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        loadReportsSuccess: ({ reports }: { reports: EvaluationReport[] }) => {
+            // Auto-load the run history for the active report so the Reports tab knows
+            // whether to render itself and can show data immediately.
+            const active = reports.find((r: EvaluationReport) => r.enabled && !r.deleted)
+            if (active) {
+                actions.loadReportRuns(active.id)
+            }
+        },
         generateReportSuccess: () => {
             lemonToast.success('Report is being generated and will be delivered to your configured targets shortly.')
         },
