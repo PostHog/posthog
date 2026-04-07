@@ -31,20 +31,12 @@ class TestEventFilterConfigAPI(APIBaseTest):
 
     # -- List (GET) --
 
-    def test_list_auto_creates_default_config(self):
-        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
-
+    def test_list_returns_204_when_no_config(self):
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["mode"], "disabled")
-        self.assertIsNone(data["filter_tree"])
-        self.assertEqual(data["test_cases"], [])
-        self.assertIn("id", data)
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
-        self.assertTrue(EventFilterConfig.objects.filter(team=self.team).exists())
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")
+        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
 
     def test_list_returns_existing_config(self):
         tree = _cond()
@@ -53,14 +45,18 @@ class TestEventFilterConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["mode"], "live")
-        self.assertEqual(response.json()["filter_tree"], tree)
+        data = response.json()
+        self.assertEqual(data["mode"], "live")
+        self.assertEqual(data["filter_tree"], tree)
+        self.assertIn("id", data)
+        self.assertIn("created_at", data)
+        self.assertIn("updated_at", data)
 
-    def test_list_is_idempotent(self):
+    def test_list_does_not_create_config(self):
         self.client.get(self._url())
         self.client.get(self._url())
 
-        self.assertEqual(EventFilterConfig.objects.filter(team=self.team).count(), 1)
+        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
 
     # -- Create (POST / upsert) --
 
@@ -383,11 +379,11 @@ class TestEventFilterConfigAPI(APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
-    def test_auto_create_scoped_to_team(self):
+    def test_create_scoped_to_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
 
-        self.client.get(self._url(self.team.id))
-        self.client.get(self._url(other_team.id))
+        self.client.post(self._url(self.team.id), data={"mode": "disabled"}, format="json")
+        self.client.post(self._url(other_team.id), data={"mode": "disabled"}, format="json")
 
         self.assertEqual(EventFilterConfig.objects.filter(team=self.team).count(), 1)
         self.assertEqual(EventFilterConfig.objects.filter(team=other_team).count(), 1)

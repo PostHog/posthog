@@ -2,7 +2,7 @@ from typing import cast
 
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -70,9 +70,9 @@ class EventFilterConfigSerializer(serializers.ModelSerializer):
 
 class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    Single event filter per team. Auto-creates on first access.
-    GET  /event_filter/ — returns the config
-    POST /event_filter/ — updates the config (upsert)
+    Single event filter per team.
+    GET  /event_filter/ — returns the config (or null if not yet created)
+    POST /event_filter/ — creates or updates the config (upsert)
     GET  /event_filter/metrics/ — time-series metrics
     GET  /event_filter/metrics/totals/ — aggregate totals
     """
@@ -85,29 +85,27 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
     schema = SingletonSchema()
 
-    def _get_or_create(self) -> EventFilterConfig:
-        config, _ = EventFilterConfig.objects.get_or_create(
-            team_id=self.team_id,
-            defaults={"filter_tree": None, "mode": "disabled", "test_cases": []},
-        )
-        return config
-
     @extend_schema(
         responses={200: EventFilterConfigSerializer},
-        description="Returns the singleton event filter config for the team. Auto-creates with defaults on first access.",
+        description="Returns the event filter config for the team, or null if not yet created.",
     )
     def list(self, request, **kwargs):
-        config = self._get_or_create()
+        config = EventFilterConfig.objects.filter(team_id=self.team_id).first()
+        if config is None:
+            return Response(None, status=status.HTTP_204_NO_CONTENT)
         serializer = self.get_serializer(config)
         return Response(serializer.data)
 
     @extend_schema(
         request=EventFilterConfigSerializer,
         responses={200: EventFilterConfigSerializer},
-        description="Upsert the event filter config. Accepts partial updates.",
+        description="Create or update the event filter config.",
     )
     def create(self, request, **kwargs):
-        config = self._get_or_create()
+        config, _ = EventFilterConfig.objects.get_or_create(
+            team_id=self.team_id,
+            defaults={"filter_tree": None, "mode": "disabled", "test_cases": []},
+        )
         serializer = self.get_serializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
