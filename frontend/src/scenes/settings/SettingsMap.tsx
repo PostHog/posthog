@@ -126,7 +126,6 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
-import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -1559,20 +1558,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/advanced/proxy',
                 component: <ManagedReverseProxy />,
                 keywords: ['custom domain', 'dns', 'cname', 'ad blocker', 'first party'],
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-notifications',
-        title: 'Notifications',
-        settings: [
-            {
-                id: 'email-members',
-                title: 'Notification preferences',
-                description: 'Configure which emails your organization members receive from PostHog.',
-                component: <OrganizationEmailPreferences />,
-                keywords: ['email', 'notification', 'digest', 'unsubscribe'],
             },
         ],
     },

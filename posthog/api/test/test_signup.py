@@ -1978,22 +1978,26 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
+        # Verify invite signup still sends verification email to the new user.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -2021,31 +2025,33 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
-        self.organization.is_member_join_email_enabled = False
-        self.organization.save()
-
-        User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user.partial_notification_settings = {
+            "organization_member_join_email_disabled": {str(self.organization.id): True}
+        }
+        initial_user.save()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
 
     @patch("posthoganalytics.capture")
     @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
