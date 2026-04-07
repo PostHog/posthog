@@ -1,0 +1,33 @@
+{
+    "name": "@posthog/quill-tokens",
+    "version": "0.0.1",
+    "private": true,
+    "files": [
+        "src",
+        "dist"
+    ],
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "default": "./dist/index.js"
+        },
+        "./tailwind.css": "./dist/tailwind.css",
+        "./tailwind-lib.css": "./dist/tailwind-lib.css",
+        "./color-system.css": "./dist/color-system.css"
+    },
+    "scripts": {
+        "build": "tsx src/build.ts && vite build",
+        "build:watch": "tsx watch src/build.ts"
+    },
+    "devDependencies": {
+        "tsx": "^4.19.0",
+        "vite": "^6.3.5",
+        "vite-plugin-dts": "^4.5.4"
+    }
+}

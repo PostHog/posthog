@@ -821,6 +821,20 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 else:
                     cleaned_question["description"] = description
 
+            for field_name, error_message in [
+                ("buttonText", "Question buttonText must be a string"),
+                ("lowerBoundLabel", "Question lowerBoundLabel must be a string"),
+                ("upperBoundLabel", "Question upperBoundLabel must be a string"),
+            ]:
+                field_value = raw_question.get(field_name)
+                if field_value:
+                    if not isinstance(field_value, str):
+                        raise serializers.ValidationError(error_message)
+                    if nh3.is_html(field_value):
+                        cleaned_question[field_name] = nh3_clean_with_allow_list(field_value)
+                    else:
+                        cleaned_question[field_name] = field_value
+
             # Validate choices first before translation validation to provide clearer error messages
             choices = raw_question.get("choices")
             if choices:

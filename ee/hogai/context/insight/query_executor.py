@@ -18,17 +18,21 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
+    ChartDisplayType,
     CurrencyCode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
+    LifecycleQuery,
     PathsQuery,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 )
 
@@ -49,7 +53,9 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
     TRUNCATED_MARKER,
+    BoxPlotResultsFormatter,
     FunnelResultsFormatter,
+    LifecycleResultsFormatter,
     PathsResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
@@ -57,6 +63,7 @@ from ee.hogai.context.insight.format import (
     RevenueAnalyticsMRRResultsFormatter,
     RevenueAnalyticsTopCustomersResultsFormatter,
     SQLResultsFormatter,
+    StickinessResultsFormatter,
     TrendsResultsFormatter,
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -68,10 +75,12 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 from .prompts import (
+    BOX_PLOT_EXAMPLE_PROMPT,
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
     FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    LIFECYCLE_EXAMPLE_PROMPT,
     PATHS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
@@ -80,6 +89,7 @@ from .prompts import (
     REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT,
     REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT,
     SQL_EXAMPLE_PROMPT,
+    STICKINESS_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
 
@@ -97,6 +107,9 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | FunnelsQuery
         | AssistantPathsQuery
         | PathsQuery
+        | AssistantStickinessQuery
+        | StickinessQuery
+        | LifecycleQuery
         | AssistantRetentionQuery
         | RetentionQuery
         | AssistantHogQLQuery
@@ -445,8 +458,13 @@ class AssistantQueryExecutor:
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-                formatter_name = "TrendsResultsFormatter"
-                result = TrendsResultsFormatter(query, response["results"]).format()
+                boxplot_data = response.get("boxplot_data")
+                if boxplot_data is not None:
+                    formatter_name = "BoxPlotResultsFormatter"
+                    result = BoxPlotResultsFormatter(boxplot_data).format()
+                else:
+                    formatter_name = "TrendsResultsFormatter"
+                    result = TrendsResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
@@ -455,6 +473,12 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
                 result = PathsResultsFormatter(response["results"]).format()
+            elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
+                formatter_name = "StickinessResultsFormatter"
+                result = StickinessResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, LifecycleQuery):
+                formatter_name = "LifecycleResultsFormatter"
+                result = LifecycleResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
@@ -502,8 +526,19 @@ def is_revenue_analytics_query(query: AnyPydanticModelQuery | AnyAssistantGenera
     )
 
 
+def _is_boxplot_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
+    trends_filter = getattr(query, "trendsFilter", None)
+    if trends_filter:
+        display = getattr(trends_filter, "display", None)
+        if display == ChartDisplayType.BOX_PLOT:
+            return True
+    return False
+
+
 def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> str:
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
+        if _is_boxplot_query(query):
+            return BOX_PLOT_EXAMPLE_PROMPT
         return TRENDS_EXAMPLE_PROMPT
     if isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         if (
@@ -517,6 +552,10 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return FUNNEL_TRENDS_EXAMPLE_PROMPT
     if isinstance(query, AssistantPathsQuery | PathsQuery):
         return PATHS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantStickinessQuery | StickinessQuery):
+        return STICKINESS_EXAMPLE_PROMPT
+    if isinstance(query, LifecycleQuery):
+        return LIFECYCLE_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery):

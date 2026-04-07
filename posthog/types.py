@@ -12,6 +12,7 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    ExperimentActorsQuery,
     FeaturePropertyFilter,
     FlagPropertyFilter,
     FunnelCorrelationActorsQuery,
@@ -51,7 +52,7 @@ type FilterType = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 type InsightQueryNode = Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 type InsightActorsQueryNode = Union[
-    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery
+    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, ExperimentActorsQuery
 ]
 
 type AnyPropertyFilter = Union[

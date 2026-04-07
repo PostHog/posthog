@@ -418,7 +418,12 @@ def export_image(
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
 
-                # When exporting a single insight from a dashboard, apply the tile's filter overrides and dashboard variables
+                # When export_context contains a source query, use it as the query for cache warming.
+                # This captures the user's full current state (variables, filters, date ranges, etc.).
+                # Falls back to the saved insight query for subscriptions and other server-initiated exports.
+                export_context = exported_asset.export_context or {}
+                query_override = export_context.get("source")
+
                 dashboard_variables = None
                 tile_filters_override = None
                 if exported_asset.dashboard:
@@ -432,26 +437,47 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
-                with upgrade_query(exported_asset.insight):
+                if query_override:
+                    # query_override is upgraded inside calculate_for_query_based_insight,
+                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # variables_override is None because query_override already encodes the
+                    # user's full current state — applying saved dashboard variables on top
+                    # would clobber unsaved variable selections.
                     result = calculate_for_query_based_insight(
                         exported_asset.insight,
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         user=None,
-                        variables_override=dashboard_variables,
+                        variables_override=None,
                         tile_filters_override=tile_filters_override,
+                        query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
-                    if result.cache_key:
-                        insight_cache_keys[exported_asset.insight.id] = result.cache_key
+                else:
+                    with upgrade_query(exported_asset.insight):
+                        result = calculate_for_query_based_insight(
+                            exported_asset.insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile_filters_override,
+                            analytics_props=export_analytics_props,
+                        )
+                if result.cache_key:
+                    insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
-                dashboard_variables = None
-                if exported_asset.dashboard.variables:
+                # Use variable overrides from export_context (user's current unsaved selection),
+                # falling back to saved dashboard variables
+                export_context = exported_asset.export_context or {}
+                dashboard_variables = export_context.get("variables_override")
+                if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 

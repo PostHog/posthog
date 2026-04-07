@@ -2,8 +2,35 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { LlmAnalyticsSentimentCreateBody, LlmAnalyticsSummarizationCreateBody } from '@/generated/llm_analytics/api'
+import {
+    LlmAnalyticsClusteringJobsListQueryParams,
+    LlmAnalyticsClusteringJobsRetrieveParams,
+    LlmAnalyticsSentimentCreateBody,
+    LlmAnalyticsSummarizationCreateBody,
+} from '@/generated/llm_analytics/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const LlmAnalyticsClusteringJobsListSchema = LlmAnalyticsClusteringJobsListQueryParams
+
+const llmAnalyticsClusteringJobsList = (): ToolBase<
+    typeof LlmAnalyticsClusteringJobsListSchema,
+    Schemas.PaginatedClusteringJobList
+> => ({
+    name: 'llm-analytics-clustering-jobs-list',
+    schema: LlmAnalyticsClusteringJobsListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedClusteringJobList>({
+            method: 'GET',
+            path: `/api/environments/${projectId}/llm_analytics/clustering_jobs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
 
 const LlmAnalyticsSentimentCreateSchema = LlmAnalyticsSentimentCreateBody
 
@@ -87,7 +114,27 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
     },
 })
 
+const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
+
+const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
+    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
+    Schemas.ClusteringJob
+> => ({
+    name: 'llm-analytics-clustering-jobs-retrieve',
+    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'GET',
+            path: `/api/environments/${projectId}/llm_analytics/clustering_jobs/${params.id}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
+    'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
 }

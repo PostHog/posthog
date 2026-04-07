@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { generateViolinPath } from '~/scenes/experiments/MetricsView/violinUtils'
 
-import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,

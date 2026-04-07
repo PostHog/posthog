@@ -136,6 +136,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        setPreferredEditor: (editor: 'guided' | 'full') => ({ editor }),
         handleMaxSurveyCreated: (
             toolOutput: {
                 survey_id?: string
@@ -333,6 +334,16 @@ export const surveysLogic = kea<surveysLogicType>([
             null as Survey | null,
             {
                 setSurveyToDuplicate: (_, { survey }) => survey,
+            },
+        ],
+        // Remembers which editor (guided wizard vs full editor) the user last
+        // chose. Used on "new survey" landing pages to redirect to their
+        // preferred editor automatically.
+        preferredEditor: [
+            'guided' as 'guided' | 'full',
+            { persist: true },
+            {
+                setPreferredEditor: (_, { editor }) => editor,
             },
         ],
     }),

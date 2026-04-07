@@ -4,10 +4,6 @@ import { hasScopes } from '@/lib/api'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-// Error Tracking
-import errorDetails from './errorTracking/errorDetails'
-import listErrors from './errorTracking/listErrors'
-import updateIssueStatus from './errorTracking/updateIssueStatus'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -30,6 +26,7 @@ import evaluationDelete from './llmAnalytics/evaluations/delete'
 import evaluationGet from './llmAnalytics/evaluations/get'
 import evaluationsGet from './llmAnalytics/evaluations/getAll'
 import evaluationRun from './llmAnalytics/evaluations/run'
+import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
@@ -78,11 +75,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
 
-    // Error Tracking
-    'list-errors': listErrors,
-    'error-details': errorDetails,
-    'update-issue-status': updateIssueStatus,
-
     // Logs
     'logs-query': logsQuery,
     'logs-list-attributes': logsListAttributes,
@@ -116,6 +108,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-update': evaluationUpdate,
     'evaluation-delete': evaluationDelete,
     'evaluation-run': evaluationRun,
+    'evaluation-test-hog': evaluationTestHog,
 
     // Search
     'entity-search': entitySearch,

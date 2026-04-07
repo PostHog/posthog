@@ -13,7 +13,15 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQuery, OrderBy3, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogAttributesQuery,
+    LogsOrderBy,
+    LogsQuery,
+    LogValuesQuery,
+    PropertyGroupFilter,
+)
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -29,6 +37,7 @@ from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 from products.logs.backend.views_api import LogsViewViewSet
 
@@ -52,8 +61,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
-        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
-            order_by = OrderBy3.LATEST
+        if order_by not in (LogsOrderBy.EARLIEST, LogsOrderBy.LATEST):
+            order_by = LogsOrderBy.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
@@ -61,7 +70,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST:
+                if order_by == LogsOrderBy.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -112,14 +121,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             limit = logs_query_params["limit"]
 
             def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: OrderBy3 | None
+                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: LogsOrderBy | None
             ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
                 """
                 Slices a LogsQueryRunner into two query runners
                 The first one returns just the `slice_length` most recent logs
                 The second one returns the rest of the logs
                 """
-                if orderBy == OrderBy3.LATEST or orderBy is None:
+                if orderBy == LogsOrderBy.LATEST or orderBy is None:
                     slice_query = LogsQuery(
                         **{
                             **query.model_dump(),
@@ -274,6 +283,46 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "severity_levels_count": len(query_data.get("severityLevels", [])),
                 "service_names_count": len(query_data.get("serviceNames", [])),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def services(self, request: Request, *args, **kwargs) -> Response:
+        query_data = request.data.get("query", {})
+
+        filter_group = query_data.get("filterGroup", None)
+        if filter_group is None:
+            filter_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
+
+        query = LogsQuery(
+            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=filter_group,
+        )
+
+        runner = ServicesQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs services queried",
+            {
+                "services_count": len(response.results.get("services", []))
+                if isinstance(response.results, dict)
+                else 0,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
             },
             team=self.team,
             request=request,

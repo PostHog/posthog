@@ -145,7 +145,10 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 {
                                     format: ExporterFormat.PNG,
                                     dashboard: dashboard.id,
-                                    context: { path: apiUrl() },
+                                    context: {
+                                        path: apiUrl(),
+                                        variables_override: effectiveDashboardVariableOverrides,
+                                    },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },
                                 ...(user?.is_staff

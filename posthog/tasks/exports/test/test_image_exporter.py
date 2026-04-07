@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import mock_open, patch
 
 from boto3 import resource
 from botocore.client import Config
+from parameterized import parameterized
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.fetch_from_cache import InsightResult
@@ -314,3 +315,242 @@ class TestImageExporter(APIBaseTest):
             assert call_kwargs["tile_filters_override"] == tile_filters, (
                 "tile_filters_override should match tile filters"
             )
+
+    @parameterized.expand(
+        [
+            (
+                "with_source_override",
+                {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                {"kind": "HogQLQuery", "query": "SELECT 1"},
+                False,
+            ),
+            (
+                "with_source_and_dashboard_variables",
+                {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                {"kind": "HogQLQuery", "query": "SELECT 1"},
+                True,
+            ),
+            (
+                "source_vars_not_overridden_by_dashboard_vars",
+                {
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT 1",
+                        "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
+                    }
+                },
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
+                },
+                True,
+            ),
+            (
+                "without_export_context",
+                None,
+                None,
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_insight_export_query_override_routing(
+        self,
+        _name: str,
+        export_context: dict | None,
+        expected_query_override: dict | None,
+        with_dashboard: bool,
+        mock_calculate: Any,
+        *args: Any,
+    ) -> None:
+        dashboard = None
+        variable = None
+        if with_dashboard:
+            dashboard = Dashboard.objects.create(
+                team=self.team,
+                name="Dashboard",
+                variables={"var_1": {"code_name": "eventName", "value": "dashboard_value"}},
+            )
+            variable = InsightVariable.objects.create(
+                team=self.team, name="eventName", code_name="eventName", type="String"
+            )
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="SQL Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        if dashboard:
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+            dashboard=dashboard,
+            export_context=export_context,
+        )
+
+        mock_calculate.return_value = make_insight_result("test_key")
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        call_kwargs = mock_calculate.call_args[1]
+        if expected_query_override is not None:
+            assert call_kwargs["query_override"] == expected_query_override
+        else:
+            assert "query_override" not in call_kwargs
+
+        if expected_query_override is not None:
+            # When query_override is present, variables_override must be None —
+            # the user's current state is already embedded in query_override
+            assert call_kwargs["variables_override"] is None
+        elif variable:
+            variable_id = str(variable.id)
+            assert call_kwargs["variables_override"] == {
+                variable_id: {
+                    "code_name": "eventName",
+                    "value": "dashboard_value",
+                    "variableId": variable_id,
+                }
+            }
+        else:
+            assert call_kwargs["variables_override"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "uses_export_context_override",
+                {
+                    "variables_override": {
+                        "var_1": {"variableId": "var_1", "code_name": "eventName", "value": "$pageview"}
+                    }
+                },
+                True,
+            ),
+            (
+                "falls_back_to_saved_variables",
+                None,
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_dashboard_export_variables_routing(
+        self,
+        _name: str,
+        export_context: dict | None,
+        uses_context_directly: bool,
+        mock_calculate: Any,
+        *args: Any,
+    ) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard",
+            variables={"var_1": {"code_name": "eventName", "value": "saved_value"}},
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="eventName", code_name="eventName", type="String"
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="SQL Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+            export_context=export_context,
+        )
+
+        mock_calculate.return_value = make_insight_result("test_key")
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(dashboard_asset)
+
+        call_kwargs = mock_calculate.call_args[1]
+        if uses_context_directly:
+            assert call_kwargs["variables_override"] == export_context["variables_override"]  # type: ignore[index]
+        else:
+            variable_id = str(variable.id)
+            assert call_kwargs["variables_override"] == {
+                variable_id: {
+                    "code_name": "eventName",
+                    "value": "saved_value",
+                    "variableId": variable_id,
+                }
+            }
+
+
+@patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+@patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+@patch("os.remove")
+class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
+    def test_query_override_produces_different_results_than_saved_query(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        _create_event(distinct_id="user1", event="$pageview", team=self.team)
+        _create_event(distinct_id="user1", event="$pageview", team=self.team)
+        _create_event(distinct_id="user1", event="$pageleave", team=self.team)
+        flush_persons_and_events()
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="eventName", code_name="eventName", type="String", default_value="$pageleave"
+        )
+        variable_id = str(variable.id)
+
+        query_source = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, count() AS total FROM events WHERE event = {variables.eventName} GROUP BY event",
+            "variables": {
+                variable_id: {"variableId": variable_id, "code_name": "eventName", "value": "$pageleave"},
+            },
+        }
+        insight = Insight.objects.create(
+            team=self.team,
+            name="SQL Insight",
+            query={"kind": "DataVisualizationNode", "source": query_source},
+        )
+
+        # Export with saved defaults ($pageleave)
+        asset_default = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(asset_default)
+
+        # Export with user override ($pageview) via export_context
+        override_source = {
+            **query_source,
+            "variables": {
+                variable_id: {"variableId": variable_id, "code_name": "eventName", "value": "$pageview"},
+            },
+        }
+        asset_override = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+            export_context={"source": override_source},
+        )
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(asset_override)
+
+        assert asset_default.content is not None
+        assert asset_override.content is not None
+
+        # Different variables should produce different screenshot URLs (different cache keys)
+        screenshot_calls = mock_screenshot_asset.call_args_list
+        url_default = screenshot_calls[0][0][1]
+        url_override = screenshot_calls[1][0][1]
+
+        assert "cache_keys=" in url_default
+        assert "cache_keys=" in url_override
+        assert url_default != url_override

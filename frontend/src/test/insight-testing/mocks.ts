@@ -115,7 +115,7 @@ export function setupInsightMocks({
             '/api/environments/:team_id/insights/trend': [],
         },
         post: {
-            '/api/environments/:team_id/query': (req: RestRequest) => {
+            '/api/environments/:team_id/query/:kind': (req: RestRequest) => {
                 const queryBody = extractQueryBody(req.body)
 
                 for (const mock of responses) {

@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import {
     BasicSurveyQuestion,
     EventPropertyFilter,
+    FeatureFlagFilters,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     PropertyFilterType,
@@ -416,6 +417,27 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Some fields can only be edited in the full editor — opening such a survey
+// in the wizard would hide those values from the user, so we route them to
+// the full editor regardless of their general editor preference. Keep this
+// list in sync with what the wizard's steps actually expose.
+export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
+    if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // Adaptive sampling — WhenStep exposes a simple responses_limit but not
+    // the adaptive sampling controls
+    if (survey.response_sampling_limit || survey.response_sampling_start_date) {
+        return false
+    }
+    // Property-based targeting filters — WhereStep handles linked_flag
+    // (release conditions) but not targeting_flag_filters
+    if (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) {
+        return false
+    }
+    return true
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {
@@ -585,7 +607,7 @@ export function buildAggregateQuery(
         return null
     }
 
-    return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')})`
+    return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
 }
 
 export function buildOpenEndedQuery(
@@ -851,6 +873,80 @@ export interface SurveyCollectionLimitSummary {
     value: string
 }
 
+export function getSurveyTargetingFilters(survey: Survey | NewSurvey): FeatureFlagFilters | undefined {
+    if (survey.targeting_flag_filters) {
+        return survey.targeting_flag_filters
+    }
+
+    return survey.targeting_flag?.filters || undefined
+}
+
+export function getSurveyAudienceRuleCount(filters?: FeatureFlagFilters | null): number {
+    return filters?.groups.reduce((count, group) => count + (group.properties?.length ?? 0), 0) ?? 0
+}
+
+export function getSurveyAudienceRolloutPercentage(filters?: FeatureFlagFilters | null): number | null {
+    if (!filters || filters.groups.length !== 1) {
+        return null
+    }
+
+    return filters.groups[0].rollout_percentage ?? 100
+}
+
+export function isSimpleSurveyAudienceTargeting(filters?: FeatureFlagFilters | null): boolean {
+    if (!filters) {
+        return true
+    }
+
+    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.super_groups?.length) {
+        return false
+    }
+
+    if (filters.multivariate?.variants?.length) {
+        return false
+    }
+
+    const [group] = filters.groups
+
+    if (group.aggregation_group_type_index != null || group.variant != null) {
+        return false
+    }
+
+    return (group.properties || []).every(
+        (property) => property.type === PropertyFilterType.Person || property.type === PropertyFilterType.Cohort
+    )
+}
+
+export function getSurveyAudienceSummaryValue(survey: Survey | NewSurvey): string | null {
+    const filters = getSurveyTargetingFilters(survey)
+
+    if (!filters) {
+        return null
+    }
+
+    if (!isSimpleSurveyAudienceTargeting(filters)) {
+        return 'Advanced audience targeting'
+    }
+
+    const ruleCount = getSurveyAudienceRuleCount(filters)
+    const rolloutPercentage = getSurveyAudienceRolloutPercentage(filters)
+    const isPartialRollout = rolloutPercentage != null && rolloutPercentage < 100
+
+    if (ruleCount === 0 && !isPartialRollout) {
+        return null
+    }
+
+    if (ruleCount === 0) {
+        return `${rolloutPercentage}% of matching users`
+    }
+
+    if (isPartialRollout) {
+        return `${ruleCount} audience rule${ruleCount === 1 ? '' : 's'} · ${rolloutPercentage}% shown`
+    }
+
+    return `${ruleCount} audience rule${ruleCount === 1 ? '' : 's'}`
+}
+
 export function getSurveyCollectionLimitSummary(survey: Survey | NewSurvey): SurveyCollectionLimitSummary | null {
     if (survey.responses_limit && survey.responses_limit > 0) {
         return {
@@ -911,11 +1007,9 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     } else if (survey.linked_flag_id) {
         parts.push({ type: 'flag', label: 'Feature flag', value: 'Linked' })
     }
-    if (
-        (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) ||
-        (survey.targeting_flag && Object.keys(survey.targeting_flag).length > 0)
-    ) {
-        parts.push({ type: 'targeting', label: 'Targeting', value: 'User properties' })
+    const audienceSummary = getSurveyAudienceSummaryValue(survey)
+    if (audienceSummary) {
+        parts.push({ type: 'targeting', label: 'Targeting', value: audienceSummary })
     }
     if (conditions?.seenSurveyWaitPeriodInDays) {
         parts.push({
