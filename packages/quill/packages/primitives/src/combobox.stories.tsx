@@ -29,7 +29,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const frameworks = ['Next.js', 'SvelteKit', 'Nuxt.js', 'Remix', 'Astro'] as const
+const frameworks = ['Next.js', 'SvelteKit', 'Nuxt.js', 'Remix', 'Astro', 'This will truncate in both the chip + list and still show chipClose'] as const
 
 export const Default: Story = {
     render: () => {
@@ -40,7 +40,7 @@ export const Default: Story = {
                     <ComboboxContent>
                         <ComboboxEmpty>No items found.</ComboboxEmpty>
                         <ComboboxList>
-                            {(item) => (
+                            {(item: (typeof frameworks)[number]) => (
                                 <ComboboxItem key={item} value={item}>
                                     {item}
                                 </ComboboxItem>
@@ -53,38 +53,44 @@ export const Default: Story = {
     },
 } satisfies Story
 
+function MultipleComboboxInner(): React.ReactElement {
+    const anchor = useComboboxAnchor()
+    return (
+        <React.Fragment>
+            <ComboboxChips ref={anchor} className="max-w-xs">
+                <ComboboxValue>
+                    {(values) => (
+                        <React.Fragment>
+                            {values.map((value: string) => (
+                                <ComboboxChip key={value} title={value}>{value}</ComboboxChip>
+                            ))}
+                            <ComboboxChipsInput />
+                        </React.Fragment>
+                    )}
+                </ComboboxValue>
+            </ComboboxChips>
+            <ComboboxContent anchor={anchor}>
+                <ComboboxEmpty>No items found.</ComboboxEmpty>
+                <ComboboxList>
+                    {(item) => (
+                        <ComboboxItem key={item} value={item}>
+                            {item}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </React.Fragment>
+    )
+}
+
 export const Multiple: Story = {
-    render: () => {
-        const anchor = useComboboxAnchor()
-        return (
-            <div className="max-w-xs">
-                <Combobox multiple autoHighlight items={frameworks} defaultValue={[frameworks[0]]}>
-                    <ComboboxChips ref={anchor} className="max-w-xs">
-                        <ComboboxValue>
-                            {(values) => (
-                                <React.Fragment>
-                                    {values.map((value: string) => (
-                                        <ComboboxChip key={value}>{value}</ComboboxChip>
-                                    ))}
-                                    <ComboboxChipsInput />
-                                </React.Fragment>
-                            )}
-                        </ComboboxValue>
-                    </ComboboxChips>
-                    <ComboboxContent anchor={anchor}>
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
-                        <ComboboxList>
-                            {(item) => (
-                                <ComboboxItem key={item} value={item}>
-                                    {item}
-                                </ComboboxItem>
-                            )}
-                        </ComboboxList>
-                    </ComboboxContent>
-                </Combobox>
-            </div>
-        )
-    },
+    render: () => (
+        <div className="max-w-xs">
+            <Combobox multiple autoHighlight items={frameworks} defaultValue={[frameworks[0]]}>
+                <MultipleComboboxInner />
+            </Combobox>
+        </div>
+    ),
 } satisfies Story
 
 export const Clearable: Story = {
