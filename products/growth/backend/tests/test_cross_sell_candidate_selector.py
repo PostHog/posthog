@@ -19,10 +19,12 @@ from products.growth.backend.cross_sell_candidate_selector import (
 def _make_selector(
     enabled: set[str] | None = None,
     ignored: set[ProductItemCategory] | None = None,
+    excluded: set[str] | None = None,
 ) -> CrossSellCandidateSelector:
     return CrossSellCandidateSelector(
         user_enabled_products=enabled or set(),
         ignored_categories=ignored if ignored is not None else DEFAULT_IGNORED_CATEGORIES,
+        user_excluded_products=excluded or set(),
     )
 
 
@@ -136,6 +138,43 @@ class TestCrossSellCandidateSelectorCandidates(TestCase):
         assert pa_path not in candidates
         assert sr_path not in candidates
 
+    def test_dismissed_products_excluded_from_candidates(self):
+        selector_for_lookup = _make_selector()
+        pa_path = selector_for_lookup.intent_to_path.get(ProductKey.PRODUCT_ANALYTICS)
+        sr_path = selector_for_lookup.intent_to_path.get(ProductKey.SESSION_REPLAY)
+        ff_path = selector_for_lookup.intent_to_path.get(ProductKey.FEATURE_FLAGS)
+        assert pa_path and sr_path and ff_path
+
+        # pa is enabled, sr is dismissed (excluded but not enabled), ff is not in the system
+        selector = _make_selector(enabled={pa_path}, excluded={pa_path, sr_path})
+        weights = selector._build_preference_weights()
+        candidates = selector._build_candidates(weights)
+
+        assert pa_path not in candidates, "Enabled product should not be a candidate"
+        assert sr_path not in candidates, "Dismissed product should not be a candidate"
+        assert ff_path in candidates, "Product not in system should be a candidate"
+
+    def test_dismissed_products_do_not_influence_category_weights(self):
+        selector_for_lookup = _make_selector()
+        sr_path = selector_for_lookup.intent_to_path.get(ProductKey.SESSION_REPLAY)
+        assert sr_path is not None
+
+        # sr is dismissed — its category (Behavior) should NOT get the same-category boost
+        selector_with_dismissed = _make_selector(enabled=set(), excluded={sr_path})
+        weights_dismissed = selector_with_dismissed._build_preference_weights()
+
+        selector_with_enabled = _make_selector(enabled={sr_path})
+        weights_enabled = selector_with_enabled._build_preference_weights()
+
+        sr_category = selector_for_lookup.product_to_category.get(sr_path)
+        assert sr_category is not None
+        sibling_paths = set(selector_for_lookup.products_by_category.get(sr_category, [])) - {sr_path}
+
+        for path in sibling_paths:
+            assert weights_dismissed[path] < weights_enabled[path], (
+                f"Dismissed product's category should not boost {path}"
+            )
+
     def test_ignored_categories_excluded_from_candidates(self):
         selector_for_lookup = _make_selector()
         pa_path = selector_for_lookup.intent_to_path.get(ProductKey.PRODUCT_ANALYTICS)
@@ -226,8 +265,8 @@ class TestCrossSellCandidateSelectorPropertyTests(TestCase):
         candidate_paths = {path for path, _ in weighted}
         all_paths = set(self.all_product_paths)
 
-        overlap = candidate_paths & selector.user_enabled_products
-        assert not overlap, f"[{trial_label}] candidates include enabled products: {overlap}"
+        excluded_overlap = candidate_paths & selector.user_excluded_products
+        assert not excluded_overlap, f"[{trial_label}] candidates include excluded products: {excluded_overlap}"
 
         invalid = candidate_paths - all_paths
         assert not invalid, f"[{trial_label}] candidates include invalid paths: {invalid}"
@@ -281,3 +320,23 @@ class TestCrossSellCandidateSelectorPropertyTests(TestCase):
                 ignored_categories=DEFAULT_IGNORED_CATEGORIES,
             )
             self._assert_selector_invariants(selector, f"trial={trial}, enabled={num_enabled}")
+
+    def test_invariants_with_dismissed_products(self):
+        rng = random_module.Random(321)
+
+        for trial in range(100):
+            num_enabled = rng.randint(0, min(8, len(self.all_product_paths)))
+            enabled = set(rng.sample(self.all_product_paths, num_enabled))
+
+            remaining = [p for p in self.all_product_paths if p not in enabled]
+            num_dismissed = rng.randint(0, min(5, len(remaining)))
+            dismissed = set(rng.sample(remaining, num_dismissed))
+
+            selector = CrossSellCandidateSelector(
+                user_enabled_products=enabled,
+                ignored_categories=DEFAULT_IGNORED_CATEGORIES,
+                user_excluded_products=enabled | dismissed,
+            )
+            self._assert_selector_invariants(
+                selector, f"trial={trial}, enabled={num_enabled}, dismissed={num_dismissed}"
+            )

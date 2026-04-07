@@ -72,8 +72,9 @@ class CrossSellCandidateSelector:
 
       Tier 1 (narrow): products from the same categories the user already
       uses, plus all "favored" products (those that received a base preference
-      weight in step 1a). Both are filtered to exclude the user's enabled
-      products and any ignored categories (Tools, Unreleased by default).
+      weight in step 1a). Both are filtered to exclude user_excluded_products
+      (which includes dismissed/disabled products, not just enabled ones) and
+      any ignored categories (Tools, Unreleased by default).
 
       Tier 2 (fallback): if tier 1 is empty — e.g. the user already has
       every favored and same-category product — we expand to all products
@@ -85,8 +86,13 @@ class CrossSellCandidateSelector:
     list[tuple[str, int]], ready to be passed to random.choices by the caller.
     """
 
+    # Products the user actively has enabled — drives category weighting and LLM boost.
     user_enabled_products: set[str]
     ignored_categories: set[ProductItemCategory]
+    # Products to exclude from the candidate pool. Superset of user_enabled_products:
+    # includes dismissed (enabled=False) rows so we don't re-suggest them.
+    # Defaults to user_enabled_products when not provided.
+    user_excluded_products: set[str] = field(default_factory=set)
 
     # Derived lookups, built from Products singleton in __post_init__
     products_by_category: dict[ProductItemCategory, list[str]] = field(init=False, repr=False)
@@ -95,6 +101,9 @@ class CrossSellCandidateSelector:
     user_enabled_categories: set[ProductItemCategory] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if not self.user_excluded_products:
+            self.user_excluded_products = self.user_enabled_products
+
         self.products_by_category = Products.get_products_by_category()
 
         self.product_to_category = {}
@@ -160,7 +169,7 @@ class CrossSellCandidateSelector:
         same_category = {
             product.path
             for product in Products.products()
-            if product.path not in self.user_enabled_products
+            if product.path not in self.user_excluded_products
             and (category := self.product_to_category.get(product.path)) is not None
             and category in self.user_enabled_categories
             and category not in self.ignored_categories
@@ -168,7 +177,7 @@ class CrossSellCandidateSelector:
 
         favored = {
             path
-            for path in set(preference_weights.keys()) - self.user_enabled_products
+            for path in set(preference_weights.keys()) - self.user_excluded_products
             if self.product_to_category.get(path) not in self.ignored_categories
         }
 
@@ -179,7 +188,7 @@ class CrossSellCandidateSelector:
         return {
             product.path
             for product in Products.products()
-            if product.path not in self.user_enabled_products
+            if product.path not in self.user_excluded_products
             and self.product_to_category.get(product.path) not in self.ignored_categories
         }
 

@@ -251,13 +251,14 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
             set(ignored_categories) if ignored_categories is not None else DEFAULT_IGNORED_CATEGORIES
         )
 
-        user_enabled_products = set[str](
-            UserProductList.objects.filter(user=user, team=team, enabled=True).values_list("product_path", flat=True)
-        )
+        user_rows = UserProductList.objects.filter(user=user, team=team).values_list("product_path", "enabled")
+        user_enabled_products = {path for path, enabled in user_rows if enabled}
+        user_excluded_products = {path for path, _ in user_rows}
 
         selector = CrossSellCandidateSelector(
             user_enabled_products=user_enabled_products,
             ignored_categories=ignored_categories_set,
+            user_excluded_products=user_excluded_products,
         )
         selected = selector.pick(k=max_products)
         if not selected:
