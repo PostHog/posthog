@@ -20004,15 +20004,6 @@ export namespace Schemas {
       results: Evaluation[];
     }
 
-    export interface PaginatedEventFilterConfigList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: EventFilterConfig[];
-    }
-
     export interface PaginatedEventSchemaList {
       count: number;
       /** @nullable */
@@ -32682,17 +32673,6 @@ export namespace Schemas {
      * Search in name or description
      */
     search?: string;
-    };
-
-    export type EventFilterListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type HealthIssuesListParams = {
