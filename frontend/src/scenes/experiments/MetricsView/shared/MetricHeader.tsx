@@ -7,7 +7,7 @@ import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemo
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
@@ -120,7 +120,7 @@ export const MetricHeader = ({
     } = useActions(modalsLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
-    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -151,9 +151,9 @@ export const MetricHeader = ({
                                                 : openSecondarySharedMetricModal
                                             openSharedModal(metric.sharedMetricId)
 
-                                            openSharedMetricModal(
-                                                METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
-                                                metric.sharedMetricId
+                                            openSharedMetricDetailModal(
+                                                metric,
+                                                METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary']
                                             )
                                         } else {
                                             /**

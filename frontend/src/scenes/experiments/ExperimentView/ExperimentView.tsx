@@ -38,6 +38,8 @@ import { LegacyEditConclusionModal } from '../legacy/LegacyEditConclusionModal'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
+import { sharedMetricDetailsModalLogic } from '../Metrics/sharedMetricDetailsModalLogic'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -266,6 +268,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const { closeSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
     const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
@@ -405,9 +408,11 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric) => {
-                                    removeSharedMetricFromExperiment(metric.id)
-                                    closeSharedMetricModal()
+                            />
+                            <SharedMetricDetailsModal
+                                onDelete={(sharedMetricId) => {
+                                    removeSharedMetricFromExperiment(sharedMetricId)
+                                    closeSharedMetricDetailModal()
                                 }}
                             />
                             <ExposureCriteriaModal
