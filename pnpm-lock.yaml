@@ -673,6 +673,9 @@ importers:
       '@posthog/products-persons':
         specifier: workspace:*
         version: link:../products/persons
+      '@posthog/products-platform-features':
+        specifier: workspace:*
+        version: link:../products/platform_features
       '@posthog/products-product-analytics':
         specifier: workspace:*
         version: link:../products/product_analytics
@@ -2673,6 +2676,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/platform_features: {}
 
   products/posthog_ai: {}
 
@@ -21424,8 +21429,8 @@ packages:
   typewise@1.0.3:
     resolution: {integrity: sha512-aXofE06xGhaQSPzt8hlTY+/YWQhm9P0jYUp1f2XtmW/3Bk0qzXcyFWAtPoo2uTGQj1ZwbDuSyuxicq+aDo8lCQ==}
 
-  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3:
-    resolution: {tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3}
+  uWebSockets.js@git+https://git@github.com:uNetworking/uWebSockets.js.git#cfc9a40d8132a34881813cec3d5f8e3a185b3ce3:
+    resolution: {commit: cfc9a40d8132a34881813cec3d5f8e3a185b3ce3, repo: git@github.com:uNetworking/uWebSockets.js.git, type: git}
     version: 20.52.0
 
   uc.micro@2.1.0:
@@ -46597,7 +46602,7 @@ snapshots:
     dependencies:
       typewise-core: 1.2.0
 
-  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3: {}
+  uWebSockets.js@git+https://git@github.com:uNetworking/uWebSockets.js.git#cfc9a40d8132a34881813cec3d5f8e3a185b3ce3: {}
 
   uc.micro@2.1.0: {}
 
@@ -46625,7 +46630,7 @@ snapshots:
       statuses: 2.0.1
       tseep: 1.3.1
       type-is: 2.0.1
-      uWebSockets.js: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
+      uWebSockets.js: git+https://git@github.com:uNetworking/uWebSockets.js.git#cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
       vary: 1.1.2
 
   unbox-primitive@1.0.2:
