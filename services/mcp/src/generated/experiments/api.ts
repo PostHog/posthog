@@ -87,7 +87,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(zod.unknown())
             .nullish()
             .describe(
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
@@ -330,7 +330,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(zod.unknown())
             .nullish()
             .describe(
                 "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
