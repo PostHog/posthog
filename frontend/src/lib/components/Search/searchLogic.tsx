@@ -11,6 +11,7 @@ import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -76,7 +77,7 @@ export const searchLogic = kea<searchLogicType>([
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
-            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
+            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
         ],
     })),
     actions({
@@ -316,41 +317,23 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-                items.push(
-                    {
-                        id: 'app-activity',
-                        name: 'Activity',
-                        displayName: 'Activity',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.activity(ActivityTab.ExploreEvents),
-                        icon: <IconClock />,
-                        itemType: null,
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                        record: {
-                            type: 'activity',
-                            iconType: undefined,
-                            iconColor: undefined,
-                        },
+                items.push({
+                    id: 'app-activity',
+                    name: 'Activity',
+                    displayName: 'Activity',
+                    category: 'apps',
+                    productCategory: null,
+                    href: urls.activity(ActivityTab.ExploreEvents),
+                    icon: <IconClock />,
+                    itemType: null,
+                    tags: undefined,
+                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                    record: {
+                        type: 'activity',
+                        iconType: undefined,
+                        iconColor: undefined,
                     },
-                    {
-                        id: 'app-cohorts',
-                        name: 'Cohorts',
-                        displayName: 'Cohorts',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.cohorts(),
-                        itemType: 'cohort',
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Cohorts'] ?? null,
-                        record: {
-                            type: 'cohort',
-                            iconType: 'cohort',
-                            iconColor: undefined,
-                        },
-                    }
-                )
+                })
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -465,6 +448,28 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+            },
+        ],
+        peopleItems: [
+            (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
+            (treeGroupItems, sceneLogViewsByRef): SearchItem[] => {
+                const combined = [...getDefaultTreePersons(), ...treeGroupItems]
+                return combined.map((item) => ({
+                    id: `people-${item.path}`,
+                    name: item.path,
+                    displayName: item.path,
+                    category: 'people',
+                    productCategory: item.category || null,
+                    href: item.href || '#',
+                    itemType: item.iconType || item.type || null,
+                    tags: item.tags,
+                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    record: {
+                        type: item.type || item.iconType,
+                        iconType: item.iconType,
+                        iconColor: item.iconColor,
+                    },
+                }))
             },
         ],
         groupItems: [
@@ -803,6 +808,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.starredItems,
                 s.appsItems,
                 s.dataManagementItems,
+                s.peopleItems,
                 s.healthItems,
                 s.miscItems,
                 s.settingsItems,
@@ -819,6 +825,7 @@ export const searchLogic = kea<searchLogicType>([
                 starredItems: SearchItem[],
                 appsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
+                peopleItems: SearchItem[],
                 healthItems: SearchItem[],
                 miscItems: SearchItem[],
                 settingsItems: SearchItem[],
@@ -915,6 +922,16 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'data-management',
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
+                    })
+                }
+
+                // Show people items (persons, cohorts, group types) if searching with matching results
+                const filteredPeople = filterBySearch(peopleItems)
+                if (hasSearch && filteredPeople.length > 0) {
+                    categories.push({
+                        key: 'people',
+                        items: filteredPeople,
+                        isLoading: false,
                     })
                 }
 

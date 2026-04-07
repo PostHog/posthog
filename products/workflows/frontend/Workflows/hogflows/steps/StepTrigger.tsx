@@ -550,14 +550,14 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { users_affected, total_users } = blastRadius
+    const { affected, total } = blastRadius
 
-    if (users_affected != null && total_users != null) {
-        const exceeded = users_affected > BLAST_RADIUS_LIMIT
+    if (affected != null && total != null) {
+        const exceeded = affected > BLAST_RADIUS_LIMIT
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
+                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
                 {exceeded && (
                     <div className="text-danger text-xs">

@@ -148,7 +148,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
 
         self._sync_user_product_list_for_accessible_teams(user)
 
-        if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
+        if is_email_available(with_absolute_urls=True):
             from posthog.tasks.email import send_member_join
 
             send_member_join.apply_async(

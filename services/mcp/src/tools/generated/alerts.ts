@@ -95,6 +95,9 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
             path: `/api/projects/${projectId}/alerts/`,
@@ -144,6 +147,9 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
+        }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
         }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',

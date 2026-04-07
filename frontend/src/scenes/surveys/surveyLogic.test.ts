@@ -133,6 +133,30 @@ describe('editor sync', () => {
         expect(logic.values.survey.name).toBe('Unsaved guided name')
         expect(logic.values.isEditingSurvey).toBe(true)
     })
+
+    it('preserves unsaved changes when re-entering the survey URL via a tab switch', async () => {
+        const logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setSurveyValue('name', 'Unsaved tabbed name')
+        }).toMatchValues({
+            survey: partial({ name: 'Unsaved tabbed name' }),
+            surveyChanged: true,
+        })
+
+        // Simulate leaving the tab and returning — tab switches dispatch a PUSH to the
+        // survey URL without any opt-in hash flag. The logic stays mounted, but
+        // urlToAction would otherwise call loadSurvey() and clobber unsaved edits.
+        router.actions.push('/other')
+        router.actions.push('/surveys/test-survey?edit=true')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.survey.name).toBe('Unsaved tabbed name')
+    })
 })
 
 describe('set response-based survey branching', () => {

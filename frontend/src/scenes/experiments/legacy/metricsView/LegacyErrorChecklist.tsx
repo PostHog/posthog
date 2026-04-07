@@ -8,9 +8,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { ActivityTab, InsightType } from '~/types'
-
-import { experimentLogic } from '../../experimentLogic'
 
 export enum ResultErrorCode {
     NO_CONTROL_VARIANT = 'no-control-variant',

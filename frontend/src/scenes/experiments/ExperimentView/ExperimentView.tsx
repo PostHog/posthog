@@ -17,7 +17,6 @@ import {
     LegacyExploreButton,
     LegacyExperimentHeader,
     LegacyMetricsView,
-    LegacyVariantDeltaTimeseries,
 } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
@@ -35,9 +34,11 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { LegacyEditConclusionModal } from '../legacy/LegacyEditConclusionModal'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -405,11 +406,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric) => {
-                                    removeSharedMetricFromExperiment(metric.id)
-                                    closeSharedMetricModal()
-                                }}
                             />
+                            <SharedMetricDetailsModal onDelete={removeSharedMetricFromExperiment} />
                             <ExposureCriteriaModal
                                 onSave={(exposureCriteria) => {
                                     setExposureCriteria(exposureCriteria)
@@ -428,8 +426,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ReleaseConditionsModal />
 
                     <EditConclusionModal />
-
-                    <LegacyVariantDeltaTimeseries />
+                    <LegacyEditConclusionModal />
                 </>
             )}
         </SceneContent>

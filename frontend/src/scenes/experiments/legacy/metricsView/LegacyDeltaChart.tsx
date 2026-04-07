@@ -1,17 +1,17 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { createContext, useContext, useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
-
+import {
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
+} from '~/scenes/experiments/constants'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -65,7 +65,6 @@ type DeltaChartContextType = {
     experiment: Experiment
     variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
     hasMinimumExposureForResults: boolean
-    featureFlags: Record<string, any>
     primaryMetricsLengthWithSharedMetrics: number
 
     // Data transformation functions
@@ -82,7 +81,6 @@ type DeltaChartContextType = {
     isModalOpen: boolean
     setIsModalOpen: (isOpen: boolean) => void
     resultsLoading: boolean
-    openVariantDeltaTimeseriesModal: () => void
 
     // Colors
     colors: ReturnType<typeof useLegacyChartColors>
@@ -155,12 +153,10 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         metric,
         dimensions,
         valueToX,
-        featureFlags,
         colors,
         tooltip: { setTooltipData },
         credibleIntervalForVariant,
         isSecondary,
-        openVariantDeltaTimeseriesModal,
     } = useDeltaChartContext()
 
     // Generate a unique ID for gradients using metric UUID or fallback to index
@@ -218,12 +214,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 })
             }}
             onMouseLeave={() => setTooltipData(null)}
-            onClick={() => {
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
-                    openVariantDeltaTimeseriesModal()
-                }
-            }}
-            className={featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES] ? 'cursor-pointer' : ''}
         >
             {/* Conditional rendering based on hasEnoughData */}
             {hasEnoughData ? (
@@ -513,12 +503,9 @@ export function LegacyDeltaChart({
         experiment,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
-        featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
-
-    const { openVariantDeltaTimeseriesModal } = useActions(modalsLogic)
 
     // Loading state
     const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
@@ -569,7 +556,6 @@ export function LegacyDeltaChart({
         experiment,
         variants,
         hasMinimumExposureForResults,
-        featureFlags,
         primaryMetricsLengthWithSharedMetrics,
 
         // Data transformation functions
@@ -586,7 +572,6 @@ export function LegacyDeltaChart({
         isModalOpen,
         setIsModalOpen,
         resultsLoading,
-        openVariantDeltaTimeseriesModal,
 
         // Colors
         colors,

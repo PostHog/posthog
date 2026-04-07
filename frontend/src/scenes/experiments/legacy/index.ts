@@ -1,6 +1,9 @@
 // Legacy experiment components re-exports
 // These components support legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery)
 
+// Logic
+export { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
+
 // Metrics
 export { LegacyMetricModal } from './metrics/LegacyMetricModal'
 export { LegacyMetricSourceModal } from './metrics/LegacyMetricSourceModal'
@@ -33,7 +36,6 @@ export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'
 export { LegacyMetricsChartLayout } from './metricsView/LegacyMetricsChartLayout'
 export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHighlight'
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
-export { LegacyVariantDeltaTimeseries } from './metricsView/LegacyVariantDeltaTimeseries'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
 export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
 export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'

@@ -40,6 +40,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
+from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
 
@@ -288,6 +289,18 @@ def _create_integration(team: Team, label: str):
     return Integration.objects.create(team=team, kind="slack", errors="")
 
 
+def _create_logs_view(team: Team, label: str) -> LogsView:
+    return LogsView.objects.create(team=team, name=f"logs_view_{label}")
+
+
+def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
+    return LogsAlertConfiguration.objects.create(
+        team=team,
+        name=f"logs_alert_{label}",
+        threshold_count=10,
+    )
+
+
 def _create_insight(team: Team, label: str) -> Insight:
     return Insight.objects.create(team=team, name=f"insight_{label}")
 
@@ -339,6 +352,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("logs_alerts", _create_logs_alert),
+    ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
     ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),

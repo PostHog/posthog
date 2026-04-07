@@ -21,7 +21,7 @@ export function LegacyVariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -58,14 +58,6 @@ export function LegacyVariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
-            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
-            {usesNewQueryRunner && (
-                <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: variantColor }}
-                />
-            )}
             <span
                 className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
