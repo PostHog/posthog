@@ -1,18 +1,7 @@
-import csv
-import tempfile
-from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import patch
+from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
 
 from parameterized import parameterized
 
@@ -28,66 +17,35 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViewsetsTestMixin, RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-)
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery, ExternalDataSchema
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    STRIPE_CUSTOMER_COLUMNS,
-    STRIPE_INVOICE_COLUMNS,
-)
+from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
-TEST_BUCKET_BASE = "test_storage_bucket"
-INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
-CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
-
-class TestPersonsRevenueAnalyticsMixin(ClickhouseTestMixin, APIBaseTest):
-    PURCHASE_EVENT_NAME = "purchase"
-    REVENUE_PROPERTY = "revenue"
-    SUBSCRIPTION_PROPERTY = "subscription_id"
-    QUERY_TIMESTAMP = "2025-05-30"
-    EVENT_TIMESTAMP = "2025-05-29"  # One day before the query timestamp
-    MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
-
-    def tearDown(self):
-        if hasattr(self, "invoices_cleanup_filesystem"):
-            self.invoices_cleanup_filesystem()
-        if hasattr(self, "customers_cleanup_filesystem"):
-            self.customers_cleanup_filesystem()
-        super().tearDown()
-
+class TestPersonsRevenueAnalyticsMixin(RevenueAnalyticsTestBase):
     def setup_events(self):
-        self.person_id = "00000000-0000-0000-0000-000000000000"
-        self.distinct_id = "distinct_id"
-
         _create_person(
-            uuid=self.person_id,
+            uuid=self.PERSON_ID,
             team_id=self.team.pk,
-            distinct_ids=[self.distinct_id],
+            distinct_ids=[self.DISTINCT_ID],
         )
 
         _create_event(
             event="$pageview",
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
         )
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10000},
         )
@@ -95,25 +53,22 @@ class TestPersonsRevenueAnalyticsMixin(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042},
         )
 
     def setup_events_with_subscriptions(self):
-        self.person_id = "00000000-0000-0000-0000-000000000000"
-        self.distinct_id = "distinct_id"
-
         _create_person(
-            uuid=self.person_id,
+            uuid=self.PERSON_ID,
             team_id=self.team.pk,
-            distinct_ids=[self.distinct_id],
+            distinct_ids=[self.DISTINCT_ID],
         )
 
         _create_event(
             event="$pageview",
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
         )
 
@@ -121,7 +76,7 @@ class TestPersonsRevenueAnalyticsMixin(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10042},
         )
@@ -130,52 +85,13 @@ class TestPersonsRevenueAnalyticsMixin(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.distinct_id,
+            distinct_id=self.DISTINCT_ID,
             timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042, self.SUBSCRIPTION_PROPERTY: "sub_1"},
         )
 
     def setup_schema_sources(self):
-        invoices_csv_path = Path("products/revenue_analytics/backend/hogql_queries/test/data/stripe_invoices.csv")
-        invoices_table, source, credential, _, self.invoices_cleanup_filesystem = create_data_warehouse_table_from_csv(
-            invoices_csv_path,
-            "stripe_invoice",
-            STRIPE_INVOICE_COLUMNS,
-            INVOICES_TEST_BUCKET,
-            self.team,
-        )
-
-        customers_csv_path = Path("products/revenue_analytics/backend/hogql_queries/test/data/stripe_customers.csv")
-        customers_table, _, _, _, self.customers_cleanup_filesystem = create_data_warehouse_table_from_csv(
-            customers_csv_path,
-            "stripe_customer",
-            STRIPE_CUSTOMER_COLUMNS,
-            CUSTOMERS_TEST_BUCKET,
-            self.team,
-            source=source,
-            credential=credential,
-        )
-
-        # Besides the default creations above, also create the external data schema
-        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
-        _invoices_schema = ExternalDataSchema.objects.create(
-            team=self.team,
-            name=STRIPE_INVOICE_RESOURCE_NAME,
-            source=source,
-            table=invoices_table,
-            should_sync=True,
-            last_synced_at="2024-01-01",
-        )
-
-        _customers_schema = ExternalDataSchema.objects.create(
-            team=self.team,
-            name=STRIPE_CUSTOMER_RESOURCE_NAME,
-            source=source,
-            table=customers_table,
-            should_sync=True,
-            last_synced_at="2024-01-01",
-        )
-
+        self.create_sources()
         self.join = DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
@@ -209,7 +125,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
-                    placeholders={"id": ast.Constant(value=self.person_id)},
+                    placeholders={"id": ast.Constant(value=self.PERSON_ID)},
                 ),
                 self.team,
             )
@@ -434,7 +350,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
             self.assertEqual(
                 results.results,
-                [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
+                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
             )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
@@ -470,76 +386,9 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         assert results[0]["breakdown_value"] == ["350.42"]
 
 
-class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixin):
-    def setUp(self) -> None:
-        super().setUp()
-        self.mock_flag = patch("posthoganalytics.feature_enabled", return_value=True)
-        self.mock_flag.start()
-
-    def tearDown(self) -> None:
-        self.mock_flag.stop()
-        if hasattr(self, "_materialized_cleanups"):
-            for cleanup in self._materialized_cleanups:
-                cleanup()
-        super().tearDown()
-
-    def create_and_materialize_viewsets(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
-            viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
-                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
-            )
-            viewset.sync_views()
-            materialization_csvs = self._get_materialization_csvs()
-        self._upload_materialized_csvs(materialization_csvs)
-
-    def _get_materialization_csvs(self):
-        materialization_csvs = []
-        for saved_query in DataWarehouseSavedQuery.objects.filter(
-            team=self.team, managed_viewset__isnull=False
-        ).order_by("name"):
-            query_text = saved_query.query.get("query", "") if isinstance(saved_query.query, dict) else ""
-            if not query_text:
-                continue
-
-            response = execute_hogql_query(parse_select(query_text), team=self.team, modifiers=self.MODIFIERS)
-
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:
-                writer = csv.writer(csv_file)
-                writer.writerow(response.columns or [])
-                for row in response.results or []:
-                    writer.writerow(
-                        [value.strftime("%Y-%m-%d %H:%M:%S") if isinstance(value, datetime) else value for value in row]
-                    )
-                csv_path = Path(csv_file.name)
-
-            nullable_columns = {}
-            for col_name, col_def in (saved_query.columns or {}).items():
-                if isinstance(col_def, dict):
-                    ch_type = col_def["clickhouse"]
-                    if not ch_type.startswith("Nullable("):
-                        col_def = {**col_def, "clickhouse": f"Nullable({ch_type})"}
-                nullable_columns[col_name] = col_def
-
-            materialization_csvs.append((saved_query, csv_path, nullable_columns))
-
-        return materialization_csvs
-
-    def _upload_materialized_csvs(self, materialization_csvs):
-        self._materialized_cleanups = []
-        for saved_query, csv_path, nullable_columns in materialization_csvs:
-            table, _, _, _, cleanup = create_data_warehouse_table_from_csv(
-                csv_path,
-                saved_query.name,
-                nullable_columns,
-                f"{TEST_BUCKET_BASE}-{saved_query.name.replace('.', '_')}",
-                self.team,
-                source_prefix="",
-            )
-            self._materialized_cleanups.append(cleanup)
-            saved_query.table = table
-            saved_query.is_materialized = True
-            saved_query.save()
-
+class TestPersonsRevenueAnalyticsManagedViewsets(
+    TestPersonsRevenueAnalyticsMixin, RevenueAnalyticsManagedViewsetsTestMixin
+):
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
         self.setup_events()
@@ -599,7 +448,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
             # MRR is calculated from recurring events (those with subscription_id)
             self.assertEqual(
                 results.results,
-                [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
+                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
             )
 
     def test_query_revenue_analytics_table_sources(self):
@@ -685,7 +534,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(TestPersonsRevenueAnalyticsMixi
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
-                    placeholders={"id": ast.Constant(value=self.person_id)},
+                    placeholders={"id": ast.Constant(value=self.PERSON_ID)},
                 ),
                 self.team,
             )

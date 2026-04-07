@@ -247,6 +247,7 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+            experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
         )
 
