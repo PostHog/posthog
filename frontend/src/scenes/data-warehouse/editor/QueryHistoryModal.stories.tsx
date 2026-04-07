@@ -38,7 +38,6 @@ const mockActivityItem = {
             },
         ],
         trigger: null,
-        name: null,
         short_id: null,
     },
     created_at: '2024-01-15T10:00:00Z',
