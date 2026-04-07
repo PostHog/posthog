@@ -8,11 +8,21 @@ import {
 } from './metrics'
 import { IngestionOutputMessage } from './types'
 
-/** A resolved output: the Kafka topic and the producer to write to it. */
-export interface IngestionOutput {
+/** A single Kafka target: a topic on a specific producer/broker. */
+export interface IngestionOutputTarget {
     topic: string
     producer: KafkaProducerWrapper
+    /** Human-readable producer name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
+    producerName: string
 }
+
+/**
+ * A resolved output: one or more Kafka targets to write to.
+ *
+ * When multiple targets are present, every produce/queue call fans out to all of them,
+ * enabling dual writes to different brokers without any pipeline step changes.
+ */
+export type IngestionOutput = IngestionOutputTarget[]
 
 /**
  * Immutable container of resolved ingestion outputs.
@@ -29,39 +39,57 @@ export class IngestionOutputs<O extends string> {
     /**
      * Produce a single message to the given output.
      *
+     * When an output has multiple targets, the message is produced to all of them in parallel.
+     *
      * @param output - The output name to produce to.
      * @param message - The message to produce. Key is required for partitioning.
      */
     async produce(output: O, message: IngestionOutputMessage & { key: MessageKey }): Promise<void> {
-        const { topic, producer } = this.outputs[output]
-        ingestionOutputsMessageValueBytes.observe({ output }, message.value?.length ?? 0)
-        ingestionOutputsBatchSize.observe({ output, method: 'produce' }, 1)
-        return this.withMetrics(output, 'produce', () => producer.produce({ ...message, topic }))
+        const targets = this.outputs[output]
+        await Promise.all(
+            targets.map(({ topic, producer, producerName }) => {
+                const labels = { output, producer_name: producerName, topic }
+                ingestionOutputsMessageValueBytes.observe(labels, message.value?.length ?? 0)
+                ingestionOutputsBatchSize.observe({ ...labels, method: 'produce' }, 1)
+                return this.withMetrics(labels, 'produce', () => producer.produce({ ...message, topic }))
+            })
+        )
     }
 
     /**
      * Queue one or more messages to the given output.
      *
      * Messages are produced in parallel with no ordering guarantee.
+     * When an output has multiple targets, messages are queued to all of them in parallel.
      *
      * @param output - The output name to produce to.
      * @param messages - The messages to produce.
      */
     async queueMessages(output: O, messages: IngestionOutputMessage[]): Promise<void> {
-        const { topic, producer } = this.outputs[output]
-        for (const m of messages) {
-            ingestionOutputsMessageValueBytes.observe({ output }, m.value?.length ?? 0)
-        }
-        ingestionOutputsBatchSize.observe({ output, method: 'queueMessages' }, messages.length)
-        return this.withMetrics(output, 'queueMessages', () => producer.queueMessages({ topic, messages }))
+        const targets = this.outputs[output]
+        await Promise.all(
+            targets.map(({ topic, producer, producerName }) => {
+                const labels = { output, producer_name: producerName, topic }
+                for (const m of messages) {
+                    ingestionOutputsMessageValueBytes.observe(labels, m.value?.length ?? 0)
+                }
+                ingestionOutputsBatchSize.observe({ ...labels, method: 'queueMessages' }, messages.length)
+                return this.withMetrics(labels, 'queueMessages', () => producer.queueMessages({ topic, messages }))
+            })
+        )
     }
 
-    private async withMetrics<T>(output: O, method: string, fn: () => Promise<T>): Promise<T> {
-        const end = ingestionOutputsLatency.startTimer({ output, method })
+    private async withMetrics<T>(
+        labels: { output: O; producer_name: string; topic: string },
+        method: string,
+        fn: () => Promise<T>
+    ): Promise<T> {
+        const metricLabels = { ...labels, method }
+        const end = ingestionOutputsLatency.startTimer(metricLabels)
         try {
             return await fn()
         } catch (error) {
-            ingestionOutputsErrors.inc({ output, method })
+            ingestionOutputsErrors.inc(metricLabels)
             throw error
         } finally {
             end()
@@ -80,9 +108,10 @@ export class IngestionOutputs<O extends string> {
         const checks = new Map<KafkaProducerWrapper, { outputName: string; promise: Promise<void> }>()
 
         for (const outputName in this.outputs) {
-            const { producer } = this.outputs[outputName]
-            if (!checks.has(producer)) {
-                checks.set(producer, { outputName, promise: producer.checkConnection(timeoutMs) })
+            for (const { producer } of this.outputs[outputName]) {
+                if (!checks.has(producer)) {
+                    checks.set(producer, { outputName, promise: producer.checkConnection(timeoutMs) })
+                }
             }
         }
 
@@ -112,19 +141,20 @@ export class IngestionOutputs<O extends string> {
         const seen = new Map<KafkaProducerWrapper, Set<string>>()
 
         for (const outputName in this.outputs) {
-            const { topic, producer } = this.outputs[outputName]
-            if (!topic) {
-                continue
-            }
+            for (const { topic, producer } of this.outputs[outputName]) {
+                if (!topic) {
+                    continue
+                }
 
-            const producerSeen = seen.get(producer) ?? new Set()
-            if (producerSeen.has(topic)) {
-                continue
-            }
-            producerSeen.add(topic)
-            seen.set(producer, producerSeen)
+                const producerSeen = seen.get(producer) ?? new Set()
+                if (producerSeen.has(topic)) {
+                    continue
+                }
+                producerSeen.add(topic)
+                seen.set(producer, producerSeen)
 
-            checks.push({ outputName, topic, promise: producer.checkTopicExists(topic, timeoutMs) })
+                checks.push({ outputName, topic, promise: producer.checkTopicExists(topic, timeoutMs) })
+            }
         }
 
         const failures: string[] = []

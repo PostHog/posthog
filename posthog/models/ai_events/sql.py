@@ -4,7 +4,6 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_AI_EVENTS_JSON
 
 TABLE_BASE_NAME = "ai_events"
 DATA_TABLE_NAME = f"sharded_{TABLE_BASE_NAME}"
-WRITABLE_TABLE_NAME = f"writable_{TABLE_BASE_NAME}"
 KAFKA_TABLE_NAME = f"kafka_{TABLE_BASE_NAME}_json"
 MV_NAME = f"{TABLE_BASE_NAME}_json_mv"
 
@@ -184,17 +183,6 @@ SETTINGS ttl_only_drop_parts = 1
     )
 
 
-def WRITABLE_AI_EVENTS_TABLE_SQL():
-    return AI_EVENTS_TABLE_BASE_SQL.format(
-        table_name=WRITABLE_TABLE_NAME,
-        engine=Distributed(
-            data_table=DATA_TABLE_NAME,
-            sharding_key=SHARDING_KEY,
-        ),
-        indexes="",
-    )
-
-
 def DISTRIBUTED_AI_EVENTS_TABLE_SQL():
     return AI_EVENTS_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
@@ -213,7 +201,9 @@ def KAFKA_AI_EVENTS_TABLE_SQL():
     )
 
 
-def AI_EVENTS_MV_SQL(target_table: str = WRITABLE_TABLE_NAME):
+def AI_EVENTS_MV_SQL(target_table: str = TABLE_BASE_NAME):
+    # AI events do not have a dedicated writable table today, so the MV
+    # writes straight to the distributed ai_events table.
     # Use src.properties to avoid alias shadowing — the stripped_properties
     # alias is also called "properties", which would shadow the source column
     # if we didn't qualify with the table alias.

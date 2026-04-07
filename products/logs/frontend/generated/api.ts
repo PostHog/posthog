@@ -332,6 +332,17 @@ export const logsQueryCreate = async (projectId: string, options?: RequestInit):
     })
 }
 
+export const getLogsServicesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/services/`
+}
+
+export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsServicesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getLogsSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/sparkline/`
 }

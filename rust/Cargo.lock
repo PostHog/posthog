@@ -1708,6 +1708,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
+ "async-compression",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
@@ -1715,6 +1716,7 @@ dependencies = [
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
+ "brotli",
  "bytes",
  "chrono",
  "common-alloc",
@@ -1758,6 +1760,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
@@ -6531,6 +6534,7 @@ dependencies = [
  "tokio",
  "tonic 0.12.3",
  "tower 0.4.13",
+ "tracing",
 ]
 
 [[package]]
@@ -6540,12 +6544,20 @@ dependencies = [
  "assignment-coordination",
  "async-trait",
  "etcd-client",
+ "k8s-awareness",
+ "k8s-openapi",
+ "kube",
  "serde",
  "serde_json",
+ "serial_test",
+ "tempfile",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -6622,6 +6634,8 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "k8s-awareness",
+ "kube",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
@@ -6632,6 +6646,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",

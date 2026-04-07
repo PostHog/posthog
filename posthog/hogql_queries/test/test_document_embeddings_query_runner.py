@@ -13,7 +13,7 @@ from posthog.schema import (
     DocumentSimilarityQueryResponse,
     EmbeddedDocument,
     OrderBy,
-    OrderDirection,
+    OrderDirection1,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -28,7 +28,7 @@ def build_document_similarity_query(
     renderings: list[str] | None = None,
     distance_func: DistanceFunc = DistanceFunc.COSINE_DISTANCE,
     order_by: OrderBy = OrderBy.DISTANCE,
-    order_direction: OrderDirection = OrderDirection.ASC,
+    order_direction: OrderDirection1 = OrderDirection1.ASC,
     limit: int | None = None,
     offset: int | None = None,
 ) -> DocumentSimilarityQuery:
@@ -248,7 +248,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = build_document_similarity_query(
             origin=origin_document,
             model=origin_row.model_name,
-            order_direction=OrderDirection.DESC,
+            order_direction=OrderDirection1.DESC,
         )
 
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query).calculate()

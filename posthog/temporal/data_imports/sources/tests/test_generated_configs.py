@@ -258,9 +258,12 @@ def test_snowflake_config():
 
 
 def test_stripe_config():
-    config = StripeSourceConfig.from_dict({"stripe_account_id": "acct_id", "stripe_secret_key": "api_key"})
+    config = StripeSourceConfig.from_dict(
+        {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"}
+    )
     assert config.stripe_account_id == "acct_id"
-    assert config.stripe_secret_key == "api_key"
+    assert config.auth_method.selection == "api_key"
+    assert config.auth_method.stripe_secret_key == "api_key"
 
 
 def test_shopify_config():

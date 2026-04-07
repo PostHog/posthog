@@ -273,3 +273,9 @@ tools:
     llm-prompts-name-duplicate-create:
         operation: llm_prompts_name_duplicate_create
         enabled: false
+    llm-analytics-provider-keys-trial-evaluations-retrieve:
+        operation: llm_analytics_provider_keys_trial_evaluations_retrieve
+        enabled: false
+    llm-analytics-provider-keys-assign-create:
+        operation: llm_analytics_provider_keys_assign_create
+        enabled: false
