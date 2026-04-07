@@ -271,10 +271,15 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                         # the CDP API expects the JSON columns to be strings
                         json_columns=(),
                     )
+            # NOTE: Nothing inside the TaskGroup raises an ExceptionGroup, so it is
+            # impossible for a nested ExceptionGroup to be captured by except*.
+            # Mypy is unable to figure this out, so we just ignore the errors. Otherwise
+            # We would need a lot of extra code to flatten any groups (that do not
+            # exist). If you are adding a TaskGroup inside this TaskGroup revisit this!
             except* BadRequest as exc_group:
-                raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group
+                raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
             except* NotFound as exc_group:
-                raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group
+                raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
 
         return result
 
