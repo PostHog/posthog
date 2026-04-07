@@ -169,6 +169,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=15),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3 if inputs.duckgres_only else 1,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
                 ),
             )
 
