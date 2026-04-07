@@ -25,7 +25,7 @@ export const WithResults: Story = {
                     {
                         points: [
                             {
-                                timestamp: '2022-12-02T00:00:00.000Z',
+                                timestamp: '2022-12-03T00:00:00.000Z',
                                 properties: {
                                     name: 'Francisco Elliott',
                                     email: 'mortgage2056@yandex.com',
@@ -35,7 +35,7 @@ export const WithResults: Story = {
                                 relevant_event_count: 2,
                             },
                             {
-                                timestamp: '2022-12-02T08:00:00.000Z',
+                                timestamp: '2022-12-03T08:00:00.000Z',
                                 properties: {
                                     name: 'Francisco Elliott',
                                     email: 'mortgage2056@yandex.com',

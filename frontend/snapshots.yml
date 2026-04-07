@@ -5080,6 +5080,10 @@ snapshots:
         hash: v1.k794b7964.d10bb087f39bacadbc9c1368fbc3a192f82d92d171c100415965640232b2ff31.r3jM52cK6sQI-_-B0RhSG6My8wQesHWo1KTLdVPelLg
     scenes-app-people-groups--groups--light:
         hash: v1.k794b7964.81d79ee44599d06ef59cc958f732bb03f271ea8ec2aee3320e8a72e786d29aec.gPVxglZ-7kcfnsOvJ9paT3VfKm_FAisljqXb5klfETc
+    scenes-app-people-person--internal-or-test-user--dark:
+        hash: v1.k794b7964.de60f3cef35a6ccaceac18f48f64afa3b519ed594e10440f35a2efb5b5347de6.9xTXQmpCFOQQgVkk-V-Sa9ZSvFwfM-QeFtmpB5vJwd0
+    scenes-app-people-person--internal-or-test-user--light:
+        hash: v1.k794b7964.84d8d1cc1d70cd9e7b2946cce26bf718f9c586e77a0a345d1e8b1df51e3a53fd.XJUoZk1xMV_Ye1JEy-tNYUeO1bAly0qJ8oM4j2JmRKw
     scenes-app-people-person--person--dark:
         hash: v1.k794b7964.7daecc5c79a0245180d427ffec7e21945b29f9664738345b75b3ada0a7289f2a.pwLbcP4QPixb-3iR0Orq66c_mWOlIeXIzGfUDc7kpGk
     scenes-app-people-person--person--light:
