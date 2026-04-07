@@ -110,23 +110,16 @@ export type SurveyBaseStatTuple = [string, number, number, string | null, string
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 
+const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
+
 const SURVEY_QUERY_TAGS = {
-    baseStats: { scene: 'Survey' as const, productKey: 'surveys' as const, name: 'survey_base_stats' as const },
+    baseStats: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_base_stats' as const },
     dismissedAndSent: {
-        scene: 'Survey' as const,
-        productKey: 'surveys' as const,
+        ...SURVEY_QUERY_TAG_BASE,
         name: 'survey_dismissed_sent_overlap' as const,
     },
-    aggregateResults: {
-        scene: 'Survey' as const,
-        productKey: 'surveys' as const,
-        name: 'survey_results_aggregate' as const,
-    },
-    openEndedResults: {
-        scene: 'Survey' as const,
-        productKey: 'surveys' as const,
-        name: 'survey_results_open_ended' as const,
-    },
+    aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
+    openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
 }
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
