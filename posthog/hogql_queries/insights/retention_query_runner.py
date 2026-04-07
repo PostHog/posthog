@@ -226,11 +226,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
         )
-        # Pre-filter events to only those we care about.
-        # For first_ever_occurrence, we can't use the full entity expression filter because
-        # start_entity_expr includes entity-level properties, and the anchor logic needs to
-        # see events that don't match those properties to compute the true first-ever timestamp.
-        # The event name pre-filter in events_where_clause is still applied.
+        # For first_ever_occurrence, skip entity expression filter (includes properties the anchor logic needs to bypass)
         is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
         if not self.is_first_ever_occurrence:
             global_event_filters.append(is_relevant_event)
@@ -364,9 +360,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
-        # Pre filter event name - safe for all retention types including first_ever_occurrence,
-        # since the minIf aggregates inside _get_first_time_anchor_expr only look at events
-        # matching these entity expressions anyway
+        # Pre-filter by event name
         events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
         unique_events = set(events)
         # Don't pre-filter if any of them is "All events"
