@@ -48,10 +48,6 @@ def get_actors(
         source=funnel_actors_query,
         funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.EVENTS),
         funnelCorrelationNames=funnelCorrelationNames,
-        # funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,
-        # funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
-        # funnelCorrelationEventNames=funnelCorrelationEventNames,
-        # funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
     )
     correlation_actors_query = FunnelCorrelationActorsQuery(
         source=correlation_query,
@@ -118,7 +114,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 failure_target_persons.append(str(person.uuid))
 
         # One positively_related as failure
-        person_fail_id = f"user_fail"
+        person_fail_id = "user_fail"
         person_fail = _create_person(distinct_ids=[person_fail_id], team_id=self.team.pk)
         events_by_person[person_fail_id] = [
             {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
@@ -126,7 +122,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         ]
 
         # One negatively_related as success
-        person_success_id = f"user_succ"
+        person_success_id = "user_succ"
         person_succ = _create_person(distinct_ids=[person_success_id], team_id=self.team.pk)
         events_by_person[person_success_id] = [
             {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
