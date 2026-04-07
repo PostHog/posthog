@@ -15,7 +15,10 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
@@ -223,6 +226,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     objects = CohortManager()  # type: ignore
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind"],
+                condition=models.Q(kind__isnull=False, deleted=False),
+                name="unique_cohort_kind_per_team",
+            ),
+        ]
+
     def __str__(self):
         return self.name or "Untitled cohort"
 
@@ -244,6 +256,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             },
             should_delete=self.deleted,
         )
+
+    @property
+    def is_flag_compatible(self) -> bool:
+        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups."""
+        return self.cohort_type == CohortType.REALTIME and self.last_backfill_person_properties_at is not None
 
     @property
     def properties(self) -> PropertyGroup:
@@ -622,6 +639,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             SETTINGS optimize_aggregation_in_order = 1
             """
 
+            tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
             result = sync_execute(query, {"team_id": team_id, "emails": emails})
             return [str(row[0]) for row in result]
 

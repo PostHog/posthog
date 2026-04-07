@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import os
+import re
+import enum
 import time
 import shutil
+import signal
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+from hogli import hints
 from hogli.core.cli import cli
 
 MAX_SAMPLE_PATHS = 8
@@ -277,6 +282,9 @@ def doctor_disk(
             titles = ", ".join(non_counted)
             click.echo(f"   Note: {titles} cleanup is not included in the total freed space.")
 
+    if not dry_run:
+        hints.record_check_run("doctor:disk")
+
 
 def _run_category(
     category: CleanupCategory,
@@ -522,7 +530,7 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
         )
 
     # Get current size
-    git_size = _get_dir_size(git_dir)
+    git_size, _ = _get_dir_size(git_dir)
 
     # Count packs and get object stats
     pack_count = (
@@ -701,7 +709,7 @@ def _collect_python_cache_dirs(repo_root: Path) -> Iterable[CleanupItem]:
                 continue
             if resolved in seen or not cache_dir.is_dir():
                 continue
-            size = _get_dir_size(cache_dir)
+            size, _ = _get_dir_size(cache_dir)
             if size <= 0:
                 continue
             seen.add(resolved)
@@ -740,7 +748,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
             seen.add(resolved)
 
             if path.is_dir():
-                size = _get_dir_size(path)
+                size, _ = _get_dir_size(path)
                 if size <= 0:
                     continue
                 items.append(CleanupItem(path, size, is_dir=True))
@@ -780,7 +788,7 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
             continue
         if resolved in seen or not target_dir.is_dir():
             continue
-        size = _get_dir_size(target_dir)
+        size, _ = _get_dir_size(target_dir)
         if size <= 0:
             continue
         seen.add(resolved)
@@ -871,11 +879,14 @@ def _delete_items(items: Iterable[CleanupItem]) -> float:
     return freed
 
 
-def _get_dir_size(path: Path) -> float:
-    """Compute directory size without following symlinked directories."""
+def _get_dir_size(path: Path, cap: float = float("inf")) -> tuple[float, bool]:
+    """Compute directory size, stopping early once *cap* bytes is exceeded.
+
+    Returns ``(accumulated_size, exceeded)``.
+    """
 
     if not path.exists():
-        return 0.0
+        return 0.0, False
 
     total = 0.0
     stack = [path]
@@ -890,12 +901,14 @@ def _get_dir_size(path: Path) -> float:
                             stack.append(Path(entry.path))
                         else:
                             total += entry.stat(follow_symlinks=False).st_size
+                            if total > cap:
+                                return total, True
                     except (FileNotFoundError, PermissionError, OSError):
                         continue
         except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
             continue
 
-    return total
+    return total, False
 
 
 def _format_size(bytes_size: float) -> str:
@@ -909,3 +922,827 @@ def _format_size(bytes_size: float) -> str:
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} EiB"
+
+
+# ---------------------------------------------------------------------------
+# doctor:zombies — find and kill orphaned PostHog dev processes
+# ---------------------------------------------------------------------------
+
+# Processes whose executable or args match these patterns are never shown.
+_EXCLUDED_PROCESS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(n?vim|emacs|code|codium)\b"),
+    re.compile(r"\bgit\b"),
+    re.compile(r"\b(ssh|tmux|screen|mosh)\b"),
+    re.compile(r"\bclaude\b"),
+    re.compile(r"\b(grep|rg|find|ls|cat|head|tail|sed|awk|ps|lsof)\b"),
+    re.compile(r"\bflox-activations\b"),
+    re.compile(r"\bwatchman\b"),
+    re.compile(r"\bhogli\b"),
+    re.compile(r"\bdocker(?:d| daemon)\b"),
+    re.compile(r"\bdirenv\b"),
+)
+
+
+@dataclass
+class DevProcess:
+    """A detected PostHog dev process."""
+
+    pid: int
+    ppid: int
+    name: str
+    cmdline: str
+    cpu_percent: float
+    memory_rss_kb: int
+    start_time: str
+    is_orphan: bool
+    category: str
+    manager: str = ""  # e.g. "phrocs (PID 1234)" for managed processes
+
+
+@cli.command(
+    name="doctor:zombies",
+    help="Find and kill orphaned PostHog dev processes",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
+@click.option("--yes", "-y", is_flag=True, help="Auto-confirm kill of all orphaned processes")
+@click.option("--all", "include_all", is_flag=True, help="Include processes under an active phrocs, not just orphans")
+def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
+    """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
+
+    from hogli.core.manifest import REPO_ROOT
+
+    def _record() -> None:
+        if not dry_run:
+            hints.record_check_run("doctor:zombies")
+
+    click.echo("Scanning for orphaned PostHog dev processes...\n")
+
+    processes = _scan_posthog_processes(REPO_ROOT)
+
+    if not processes:
+        click.echo("No PostHog dev processes found. Nothing to clean up.")
+        _record()
+        return
+
+    orphans = [p for p in processes if p.is_orphan]
+    managed = [p for p in processes if not p.is_orphan]
+    targets = processes if include_all else orphans
+
+    if not targets:
+        click.echo(f"No orphaned processes found ({len(managed)} process(es) under an active process manager).")
+        click.echo("Use --all to include managed processes.")
+        _record()
+        return
+
+    if include_all:
+        # Show orphans and managed groups separately
+        if orphans:
+            _display_process_table(orphans, "Orphaned processes", REPO_ROOT, number_offset=0)
+        if managed:
+            # Group managed processes by their manager
+            managers: dict[str, list[DevProcess]] = {}
+            for p in managed:
+                managers.setdefault(p.manager, []).append(p)
+            offset = len(orphans)
+            for mgr, procs in managers.items():
+                _display_process_table(procs, f"Managed by {mgr}", REPO_ROOT, number_offset=offset)
+                offset += len(procs)
+    else:
+        _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
+
+    if managed and not include_all:
+        # Summarize managed groups
+        managed_groups: dict[str, list[DevProcess]] = {}
+        for p in managed:
+            managed_groups.setdefault(p.manager, []).append(p)
+        parts = [f"{len(procs)} under {mgr}" for mgr, procs in managed_groups.items()]
+        click.echo(f"   ({', '.join(parts)} — use --all to include)\n")
+
+    total_rss = sum(p.memory_rss_kb for p in targets)
+    click.echo(f"   Total: {len(targets)} process(es) using ~{_format_rss(total_rss)}\n")
+
+    if dry_run:
+        click.echo("[DRY-RUN] No processes were killed.")
+        return
+
+    if yes:
+        selected = targets
+    else:
+        selected = _prompt_process_selection(targets)
+
+    if not selected:
+        click.echo("No processes selected. Nothing to do.")
+        return
+
+    killed_pids, failed = _kill_processes(selected)
+    freed_rss = sum(p.memory_rss_kb for p in selected if p.pid in killed_pids)
+
+    click.echo(f"\nSummary: killed {len(killed_pids)} process(es)")
+    if freed_rss > 0:
+        click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
+    if failed > 0:
+        click.echo(f"   {failed} process(es) could not be killed")
+
+    _record()
+
+
+def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
+    """Find all processes related to the PostHog repo."""
+
+    result = subprocess.run(
+        ["ps", "-eo", "pid=,ppid=,pcpu=,rss=,lstart=,args="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        click.echo("Failed to run ps command.")
+        return []
+
+    # Build a full PID→(PPID, args) map for ancestor lookups
+    all_procs: dict[int, tuple[int, str]] = {}
+    for line in result.stdout.strip().splitlines():
+        parsed = _parse_ps_line(line)
+        if parsed is not None:
+            pid, ppid, _, _, _, args = parsed
+            all_procs[pid] = (ppid, args)
+
+    own_tree = _get_own_process_tree()
+    repo_str = str(repo_root)
+    repo_prefix = repo_str + "/"
+    processes: list[DevProcess] = []
+
+    for line in result.stdout.strip().splitlines():
+        parsed = _parse_ps_line(line)
+        if parsed is None:
+            continue
+
+        pid, ppid, cpu, rss, start_time, args = parsed
+
+        if pid in own_tree:
+            continue
+
+        if _is_excluded(args):
+            continue
+
+        # Primary check: repo root appears in the command line as an exact path
+        if not _matches_repo_path(args, repo_str, repo_prefix):
+            # Secondary check: cwd is under repo root (for known executable types)
+            if not _has_known_executable(args):
+                continue
+            cwd = _get_process_cwd(pid)
+            if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
+                continue
+
+        name = _extract_process_name(args)
+        category = _categorize_process(args)
+        is_orphan, manager = _resolve_orphan_status(pid, all_procs)
+
+        processes.append(
+            DevProcess(
+                pid=pid,
+                ppid=ppid,
+                name=name,
+                cmdline=args,
+                cpu_percent=cpu,
+                memory_rss_kb=rss,
+                start_time=start_time,
+                is_orphan=is_orphan,
+                category=category,
+                manager=manager,
+            )
+        )
+
+    return processes
+
+
+def _resolve_orphan_status(pid: int, all_procs: dict[int, tuple[int, str]]) -> tuple[bool, str]:
+    """Walk the ancestor chain to determine if a process is orphaned or managed.
+
+    Returns (is_orphan, manager_description).
+    A process is orphaned if any ancestor has PPID=1 (reparented to launchd).
+    Otherwise, identifies the nearest recognizable manager.
+    """
+
+    visited: set[int] = {pid}
+    current = pid
+
+    while current in all_procs:
+        ppid, args = all_procs[current]
+
+        if ppid <= 1:
+            # Reached launchd — this process (or ancestor) is orphaned
+            return True, ""
+
+        # Check if the parent is a known process manager
+        manager_name = _identify_manager(args)
+        if manager_name:
+            return False, f"{manager_name} (PID {current})"
+
+        if ppid in visited:
+            break
+        visited.add(ppid)
+        current = ppid
+
+    # Could not determine — treat as managed by unknown parent
+    ppid_of_pid = all_procs[pid][0] if pid in all_procs else 0
+    return False, f"PID {ppid_of_pid}"
+
+
+_KNOWN_MANAGERS = (
+    ("phrocs", "phrocs"),
+    ("mprocs", "mprocs"),
+    ("overmind", "overmind"),
+    ("foreman", "foreman"),
+    ("honcho", "honcho"),
+    ("supervisord", "supervisord"),
+    ("zellij", "zellij"),
+    ("tmux", "tmux"),
+    ("screen", "screen"),
+    ("kitty", "kitty"),
+    ("alacritty", "alacritty"),
+    ("wezterm", "wezterm"),
+    ("Terminal", "Terminal.app"),
+    ("iTerm", "iTerm2"),
+)
+
+
+def _identify_manager(args: str) -> str | None:
+    """Check if a command line belongs to a known process manager or terminal."""
+
+    for keyword, display_name in _KNOWN_MANAGERS:
+        if keyword in args:
+            return display_name
+    return None
+
+
+def _parse_ps_line(line: str) -> tuple[int, int, float, int, str, str] | None:
+    """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
+
+    parts = line.split()
+    # Need at least: pid ppid cpu rss + 5 date tokens + 1 args token = 10
+    if len(parts) < 10:
+        return None
+
+    try:
+        pid = int(parts[0])
+        ppid = int(parts[1])
+        cpu = float(parts[2])
+        rss = int(parts[3])
+    except (ValueError, IndexError):
+        return None
+
+    # lstart is always 5 tokens: Day Mon DD HH:MM:SS YYYY
+    start_time = " ".join(parts[4:9])
+    args = " ".join(parts[9:])
+
+    return pid, ppid, cpu, rss, start_time, args
+
+
+def _get_own_process_tree() -> set[int]:
+    """Return PIDs of the current process and all its ancestors up to PID 1."""
+
+    pids: set[int] = set()
+    pid = os.getpid()
+
+    # Walk up the PPID chain
+    while pid > 1:
+        pids.add(pid)
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            break
+        try:
+            pid = int(result.stdout.strip())
+        except ValueError:
+            break
+
+    return pids
+
+
+def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
+    """Check if the command line references the exact repo path (not a prefix like posthog.com)."""
+
+    idx = 0
+    while True:
+        idx = args.find(repo_str, idx)
+        if idx == -1:
+            return False
+        end = idx + len(repo_str)
+        # The character after repo_str (if any) must be / or whitespace, not e.g. ".com"
+        if end >= len(args) or args[end] in ("/", " ", "\t"):
+            return True
+        idx = end
+
+
+def _is_excluded(args: str) -> bool:
+    """Check if a command line matches an excluded pattern."""
+
+    for pattern in _EXCLUDED_PROCESS_PATTERNS:
+        if pattern.search(args):
+            return True
+    return False
+
+
+def _has_known_executable(args: str) -> bool:
+    """Check if the command starts with a known PostHog dev executable."""
+
+    known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
+    first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
+    return first_word in known
+
+
+def _get_process_cwd(pid: int) -> str | None:
+    """Get the working directory of a process via lsof."""
+
+    try:
+        result = subprocess.run(
+            ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+
+    for line in result.stdout.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return None
+
+
+def _extract_process_name(args: str) -> str:
+    """Extract a short display name from a full command line."""
+
+    first = args.split()[0] if args else ""
+    return first.rsplit("/", 1)[-1]
+
+
+def _categorize_process(args: str) -> str:
+    """Return a category string based on the command line."""
+
+    lower = args.lower()
+    if any(kw in lower for kw in ("python", "celery", "granian", "uvicorn", "dagster", "gunicorn")):
+        return "python"
+    if any(kw in lower for kw in ("node", "tsx", "esbuild", "pnpm", "vite")):
+        return "node"
+    if any(
+        kw in lower
+        for kw in (
+            "cargo",
+            "capture",
+            "feature-flags",
+            "property-defs-rs",
+            "cymbal",
+            "cyclotron",
+            "personhog",
+            "batch-import",
+        )
+    ):
+        return "rust"
+    if any(kw in lower for kw in ("air", "livestream")):
+        return "go"
+    if "/bin/bash" in lower or "/bin/sh" in lower or "/bin/zsh" in lower:
+        return "shell"
+    return "other"
+
+
+def _display_process_table(processes: list[DevProcess], heading: str, repo_root: Path, number_offset: int = 0) -> None:
+    """Display a numbered table of processes."""
+
+    click.echo(f"   {heading}:\n")
+    click.echo(f"   {'#':>3}  {'PID':>7}  {'CPU%':>5}  {'MEM':>9}  COMMAND")
+
+    repo_str = str(repo_root)
+    max_cmd_width = 90
+    for i, proc in enumerate(processes, number_offset + 1):
+        summary = _summarize_cmdline(proc.cmdline, repo_str)
+        if len(summary) > max_cmd_width:
+            summary = summary[:max_cmd_width] + "..."
+        click.echo(
+            f"   {i:>3}  {proc.pid:>7}  {proc.cpu_percent:>4.1f}%  {_format_rss(proc.memory_rss_kb):>9}  {summary}"
+        )
+
+    click.echo()
+
+
+# Patterns for cleaning up command lines for display
+_NIX_STORE_BIN_RE = re.compile(r"/nix/store/[^/]+/bin/([^\s]+)")
+_FLOX_BIN_RE = re.compile(r"\S*\.flox/(?:cache/venv|run/[^/]+\.[^/]+)/bin/([^\s]+)")
+_NODE_MODULES_BIN_RE = re.compile(r"\S*node_modules/\.bin/(?:\.\./)?([^/]+)/dist/cli\.mjs")
+_NODE_MODULES_PKG_RE = re.compile(r"\S*node_modules/\.pnpm/[^/]+/node_modules/([^/]+)/dist/\S+")
+_TSX_LOADER_RE = re.compile(r"\s*--(?:require|import)\s+(?:file://)?\S*tsx/dist/\S+")
+_FILE_URL_RE = re.compile(r"file:///")
+
+
+def _summarize_cmdline(cmdline: str, repo_str: str) -> str:
+    """Produce a short, human-readable version of a process command line."""
+
+    s = cmdline
+
+    # Replace nix store binary paths with just the binary name
+    s = _NIX_STORE_BIN_RE.sub(r"\1", s)
+
+    # Replace .flox/cache/venv/bin/X and .flox/run/.../bin/X with just X
+    s = _FLOX_BIN_RE.sub(r"\1", s)
+
+    # Strip tsx --require/--import loader boilerplate
+    s = _TSX_LOADER_RE.sub("", s)
+
+    # Replace node_modules/.bin/../pkg/dist/cli.mjs with just pkg
+    s = _NODE_MODULES_BIN_RE.sub(r"\1", s)
+
+    # Replace deep node_modules/.pnpm paths with just the package name
+    s = _NODE_MODULES_PKG_RE.sub(r"\1", s)
+
+    # Strip file:// prefixes
+    s = _FILE_URL_RE.sub("", s)
+
+    # Strip the repo root prefix from remaining paths
+    s = s.replace(repo_str + "/", "")
+
+    # Use python3 → python for consistency
+    if s.startswith("python3 "):
+        s = "python " + s[8:]
+
+    # Collapse multiple spaces
+    s = re.sub(r"  +", " ", s).strip()
+
+    return s
+
+
+def _prompt_process_selection(processes: list[DevProcess]) -> list[DevProcess]:
+    """Prompt the user to select which processes to kill."""
+
+    response = click.prompt(
+        f"   Kill all {len(processes)} process(es)? [y/N]\n   Or enter specific numbers (e.g. 1,3,5)",
+        default="n",
+        show_default=False,
+    )
+
+    if response.lower() in ("y", "yes"):
+        return processes
+
+    if response.lower() in ("n", "no", "q", "quit"):
+        return []
+
+    # Parse comma-separated numbers, deduplicating
+    selected: list[DevProcess] = []
+    seen: set[int] = set()
+    for part in response.split(","):
+        part = part.strip()
+        try:
+            idx = int(part)
+            if 1 <= idx <= len(processes):
+                proc = processes[idx - 1]
+                if proc.pid not in seen:
+                    seen.add(proc.pid)
+                    selected.append(proc)
+            else:
+                click.echo(f"   Ignoring out-of-range number: {idx}")
+        except ValueError:
+            click.echo(f"   Ignoring invalid input: {part}")
+
+    return selected
+
+
+def _kill_processes(processes: list[DevProcess]) -> tuple[set[int], int]:
+    """Kill processes with SIGTERM, then SIGKILL for survivors. Returns (killed_pids, failed_count)."""
+
+    # Build kill order: leaf processes first (those with no children in our list)
+    parents = [p for p in processes if any(c.ppid == p.pid for c in processes)]
+    leaves = [p for p in processes if p not in parents]
+    ordered = leaves + parents
+
+    click.echo(f"Sending SIGTERM to {len(ordered)} process(es)...")
+
+    killed_pids: set[int] = set()
+    failed = 0
+    still_alive: list[DevProcess] = []
+
+    for proc in ordered:
+        try:
+            os.kill(proc.pid, signal.SIGTERM)
+            still_alive.append(proc)
+        except ProcessLookupError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) already exited")
+            killed_pids.add(proc.pid)
+        except PermissionError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) permission denied")
+            failed += 1
+
+    # Poll for up to 5 seconds
+    for _ in range(10):
+        if not still_alive:
+            break
+        time.sleep(0.5)
+        remaining: list[DevProcess] = []
+        for proc in still_alive:
+            try:
+                os.kill(proc.pid, 0)
+                remaining.append(proc)
+            except ProcessLookupError:
+                click.echo(f"   PID {proc.pid} ({proc.name}) terminated")
+                killed_pids.add(proc.pid)
+            except PermissionError:
+                # Still alive but we lost permission somehow
+                remaining.append(proc)
+        still_alive = remaining
+
+    # SIGKILL survivors
+    for proc in still_alive:
+        try:
+            click.echo(f"   PID {proc.pid} ({proc.name}) did not exit after 5s, sending SIGKILL...")
+            os.kill(proc.pid, signal.SIGKILL)
+            killed_pids.add(proc.pid)
+            click.echo(f"   PID {proc.pid} ({proc.name}) force-killed")
+        except ProcessLookupError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) exited during escalation")
+            killed_pids.add(proc.pid)
+        except PermissionError:
+            click.echo(f"   PID {proc.pid} ({proc.name}) permission denied for SIGKILL")
+            failed += 1
+
+    return killed_pids, failed
+
+
+def _format_rss(rss_kb: int) -> str:
+    """Format RSS in KB as a human-readable size string."""
+
+    if rss_kb < 1024:
+        return f"{rss_kb} KB"
+    mb = rss_kb / 1024
+    if mb < 1024:
+        return f"{mb:.1f} MB"
+    gb = mb / 1024
+    return f"{gb:.1f} GB"
+
+
+# ---------------------------------------------------------------------------
+# doctor — unified health check
+# ---------------------------------------------------------------------------
+
+
+class CheckStatus(enum.Enum):
+    OK = "ok"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass
+class CheckResult:
+    name: str
+    status: CheckStatus
+    summary: str
+    remediation: str | None = None
+
+
+_DISK_WARNING_THRESHOLD = 1024 * 1024 * 1024  # 1 GB
+
+
+def _check_disk(repo_root: Path) -> CheckResult:
+    """Fast disk usage probe for the doctor summary.
+
+    Uses depth-limited globs (no ``**``) and early-exit size counting so the
+    check completes in hundreds of milliseconds instead of seconds.  The
+    detailed ``doctor:disk`` command still uses the full estimators.
+    """
+    budget = float(_DISK_WARNING_THRESHOLD)
+    total = 0.0
+
+    # Flox logs — already cheap (single-directory glob)
+    flox_est = _estimate_flox_logs(repo_root)
+    total += flox_est.total_size
+
+    # Python caches — depth-limited instead of repo_root.glob("**/{pattern}")
+    _SKIP_PARTS = {".git", "node_modules", ".venv", "venv"}
+    seen: set[Path] = set()
+    for pattern in PYTHON_CACHE_PATTERNS:
+        for depth in ("*", "*/*", "*/*/*"):
+            for cache_dir in repo_root.glob(f"{depth}/{pattern}"):
+                if _SKIP_PARTS & set(cache_dir.parts):
+                    continue
+                try:
+                    resolved = cache_dir.resolve()
+                except (FileNotFoundError, PermissionError, RuntimeError):
+                    continue
+                if resolved in seen or not cache_dir.is_dir():
+                    continue
+                seen.add(resolved)
+                size, exceeded = _get_dir_size(cache_dir, cap=budget - total)
+                total += size
+                if exceeded:
+                    return CheckResult(
+                        name="Disk usage",
+                        status=CheckStatus.WARNING,
+                        summary=f">{_format_size(budget)} reclaimable",
+                        remediation="run `hogli doctor:disk`",
+                    )
+
+    # Node artifacts — patterns are mostly concrete paths; use capped sizing
+    node_seen: set[Path] = set()
+    for pattern in NODE_ARTIFACT_PATTERNS:
+        for path in repo_root.glob(pattern):
+            try:
+                resolved = path.resolve()
+            except (FileNotFoundError, PermissionError, RuntimeError):
+                continue
+            if resolved in node_seen:
+                continue
+            node_seen.add(resolved)
+            if path.is_dir():
+                size, exceeded = _get_dir_size(path, cap=budget - total)
+                total += size
+            else:
+                try:
+                    total += path.stat().st_size
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+            if total > budget:
+                return CheckResult(
+                    name="Disk usage",
+                    status=CheckStatus.WARNING,
+                    summary=f">{_format_size(budget)} reclaimable",
+                    remediation="run `hogli doctor:disk`",
+                )
+
+    if total > 0:
+        return CheckResult(
+            name="Disk usage",
+            status=CheckStatus.OK,
+            summary=f"{_format_size(total)} reclaimable",
+        )
+    return CheckResult(name="Disk usage", status=CheckStatus.OK, summary="clean")
+
+
+def _check_zombies(repo_root: Path) -> CheckResult:
+    """Quick orphan process scan."""
+    processes = _scan_posthog_processes(repo_root)
+    orphans = [p for p in processes if p.is_orphan]
+    if orphans:
+        return CheckResult(
+            name="Zombie processes",
+            status=CheckStatus.WARNING,
+            summary=f"{len(orphans)} orphaned",
+            remediation="run `hogli doctor:zombies`",
+        )
+    return CheckResult(
+        name="Zombie processes",
+        status=CheckStatus.OK,
+        summary="0 orphaned",
+    )
+
+
+def _check_docker() -> CheckResult:
+    """Check whether the Docker daemon is reachable.
+
+    Uses ``docker version`` instead of ``docker info`` — it only pings the
+    daemon for its version string rather than fetching full system metadata,
+    which is significantly faster (~200 ms vs ~1-3 s).
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return CheckResult(name="Docker", status=CheckStatus.OK, summary="daemon running")
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="daemon not responding",
+            remediation="start Docker Desktop or OrbStack",
+        )
+    except FileNotFoundError:
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="not installed",
+            remediation="install Docker Desktop or OrbStack",
+        )
+    except subprocess.TimeoutExpired:
+        return CheckResult(
+            name="Docker",
+            status=CheckStatus.ERROR,
+            summary="timed out",
+            remediation="start Docker Desktop or OrbStack",
+        )
+
+
+def _check_migrations() -> CheckResult:
+    """Check for unapplied Django migrations."""
+    try:
+        from hogli.migrations import _compute_migration_diff
+
+        diff = _compute_migration_diff()
+        pending = len(diff.pending)
+        orphaned = len(diff.orphaned)
+        parts: list[str] = []
+        if pending:
+            parts.append(f"{pending} unapplied")
+        if orphaned:
+            parts.append(f"{orphaned} orphaned")
+        if parts:
+            return CheckResult(
+                name="Migrations",
+                status=CheckStatus.WARNING,
+                summary=", ".join(parts),
+                remediation="run `hogli migrations:sync`",
+            )
+        return CheckResult(name="Migrations", status=CheckStatus.OK, summary="in sync")
+    except SystemExit:
+        return CheckResult(
+            name="Migrations",
+            status=CheckStatus.ERROR,
+            summary="could not connect to database",
+            remediation="start the dev environment with `hogli start`",
+        )
+    except Exception as e:
+        return CheckResult(
+            name="Migrations",
+            status=CheckStatus.ERROR,
+            summary=str(e)[:60],
+        )
+
+
+_STATUS_COLORS = {
+    CheckStatus.OK: "green",
+    CheckStatus.WARNING: "yellow",
+    CheckStatus.ERROR: "red",
+}
+
+_STATUS_LABELS = {
+    CheckStatus.OK: "OK",
+    CheckStatus.WARNING: "WARNING",
+    CheckStatus.ERROR: "ERROR",
+}
+
+
+def _print_check_result(result: CheckResult) -> None:
+    """Print a single check result as a dotted status line."""
+    label = _STATUS_LABELS[result.status]
+    color = _STATUS_COLORS[result.status]
+    name_padded = f"  {result.name} ".ljust(28, ".")
+    status_text = click.style(f" {label}", fg=color, bold=True)
+    click.echo(f"{name_padded}{status_text} ({result.summary})")
+    if result.remediation:
+        click.echo(f"{'':>30}{result.remediation}")
+
+
+@cli.command(name="doctor", help="Quick health check for your dev environment")
+def doctor() -> None:
+    """Run non-destructive checks and print a status summary."""
+    from hogli.core.manifest import REPO_ROOT
+
+    click.echo("\nhogli doctor\n")
+
+    checks: list[Callable[[], CheckResult]] = [
+        lambda: _check_disk(REPO_ROOT),
+        lambda: _check_zombies(REPO_ROOT),
+        lambda: _check_docker(),
+        lambda: _check_migrations(),
+    ]
+
+    # Run all checks concurrently — each is I/O-bound and independent.
+    results: list[CheckResult | None] = [None] * len(checks)
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
+        for future in as_completed(future_to_idx):
+            try:
+                results[future_to_idx[future]] = future.result()
+            except Exception as e:
+                idx = future_to_idx[future]
+                results[idx] = CheckResult(
+                    name=f"Check {idx + 1}",
+                    status=CheckStatus.ERROR,
+                    summary=f"Check failed with error: {str(e)}",
+                )
+
+    for result in results:
+        assert result is not None
+        _print_check_result(result)
+
+    click.echo()
+
+    warnings = sum(1 for r in results if r is not None and r.status == CheckStatus.WARNING)
+    errors = sum(1 for r in results if r is not None and r.status == CheckStatus.ERROR)
+    if warnings == 0 and errors == 0:
+        click.secho("  All checks passed.", fg="green")
+    else:
+        parts: list[str] = []
+        if errors:
+            parts.append(f"{errors} error(s)")
+        if warnings:
+            parts.append(f"{warnings} warning(s)")
+        click.secho(f"  {', '.join(parts)} found.", fg="yellow")
+
+    click.echo()
+
+    hints.record_check_run("doctor")

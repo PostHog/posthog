@@ -5,7 +5,6 @@ import "personhog/types/v1/person.proto";
 import "personhog/types/v1/group.proto";
 import "personhog/types/v1/cohort.proto";
 import "personhog/types/v1/feature_flag.proto";
-import "personhog/leader/v1/leader.proto";
 
 // PersonHogService is the public API exposed by the router.
 // Clients call this service; the router handles backend selection and routing.
@@ -45,5 +44,12 @@ service PersonHogService {
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
 
   // Person property updates (routed to leader)
-  rpc UpdatePersonProperties(personhog.leader.v1.UpdatePersonPropertiesRequest) returns (personhog.leader.v1.UpdatePersonPropertiesResponse);
+  rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
+
+  // Person deletes
+  // WARNING: This is a write operation on person data. It should route to the leader
+  // once personhog-leader supports deletes. Currently routed through the replica
+  // (which uses the primary Postgres pool) as a temporary measure.
+  // TODO: Migrate routing to leader before personhog-leader goes live.
+  rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
 }

@@ -40,7 +40,7 @@ const SesMailSchema = z.object({
     destination: z.array(z.string()),
     headersTruncated: z.boolean().optional(),
     headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
-    tags: z.record(z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
+    tags: z.record(z.string(), z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
 })
 
 const SesCommonEventBase = z.object({
@@ -144,10 +144,11 @@ const SesEventBatchSchema = z.array(SesEventRecordSchema)
 export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
 // email_sent is recorded synchronously in email.service.ts when the email is sent,
-// so we don't record it again from SES Send/Delivery webhooks to avoid double counting.
+// so we don't record it again from SES Send webhooks to avoid double counting.
 const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
+    Delivery: 'email_delivered',
     Bounce: 'email_bounced',
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',

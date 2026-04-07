@@ -36,11 +36,11 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { projectLogic } from 'scenes/projectLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -49,18 +49,7 @@ import { urls } from 'scenes/urls'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '~/queries/Query/Query'
-import {
-    ExperimentFunnelsQueryResponse,
-    ExperimentTrendsQueryResponse,
-    FunnelsQuery,
-    InsightQueryNode,
-    InsightVizNode,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { FunnelsQuery, ProductIntentContext, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -68,7 +57,6 @@ import {
     AnyPropertyFilter,
     ExperimentConclusion,
     ExperimentStatus,
-    InsightShortId,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
@@ -178,89 +166,6 @@ export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element
     )
 }
 
-/**
- * shows a breakdown query for legacy metrics
- * @deprecated use ResultsQuery
- */
-export function LegacyResultsQuery({
-    result,
-    showTable,
-}: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
-    showTable: boolean
-}): JSX.Element {
-    if (!result) {
-        return <></>
-    }
-
-    const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
-
-    const fakeInsightId = Math.random().toString(36).substring(2, 15)
-
-    return (
-        <Query
-            query={{
-                kind: NodeKind.InsightVizNode,
-                source: query,
-                showTable,
-                showLastComputation: true,
-                showLastComputationRefresh: false,
-            }}
-            context={{
-                insightProps: {
-                    dashboardItemId: fakeInsightId as InsightShortId,
-                    cachedInsight: {
-                        short_id: fakeInsightId as InsightShortId,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: query,
-                        } as InsightVizNode,
-                        result: result?.insight,
-                        disable_baseline: true,
-                    },
-                    doNotLoad: true,
-                },
-            }}
-            readOnly
-        />
-    )
-}
-
-/**
- * @deprecated use ExploreButton instead
- */
-export function LegacyExploreButton({
-    result,
-    size = 'small',
-}: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
-    size?: 'xsmall' | 'small' | 'large'
-}): JSX.Element {
-    if (!result) {
-        return <></>
-    }
-
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: (result.kind === NodeKind.ExperimentTrendsQuery
-            ? result.count_query
-            : result.funnels_query) as InsightQueryNode,
-    }
-
-    return (
-        <LemonButton
-            className="ml-auto -translate-y-2"
-            size={size}
-            type="primary"
-            icon={<IconAreaChart />}
-            to={urls.insightNew({ query })}
-            targetBlank
-        >
-            Explore as Insight
-        </LemonButton>
-    )
-}
-
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
     const { isVisible: isPageVisible } = usePageVisibility()
@@ -308,6 +213,7 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
@@ -404,6 +310,18 @@ export function PageHeaderCustom(): JSX.Element {
                             <IconCopy />
                             Duplicate
                         </ButtonPrimitive>
+
+                        {canCopyToProject && experiment?.id != null && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => router.actions.push(urls.resourceTransfer('Experiment', experiment.id))}
+                                data-attr="experiment-copy-to-project"
+                                tooltip="Copy this experiment to another project"
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
+                        )}
 
                         {isExperimentLaunched && (
                             <>
@@ -772,7 +690,7 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <div>
                             <LemonLabel>Variant to keep</LemonLabel>
-                            <div className="text-sm text-secondary">
+                            <div className="text-sm text-secondary mb-2">
                                 The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
                             </div>
                             <div className="w-1/2">

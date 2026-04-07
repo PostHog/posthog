@@ -11,7 +11,7 @@ const doesNotHaveReverseProxyValues = [[null], [null]]
 const useMockedValues = (results: (string | null)[][]): void => {
     useMocks({
         post: {
-            '/api/environments/:team_id/query': () => [
+            '/api/environments/:team_id/query/:kind': () => [
                 200,
                 {
                     results,

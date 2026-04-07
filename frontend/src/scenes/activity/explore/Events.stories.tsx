@@ -14,7 +14,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query': eventsQuery,
+                '/api/environments/:team_id/query/:kind': eventsQuery,
             },
         }),
     ],
@@ -27,5 +27,5 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const EventExplorer: Story = {}

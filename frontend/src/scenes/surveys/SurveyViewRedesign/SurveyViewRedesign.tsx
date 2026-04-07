@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArchive, IconCode, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -15,6 +15,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -26,6 +27,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -48,7 +50,6 @@ import {
     Survey,
     SurveyEventName,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SurveyDraftContent } from './SurveyDraftContent'
@@ -59,16 +60,20 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
     const { location, searchParams, hashParams } = useValues(router)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
-    const [tabKey, setTabKey] = useState('summary')
+    const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
+    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
@@ -218,6 +223,17 @@ export function SurveyViewRedesign(): JSX.Element {
                             }
                         }}
                     />
+                    {canCopyToProject && surveyIdForTransfer && (
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => push(urls.resourceTransfer('Survey', surveyIdForTransfer))}
+                            data-attr="survey-copy-to-project"
+                            tooltip="Copy this survey to another project"
+                        >
+                            <IconCopy />
+                            Copy to another project
+                        </ButtonPrimitive>
+                    )}
                     {!isDraft && (
                         <ButtonPrimitive menuItem onClick={() => setSqlHelperOpen(true)}>
                             <IconCode />
@@ -288,8 +304,16 @@ export function SurveyViewRedesign(): JSX.Element {
                         >
                             <LemonButton
                                 data-attr="edit-survey"
-                                onClick={survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)}
-                                to={survey.type === SurveyType.Popover ? urls.surveyWizard(survey.id) : undefined}
+                                onClick={
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                        ? undefined
+                                        : () => editingSurvey(true)
+                                }
+                                to={
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                        ? urls.surveyWizard(survey.id)
+                                        : undefined
+                                }
                                 type="secondary"
                                 size="small"
                             >

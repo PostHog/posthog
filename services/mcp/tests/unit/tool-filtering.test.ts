@@ -48,12 +48,12 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error_tracking'],
             description: 'error tracking tools (underscore)',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
         },
         {
             features: ['error-tracking'],
             description: 'error tracking tools (hyphen, normalized)',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
         },
         {
             features: ['experiments'],
@@ -96,14 +96,92 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should not expose annotation list/get tools in v2', () => {
+        it('should expose all annotation tools in v2', () => {
             const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
-            expect(tools).not.toContain('annotations-list')
-            expect(tools).not.toContain('annotation-retrieve')
+            expect(tools).toContain('annotations-list')
+            expect(tools).toContain('annotation-retrieve')
         })
+    })
+})
+
+describe('Tool Filtering - Tools Allowlist', () => {
+    describe('getToolsForFeatures with tools', () => {
+        it('should return all tools when tools is undefined', () => {
+            const allTools = getToolsForFeatures({})
+            const withUndefinedTools = getToolsForFeatures({ tools: undefined })
+            expect(withUndefinedTools).toEqual(allTools)
+        })
+
+        it('should return all tools when tools is empty array', () => {
+            const allTools = getToolsForFeatures({})
+            const withEmptyTools = getToolsForFeatures({ tools: [] })
+            expect(withEmptyTools).toEqual(allTools)
+        })
+
+        it('should return only specified tools', () => {
+            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'] })
+            expect(tools).toContain('dashboard-get')
+            expect(tools).toContain('dashboard-create')
+            expect(tools).toHaveLength(2)
+        })
+
+        it('should return empty array for nonexistent tool names', () => {
+            const tools = getToolsForFeatures({ tools: ['nonexistent-tool'] })
+            expect(tools).toEqual([])
+        })
+
+        it('should union with features (OR) when both are provided', () => {
+            const tools = getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
+
+            // Should include flag tools from features
+            expect(tools).toContain('feature-flag-get-definition')
+            expect(tools).toContain('feature-flag-get-all')
+
+            // Should also include the explicitly named tool
+            expect(tools).toContain('dashboard-get')
+
+            // Should not include unrelated tools
+            expect(tools).not.toContain('insights-get-all')
+        })
+
+        it('should still apply readOnly on top of tools filter', () => {
+            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'], readOnly: true })
+
+            expect(tools).toContain('dashboard-get')
+            expect(tools).not.toContain('dashboard-create')
+        })
+
+        it('should still apply aiConsentGiven on top of tools filter', () => {
+            const withoutConsent = getToolsForFeatures({
+                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                aiConsentGiven: false,
+            })
+            expect(withoutConsent).toContain('dashboard-get')
+            expect(withoutConsent).not.toContain('query-generate-hogql-from-question')
+
+            const withConsent = getToolsForFeatures({
+                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                aiConsentGiven: true,
+            })
+            expect(withConsent).toContain('dashboard-get')
+            expect(withConsent).toContain('query-generate-hogql-from-question')
+        })
+    })
+
+    it('should combine tools with excludeTools via getToolsFromContext', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            tools: ['dashboard-get', 'dashboard-create', 'dashboard-delete'],
+            excludeTools: ['dashboard-delete'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).toContain('dashboard-get')
+        expect(toolNames).toContain('dashboard-create')
+        expect(toolNames).not.toContain('dashboard-delete')
     })
 })
 

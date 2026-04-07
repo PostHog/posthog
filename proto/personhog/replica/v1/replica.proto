@@ -42,4 +42,7 @@ service PersonHogReplica {
   rpc GetGroupTypeMappingsByTeamIds(personhog.types.v1.GetGroupTypeMappingsByTeamIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
   rpc GetGroupTypeMappingsByProjectId(personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
+
+  // Person deletes (temporary: should move to leader once it supports deletes)
+  rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
 }

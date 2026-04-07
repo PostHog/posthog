@@ -69,7 +69,7 @@ const SourceEditorAction = ({
     </AccessControlAction>
 )
 
-interface SchemasProps {
+export interface SchemasProps {
     id: string
 }
 
@@ -77,9 +77,16 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, syncingNow, refreshingSchemas } =
-        useValues(logic)
-    const { setShowEnabledSchemasOnly, syncNow, refreshSchemas } = useActions(logic)
+    const {
+        source,
+        sourceLoading,
+        filteredSchemas,
+        showEnabledSchemasOnly,
+        schemaNameFilter,
+        syncingNow,
+        refreshingSchemas,
+    } = useValues(logic)
+    const { setShowEnabledSchemasOnly, setSchemaNameFilter, syncNow, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -94,6 +101,13 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
                         label={isDirectQuerySource ? 'Show queryable only' : 'Show enabled only'}
+                    />
+                    <LemonInput
+                        type="search"
+                        placeholder="Filter schemas"
+                        size="small"
+                        value={schemaNameFilter}
+                        onChange={setSchemaNameFilter}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
@@ -200,7 +214,7 @@ const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus,
 
 export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
+    const { updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, setIsProjectTime } = useActions(
         dataWarehouseSourceSettingsLogic
     )
     const { isProjectTime, source } = useValues(dataWarehouseSourceSettingsLogic)
@@ -232,10 +246,10 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                             const nameContent =
                                 isDirectQuerySource && schema.table ? (
                                     <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
-                                        {schema.name}
+                                        {schema.label ?? schema.name}
                                     </Link>
                                 ) : (
-                                    <span>{schema.name}</span>
+                                    <span>{schema.label ?? schema.name}</span>
                                 )
                             return (
                                 <div className="flex items-center gap-1">
@@ -539,6 +553,18 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                                     Sync now
                                                                 </LemonButton>
                                                             </Tooltip>
+                                                            {schema.status === 'Running' && (
+                                                                <LemonButton
+                                                                    type="tertiary"
+                                                                    size="xsmall"
+                                                                    fullWidth
+                                                                    status="danger"
+                                                                    onClick={() => cancelSchema(schema)}
+                                                                    disabledReason={disabledReason}
+                                                                >
+                                                                    Cancel sync
+                                                                </LemonButton>
+                                                            )}
                                                             {schema.incremental && (
                                                                 <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
                                                                     <LemonButton
@@ -631,7 +657,10 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         <LemonModal
             title={
                 <>
-                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                    Sync method for{' '}
+                    <span className="font-mono">
+                        {currentSyncMethodModalSchema.label ?? currentSyncMethodModalSchema.name}
+                    </span>
                 </>
             }
             isOpen={syncMethodModalIsOpen}

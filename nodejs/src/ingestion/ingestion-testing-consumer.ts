@@ -17,13 +17,12 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
-import { INGESTION_WARNINGS_OUTPUT } from './common/outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from './common/outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createContext } from './pipelines/helpers'
-import { ok } from './pipelines/results'
+import { createOkContext } from './pipelines/helpers'
 
 export type IngestionTestingConsumerFullConfig = Pick<
     PluginsServerConfig,
@@ -94,27 +93,41 @@ export class IngestionTestingConsumer {
 
     public async start(): Promise<void> {
         const outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-            [HEATMAPS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-            [INGESTION_WARNINGS_OUTPUT]: {
-                topic: KAFKA_INGESTION_WARNINGS,
-                producer: this.kafkaProducer!,
-            },
+            [EVENTS_OUTPUT]: [
+                {
+                    topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [HEATMAPS_OUTPUT]: [
+                {
+                    topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [INGESTION_WARNINGS_OUTPUT]: [
+                {
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [DLQ_OUTPUT]: [
+                {
+                    topic: this.dlqTopic,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {
-            dlqTopic: this.dlqTopic,
             groupId: this.groupId,
             outputs,
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
-            kafkaProducer: this.kafkaProducer!,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
         }
@@ -204,7 +217,7 @@ export class IngestionTestingConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message }), { message }))
+        const batch = messages.map((message) => createOkContext({ message }, { message }))
 
         this.joinedPipeline.feed(batch)
 

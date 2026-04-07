@@ -1,3 +1,4 @@
+import type { BaseServerConfig } from '../servers/base-server'
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -21,6 +22,7 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
+    // TODO: Remove once charts deploy with mode=recordings-blob-ingestion-v2 for overflow pods
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
@@ -39,7 +41,9 @@ export enum PluginServerMode {
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
     ingestion_v2_testing = 'ingestion-v2-testing',
+    ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
+    cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -49,12 +53,8 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export type CommonConfig = {
+export type CommonConfig = BaseServerConfig & {
     // Observability
-    CONTINUOUS_PROFILING_ENABLED: boolean
-    PYROSCOPE_SERVER_ADDRESS: string
-    PYROSCOPE_APPLICATION_NAME: string
-    INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
     OTEL_TRACES_SAMPLER_ARG: number
@@ -82,6 +82,21 @@ export type CommonConfig = {
     POSTGRES_BEHAVIORAL_COHORTS_HOST: string
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
+
+    // PersonHog gRPC
+    PERSONHOG_ENABLED: boolean
+    PERSONHOG_ADDR: string
+    PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_TLS: boolean
+    PERSONHOG_TIMEOUT_MS: number
+    PERSONHOG_READ_MAX_BYTES: number
+    PERSONHOG_WRITE_MAX_BYTES: number
+    PERSONHOG_PING_INTERVAL_MS: number
+    PERSONHOG_PING_TIMEOUT_MS: number
+    PERSONHOG_PING_IDLE_CONNECTION: boolean
+    PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
+    PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
     // Redis
     REDIS_URL: string
@@ -117,7 +132,6 @@ export type CommonConfig = {
     // Server
     BASE_DIR: string
     LOG_LEVEL: LogLevel
-    HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number
     HEALTHCHECK_MAX_STALE_SECONDS: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -136,7 +150,9 @@ export type CommonConfig = {
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
-    INTERNAL_API_SECRET: string
+    HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
@@ -150,11 +166,6 @@ export type CommonConfig = {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-
-    // Pod termination
-    POD_TERMINATION_ENABLED: boolean
-    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
-    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -225,6 +236,21 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
 
+        // PersonHog gRPC
+        PERSONHOG_ENABLED: false,
+        PERSONHOG_ADDR: '',
+        PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_TLS: false,
+        PERSONHOG_TIMEOUT_MS: 5000,
+        PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
+        PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
+        PERSONHOG_PING_INTERVAL_MS: 30_000,
+        PERSONHOG_PING_TIMEOUT_MS: 5_000,
+        PERSONHOG_PING_IDLE_CONNECTION: true,
+        PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
+        PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+
         // Redis
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
@@ -285,6 +311,9 @@ export function getDefaultCommonConfig(): CommonConfig {
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
+        HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
+        HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,

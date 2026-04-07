@@ -1,24 +1,23 @@
 import json
-import typing
 import asyncio
 import datetime as dt
 import traceback
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
-from posthog.slo.types import SloOutcome
+from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.exports.failure_handler import is_user_query_error_type
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.exports.activities import emit_delivery_outcome, emit_delivery_started, export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import (
-    EmitDeliveryOutcomeInput,
     ExportAssetActivityInputs,
     ExportAssetResult,
     ExportError,
+    extract_error_details,
 )
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
@@ -32,41 +31,9 @@ from posthog.temporal.subscriptions.types import (
     FetchDueSubscriptionsActivityInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
+    SubscriptionInfo,
+    TrackedSubscriptionInputs,
 )
-
-
-class ExportErrorDetails(typing.NamedTuple):
-    """Failure metadata extracted from a Temporal activity exception.
-
-    Fields mirror the ApplicationError details emitted by export_asset_activity:
-    [exception_class, duration_ms, export_format, attempt, error_trace].
-    """
-
-    exception_class: str | None = None
-    duration_ms: float | None = None
-    export_format: str = ""
-    attempts: int = 1
-    error_trace: str | None = None
-
-
-def _extract_error_details(exc: BaseException) -> ExportErrorDetails:
-    """Extract failure metadata from a Temporal activity exception chain.
-
-    asyncio.gather(return_exceptions=True) yields BaseException, but Temporal
-    wraps activity failures as ActivityError → ApplicationError. We narrow
-    through that chain to reach the structured details.
-    """
-    if not isinstance(exc, ActivityError) or not isinstance(exc.cause, ApplicationError):
-        return ExportErrorDetails()
-
-    details = exc.cause.details
-    return ExportErrorDetails(
-        exception_class=details[0] if len(details) >= 1 and isinstance(details[0], str) else None,
-        duration_ms=details[1] if len(details) >= 2 and isinstance(details[1], (int, float)) else None,
-        export_format=details[2] if len(details) >= 3 and isinstance(details[2], str) else "",
-        attempts=details[3] if len(details) >= 4 and isinstance(details[3], int) else 1,
-        error_trace=details[4] if len(details) >= 5 and isinstance(details[4], str) else None,
-    )
 
 
 def _build_outcome_assets(
@@ -83,7 +50,7 @@ def _build_outcome_assets(
     successful_asset_ids: list[int] = []
     for asset_id, result in zip(asset_ids, export_results):
         if isinstance(result, BaseException):
-            err = _extract_error_details(result)
+            err = extract_error_details(result)
             outcome_assets.append(
                 ExportAssetResult(
                     exported_asset_id=asset_id,
@@ -94,9 +61,6 @@ def _build_outcome_assets(
                     )
                     if err.exception_class
                     else None,
-                    duration_ms=err.duration_ms,
-                    export_format=err.export_format,
-                    attempts=err.attempts,
                 )
             )
         else:
@@ -119,7 +83,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
         fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
-        subscription_ids: list[int] = await temporalio.workflow.execute_activity(
+        subscription_infos: list[SubscriptionInfo] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
             fetch_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -136,11 +100,22 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         # schedule runs overlap: Temporal guarantees no two open workflows can
         # share the same ID, so a still-running child rejects the duplicate start.
         tasks = []
-        for sub_id in subscription_ids:
+        for sub in subscription_infos:
             task = temporalio.workflow.execute_child_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=sub_id),
-                id=f"process-subscription-{sub_id}",
+                TrackedSubscriptionInputs(
+                    subscription_id=sub.subscription_id,
+                    team_id=sub.team_id,
+                    distinct_id=sub.distinct_id,
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=sub.team_id,
+                        resource_id=str(sub.subscription_id),
+                        distinct_id=sub.distinct_id,
+                    ),
+                ),
+                id=f"process-subscription-{sub.subscription_id}",
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(hours=2),
             )
@@ -151,20 +126,20 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             # one failing subscription should not prevent others from being delivered.
             results = await asyncio.gather(*tasks, return_exceptions=True)
             failed_ids = []
-            for sub_id, result in zip(subscription_ids, results):
+            for sub, result in zip(subscription_infos, results):
                 if isinstance(result, BaseException):
                     if isinstance(result, WorkflowAlreadyStartedError):
                         # A previous schedule run's child is still processing this
                         # subscription — not a failure, just skip it.
                         temporalio.workflow.logger.info(
                             "process_subscription.already_running",
-                            extra={"subscription_id": sub_id},
+                            extra={"subscription_id": sub.subscription_id},
                         )
                     else:
-                        failed_ids.append(sub_id)
+                        failed_ids.append(sub.subscription_id)
                         temporalio.workflow.logger.warning(
                             "process_subscription.child_workflow_error",
-                            extra={"subscription_id": sub_id, "error": str(result)},
+                            extra={"subscription_id": sub.subscription_id, "error": str(result)},
                         )
 
             if failed_ids:
@@ -177,33 +152,18 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 @temporalio.workflow.defn(name="process-subscription")
 class ProcessSubscriptionWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> ProcessSubscriptionWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> TrackedSubscriptionInputs:
         loaded = json.loads(inputs[0])
-        return ProcessSubscriptionWorkflowInputs(**loaded)
+        return TrackedSubscriptionInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, inputs: ProcessSubscriptionWorkflowInputs) -> None:
-        start_time = temporalio.workflow.time()
-        delivery_outcome = SloOutcome.SUCCESS
+    async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         assets_with_content = 0
         total_assets = 0
         errors: list[ExportError] = []
-        prepare_result = None
         caught_error: BaseException | None = None
 
         try:
-            # SLO started — workflow owns the lifecycle, fires before any work
-            await temporalio.workflow.execute_activity(
-                emit_delivery_started,
-                inputs.subscription_id,
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=5),
-                    maximum_interval=dt.timedelta(minutes=1),
-                    maximum_attempts=3,
-                ),
-            )
-
             # Phase 1: Prepare — create ExportedAssets
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
@@ -251,8 +211,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             errors = [a.error for a in outcome_assets if a.error]
 
             non_user_errors = [e for e in errors if not is_user_query_error_type(e.exception_class)]
-            if non_user_errors:
-                delivery_outcome = SloOutcome.FAILURE
+            if inputs.slo and non_user_errors:
+                inputs.slo.outcome = SloOutcome.FAILURE
 
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
@@ -280,7 +240,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            delivery_outcome = SloOutcome.FAILURE
             errors.append(
                 ExportError(
                     exception_class=type(e).__name__,
@@ -304,27 +263,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # SLO completed — fires last, after all side effects
-            if prepare_result and prepare_result.team_id:
-                duration_ms = (temporalio.workflow.time() - start_time) * 1000
-                await temporalio.workflow.execute_activity(
-                    emit_delivery_outcome,
-                    EmitDeliveryOutcomeInput(
-                        subscription_id=inputs.subscription_id,
-                        team_id=prepare_result.team_id,
-                        distinct_id=prepare_result.distinct_id,
-                        outcome=delivery_outcome,
-                        duration_ms=duration_ms,
-                        assets_with_content=assets_with_content,
-                        total_assets=total_assets,
-                        errors=errors,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=5),
-                        maximum_interval=dt.timedelta(minutes=1),
-                        maximum_attempts=3,
-                    ),
+            # Enrich SLO completion context
+            if inputs.slo:
+                inputs.slo.completion_properties.update(
+                    {
+                        "assets_with_content": assets_with_content,
+                        "total_assets": total_assets,
+                        "errors": [
+                            {"exception_class": e.exception_class, "error_trace": e.error_trace} for e in errors
+                        ],
+                    }
                 )
 
         # Re-raise after cleanup completes. We can't re-raise inside the except
@@ -343,9 +291,23 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ProcessSubscriptionWorkflowInputs) -> None:
+        tracked = TrackedSubscriptionInputs(
+            subscription_id=inputs.subscription_id,
+            team_id=inputs.team_id,
+            distinct_id=inputs.distinct_id,
+            previous_value=inputs.previous_value,
+            invite_message=inputs.invite_message,
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=inputs.team_id,
+                resource_id=str(inputs.subscription_id),
+                distinct_id=inputs.distinct_id,
+            ),
+        )
         await temporalio.workflow.execute_child_workflow(
             ProcessSubscriptionWorkflow.run,
-            inputs,
+            tracked,
             id=f"process-subscription-change-{inputs.subscription_id}",
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),

@@ -1,9 +1,18 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconArchive, IconGraph, IconLlmAnalytics, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconGraph,
+    IconLlmAnalytics,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,6 +27,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -53,11 +63,10 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { getSurveyResponse, isThumbQuestion } from './utils'
+import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -91,9 +100,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -139,6 +151,17 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     }
                                 }}
                             />
+                            {canCopyToProject && surveyId && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => push(urls.resourceTransfer('Survey', surveyId))}
+                                    data-attr="survey-copy-to-project"
+                                    tooltip="Copy this survey to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
                         {!survey.archived && (
@@ -207,9 +230,15 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? undefined
+                                                : () => editingSurvey(true)
                                         }
-                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
+                                        to={
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >
