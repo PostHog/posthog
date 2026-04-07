@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -74,6 +75,12 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-notifications'
+    | 'conversations-slack'
+    | 'conversations-email'
+    | 'conversations-widget'
+    | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
