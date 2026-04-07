@@ -18,7 +18,6 @@ from posthog.api.app_metrics2 import (
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.event_filter_config import (
-    DEFAULT_FILTER_TREE,
     EventFilterConfig,
     run_test_cases,
     validate_filter_tree,
@@ -80,7 +79,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _get_or_create(self) -> EventFilterConfig:
         config, _ = EventFilterConfig.objects.get_or_create(
             team_id=self.team_id,
-            defaults={"filter_tree": DEFAULT_FILTER_TREE, "mode": "disabled", "test_cases": []},
+            defaults={"filter_tree": None, "mode": "disabled", "test_cases": []},
         )
         return config
 
