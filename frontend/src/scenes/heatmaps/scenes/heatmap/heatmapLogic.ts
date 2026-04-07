@@ -14,7 +14,7 @@ import { HeatmapStatus, HeatmapType } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
 
-const DEFAULT_HEATMAP_NAME = DEFAULT_HEATMAP_NAME
+const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
