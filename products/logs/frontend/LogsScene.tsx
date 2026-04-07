@@ -14,7 +14,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
@@ -87,6 +89,13 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { tabId, activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+
+    const tabs: { key: LogsSceneActiveTab; label: string }[] = [
+        { key: 'viewer', label: 'Viewer' },
+        ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
+        { key: 'configuration', label: 'Configuration' },
+    ]
 
     return (
         <>
@@ -113,10 +122,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key)}
-                tabs={[
-                    { key: 'viewer', label: 'Viewer' },
-                    { key: 'configuration', label: 'Configuration' },
-                ]}
+                tabs={tabs}
                 sceneInset
             />
             {activeTab === 'viewer' && (
@@ -125,6 +131,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                         <LogsViewer id={tabId} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
+            )}
+            {activeTab === 'services' && showServicesView && (
+                <>
+                    <LogsServices />
+                    <LogsViewerModal />
+                </>
             )}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />

@@ -524,12 +524,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         filters = request.data.get("filters", {})
         group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
+        result = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             {
-                "users_affected": users_affected,
-                "total_users": total_users,
+                "affected": result.affected,
+                "total": result.total,
             }
         )
 
@@ -637,11 +637,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
+            result = get_user_blast_radius(team, filters, group_type_index)
             return Response(
                 {
-                    "users_affected": users_affected,
-                    "total_users": total_users,
+                    "affected": result.affected,
+                    "total": result.total,
                 }
             )
         except Exception as e:

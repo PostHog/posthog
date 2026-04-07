@@ -44,4 +44,12 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_distinct_ids: &[(i64, String)],
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>>;
+
+    // Deletes
+
+    /// Delete persons by UUID for a given team. In a single transaction:
+    /// 1. Deletes associated posthog_persondistinctid rows (FK is NO ACTION, would block otherwise)
+    /// 2. Deletes the posthog_person rows (posthog_featureflaghashkeyoverride cascades at DB level)
+    /// Returns the number of deleted person records.
+    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
 }

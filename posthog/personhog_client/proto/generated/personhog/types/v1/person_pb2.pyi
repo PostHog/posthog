@@ -356,3 +356,19 @@ class UpdatePersonPropertiesResponse(_message.Message):
     updated: bool
 
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
+
+class DeletePersonsRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class DeletePersonsResponse(_message.Message):
+    __slots__ = ("deleted_count",)
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+
+    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...

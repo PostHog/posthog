@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -15,9 +14,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -33,6 +30,7 @@ import {
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { deleteActionWithWarning } from '../utils/deleteAction'
 import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
@@ -255,13 +253,7 @@ export function ActionsTable(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
-                                                endpoint: api.actions.determineDeleteEndpoint(),
-                                                object: action,
-                                                callback: loadActions,
-                                            }).catch((e: any) => {
-                                                lemonToast.error(`Error deleting action: ${e.detail}`)
-                                            })
+                                            void deleteActionWithWarning(action, loadActions)
                                         }}
                                         fullWidth
                                     >

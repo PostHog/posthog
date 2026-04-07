@@ -123,7 +123,7 @@
             "react": "18.3.1",
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
-            "typescript": "5.6.3"
+            "typescript": "5.7.3"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

@@ -31,6 +31,49 @@ class IngestionWarningsTable(Table):
         return "ingestion_warnings"
 
 
+batch_export_backfills: PostgresTable = PostgresTable(
+    name="batch_export_backfills",
+    postgres_table_name="posthog_batchexportbackfill",
+    access_scope="batch_export",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "batch_export_id": StringDatabaseField(name="batch_export_id"),
+        "start_at": DateTimeDatabaseField(name="start_at", nullable=True),
+        "end_at": DateTimeDatabaseField(name="end_at", nullable=True),
+        "status": StringDatabaseField(name="status"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at", nullable=True),
+        "last_updated_at": DateTimeDatabaseField(name="last_updated_at"),
+        "total_records_count": IntegerDatabaseField(name="total_records_count", nullable=True),
+    },
+)
+
+batch_exports: PostgresTable = PostgresTable(
+    name="batch_exports",
+    postgres_table_name="posthog_batchexport",
+    access_scope="batch_export",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "model": StringDatabaseField(name="model", nullable=True),
+        "interval": StringDatabaseField(name="interval"),
+        "_paused": BooleanDatabaseField(name="paused", hidden=True),
+        "paused": ExpressionField(name="paused", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_paused"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "destination_id": StringDatabaseField(name="destination_id"),
+        "timezone": StringDatabaseField(name="timezone"),
+        "interval_offset": IntegerDatabaseField(name="interval_offset", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_updated_at": DateTimeDatabaseField(name="last_updated_at"),
+        "last_paused_at": DateTimeDatabaseField(name="last_paused_at", nullable=True),
+        "start_at": DateTimeDatabaseField(name="start_at", nullable=True),
+        "end_at": DateTimeDatabaseField(name="end_at", nullable=True),
+    },
+)
+
 alerts: PostgresTable = PostgresTable(
     name="alerts",
     postgres_table_name="posthog_alertconfiguration",
@@ -340,6 +383,22 @@ group_type_mappings: PostgresTable = PostgresTable(
     },
 )
 
+integrations: PostgresTable = PostgresTable(
+    name="integrations",
+    postgres_table_name="posthog_integration",
+    access_scope="integration",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "kind": StringDatabaseField(name="kind"),
+        "integration_id": StringDatabaseField(name="integration_id"),
+        "config": StringJSONDatabaseField(name="config"),
+        "errors": StringDatabaseField(name="errors"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+    },
+)
+
 insight_variables: PostgresTable = PostgresTable(
     name="insight_variables",
     postgres_table_name="posthog_insightvariable",
@@ -596,6 +655,8 @@ class SystemTables(TableNode):
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
+        "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
+        "batch_exports": TableNode(name="batch_exports", table=batch_exports),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
@@ -621,6 +682,7 @@ class SystemTables(TableNode):
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
+        "integrations": TableNode(name="integrations", table=integrations),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),

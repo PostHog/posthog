@@ -19,6 +19,7 @@ export type ProducerName = DefaultProducer | WarpstreamProducer
  */
 export const PRODUCER_CONFIG_MAP: Record<ProducerName, Partial<Record<AllowedConfigKey, string>>> = {
     [DEFAULT_PRODUCER]: {
+        'client.id': 'KAFKA_PRODUCER_CLIENT_ID',
         'metadata.broker.list': 'KAFKA_PRODUCER_METADATA_BROKER_LIST',
         'security.protocol': 'KAFKA_PRODUCER_SECURITY_PROTOCOL',
         'sasl.mechanisms': 'KAFKA_PRODUCER_SASL_MECHANISMS',
@@ -48,6 +49,7 @@ export const PRODUCER_CONFIG_MAP: Record<ProducerName, Partial<Record<AllowedCon
      * until we move to a fire-and-forget pattern.
      */
     [WARPSTREAM_PRODUCER]: {
+        'client.id': 'KAFKA_WARPSTREAM_PRODUCER_CLIENT_ID',
         'metadata.broker.list': 'KAFKA_WARPSTREAM_PRODUCER_METADATA_BROKER_LIST',
         'security.protocol': 'KAFKA_WARPSTREAM_PRODUCER_SECURITY_PROTOCOL',
         'compression.codec': 'KAFKA_WARPSTREAM_PRODUCER_COMPRESSION_CODEC',
