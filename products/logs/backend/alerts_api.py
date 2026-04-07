@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -381,7 +382,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "Read-only — no alert check records are created.",
     )
     @action(detail=False, methods=["POST"], url_path="simulate")
-    def simulate(self, request: object, *args: object, **kwargs: object) -> Response:
+    def simulate(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertSimulateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
