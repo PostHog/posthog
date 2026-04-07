@@ -859,7 +859,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         else:
             logger.info("Provisioning API request succeeded", method=method, path=path, team_id=team_id)
 
-        return Response(resp.json(), status=resp.status_code)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"error": resp.text[:500]}
+        return Response(body, status=resp.status_code)
 
     @extend_schema(
         request=inline_serializer(
