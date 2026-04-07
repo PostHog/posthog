@@ -74,6 +74,7 @@ import {
 } from '~/types'
 
 import {
+    LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
@@ -528,7 +529,10 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyAdaptiveSampling: true,
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
-        setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setPropertyFilters: (propertyFilters: AnyPropertyFilter[], reloadResults: boolean = true) => ({
+            propertyFilters,
+            reloadResults,
+        }),
         setAnswerFilters: (filters: EventPropertyFilter[], reloadResults: boolean = true) => ({
             filters,
             reloadResults,
@@ -543,6 +547,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setShowArchivedResponses: (show: boolean) => ({ show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
+        startResultsRequery: true,
+        markResultsRequeryCompleted: true,
         toggleSurveyNotificationEnabled: (notificationId: string, enabled: boolean) => ({
             notificationId,
             enabled,
@@ -914,10 +920,24 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions, values }) => {
         let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null
+        const maybeCompleteResultsRequery = (): void => {
+            setTimeout(() => {
+                if (!values.resultsRequeryInProgress || values.isAnyResultsLoading) {
+                    return
+                }
+
+                actions.markResultsRequeryCompleted()
+            }, 0)
+        }
         const reloadAllSurveyResults = (): void => {
             if (reloadDebounceTimer) {
                 clearTimeout(reloadDebounceTimer)
             }
+
+            if (!values.resultsRequeryInProgress) {
+                actions.startResultsRequery()
+            }
+
             reloadDebounceTimer = setTimeout(() => {
                 actions.loadSurveyBaseStats()
                 actions.loadSurveyDismissedAndSentCount()
@@ -1022,6 +1042,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 } catch {
                     // Person enrichment is best-effort — don't block survey results
                 }
+
+                maybeCompleteResultsRequery()
+            },
+            loadConsolidatedSurveyResultsFailure: () => {
+                maybeCompleteResultsRequery()
             },
             loadSurveyBaseStatsSuccess: () => {
                 if (!values.isSurveyHeadlineEnabled || !values.dataProcessingAccepted) {
@@ -1041,6 +1066,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (needsGeneration || isStale) {
                     actions.loadSurveyHeadline(true)
                 }
+            },
+            loadSurveyBaseStatsFailure: () => {
+                maybeCompleteResultsRequery()
+            },
+            loadSurveyDismissedAndSentCountSuccess: () => {
+                maybeCompleteResultsRequery()
+            },
+            loadSurveyDismissedAndSentCountFailure: () => {
+                maybeCompleteResultsRequery()
+            },
+            startResultsRequery: () => {
+                lemonToast.loading('Refreshing results...', {
+                    toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
+                    autoClose: false,
+                })
+            },
+            markResultsRequeryCompleted: () => {
+                lemonToast.dismiss(LOADING_SURVEY_RESULTS_TOAST_ID)
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
@@ -1094,8 +1137,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     5
                 )
             },
-            setPropertyFilters: () => {
-                reloadAllSurveyResults()
+            setPropertyFilters: ({ reloadResults }) => {
+                if (reloadResults) {
+                    reloadAllSurveyResults()
+                }
             },
             setAnswerFilters: ({ reloadResults }) => {
                 if (reloadResults) {
@@ -1109,18 +1154,23 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             clearFilters: () => {
                 const survey = values.survey as Survey
-                actions.setAnswerFilters(values.defaultAnswerFilters)
-                actions.setPropertyFilters([])
-                actions.setDateRange({
-                    date_from: getSurveyStartDateForQuery(survey),
-                    date_to: getSurveyEndDateForQuery(survey),
-                })
+                actions.setAnswerFilters(values.defaultAnswerFilters, false)
+                actions.setPropertyFilters([], false)
+                actions.setDateRange(
+                    {
+                        date_from: getSurveyStartDateForQuery(survey),
+                        date_to: getSurveyEndDateForQuery(survey),
+                    },
+                    false
+                )
+                reloadAllSurveyResults()
             },
             setShowArchivedResponses: () => {
                 reloadAllSurveyResults()
             },
             archiveResponse: async ({ responseUuid }) => {
                 try {
+                    actions.startResultsRequery()
                     await api.surveys.archiveResponse(values.survey.id, responseUuid)
 
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
@@ -1129,6 +1179,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     lemonToast.success('Response archived')
                 } catch (error) {
+                    actions.markResultsRequeryCompleted()
                     lemonToast.error('Failed to archive response')
                     posthog.captureException(error, {
                         action: 'archive-survey-response',
@@ -1140,6 +1191,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             unarchiveResponse: async ({ responseUuid }) => {
                 try {
+                    actions.startResultsRequery()
                     await api.surveys.unarchiveResponse(values.survey.id, responseUuid)
 
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
@@ -1148,6 +1200,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     lemonToast.success('Response unarchived')
                 } catch (error) {
+                    actions.markResultsRequeryCompleted()
                     lemonToast.error('Failed to unarchive response')
                     posthog.captureException(error, {
                         action: 'unarchive-survey-response',
@@ -1196,6 +1249,15 @@ export const surveyLogic = kea<surveyLogicType>([
             { persist: true },
             {
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
+        resultsRequeryInProgress: [
+            false,
+            {
+                startResultsRequery: () => true,
+                markResultsRequeryCompleted: () => false,
+                loadSurveySuccess: () => false,
+                resetSurvey: () => false,
             },
         ],
         isEditingSurvey: [
@@ -1527,13 +1589,24 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         isAnyResultsLoading: [
-            (s) => [s.surveyBaseStatsLoading, s.surveyDismissedAndSentCountLoading, s.consolidatedSurveyResultsLoading],
+            (s) => [
+                s.archivedResponseUuidsLoading,
+                s.surveyBaseStatsLoading,
+                s.surveyDismissedAndSentCountLoading,
+                s.consolidatedSurveyResultsLoading,
+            ],
             (
+                archivedResponseUuidsLoading: boolean,
                 surveyBaseStatsLoading: boolean,
                 surveyDismissedAndSentCountLoading: boolean,
                 consolidatedSurveyResultsLoading: boolean
             ) => {
-                return consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                return (
+                    archivedResponseUuidsLoading ||
+                    consolidatedSurveyResultsLoading ||
+                    surveyBaseStatsLoading ||
+                    surveyDismissedAndSentCountLoading
+                )
             },
         ],
         defaultAnswerFilters: [
