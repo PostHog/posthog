@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "customer_journey",
     "customer_profile_config",
     "dashboard",
+    "event_filter",
     "dashboard_template",
     "dataset",
     "desktop_recording",
