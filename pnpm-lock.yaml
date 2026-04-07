@@ -895,6 +895,9 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
       d3-flame-graph:
         specifier: ^5.0.0
         version: 5.0.0
@@ -919,6 +922,9 @@ importers:
       fastpriorityqueue:
         specifier: ^0.7.5
         version: 0.7.5
+      fflate:
+        specifier: ^0.7.4
+        version: 0.7.4
       frimousse:
         specifier: ^0.3.0
         version: 0.3.0(react@18.3.1)(typescript@5.7.3)
@@ -1078,6 +1084,9 @@ importers:
       react-modal:
         specifier: ^3.15.1
         version: 3.16.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable:
+        specifier: ^3.0.5
+        version: 3.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-shadow:
         specifier: ^20.3.0
         version: 20.4.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1108,6 +1117,9 @@ importers:
       rrule:
         specifier: ^2.8.1
         version: 2.8.1
+      sass:
+        specifier: ^1.26.2
+        version: 1.56.0
       simple-statistics:
         specifier: ^7.8.8
         version: 7.8.8
@@ -1117,18 +1129,27 @@ importers:
       tailwind-merge:
         specifier: ^2.2.2
         version: 2.2.2
+      tailwindcss:
+        specifier: 4.0.7
+        version: 4.0.7
       torph:
         specifier: ^0.0.5
         version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
+      typescript:
+        specifier: 5.7.3
+        version: 5.7.3
       use-debounce:
         specifier: 'catalog:'
         version: 9.0.3(react@18.3.1)
       use-resize-observer:
         specifier: ^8.0.0
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      vite:
+        specifier: ^7.1.9
+        version: 7.1.9(@types/node@22.18.8)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2)
       zxcvbn:
         specifier: ^4.4.2
         version: 4.4.2
@@ -1247,6 +1268,9 @@ importers:
       '@types/react-modal':
         specifier: ^3.13.1
         version: 3.13.1
+      '@types/react-resizable':
+        specifier: ^3.0.4
+        version: 3.0.4
       '@types/react-simple-maps':
         specifier: ^3.0.6
         version: 3.0.6
@@ -1310,18 +1334,12 @@ importers:
       safe-stable-stringify:
         specifier: ^2.4.3
         version: 2.5.0
-      sass:
-        specifier: ^1.26.2
-        version: 1.56.0
       stream-browserify:
         specifier: ^3.0.0
         version: 3.0.0
       sucrase:
         specifier: ^3.29.0
         version: 3.34.0
-      tailwindcss:
-        specifier: 4.0.7
-        version: 4.0.7
       timekeeper:
         specifier: ^2.2.0
         version: 2.2.0
@@ -1337,12 +1355,6 @@ importers:
       tsconfig-paths:
         specifier: ^4.2.0
         version: 4.2.0
-      typescript:
-        specifier: 5.7.3
-        version: 5.7.3
-      vite:
-        specifier: ^7.1.9
-        version: 7.1.9(@types/node@22.18.8)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2)
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2
@@ -11878,6 +11890,9 @@ packages:
     peerDependencies:
       '@types/react': 18.3.27
 
+  '@types/react-resizable@3.0.4':
+    resolution: {integrity: sha512-+QguN9CDfC1lthq+4noG1fkxh8cqkV2Fv/Mu3mdknCCBiwwNLecnBdk1MmNNN7uJpT23Nx/aVkYsbt5NuWouFw==}
+
   '@types/react-simple-maps@3.0.6':
     resolution: {integrity: sha512-hR01RXt6VvsE41FxDd+Bqm1PPGdKbYjCYVtCgh38YeBPt46z3SwmWPWu2L3EdCAP6bd6VYEgztucihRw1C0Klg==}
 
@@ -15239,6 +15254,9 @@ packages:
 
   fflate@0.4.8:
     resolution: {integrity: sha512-FJqqoDBR00Mdj9ppamLa/Y7vxm+PRmNWA67N846RvsoYVMKB4q3y/de5PA7gUmRMYK/8CMz2GDZQmCRN1wBcWA==}
+
+  fflate@0.7.4:
+    resolution: {integrity: sha512-5u2V/CDW15QM1XbbgS+0DfPxVB+jUKhWEKuuFuHncbk3tEEqzmoXL+2KyOFuKGqOnmdIy0/davWF1CkuwtibCw==}
 
   fflate@0.8.2:
     resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
@@ -35303,6 +35321,10 @@ snapshots:
     dependencies:
       '@types/react': 18.3.27
 
+  '@types/react-resizable@3.0.4':
+    dependencies:
+      '@types/react': 18.3.27
+
   '@types/react-simple-maps@3.0.6':
     dependencies:
       '@types/d3-geo': 2.0.7
@@ -39612,6 +39634,8 @@ snapshots:
   fetch-retry@5.0.6: {}
 
   fflate@0.4.8: {}
+
+  fflate@0.7.4: {}
 
   fflate@0.8.2: {}
 
