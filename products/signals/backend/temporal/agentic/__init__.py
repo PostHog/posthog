@@ -1,4 +1,4 @@
-import structlog  # noqa: trigger redeploy
+import structlog
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
