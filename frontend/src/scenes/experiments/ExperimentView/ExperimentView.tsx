@@ -287,7 +287,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ExperimentWarningBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
-                            <DebugCHQueries experimentId={experiment.id} />
+                            <DebugCHQueries experimentId={typeof experiment.id === 'number' ? experiment.id : null} />
                         </div>
                     )}
                     {!usesNewQueryRunner && (

@@ -211,7 +211,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         queries = self.queries(request, filter_key, filter_value)
         response = {"queries": queries}
-        if filter_key:
+        if filter_key and filter_value:
             response["stats"] = self.stats(filter_key, filter_value)
             response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
