@@ -292,7 +292,8 @@ def _build_resolved_subquery(child_tables: list[tuple[str, DataWarehouseTable]])
     )
 
 
-def _build_child_union_leg(table_name: str, label: str) -> ast.SelectQuery:
+def _build_child_union_leg(table_name: str, label: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    # nosemgrep: hogql-fstring-audit (table_name is internal Stripe table name from system schema, not user input)
     return parse_select(
         f"""
         SELECT
