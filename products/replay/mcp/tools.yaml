@@ -127,6 +127,7 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - type
     session-recording-playlists-update:
         operation: session_recording_playlists_update
         enabled: false
