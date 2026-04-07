@@ -75,6 +75,7 @@ import {
     isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -514,6 +515,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.series],
             (series) => {
                 return (series?.length || 0) > 1
+            },
+        ],
+        isFunnelWithIncompleteDataWarehouseStep: [
+            (s) => [s.series],
+            (series) => {
+                return (series || []).some(
+                    (step) =>
+                        isFunnelsDataWarehouseNode(step) &&
+                        (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
+                )
             },
         ],
 
