@@ -6,6 +6,7 @@ import {
     buildSummary,
     computePreviewOccurrences,
     DEFAULT_STATE,
+    fakeUtcToReal,
     frequencyToRRule,
     getNthWeekdayOfMonth,
     isOneTimeSchedule,
@@ -173,7 +174,7 @@ describe('rrule-helpers', () => {
     })
 
     describe('computePreviewOccurrences', () => {
-        const startsAt = '2024-01-15T09:00:00'
+        const startsAt = '2030-01-15T09:00:00'
 
         it('returns 6 occurrences by default for never-ending schedule', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
@@ -210,9 +211,37 @@ describe('rrule-helpers', () => {
             for (let i = 1; i < result.length; i++) {
                 expect(result[i].getTime()).toBeGreaterThan(result[i - 1].getTime())
             }
-            expect(result[0].getUTCFullYear()).toBe(2024)
+            expect(result[0].getUTCFullYear()).toBe(2030)
             expect(result[0].getUTCMonth()).toBe(0) // January
             expect(result[0].getUTCDate()).toBe(15)
+        })
+    })
+
+    describe('fakeUtcToReal', () => {
+        it('reinterprets UTC values as the given timezone', () => {
+            // Fake-UTC: 2026-04-03T19:25:00Z represents 19:25 Europe/Riga (UTC+3)
+            const fakeDate = new Date(Date.UTC(2026, 3, 3, 19, 25, 0))
+            const real = fakeUtcToReal(fakeDate, 'Europe/Riga')
+            // Real UTC should be 16:25 (19:25 minus 3h offset)
+            expect(real.utc().hour()).toBe(16)
+            expect(real.utc().minute()).toBe(25)
+            // But local time in Riga should still read 19:25
+            expect(real.tz('Europe/Riga').hour()).toBe(19)
+        })
+
+        it('returns UTC-based dayjs when no timezone is given', () => {
+            const fakeDate = new Date(Date.UTC(2026, 3, 3, 19, 25, 0))
+            const real = fakeUtcToReal(fakeDate)
+            expect(real.hour()).toBe(19)
+            expect(real.minute()).toBe(25)
+        })
+
+        it('correctly identifies past occurrences across timezone offset', () => {
+            // 19:25 Riga time = 16:25 UTC. If current UTC is 17:00, this is in the past.
+            const fakeDate = new Date(Date.UTC(2026, 3, 3, 19, 25, 0))
+            const real = fakeUtcToReal(fakeDate, 'Europe/Riga')
+            const afterInUtc = dayjs('2026-04-03T17:00:00Z')
+            expect(real.isBefore(afterInUtc)).toBe(true)
         })
     })
 
