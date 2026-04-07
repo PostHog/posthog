@@ -955,7 +955,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
                 <div>
-                    <LemonLabel className="mb-2" id="match-by-label">
+                    <LemonLabel
+                        className="mb-2"
+                        id="match-by-label"
+                        info="Changing match criteria may remove existing variants or payloads."
+                    >
                         Match by
                     </LemonLabel>
                     <div
