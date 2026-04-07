@@ -194,16 +194,20 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
 }
 
 export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+    const sorted = [...logs].sort((a, b) =>
+        a.rawTimestamp < b.rawTimestamp ? -1 : a.rawTimestamp > b.rawTimestamp ? 1 : 0
+    )
+
     const byId: Record<string, GroupedLogEntry> = {}
     const dedupeCache = new Set<string>()
 
-    for (const log of logs) {
+    for (const log of sorted) {
         const key = toKey(log)
         if (dedupeCache.has(key)) {
             continue
         }
         dedupeCache.add(key)
-        const group = byId[log.instanceId] ?? {
+        const group = (byId[log.instanceId] ??= {
             instanceId: log.instanceId,
             maxTimestamp: log.timestamp,
             maxRawTimestamp: log.rawTimestamp,
@@ -211,26 +215,15 @@ export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
             minRawTimestamp: log.rawTimestamp,
             logLevel: log.level,
             entries: [],
-        }
-        byId[log.instanceId] = group
+        })
         group.entries.push(log)
-        if (log.rawTimestamp < group.minRawTimestamp) {
-            group.minTimestamp = log.timestamp
-            group.minRawTimestamp = log.rawTimestamp
-        }
-        if (log.rawTimestamp >= group.maxRawTimestamp) {
-            group.maxTimestamp = log.timestamp
-            group.maxRawTimestamp = log.rawTimestamp
-            group.logLevel = log.level
-        }
+        // Since logs are sorted ascending, the last entry always has the max timestamp
+        group.maxTimestamp = log.timestamp
+        group.maxRawTimestamp = log.rawTimestamp
+        group.logLevel = log.level
     }
 
-    return Object.values(byId).map((group) => ({
-        ...group,
-        entries: group.entries.sort((a, b) =>
-            a.rawTimestamp < b.rawTimestamp ? -1 : a.rawTimestamp > b.rawTimestamp ? 1 : 0
-        ),
-    }))
+    return Object.values(byId)
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
