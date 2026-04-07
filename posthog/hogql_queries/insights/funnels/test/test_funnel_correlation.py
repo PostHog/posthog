@@ -18,6 +18,7 @@ from unittest import skip
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    DateRange,
     EventPropertyFilter,
     EventsNode,
     FunnelCorrelationQuery,
@@ -2179,22 +2180,22 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
     and related parameters are safely escaped.
     """
 
-    def _setup_basic_funnel(self):
+    def _setup_basic_funnel(self) -> FunnelsQuery:
         """Create minimal funnel data for testing."""
         _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@example.com"})
         _create_event(team=self.team, event="$pageview", distinct_id="person1")
         _create_event(team=self.team, event="$pageleave", distinct_id="person1")
         flush_persons_and_events()
-        return {
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-            "events": [{"id": "$pageview", "order": 0}, {"id": "$pageleave", "order": 1}],
-        }
+        return FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            dateRange=DateRange(
+                date_from="2020-01-01",
+                date_to="2020-01-14",
+            ),
+        )
 
-    def _run_correlation_with_names(self, filters, correlation_names):
+    def _run_correlation_with_names(self, funnels_query: FunnelsQuery, correlation_names: list[str]):
         """Helper to run correlation query with given names."""
-        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         actors_query = FunnelsActorsQuery(source=funnels_query)
         correlation_query = FunnelCorrelationQuery(
             source=actors_query,
@@ -2203,9 +2204,8 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
         )
         return FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
 
-    def _run_event_correlation_with_exclude(self, filters, exclude_names):
+    def _run_event_correlation_with_exclude(self, funnels_query: FunnelsQuery, exclude_names: list[str]):
         """Helper to run event correlation with exclude names."""
-        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         actors_query = FunnelsActorsQuery(source=funnels_query)
         correlation_query = FunnelCorrelationQuery(
             source=actors_query,
@@ -2217,7 +2217,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2020-01-14")
     def test_sql_injection_quote_breakout_in_correlation_names(self):
         """Verify SQL injection via quote breakout in funnelCorrelationNames is escaped."""
-        filters = self._setup_basic_funnel()
+        query = self._setup_basic_funnel()
 
         malicious_inputs = [
             "x') as a, version() as b --",
@@ -2231,7 +2231,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
             # Should not raise a SQL syntax error from injection
             # (may raise other errors like empty results, but NOT from injected SQL executing)
             try:
-                result, _, _, _ = self._run_correlation_with_names(filters, [payload])
+                result, _, _, _ = self._run_correlation_with_names(query, [payload])
                 # If we get here, the query executed safely (payload was escaped)
             except Exception as e:
                 # Acceptable errors: validation errors, empty results
@@ -2243,7 +2243,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2020-01-14")
     def test_sql_injection_in_exclude_event_names(self):
         """Verify SQL injection via funnelCorrelationExcludeEventNames is escaped."""
-        filters = self._setup_basic_funnel()
+        query = self._setup_basic_funnel()
 
         malicious_inputs = [
             "'; DROP TABLE events; --",
@@ -2252,7 +2252,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for payload in malicious_inputs:
             try:
-                result, _, _, _ = self._run_event_correlation_with_exclude(filters, [payload])
+                result, _, _, _ = self._run_event_correlation_with_exclude(query, [payload])
             except Exception as e:
                 error_msg = str(e).lower()
                 self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
@@ -2260,7 +2260,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2020-01-14")
     def test_special_characters_in_property_names_are_handled(self):
         """Verify special characters in property names don't cause SQL errors."""
-        filters = self._setup_basic_funnel()
+        query = self._setup_basic_funnel()
 
         special_chars = [
             "property with spaces",
@@ -2275,7 +2275,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for prop_name in special_chars:
             try:
-                result, _, _, _ = self._run_correlation_with_names(filters, [prop_name])
+                result, _, _, _ = self._run_correlation_with_names(query, [prop_name])
                 # Query should execute without SQL errors
             except Exception as e:
                 error_msg = str(e).lower()
