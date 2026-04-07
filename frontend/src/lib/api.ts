@@ -5563,8 +5563,8 @@ const api = {
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
         ): Promise<{
-            users_affected: number
-            total_users: number
+            affected: number
+            total: number
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
