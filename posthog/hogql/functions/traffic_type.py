@@ -21,34 +21,42 @@ from posthog.hogql import ast
 @dataclass
 class BotDefinition:
     name: str  # Display name: "Googlebot", "ChatGPT"
-    category: str  # Category: "search_crawler", "llm_crawler"
+    category: str  # Category: "search_crawler", "ai_crawler", "ai_search", "ai_assistant"
     traffic_type: str  # Type: "Bot", "AI Agent", "Automation"
 
 
 # Pattern -> BotDefinition mapping (ordered by specificity)
 BOT_DEFINITIONS: dict[str, BotDefinition] = {
-    # AI Agents
-    "GPTBot": BotDefinition("GPTBot", "llm_crawler", "AI Agent"),
-    "OAI-SearchBot": BotDefinition("OpenAI Search", "llm_crawler", "AI Agent"),
-    "ChatGPT-User": BotDefinition("ChatGPT", "llm_crawler", "AI Agent"),
-    "ClaudeBot": BotDefinition("Claude", "llm_crawler", "AI Agent"),
-    "Claude-Web": BotDefinition("Claude Web", "llm_crawler", "AI Agent"),
-    "anthropic-ai": BotDefinition("Anthropic", "llm_crawler", "AI Agent"),
-    "PerplexityBot": BotDefinition("Perplexity", "llm_crawler", "AI Agent"),
-    "Google-Extended": BotDefinition("Google AI", "llm_crawler", "AI Agent"),
-    "CCBot": BotDefinition("Common Crawl", "llm_crawler", "AI Agent"),
-    "Applebot-Extended": BotDefinition("Apple AI", "llm_crawler", "AI Agent"),
-    "cohere-ai": BotDefinition("Cohere", "llm_crawler", "AI Agent"),
-    "meta-externalagent": BotDefinition("Meta AI", "llm_crawler", "AI Agent"),
-    "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "llm_crawler", "AI Agent"),
-    "Bytespider": BotDefinition("ByteDance", "llm_crawler", "AI Agent"),
-    "Diffbot": BotDefinition("Diffbot", "llm_crawler", "AI Agent"),
-    "omgili": BotDefinition("Webz.io", "llm_crawler", "AI Agent"),
-    "Webzio-Extended": BotDefinition("Webz.io Extended", "llm_crawler", "AI Agent"),
-    "Timpibot": BotDefinition("Timpi", "llm_crawler", "AI Agent"),
+    # AI Crawlers (training data collection)
+    "GPTBot": BotDefinition("GPTBot", "ai_crawler", "AI Agent"),
+    "Google-CloudVertexBot": BotDefinition("Google Cloud Vertex", "ai_crawler", "AI Agent"),
+    "Google-Extended": BotDefinition("Google AI", "ai_crawler", "AI Agent"),
+    "Claude-SearchBot": BotDefinition("Claude Search", "ai_search", "AI Agent"),
+    "Claude-User": BotDefinition("Claude User", "ai_assistant", "AI Agent"),
+    "ClaudeBot": BotDefinition("Claude", "ai_crawler", "AI Agent"),
+    "Claude-Web": BotDefinition("Claude Web", "ai_crawler", "AI Agent"),
+    "anthropic-ai": BotDefinition("Anthropic", "ai_crawler", "AI Agent"),
+    "Perplexity-User": BotDefinition("Perplexity User", "ai_assistant", "AI Agent"),
+    "PerplexityBot": BotDefinition("Perplexity", "ai_search", "AI Agent"),
+    "CCBot": BotDefinition("Common Crawl", "ai_crawler", "AI Agent"),
+    "meta-externalagent": BotDefinition("Meta AI", "ai_crawler", "AI Agent"),
+    "Bytespider": BotDefinition("ByteDance", "ai_crawler", "AI Agent"),
+    "cohere-ai": BotDefinition("Cohere", "ai_crawler", "AI Agent"),
+    "Diffbot": BotDefinition("Diffbot", "ai_crawler", "AI Agent"),
+    "omgili": BotDefinition("Webz.io", "ai_crawler", "AI Agent"),
+    "Webzio-Extended": BotDefinition("Webz.io Extended", "ai_crawler", "AI Agent"),
+    "Timpibot": BotDefinition("Timpi", "ai_crawler", "AI Agent"),
+    "Amazonbot": BotDefinition("Amazon", "ai_crawler", "AI Agent"),
+    # AI Search (search result generation)
+    "OAI-SearchBot": BotDefinition("OpenAI Search", "ai_search", "AI Agent"),
+    "Applebot-Extended": BotDefinition("Apple AI", "ai_search", "AI Agent"),
+    # AI Assistants (real-time user-facing fetching)
+    "ChatGPT-User": BotDefinition("ChatGPT", "ai_assistant", "AI Agent"),
+    "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent"),
+    "DuckAssistBot": BotDefinition("DuckDuckGo AI", "ai_assistant", "AI Agent"),
+    "MistralAI-User": BotDefinition("Mistral AI", "ai_assistant", "AI Agent"),
     # Search Crawlers (Applebot must come after Applebot-Extended above)
-    "Applebot": BotDefinition("Applebot", "search_crawler", "Bot"),
-    "Amazonbot": BotDefinition("Amazon", "search_crawler", "Bot"),
+    "Applebot": BotDefinition("Applebot", "ai_search", "AI Agent"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot"),
     "Bingbot": BotDefinition("Bingbot", "search_crawler", "Bot"),
     "YandexBot": BotDefinition("Yandex", "search_crawler", "Bot"),
@@ -167,7 +175,7 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Returns subcategory: 'llm_crawler', 'search_crawler', 'seo_crawler', etc.
+    Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
     """
     return _build_bot_array_lookup(args[0], "category", default="regular", empty_ua_value="no_user_agent")
@@ -207,7 +215,7 @@ def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     EXPERIMENTAL: This function may change without notice.
 
     Returns the bot category or empty string for regular traffic.
-    Categories: 'llm_crawler', 'search_crawler', 'seo_crawler', 'social_crawler',
-                'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
+    Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
+                'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
     return _build_bot_array_lookup(args[0], "category", default="", empty_ua_value="no_user_agent")
