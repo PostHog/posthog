@@ -48,6 +48,7 @@ AI_EVENT_TYPES = (
     "$ai_span",
     "$ai_generation",
     "$ai_embedding",
+    "$ai_evaluation",
     "$ai_metric",
     "$ai_feedback",
     "$ai_trace",

@@ -87,7 +87,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_evaluation', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
@@ -155,7 +155,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_evaluation', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
