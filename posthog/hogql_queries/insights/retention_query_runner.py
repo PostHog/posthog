@@ -226,7 +226,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
         )
-        # For first_ever_occurrence, skip entity expression filter (includes properties the anchor logic needs to bypass)
         is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
         if not self.is_first_ever_occurrence:
             global_event_filters.append(is_relevant_event)
