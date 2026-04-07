@@ -3,7 +3,15 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, FunnelVizType, IntervalType
+from posthog.schema import (
+    DateRange,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelVizType,
+    IntervalType,
+)
 
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -20,7 +28,7 @@ funnels_query = FunnelsQuery(
     funnelsFilter=FunnelsFilter(
         funnelVizType=FunnelVizType.TRENDS,
         funnelWindowInterval=14,
-        funnelWindowIntervalUnit=IntervalType.DAY,
+        funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
         funnelFromStep=0,
     ),
 )
@@ -61,6 +69,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
+        assert funnels_query.funnelsFilter
         results = get_actors(
             funnels_query.model_copy(
                 update={"funnelsFilter": funnels_query.funnelsFilter.model_copy(update={"funnelToStep": 1})}
