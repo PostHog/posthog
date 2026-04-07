@@ -28,12 +28,36 @@ posthog:exec({ "command": "search <regex_pattern>" })
 # Fallback: list all tools (only if you don't know what domain to search)
 posthog:exec({ "command": "tools" })
 
-# STEP 2: REQUIRED — Check schema BEFORE any call
+# STEP 2: REQUIRED — Check tool description and top-level schema
 posthog:exec({ "command": "info <tool_name>" })
 
-# STEP 3: Only after checking schema, call the tool
+# STEP 3: REQUIRED for complex fields — Get full schema for fields you need to populate
+# The info response may include drill-down hints for complex fields. For any field with
+# a "hint", you MUST run schema before constructing that field's value.
+posthog:exec({ "command": "schema <tool_name> <field_name>" })
+
+# STEP 4: Only after checking schema, call the tool
 posthog:exec({ "command": "call <tool_name> <json_input>" })
 ```
+
+**SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
+
+The `info` command may return the full schema (for simple tools) or a top-level summary
+with drill-down hints (for complex tools). Look for `hint` fields in the response.
+
+If `info` returned a summary (fields have `hint` values), you MUST call
+`schema <tool_name> <field_name>` for each field you need to populate BEFORE
+constructing that field's value in a `call` command.
+
+If `schema` also returns a summary (because the field is too large),
+drill deeper using dot-notation: `schema <tool> <field>.<subfield>`.
+
+**NEVER** guess the structure of fields that have hints. **ALWAYS** drill down first.
+
+For query tools, you will typically need:
+- `schema <tool> series` — to see EventsNode/ActionsNode structure
+- `schema <tool> properties` — to see property filter structure
+- `schema <tool> breakdownFilter` — when using breakdowns
 
 **For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
 
@@ -43,10 +67,12 @@ posthog:exec({ "command": "call <tool_name> <json_input>" })
 User: How many weekly active users do we have?
 Assistant: I need to find the right query tool and data schema tool.
 [Runs posthog:exec({ "command": "search query-trends" }) and posthog:exec({ "command": "search read-data" }) in parallel]
-Assistant: Let me check the schemas for both tools.
+Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
-Assistant: Now let me check what events are available.
-[Runs posthog:exec({ "command": "call read-data-schema {\"kind\": \"events\"}" })]
+Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
+[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"kind\": \"events\"}" }) in parallel]
+Assistant: Now I know the exact series structure and available events. Let me construct the query.
+[Runs posthog:exec({ "command": "call query-trends {...}" })]
 </example>
 
 <example>
@@ -80,6 +106,13 @@ WRONG — You must run `info feature-flag-list` FIRST to check the schema
 User: Query our events
 Assistant: [Calls three tools in parallel without any `info` calls first]
 WRONG — You must run `info` for ALL tools before making ANY `call` commands
+</bad-example>
+
+<bad-example>
+User: Show me a trends chart of signups
+Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
+WRONG — info returned a summary with hint: "Run `schema query-trends series` for full structure".
+You MUST follow the hint and run `schema` before constructing the series field.
 </bad-example>
 
 **Handling errors:**
