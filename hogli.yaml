@@ -809,3 +809,7 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    django:warm:
+        bin_script: warm-django
+        description: 'Pre-fork Django daemon for instant manage.py and pytest startup'
+        hidden: true

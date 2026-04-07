@@ -521,5 +521,11 @@ group_order:
     # Groups["capability"] at load time. Display order falls back to the order
     # capabilities first appear across procs.
 
+    warm-django:
+        shell: 'python -m tools.warm_django.server'
+        capability: warm_django
+        ready_pattern: 'warm-django: ready'
+        autostart: false
+
 mouse_scroll_speed: 1
 scrollback: 10000

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Thin wrapper around the warm-django client.
+# Usage:
+#   bin/warm-django manage shell
+#   bin/warm-django pytest posthog/test/test_utils.py -x
+#   bin/warm-django manage migrate
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+exec python -m tools.warm_django.client "$@"
