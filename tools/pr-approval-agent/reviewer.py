@@ -133,6 +133,10 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
+    - Top-level reviews are annotated as either "current head" or "older commit".
+      Treat reviews on the current head as active signals. Treat older-commit
+      reviews as historical context only, and only flag them if the current diff
+      still shows the same unresolved issue.
     - Comments are tagged [resolved], [outdated], or unmarked (unresolved).
       Resolution status is a signal, not gospel — use your judgment.
     - Resolved/outdated comments are usually fine, but still skim them.
@@ -293,8 +297,14 @@ class Reviewer:
             for r in pr.reviews:
                 safe_user = _sanitize_untrusted(r["user"], max_len=50)
                 safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
+                if r.get("is_current_head"):
+                    review_scope = "current head"
+                elif r.get("commit_id"):
+                    review_scope = f"older commit {r['commit_id'][:7]}"
+                else:
+                    review_scope = "older commit"
                 body_part = f": {safe_body}" if safe_body else ""
-                lines.append(f"  - @{safe_user} [{r['state']}]{body_part}")
+                lines.append(f"  - @{safe_user} [{r['state']}, {review_scope}]{body_part}")
             reviews_text = "\n".join(lines)
 
         review_comments = ""
