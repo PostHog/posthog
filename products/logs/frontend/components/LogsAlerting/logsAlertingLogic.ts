@@ -10,6 +10,8 @@ import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
 
+const ALERT_POLL_INTERVAL_MS = 30_000
+
 export const logsAlertingLogic = kea<logsAlertingLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsAlerting', 'logsAlertingLogic']),
 
@@ -78,7 +80,15 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadAlerts()
+        cache.disposables.add(() => {
+            const intervalId = window.setInterval(() => {
+                if (!values.isCreating && values.editingAlert === null) {
+                    actions.loadAlerts()
+                }
+            }, ALERT_POLL_INTERVAL_MS)
+            return () => clearInterval(intervalId)
+        }, 'pollAlerts')
     }),
 ])

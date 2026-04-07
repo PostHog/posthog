@@ -12,8 +12,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../../ExperimentView/components'
-import { modalsLogic } from '../../modalsLogic'
 import { SharedMetric } from '../../SharedMetrics/sharedMetricLogic'
+import { legacyExperimentModalsLogic } from '../legacyExperimentModalsLogic'
 
 /**
  * @deprecated
@@ -24,8 +24,8 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
     const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic)
     const { addSharedMetricsToExperiment, removeSharedMetricFromExperiment, restoreUnmodifiedExperiment } =
         useActions(experimentLogic)
-    const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
-    const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
+    const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(legacyExperimentModalsLogic)
+    const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(legacyExperimentModalsLogic)
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
 

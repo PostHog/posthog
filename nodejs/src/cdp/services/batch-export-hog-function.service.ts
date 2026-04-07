@@ -88,7 +88,7 @@ export class BatchExportHogFunctionService {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
         invocation.id = invocationId.toString()
 
-        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 }) // Retries are handled by the batch export service
 
         // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
         // We have the parent_id but that overrides the function id which is not always what we want

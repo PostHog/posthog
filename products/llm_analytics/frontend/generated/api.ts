@@ -39,7 +39,7 @@ import type {
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
-    PaginatedLLMPromptListApi,
+    PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
@@ -1186,8 +1186,8 @@ export const llmPromptsList = async (
     projectId: string,
     params?: LlmPromptsListParams,
     options?: RequestInit
-): Promise<PaginatedLLMPromptListApi> => {
-    return apiMutator<PaginatedLLMPromptListApi>(getLlmPromptsListUrl(projectId, params), {
+): Promise<PaginatedLLMPromptListListApi> => {
+    return apiMutator<PaginatedLLMPromptListListApi>(getLlmPromptsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

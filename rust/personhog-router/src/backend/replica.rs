@@ -42,7 +42,9 @@ impl ReplicaBackend {
         max_send_message_size: usize,
         max_recv_message_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut endpoint = Channel::from_shared(url.to_string())?.timeout(timeout);
+        let mut endpoint = Channel::from_shared(url.to_string())?
+            .timeout(timeout)
+            .tcp_nodelay(true);
         if let Some(interval) = keepalive_interval {
             endpoint = endpoint
                 .http2_keep_alive_interval(interval)

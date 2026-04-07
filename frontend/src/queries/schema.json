@@ -274,6 +274,9 @@
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
@@ -4786,6 +4789,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -4797,6 +4803,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -4804,6 +4813,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -14924,12 +14936,20 @@
                     "const": "EventTaxonomyQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
                 "maxPropertyValues": {
                     "$ref": "#/definitions/integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
                 },
                 "properties": {
                     "items": {
@@ -14958,13 +14978,22 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15450,6 +15479,45 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "ExperimentActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelStep": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons."
+                },
+                "funnelStepBreakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType",
+                    "description": "The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test')."
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentQuery"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "source"],
             "type": "object"
         },
         "ExperimentBreakdownResult": {
@@ -19757,6 +19825,9 @@
                         },
                         {
                             "$ref": "#/definitions/StickinessActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
                         }
                     ]
                 },
@@ -24447,6 +24518,7 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
@@ -29940,13 +30012,22 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -38562,6 +38643,29 @@
             },
             "type": "object"
         },
+        "isExperimentFunnelsQuery": {
+            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentFunnelsQuery",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "query": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                                },
+                                {
+                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["query"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
             "properties": {
@@ -38605,6 +38709,29 @@
                         }
                     },
                     "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentTrendsQuery": {
+            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentTrendsQuery",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "query": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                                },
+                                {
+                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["query"],
                     "type": "object"
                 }
             },

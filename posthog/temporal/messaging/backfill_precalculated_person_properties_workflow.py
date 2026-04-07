@@ -246,6 +246,120 @@ def evaluate_combined_filters_sync(
         return {}
 
 
+def evaluate_individual_filters_sync(
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute each filter's bytecode individually, returning {condition_hash: result}.
+
+    Isolates failures to individual cohorts rather than failing all cohorts for a person.
+    Returns results for successful filters only; failed filters are omitted from results.
+    """
+    results = {}
+
+    for filter_obj in filters:
+        try:
+            bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+            result = bytecode_result.result
+
+            if detailed_logging:
+                LOGGER.info(
+                    "Individual filter evaluation completed",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                    execution_successful=True,
+                    execution_stdout=bytecode_result.stdout,
+                )
+
+            # Store the result for this specific condition
+            if isinstance(result, bool):
+                results[filter_obj.condition_hash] = result
+            elif detailed_logging:
+                LOGGER.warning(
+                    "Individual filter evaluation returned non-bool result",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                )
+        except Exception as e:
+            LOGGER.warning(
+                "Failed to execute filter bytecode for person",
+                person_id=person_id,
+                condition_hash=filter_obj.condition_hash,
+                cohort_ids=filter_obj.cohort_ids,
+                error=str(e),
+            )
+
+    return results
+
+
+def evaluate_combined_filters_with_fallback_sync(
+    combined_bytecode: list[Any],
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute combined bytecode with fallback to individual filter execution.
+
+    First attempts to execute all filters in a single combined bytecode for performance.
+    If that fails, falls back to executing each filter individually to isolate failures.
+    """
+    # First, try the fast path with combined bytecode
+    try:
+        bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
+        result = bytecode_result.result
+
+        if detailed_logging:
+            LOGGER.info(
+                "Combined filter evaluation completed successfully",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
+        if isinstance(result, dict):
+            invalid_result_entries = {
+                condition_hash: value for condition_hash, value in result.items() if not isinstance(value, bool)
+            }
+            if not invalid_result_entries:
+                return result
+            LOGGER.warning(
+                "Combined filter evaluation returned non-boolean values, falling back to individual execution",
+                person_id=person_id,
+                invalid_condition_hashes=list(invalid_result_entries.keys()),
+                invalid_result_types={
+                    condition_hash: type(value).__name__ for condition_hash, value in invalid_result_entries.items()
+                },
+            )
+
+        if detailed_logging:
+            LOGGER.warning(
+                "Combined filter evaluation returned non-dict result, falling back to individual execution",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+    except Exception as e:
+        LOGGER.info(
+            "Combined filter execution failed, falling back to individual filter evaluation",
+            person_id=person_id,
+            error=str(e),
+            fallback_reason="combined_execution_failed",
+        )
+
+    # Fallback to individual filter execution for error isolation
+    return evaluate_individual_filters_sync(filters, hog_globals, person_id, detailed_logging)
+
+
 @temporalio.activity.defn
 async def backfill_precalculated_person_properties_activity(
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
@@ -448,8 +562,9 @@ async def backfill_precalculated_person_properties_activity(
                     hog_globals = {"person": {"properties": parsed_properties}}
 
                     filter_results = await asyncio.to_thread(
-                        evaluate_combined_filters_sync,
+                        evaluate_combined_filters_with_fallback_sync,
                         combined_bytecode,
+                        filters,
                         hog_globals,
                         person_id,
                         detailed_logging=detailed_logging_enabled,

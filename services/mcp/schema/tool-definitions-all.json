@@ -1479,6 +1479,126 @@
             "readOnlyHint": false
         }
     },
+    "endpoints-get-all": {
+        "description": "Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable API routes. Returns name, description, query, active status, current version, and materialization info for each endpoint.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get all endpoints",
+        "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-get": {
+        "description": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint",
+        "title": "Get endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-create": {
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Create endpoint",
+        "title": "Create endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-update": {
+        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache age, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Update endpoint",
+        "title": "Update endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-delete": {
+        "description": "Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Delete endpoint",
+        "title": "Delete endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-run": {
+        "description": "Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with breakdowns, use the breakdown property name as the key.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Run endpoint",
+        "title": "Run endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-versions": {
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, cache settings, and materialization status at that point in time.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint versions",
+        "title": "Get endpoint versions",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-materialization-status": {
+        "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get materialization status",
+        "title": "Get materialization status",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -1779,6 +1899,51 @@
             "readOnlyHint": false
         }
     },
+    "integrations-list": {
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub integrations are returned.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List integrations",
+        "title": "List integrations",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-get": {
+        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Get integration",
+        "title": "Get integration",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-delete": {
+        "description": "Permanently delete an integration by ID. This removes the connection to the third-party service. Any features relying on this integration (alerts, workflow destinations, etc.) will stop working.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Delete integration",
+        "title": "Delete integration",
+        "required_scopes": ["integration:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llm-analytics-clustering-jobs-list": {
         "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
         "category": "LLM analytics",
@@ -2020,7 +2185,7 @@
         }
     },
     "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "List prompts",

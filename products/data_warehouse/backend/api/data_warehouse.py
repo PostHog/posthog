@@ -818,9 +818,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
 
-        # Use the PostHog team_id as the duckgres org identifier
-        team_id = str(self.team_id)
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
+        # Use the PostHog organization_id as the duckgres org identifier
+        org_id = str(self.team.organization_id)
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
         headers = {}
         if token:
             headers["X-Duckgres-Internal-Secret"] = token
@@ -829,13 +829,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             resp = http_requests.request(method, url, json=json_body, headers=headers, timeout=30)
             return Response(resp.json(), status=resp.status_code)
         except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", url=url, team_id=team_id)
+            logger.warning("Provisioning API timeout", url=url, org_id=org_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
         except http_requests.ConnectionError:
-            logger.warning("Provisioning API unreachable", url=url, team_id=team_id)
+            logger.warning("Provisioning API unreachable", url=url, org_id=org_id)
             return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
-            logger.exception("Provisioning API error", url=url, team_id=team_id)
+            logger.exception("Provisioning API error", url=url, org_id=org_id)
             return Response(
                 {"error": "An error occurred contacting the provisioning service"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -906,7 +906,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
-        return self._provisioning_request("GET", "/warehouse/status")
+        resp = self._provisioning_request("GET", "/warehouse/status")
+        # Override connection host/port with the public-facing duckgres PG endpoint
+        if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
+            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
+            pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
+            if pg_url:
+                resp.data["connection"]["host"] = pg_url
+                resp.data["connection"]["port"] = pg_port
+        return resp
 
     @extend_schema(
         responses={
