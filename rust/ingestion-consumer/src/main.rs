@@ -100,9 +100,15 @@ async fn async_main(config: Config) -> Result<()> {
     let guard = manager.monitor_background();
 
     // Spawn the consumer task
+    let api_secret = if config.internal_api_secret.is_empty() {
+        None
+    } else {
+        Some(config.internal_api_secret.clone())
+    };
     let transport = Arc::new(HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
+        api_secret,
     ));
 
     let consumer = IngestionConsumer::new(&config, transport, consumer_handle)

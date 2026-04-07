@@ -45,13 +45,13 @@ impl IngestionConsumer {
 
         let client_config = config.build_consumer_config();
         let consumer: StreamConsumer = client_config.create()?;
-        consumer.subscribe(&[&config.kafka_consumer_topic])?;
+        consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
 
         info!(
-            topic = %config.kafka_consumer_topic,
-            group = %config.kafka_consumer_group,
+            topic = %config.ingestion_consumer_consume_topic,
+            group = %config.ingestion_consumer_group_id,
             workers = worker_urls.len(),
-            batch_size = config.batch_size,
+            batch_size = config.consumer_batch_size,
             "Kafka consumer subscribed"
         );
 
@@ -60,8 +60,8 @@ impl IngestionConsumer {
             router,
             transport,
             worker_urls,
-            batch_size: config.batch_size,
-            batch_timeout: Duration::from_millis(config.batch_timeout_ms),
+            batch_size: config.consumer_batch_size,
+            batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             handle,
         })
     }

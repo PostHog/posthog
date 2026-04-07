@@ -12,10 +12,11 @@ use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessa
 pub struct HttpTransport {
     client: reqwest::Client,
     max_retries: u32,
+    api_secret: Option<String>,
 }
 
 impl HttpTransport {
-    pub fn new(timeout: Duration, max_retries: u32) -> Self {
+    pub fn new(timeout: Duration, max_retries: u32, api_secret: Option<String>) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .pool_max_idle_per_host(4)
@@ -25,12 +26,13 @@ impl HttpTransport {
         Self {
             client,
             max_retries,
+            api_secret,
         }
     }
 
-    /// Check if a worker is ready by probing its readiness endpoint.
+    /// Check if a worker is ready by probing its health endpoint.
     pub async fn check_ready(&self, worker_url: &str) -> bool {
-        let url = format!("{worker_url}/_readiness");
+        let url = format!("{worker_url}/_ready");
         match self.client.get(&url).send().await {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
@@ -157,7 +159,11 @@ impl HttpTransport {
         url: &str,
         request: &IngestBatchRequest,
     ) -> Result<IngestBatchResponse, TransportError> {
-        let response = self.client.post(url).json(request).send().await?;
+        let mut req_builder = self.client.post(url).json(request);
+        if let Some(secret) = &self.api_secret {
+            req_builder = req_builder.header("X-Internal-Api-Secret", secret);
+        }
+        let response = req_builder.send().await?;
         let status = response.status();
 
         if status.is_client_error() || status.is_server_error() {

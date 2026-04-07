@@ -94,7 +94,7 @@ async fn transport_sends_batch_and_receives_ack() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let (url, _handle) = start_mock_worker(received.clone()).await;
 
-    let transport = HttpTransport::new(Duration::from_secs(5), 0);
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None);
 
     let messages = vec![
         make_message("tok1", "user-a", 0, r#"{"event":"$pageview"}"#),
@@ -126,7 +126,7 @@ async fn transport_sends_batch_and_receives_ack() {
 async fn transport_retries_on_server_error() {
     let (url, _handle) = start_failing_worker().await;
 
-    let transport = HttpTransport::new(Duration::from_secs(1), 2);
+    let transport = HttpTransport::new(Duration::from_secs(1), 2, None);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
@@ -136,7 +136,7 @@ async fn transport_retries_on_server_error() {
 
 #[tokio::test]
 async fn transport_fails_on_unreachable_worker() {
-    let transport = HttpTransport::new(Duration::from_secs(1), 0);
+    let transport = HttpTransport::new(Duration::from_secs(1), 0, None);
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
     let result = transport
@@ -155,7 +155,7 @@ async fn router_and_transport_end_to_end() {
 
     let worker_urls = [url_1.clone(), url_2.clone()];
     let router = MessageRouter::new(worker_urls.len());
-    let transport = Arc::new(HttpTransport::new(Duration::from_secs(5), 0));
+    let transport = Arc::new(HttpTransport::new(Duration::from_secs(5), 0, None));
 
     // Create messages for multiple distinct_ids
     let messages = vec![
@@ -223,7 +223,7 @@ async fn wire_format_preserves_unicode_and_null_fields() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let (url, _handle) = start_mock_worker(received.clone()).await;
 
-    let transport = HttpTransport::new(Duration::from_secs(5), 0);
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None);
 
     let messages = vec![SerializedKafkaMessage {
         topic: "test".to_string(),
