@@ -147,7 +147,13 @@ impl IngestionConsumer {
             total_accepted += result;
         }
 
-        // All workers ACK'd — commit offsets
+        if total_accepted < batch_size as u32 {
+            anyhow::bail!(
+                "Workers accepted {total_accepted}/{batch_size} messages — not committing offsets"
+            );
+        }
+
+        // All workers ACK'd all messages — commit offsets
         self.commit_offsets(&offsets)?;
 
         let elapsed = start.elapsed();

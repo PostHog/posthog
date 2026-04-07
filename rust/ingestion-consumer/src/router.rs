@@ -48,6 +48,7 @@ impl MessageRouter {
         messages: Vec<SerializedKafkaMessage>,
     ) -> HashMap<usize, Vec<SerializedKafkaMessage>> {
         let mut groups: HashMap<usize, Vec<SerializedKafkaMessage>> = HashMap::new();
+        let mut unique_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut missing_headers: u64 = 0;
 
         for message in messages {
@@ -55,6 +56,7 @@ impl MessageRouter {
             if key == ":" {
                 missing_headers += 1;
             }
+            unique_keys.insert(key.clone());
             let worker_idx = self.assign(&key);
             groups.entry(worker_idx).or_default().push(message);
         }
@@ -65,9 +67,7 @@ impl MessageRouter {
                 .increment(msgs.len() as u64);
         }
 
-        // Track how many distinct_ids are in this batch (proxy for routing spread)
-        let distinct_id_count = groups.len();
-        histogram!("ingestion_consumer_distinct_ids_per_batch").record(distinct_id_count as f64);
+        histogram!("ingestion_consumer_distinct_ids_per_batch").record(unique_keys.len() as f64);
 
         if missing_headers > 0 {
             counter!("ingestion_consumer_missing_routing_headers_total").increment(missing_headers);

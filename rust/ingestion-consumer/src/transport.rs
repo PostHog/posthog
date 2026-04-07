@@ -131,6 +131,9 @@ impl HttpTransport {
                         error = %err,
                         "Failed to send batch to worker"
                     );
+                    if !err.is_retriable() {
+                        return Err(err);
+                    }
                     last_err = Some(err);
                 }
             }
@@ -157,7 +160,7 @@ impl HttpTransport {
         let response = self.client.post(url).json(request).send().await?;
         let status = response.status();
 
-        if status.is_server_error() {
+        if status.is_client_error() || status.is_server_error() {
             let body = response.text().await.unwrap_or_default();
             return Err(TransportError::HttpStatus(status.as_u16(), body));
         }
@@ -180,4 +183,16 @@ pub enum TransportError {
 
     #[error("All retries exhausted")]
     RetriesExhausted,
+}
+
+impl TransportError {
+    /// 4xx errors are non-transient and should not be retried.
+    pub fn is_retriable(&self) -> bool {
+        match self {
+            TransportError::HttpStatus(status, _) => *status >= 500,
+            TransportError::Http(_) => true,
+            TransportError::WorkerError(_) => true,
+            TransportError::RetriesExhausted => false,
+        }
+    }
 }

@@ -4677,8 +4677,6 @@ dependencies = [
  "rdkafka",
  "reqwest 0.12.28",
  "serde",
- "serde_json",
- "serve-metrics",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
