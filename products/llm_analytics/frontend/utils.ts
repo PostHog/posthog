@@ -38,6 +38,7 @@ import {
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    MultiModalContentItem,
 } from './types'
 
 export interface PagedSearchOrderFilters {
@@ -716,6 +717,23 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
     return roleMap[lowercased] || lowercased
 }
 
+function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
+    try {
+        const parsed = JSON.parse(content)
+        if (
+            Array.isArray(parsed) &&
+            parsed.length > 0 &&
+            parsed.every((item) => item && typeof item === 'object' && 'type' in item && typeof item.type === 'string')
+        ) {
+            return parsed as MultiModalContentItem[]
+        }
+    } catch {
+        // Keep the original text when it's not valid JSON.
+    }
+
+    return content
+}
+
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
@@ -818,7 +836,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             {
                 ...rawMessage,
                 role: roleToUse,
-                content: rawMessage.content,
+                content:
+                    typeof rawMessage.content === 'string'
+                        ? parseStringifiedStructuredContent(rawMessage.content)
+                        : rawMessage.content,
                 tool_calls: isOpenAICompatToolCallsArray(rawMessage.tool_calls)
                     ? parseOpenAIToolCalls(rawMessage.tool_calls)
                     : undefined,
@@ -984,7 +1005,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         return [
             {
                 role: roleToUse,
-                content: rawMessage.content,
+                content:
+                    typeof rawMessage.content === 'string'
+                        ? parseStringifiedStructuredContent(rawMessage.content)
+                        : rawMessage.content,
             },
         ]
     }

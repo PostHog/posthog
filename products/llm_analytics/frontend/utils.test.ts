@@ -637,6 +637,19 @@ describe('LLM Analytics utils', () => {
             expect(result[0].content).toEqual([{ type: 'text', text: 'Custom response' }])
         })
 
+        it('parses stringified structured content blocks for role-based messages', () => {
+            const stringifiedStructuredMessage = {
+                role: 'user',
+                content: JSON.stringify([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }]),
+            }
+
+            const result = normalizeMessage(stringifiedStructuredMessage, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('user')
+            expect(result[0].content).toEqual([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }])
+        })
+
         it('handles LiteLLM choice wrapper and preserves nested role', () => {
             const liteLLMChoice = {
                 finish_reason: 'stop',
