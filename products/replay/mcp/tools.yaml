@@ -10,18 +10,7 @@ url_prefix: /replay
 tools:
     session-recordings-list:
         operation: session_recordings_list
-        enabled: true
-        scopes:
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List session recordings
-        description: >
-            List session recordings in the project. Returns recording metadata including duration,
-            activity counts, start URL, and person information. Supports pagination.
+        enabled: false
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true
@@ -143,3 +132,21 @@ tools:
     session-recording-playlists-recordings-destroy:
         operation: session_recording_playlists_recordings_destroy
         enabled: false
+wrappers:
+    query-session-recordings-list:
+        schema_ref: AssistantRecordingsQuery
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: List session recordings
+        description_file: ./prompts/query-session-recordings-list.md
+        response_format: json
+        url_prefix: /replay
+        exclude_properties:
+            - response
+            - modifiers

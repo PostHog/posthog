@@ -2457,6 +2457,57 @@
         "AssistantQuerySchema": {
             "$ref": "#/definitions/QuerySchema"
         },
+        "AssistantRecordingsQuery": {
+            "additionalProperties": false,
+            "description": "Simplified RecordingsQuery for MCP tool usage. Exposes the most useful filtering and pagination fields with LLM-friendly descriptions while hiding internal complexity (having_predicates, operand, actions, etc.).",
+            "properties": {
+                "after": {
+                    "description": "Cursor for pagination from a previous response's next_cursor field.",
+                    "type": "string"
+                },
+                "date_from": {
+                    "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\".",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now.",
+                    "type": ["string", "null"]
+                },
+                "filter_test_accounts": {
+                    "description": "Exclude internal and test users. Default: false.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of recordings to return."
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "description": "Sort field. Options: \"start_time\", \"duration\", \"activity_score\", \"console_error_count\", \"click_count\". Default: \"start_time\"."
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "description": "Sort direction: \"ASC\" or \"DESC\". Default: \"DESC\"."
+                },
+                "person_uuid": {
+                    "description": "Filter recordings to a specific person by their UUID.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -6688,6 +6739,89 @@
             },
             "required": [
                 "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedRecordingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "has_next": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingType"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "has_next",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -29820,6 +29954,53 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "has_next": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "next_cursor": {
+                            "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                            "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SessionRecordingType"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["has_next", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "columns": {
                             "items": {
                                 "type": "string"
@@ -30727,6 +30908,9 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 },
                 {
+                    "$ref": "#/definitions/RecordingsQuery"
+                },
+                {
                     "$ref": "#/definitions/LogsQuery"
                 },
                 {
@@ -31133,21 +31317,48 @@
         "RecordingsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "has_next": {
                     "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "next_cursor": {
                     "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/SessionRecordingType"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["results", "has_next"],
+            "required": ["has_next", "results"],
             "type": "object"
         },
         "RedditAdsDefaultSources": {

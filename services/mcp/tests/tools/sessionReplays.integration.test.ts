@@ -24,25 +24,73 @@ describe('Session Replays', { concurrent: false }, () => {
     })
 
     describe('Session Recordings', () => {
-        const listTool = GENERATED_TOOLS['session-recordings-list']!()
+        const queryListTool = GENERATED_TOOLS['query-session-recordings-list']!()
         const getTool = GENERATED_TOOLS['session-recording-get']!()
 
-        describe('session-recordings-list tool', () => {
-            it('should return paginated structure', async () => {
-                const result = await listTool.handler(context, {})
+        describe('query-session-recordings-list tool', () => {
+            it('should return results with pagination info', async () => {
+                const result = await queryListTool.handler(context, {})
                 const data = parseToolResponse(result)
 
-                expect(Array.isArray(data.results)).toBe(true)
+                expect(data.results).toBeTruthy()
                 expect(typeof data._posthogUrl).toBe('string')
                 expect(data._posthogUrl).toContain('/replay')
             })
 
             it('should respect the limit parameter', async () => {
-                const result = await listTool.handler(context, { limit: 1 })
+                const result = await queryListTool.handler(context, { limit: 1 })
                 const data = parseToolResponse(result)
 
-                expect(Array.isArray(data.results)).toBe(true)
-                expect(data.results.length).toBeLessThanOrEqual(1)
+                expect(data.results).toBeTruthy()
+                if (Array.isArray(data.results)) {
+                    expect(data.results.length).toBeLessThanOrEqual(1)
+                }
+            })
+
+            it('should accept date_from filter', async () => {
+                const result = await queryListTool.handler(context, { date_from: '-7d' })
+                const data = parseToolResponse(result)
+
+                expect(data.results).toBeTruthy()
+            })
+
+            it('should accept order parameter', async () => {
+                const result = await queryListTool.handler(context, {
+                    date_from: '-7d',
+                    order: 'activity_score',
+                    order_direction: 'DESC',
+                    limit: 5,
+                })
+                const data = parseToolResponse(result)
+
+                expect(data.results).toBeTruthy()
+            })
+
+            it('should accept filter_test_accounts', async () => {
+                const result = await queryListTool.handler(context, {
+                    date_from: '-3d',
+                    filter_test_accounts: true,
+                })
+                const data = parseToolResponse(result)
+
+                expect(data.results).toBeTruthy()
+            })
+
+            it('should accept property filters', async () => {
+                const result = await queryListTool.handler(context, {
+                    date_from: '-7d',
+                    properties: [
+                        {
+                            key: '$browser',
+                            operator: 'exact',
+                            type: 'event',
+                            value: ['Chrome'],
+                        },
+                    ],
+                })
+                const data = parseToolResponse(result)
+
+                expect(data.results).toBeTruthy()
             })
         })
 

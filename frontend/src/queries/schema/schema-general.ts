@@ -320,6 +320,9 @@ export type QuerySchema =
     // Misc
     | DatabaseSchemaQuery
 
+    // Session Recordings
+    | RecordingsQuery
+
     // Logs
     | LogsQuery
     | LogAttributesQuery
@@ -512,12 +515,14 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
     code?: string
 }
 
-export interface RecordingsQueryResponse {
+export interface RecordingsQueryResponse extends AnalyticsQueryResponseBase {
     results: SessionRecordingType[]
     has_next: boolean
     /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
     next_cursor?: string
 }
+
+export type CachedRecordingsQueryResponse = CachedQueryResponse<RecordingsQueryResponse>
 
 export const VALID_RECORDING_ORDERS = [
     'duration',
