@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 import urllib.parse
@@ -95,6 +96,9 @@ def _make_exception(
     return exc(err.request_info, err.history, status=err.status, message=err.message, headers=err.headers)
 
 
+Request = asyncio.Task[None]
+
+
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
@@ -103,6 +107,7 @@ class WorkflowsConsumer(Consumer):
         team_id: int,
         session: aiohttp.ClientSession,
         model: str = "events",
+        max_concurrent_requests: int = 1_000,
     ):
         super().__init__(model=model)
 
@@ -115,46 +120,59 @@ class WorkflowsConsumer(Consumer):
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
         self.internal_api_secret = settings.INTERNAL_API_SECRET
+        self._pending_requests: set[Request] = set()
+        self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
-    async def consume_chunk(self, data: bytes):
+    async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
             self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
         )
-        await post(data)
+        task = asyncio.create_task(post(data))
+        task.add_done_callback(self._pending_requests.remove)
+        self._pending_requests.add(task)
 
-    async def post(self, data: bytes):
-        async with await self.session.post(
-            self.url,
-            # Data is already JSON encoded, so we can't use json=data.
-            data=b'{"clickhouse_event":' + data + b"}",
-            headers={
-                "Content-Type": "application/json",
-                "X-Internal-Api-Secret": self.internal_api_secret,
-            },
-        ) as response:
-            try:
-                response.raise_for_status()
-            except aiohttp.ClientResponseError as err:
-                response_body = await response.text()
-                self.logger.exception("Request failed", status=err.status, response_body=response_body)
+    async def post(self, data: bytes) -> None:
+        async with self._requests_semaphore:
+            async with self.session.post(
+                self.url,
+                # Data is already JSON encoded, so we can't use json=data.
+                data=b'{"clickhouse_event":' + data + b"}",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Api-Secret": self.internal_api_secret,
+                },
+            ) as response:
+                try:
+                    response.raise_for_status()
+                except aiohttp.ClientResponseError as err:
+                    response_body = await response.text()
+                    self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
-                match err.status:
-                    case 404:
-                        raise _make_exception(NotFound, err)
-                    case 429:
-                        raise _make_exception(TooManyRequests, err)
-                    case n if n >= 400 and n < 500:
-                        raise _make_exception(BadRequest, err)
-                    case n if n >= 500:
-                        raise _make_exception(InternalServerError, err)
+                    match err.status:
+                        case 404:
+                            raise _make_exception(NotFound, err)
+                        case 429:
+                            raise _make_exception(TooManyRequests, err)
+                        case n if n >= 400 and n < 500:
+                            raise _make_exception(BadRequest, err)
+                        case n if n >= 500:
+                            raise _make_exception(InternalServerError, err)
 
     async def finalize_file(self):
         """Required by consumer interface."""
         pass
 
-    async def finalize(self):
-        """Required by consumer interface."""
-        pass
+    async def finalize(self) -> None:
+        """Await any pending requests.
+
+        Will raise if any requests failed.
+        """
+        if self._pending_requests:
+            try:
+                await asyncio.gather(*self._pending_requests)
+            except Exception:
+                self.logger.exception("One or more requests failed")
+                raise
 
 
 @dataclasses.dataclass
