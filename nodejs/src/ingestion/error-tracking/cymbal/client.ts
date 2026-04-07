@@ -1,3 +1,4 @@
+import dns from 'dns/promises'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
@@ -36,9 +37,9 @@ const cymbalBatchSizeHistogram = new Histogram({
     buckets: [1, 5, 10, 25, 50, 100, 250, 500],
 })
 
-const cymbalChunksPerBatchHistogram = new Histogram({
-    name: 'error_tracking_cymbal_chunks_per_batch',
-    help: 'Number of HTTP requests per batch (1 = no chunking needed)',
+const cymbalChunksPerGroupHistogram = new Histogram({
+    name: 'error_tracking_cymbal_chunks_per_routing_group',
+    help: 'Number of HTTP requests per routing group (1 = no chunking needed)',
     buckets: [1, 2, 3, 4, 5, 10],
 })
 
@@ -224,7 +225,7 @@ export class CymbalClient {
         items: { request: CymbalRequest; estimatedSize: number }[]
     ): Promise<(CymbalResponse | null)[]> {
         const chunks = this.chunkByEstimatedSize(items)
-        cymbalChunksPerBatchHistogram.observe(chunks.length)
+        cymbalChunksPerGroupHistogram.observe(chunks.length)
         const allResults: (CymbalResponse | null)[] = []
 
         for (const chunk of chunks) {
@@ -365,6 +366,5 @@ export class CymbalClient {
 }
 
 async function defaultDnsResolve(hostname: string): Promise<string[]> {
-    const dns = await import('dns/promises')
     return dns.resolve4(hostname)
 }
