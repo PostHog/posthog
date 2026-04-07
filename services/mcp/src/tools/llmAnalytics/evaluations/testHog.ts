@@ -3,10 +3,7 @@ import { z } from 'zod'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = z.object({
-    source: z
-        .string()
-        .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail).'),
+    source: z.string().min(1).describe('Hog source code to test. Must return a boolean (true = pass, false = fail).'),
     sample_count: z
         .number()
         .int()

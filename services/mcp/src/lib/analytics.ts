@@ -34,11 +34,7 @@ export const getPostHogClient = (devMode?: boolean): PostHog => {
     return _client
 }
 
-export async function isFeatureFlagEnabled(
-    flagKey: string,
-    distinctId: string,
-    devMode?: boolean
-): Promise<boolean> {
+export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, devMode?: boolean): Promise<boolean> {
     try {
         const client = getPostHogClient(devMode)
         const result = await client.isFeatureEnabled(flagKey, distinctId)
