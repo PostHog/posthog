@@ -245,7 +245,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "activity_log"
     scope_object_read_actions = ["list", "retrieve", "available_filters"]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "export"]
     queryset = ActivityLog.objects.all()
 
     def _should_skip_parents_filter(self) -> bool:
