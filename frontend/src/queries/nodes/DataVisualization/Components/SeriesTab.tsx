@@ -304,38 +304,94 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     )
 }
 
-const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     const { formatting } = useValues(ySeriesLogic(ySeriesLogicProps))
+    const { updateSeriesIndex } = useActions(dataVisualizationLogic)
+
+    const updateFormatting = (nextFormatting: typeof formatting): void => {
+        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+            formatting: {
+                prefix: nextFormatting.prefix,
+                suffix: nextFormatting.suffix,
+                style: nextFormatting.style,
+                decimalPlaces: Number.isNaN(nextFormatting.decimalPlaces) ? undefined : nextFormatting.decimalPlaces,
+            },
+        })
+    }
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
-                    <LemonSelect
-                        options={['none', 'number', 'short', 'percent'].map((value) => ({
-                            value,
-                            label: FORMATTING_STYLE_LABELS[value] ?? value,
-                        }))}
-                    />
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            value={value}
+                            options={['none', 'number', 'short', 'percent'].map((optionValue) => ({
+                                value: optionValue,
+                                label: FORMATTING_STYLE_LABELS[optionValue] ?? optionValue,
+                            }))}
+                            onChange={(newValue) => {
+                                onChange(newValue)
+                                updateFormatting({
+                                    ...formatting,
+                                    style: newValue as typeof formatting.style,
+                                })
+                            }}
+                        />
+                    )}
                 </LemonField>
             )}
             <LemonField name="prefix" label="Prefix">
-                <LemonInput placeholder="$" />
+                {({ value, onChange }) => (
+                    <LemonInput
+                        value={value ?? ''}
+                        placeholder="$"
+                        onChange={(newValue) => {
+                            onChange(newValue)
+                            updateFormatting({
+                                ...formatting,
+                                prefix: newValue,
+                            })
+                        }}
+                    />
+                )}
             </LemonField>
             <LemonField name="suffix" label="Suffix">
-                <LemonInput placeholder="USD" />
+                {({ value, onChange }) => (
+                    <LemonInput
+                        value={value ?? ''}
+                        placeholder="USD"
+                        onChange={(newValue) => {
+                            onChange(newValue)
+                            updateFormatting({
+                                ...formatting,
+                                suffix: newValue,
+                            })
+                        }}
+                    />
+                )}
             </LemonField>
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="decimalPlaces" label="Decimal places">
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        disabledReason={
-                            formatting.style === 'short'
-                                ? 'Decimal places has no effect when using short number format'
-                                : undefined
-                        }
-                    />
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            value={value ?? ''}
+                            type="number"
+                            min={0}
+                            disabledReason={
+                                formatting.style === 'short'
+                                    ? 'Decimal places has no effect when using short number format'
+                                    : undefined
+                            }
+                            onChange={(newValue) => {
+                                onChange(newValue)
+                                updateFormatting({
+                                    ...formatting,
+                                    decimalPlaces: newValue as typeof formatting.decimalPlaces,
+                                })
+                            }}
+                        />
+                    )}
                 </LemonField>
             )}
         </Form>

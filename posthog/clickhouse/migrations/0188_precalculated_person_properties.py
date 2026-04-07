@@ -2,7 +2,6 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from posthog.models.precalculated_events.sql import PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL
 from posthog.models.precalculated_person_properties.sql import (
     PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE,
     PRECALCULATED_PERSON_PROPERTIES_MV,
@@ -106,13 +105,9 @@ FROM {kafka_table_name}
 
 
 operations = [
-    # Add precalculated_events distributed table to COORDINATOR nodes (already exists on DATA from 0175)
-    run_sql_with_exceptions(PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.COORDINATOR]),
     # Create precalculated_person_properties tables with distinct_id (without person_id)
     run_sql_with_exceptions(PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL_V1(), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(
-        PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL_V1(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL_V1(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(
         KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL_V1(), node_roles=[NodeRole.INGESTION_MEDIUM]
     ),

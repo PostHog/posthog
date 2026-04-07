@@ -2,9 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
@@ -20,7 +23,6 @@ export function SessionRecordingsPlaylist({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -54,7 +56,6 @@ function HorizontalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -106,7 +107,6 @@ function VerticalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -178,6 +178,7 @@ function PlayerWrapper({
         totalFiltersCount,
         nextSessionRecording,
         pinnedFilters,
+        sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -197,7 +198,7 @@ function PlayerWrapper({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            {isFiltersExpanded ? (
+            {isFiltersExpanded && (
                 <div className="h-full rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
@@ -208,29 +209,55 @@ function PlayerWrapper({
                         pinnedFilters={pinnedFilters}
                     />
                 </div>
-            ) : showContent && activeSessionRecording ? (
-                <SessionRecordingPlayer
-                    playerKey={props.logicKey ?? 'playlist'}
-                    sessionRecordingId={activeSessionRecording.id}
-                    matchingEventsMatchType={matchingEventsMatchType}
-                    autoPlay={props.autoPlay}
-                    onRecordingDeleted={() => {
-                        loadAllRecordings()
-                        setSelectedRecordingId(null)
-                    }}
-                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                    setPinned={
-                        props.onPinnedChange
-                            ? (pinned) => {
-                                  if (!activeSessionRecording.id) {
-                                      return
+            )}
+            {showContent && activeSessionRecording ? (
+                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
+                    <SessionRecordingPlayer
+                        playerKey={props.logicKey ?? 'playlist'}
+                        sessionRecordingId={activeSessionRecording.id}
+                        matchingEventsMatchType={matchingEventsMatchType}
+                        autoPlay={props.autoPlay}
+                        onRecordingDeleted={() => {
+                            loadAllRecordings()
+                            setSelectedRecordingId(null)
+                        }}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        setPinned={
+                            props.onPinnedChange
+                                ? (pinned) => {
+                                      if (!activeSessionRecording.id) {
+                                          return
+                                      }
+                                      props.onPinnedChange?.(activeSessionRecording, pinned)
                                   }
-                                  props.onPinnedChange?.(activeSessionRecording, pinned)
-                              }
-                            : undefined
-                    }
-                    playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
-                />
+                                : undefined
+                        }
+                        playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                    />
+                </div>
+            ) : sessionRecordingsResponseLoading ? (
+                <div className="relative flex flex-col h-full p-4">
+                    {/* Player skeleton background */}
+                    <div className="flex-1 flex flex-col gap-2">
+                        {/* Video area skeleton */}
+                        <LemonSkeleton className="flex-1 w-full rounded" />
+                        {/* Controller bar skeleton */}
+                        <div className="flex gap-2">
+                            <LemonSkeleton className="h-10 w-20" />
+                            <LemonSkeleton className="h-10 flex-1" />
+                            <LemonSkeleton className="h-10 w-32" />
+                        </div>
+                    </div>
+
+                    {/* Centered hedgehog overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <FilmCameraHog className="w-60 h-60" />
+                        <div className="mt-4 flex items-center gap-2">
+                            <Spinner textColored />
+                            <span className="text-secondary">Loading recordings...</span>
+                        </div>
+                    </div>
+                </div>
             ) : (
                 <div className="mt-20">
                     <EmptyMessage

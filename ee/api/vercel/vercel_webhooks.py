@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, BillingServiceOpenInvoicesError
 from ee.models import License
 from ee.vercel.integration import VercelIntegration
 
@@ -148,6 +148,15 @@ def vercel_webhook(request: Request) -> Response:
             else:
                 try:
                     VercelIntegration.delete_installation(config_id)
+                except BillingServiceOpenInvoicesError as e:
+                    # Vercel ignores non-200 from webhooks and shows "Integration Deleted" regardless.
+                    # The marketplace DELETE API endpoint handles the actual blocking with 409.
+                    # Log the warning but return 200 to avoid misleading error tracking noise.
+                    logger.warning(
+                        "vercel_webhook_deauthorize_blocked_by_open_invoices",
+                        config_id=config_id,
+                        reason=e.message,
+                    )
                 except Exception as e:
                     logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
                     capture_exception(e, {"config_id": config_id})

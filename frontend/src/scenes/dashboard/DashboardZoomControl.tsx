@@ -15,7 +15,10 @@ interface DashboardZoomControlProps {
 
 export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoomControlProps): JSX.Element | null {
     const { dashboard, currentLayoutSize } = useValues(dashboardLogic)
-    const isSmallLayout = currentLayoutSize === 'xs'
+
+    if (currentLayoutSize === 'xs') {
+        return null
+    }
 
     return (
         <div className="flex items-center gap-2 text-sm text-muted hidden md:flex">
@@ -25,7 +28,6 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                 intent="Toggle dashboard layout zoom while editing"
                 interaction="click"
                 scope={Scene.Dashboard}
-                disabled={isSmallLayout}
             >
                 <LemonButton
                     size="small"
@@ -36,7 +38,6 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                         setLayoutZoom(nextZoom)
                         eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
                     }}
-                    disabledReason={isSmallLayout ? 'Layout editing is disabled on smaller screens.' : undefined}
                     tooltip="Collapse/Expand view. Makes it easier to edit the layout for busier dashboards."
                 >
                     {layoutZoom < 1 ? 'Expand view' : 'Collapse view'}

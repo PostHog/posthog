@@ -570,6 +570,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
+        layout: 'app-raw-no-header',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.SurveyFormBuilder]: {

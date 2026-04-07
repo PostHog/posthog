@@ -390,7 +390,7 @@
         }
     },
     "cohorts-list": {
-        "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
+        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "List all cohorts",
@@ -779,6 +779,126 @@
             "readOnlyHint": false
         }
     },
+    "endpoints-get-all": {
+        "description": "Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable API routes. Returns name, description, query, active status, current version, and materialization info for each endpoint.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get all endpoints",
+        "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-get": {
+        "description": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint",
+        "title": "Get endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-create": {
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Create endpoint",
+        "title": "Create endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-update": {
+        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache age, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Update endpoint",
+        "title": "Update endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-delete": {
+        "description": "Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Delete endpoint",
+        "title": "Delete endpoint",
+        "required_scopes": ["endpoint:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "endpoint-run": {
+        "description": "Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with breakdowns, use the breakdown property name as the key.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Run endpoint",
+        "title": "Run endpoint",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-versions": {
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, cache settings, and materialization status at that point in time.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint versions",
+        "title": "Get endpoint versions",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoint-materialization-status": {
+        "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get materialization status",
+        "title": "Get materialization status",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -822,6 +942,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "query-error-tracking-issues": {
+        "description": "Query error tracking issues to find, filter, and inspect errors in the project. Returns aggregated metrics per issue including occurrence count, affected users, sessions, and volume data.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nThis is a unified query tool — use it both to list issues and to get details on a specific issue:\n\n- **List issues**: omit `issueId` to get a filtered, sorted list of error tracking issues.\n- **Get issue details**: provide `issueId` to get aggregated metrics for a single issue.\n\nUse `error-tracking-issues-retrieve` to get the full issue model (description, assignee, external references) and `error-tracking-issues-partial-update` to change status or assignee.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional filtering and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `$browser`, `$os`, or `$geoip_country_code`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, the default is the last 7 days.\n\n# Parameters\n\n## issueId (optional)\n\nWhen provided, returns aggregated metrics for a single error tracking issue. When omitted, returns a paginated list of issues matching the filters.\n\n## status\n\nFilter by issue status. Available values: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, `all`. Defaults to `active`.\n\n## orderBy\n\nField to sort results by: `occurrences`, `last_seen`, `first_seen`, `users`, `sessions`. Defaults to `occurrences`.\n\n## searchQuery\n\nFree-text search across exception type, message, and stack frames. Use this when the user is looking for a specific error by name or message content.\n\n## assignee\n\nFilter issues by assignee. The value is a user ID. Use this when the user asks to see errors assigned to a specific person.\n\n## filterGroup\n\nA flat list of property filters to narrow results. Each filter specifies a property key, operator, type (event/person/session/group), and value. See the \"Property filters\" section above for usage guidelines and supported operators.\n\n## volumeResolution\n\nControls the granularity of the volume chart data returned with each issue. Use `1` (default) for list views where you want a volume sparkline. Use `0` when you only need aggregate counts without volume data.\n\n## dateRange\n\nDate range to filter results. Defaults to the last 7 days (`-7d`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps (e.g., `2024-01-15T00:00:00Z`) or relative formats: `-7d`, `-2w`, `-1m`, `-1h`, `-1mStart`, `-1yStart`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## limit / offset\n\nPagination controls. `limit` defaults to 50.\n\n# Examples\n\n## List all active errors sorted by occurrence count\n\n```json\n{}\n```\n\nAll defaults apply: `status: \"active\"`, `orderBy: \"occurrences\"`, `dateRange: { \"date_from\": \"-7d\" }`.\n\n## Search for a specific error\n\n```json\n{\n  \"searchQuery\": \"TypeError: Cannot read property\",\n  \"limit\": 10\n}\n```\n\n## Get details for a specific issue\n\n```json\n{\n  \"issueId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"volumeResolution\": 0\n}\n```\n\n## List resolved errors from the last 30 days\n\n```json\n{\n  \"status\": \"resolved\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"orderBy\": \"last_seen\"\n}\n```\n\n## Find most recent errors\n\n```json\n{\n  \"orderBy\": \"first_seen\",\n  \"orderDirection\": \"DESC\",\n  \"dateRange\": { \"date_from\": \"-24h\" }\n}\n```\n\n## Errors from Chrome users only\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n}\n```\n\n## Errors from US users in the last 30 days\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$geoip_country_code\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"US\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Query error tracking issues",
+        "title": "Query error tracking issues",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "feature-flag-get-all": {
@@ -1064,6 +1199,66 @@
             "readOnlyHint": false
         }
     },
+    "integrations-list": {
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub integrations are returned.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List integrations",
+        "title": "List integrations",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-get": {
+        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Get integration",
+        "title": "Get integration",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integration-delete": {
+        "description": "Permanently delete an integration by ID. This removes the connection to the third-party service. Any features relying on this integration (alerts, workflow destinations, etc.) will stop working.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Delete integration",
+        "title": "Delete integration",
+        "required_scopes": ["integration:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-clustering-jobs-list": {
+        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List clustering jobs",
+        "title": "List clustering jobs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llm-analytics-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
         "category": "LLM analytics",
@@ -1092,6 +1287,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "llm-analytics-clustering-jobs-retrieve": {
+        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get clustering job",
+        "title": "Get clustering job",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "notebooks-list": {
@@ -1275,7 +1485,7 @@
         }
     },
     "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "List prompts",
@@ -1320,7 +1530,7 @@
         }
     },
     "prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "Update prompt",

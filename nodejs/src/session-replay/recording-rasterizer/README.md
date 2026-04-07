@@ -41,11 +41,15 @@ recording-rasterizer/
 │   ├── activities.ts     ← activity handler (record → upload → cleanup)
 │   └── codec.ts          ← Fernet encryption codec for Temporal payloads
 │
-├── capture/              ← Puppeteer capture pipeline
-│   ├── browser-pool.ts   ← warm Chromium lifecycle manager
-│   ├── recorder.ts       ← orchestrates page setup → player load → capture
-│   ├── player.ts         ← PlayerController + config builder for rrweb player
-│   └── capture.ts        ← frame capture loop, screenshot format override
+├── capture/                  ← Puppeteer capture pipeline
+│   ├── browser-pool.ts       ← warm Chromium lifecycle manager
+│   ├── recorder.ts           ← orchestrates page setup → player load → capture
+│   ├── capture-page.ts       ← viewport, CDP guards, callback error guards
+│   ├── player.ts             ← PlayerController: message bridge, playback lifecycle
+│   ├── capture.ts            ← frame capture loop with abort/timeout handling
+│   ├── request-interceptor.ts ← request interception + stylesheet proxying
+│   ├── block-proxy.ts        ← recording block fetcher (recording-api)
+│   └── config.ts             ← input validation + capture config builder
 │
 └── __tests__/            ← all tests
 ```
@@ -88,7 +92,7 @@ The `rasterize-recording` activity accepts `RasterizeRecordingInput` (see `types
 | `start_timestamp`      | no       | —       | Start playback from this time (ms since epoch) |
 | `end_timestamp`        | no       | —       | Stop playback at this time (ms since epoch)    |
 | `trim`                 | no       | —       | Max output duration in seconds                 |
-| `capture_timeout`      | no       | —       | Max capture time in seconds                    |
+| `max_virtual_time`     | no       | —       | Max virtual time in seconds before stopping    |
 | `viewport_width`       | no       | `1280`  | Capture viewport width                         |
 | `viewport_height`      | no       | `720`   | Capture viewport height                        |
 | `show_metadata_footer` | no       | `false` | Include metadata footer in output              |

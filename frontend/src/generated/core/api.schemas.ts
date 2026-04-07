@@ -1083,124 +1083,6 @@ export interface SharingConfigurationApi {
     readonly share_passwords: readonly SharePasswordApi[]
 }
 
-/**
- * * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `google-cloud-service-account` - Google Cloud Service Account
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- * `pinterest-ads` - Pinterest Ads
- */
-export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
-
-export const Kind8d6EnumApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    Snapchat: 'snapchat',
-    LinkedinAds: 'linkedin-ads',
-    RedditAds: 'reddit-ads',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Intercom: 'intercom',
-    Email: 'email',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Twilio: 'twilio',
-    Clickup: 'clickup',
-    Vercel: 'vercel',
-    Databricks: 'databricks',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-} as const
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationApi {
-    readonly id: number
-    kind: Kind8d6EnumApi
-    config?: unknown
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly errors: string
-    readonly display_name: string
-}
-
-export interface PaginatedIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: IntegrationApi[]
-}
-
-/**
- * Standard Integration serializer.
- */
-export interface PatchedIntegrationApi {
-    readonly id?: number
-    kind?: Kind8d6EnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-}
-
-export interface GitHubBranchesResponseApi {
-    /** List of branch names */
-    branches: string[]
-    /**
-     * The default branch of the repository
-     * @nullable
-     */
-    default_branch?: string | null
-}
-
-export interface GitHubRepoApi {
-    id: number
-    name: string
-    full_name: string
-}
-
-export interface GitHubReposResponseApi {
-    repositories: GitHubRepoApi[]
-}
-
 export interface ProjectSecretAPIKeyApi {
     readonly id: string
     /** @maxLength 40 */
@@ -1569,7 +1451,8 @@ export interface OrganizationApi {
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
-    is_member_join_email_enabled?: boolean
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled: boolean
     readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
@@ -1921,25 +1804,6 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  * Unspecified response body
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
-
-export type IntegrationsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type IntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
-}
 
 export type ProjectSecretApiKeysListParams = {
     /**
