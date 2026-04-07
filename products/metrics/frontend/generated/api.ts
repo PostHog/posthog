@@ -9,7 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    EventFilterConfigApi,
+    AppMetricsResponseApi,
+    AppMetricsTotalsResponseApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedGroupUsageMetricListApi,
@@ -47,8 +48,8 @@ export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<EventFilterConfigApi> => {
-    return apiMutator<EventFilterConfigApi>(getEventFilterMetricsRetrieveUrl(projectId), {
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getEventFilterMetricsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -68,8 +69,8 @@ export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<EventFilterConfigApi> => {
-    return apiMutator<EventFilterConfigApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
+): Promise<AppMetricsTotalsResponseApi> => {
+    return apiMutator<AppMetricsTotalsResponseApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

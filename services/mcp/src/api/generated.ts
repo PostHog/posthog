@@ -5533,6 +5533,22 @@ export namespace Schemas {
       scope?: AnnotationScopeEnum;
     }
 
+    export interface AppMetricSeries {
+      name: string;
+      values: number[];
+    }
+
+    export interface AppMetricsResponse {
+      labels: string[];
+      series: AppMetricSeries[];
+    }
+
+    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
+
+    export interface AppMetricsTotalsResponse {
+      totals: AppMetricsTotalsResponseTotals;
+    }
+
     /**
      * Serializer for individual transcript segments from AssemblyAI
      */

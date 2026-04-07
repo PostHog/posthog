@@ -7,29 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `disabled` - Disabled
- * `dry_run` - Dry Run
- * `live` - Live
- */
-export type EventFilterConfigModeEnumApi =
-    (typeof EventFilterConfigModeEnumApi)[keyof typeof EventFilterConfigModeEnumApi]
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
 
-export const EventFilterConfigModeEnumApi = {
-    Disabled: 'disabled',
-    DryRun: 'dry_run',
-    Live: 'live',
-} as const
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
 
-export interface EventFilterConfigApi {
-    readonly id: string
-    mode?: EventFilterConfigModeEnumApi
-    /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
-    filter_tree?: unknown | null
-    /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
-    test_cases?: unknown
-    readonly created_at: string
-    readonly updated_at: string
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
 }
 
 /**
