@@ -5,8 +5,6 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from posthog.hogql.functions.bot_ua_fixtures import BOT_USER_AGENTS
-
 from posthog.demo.products.hedgebox.taxonomy import (
     SITE_URL,
     URL_FILES,
@@ -16,6 +14,7 @@ from posthog.demo.products.hedgebox.taxonomy import (
     URL_PRICING,
     URL_SIGNUP,
 )
+from posthog.hogql_queries.web_analytics.bot_ua_fixtures import BOT_USER_AGENTS
 from posthog.models import Team
 from posthog.models.event.util import create_event
 

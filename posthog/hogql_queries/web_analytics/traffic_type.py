@@ -13,16 +13,15 @@ The underlying HogQL functions provide maximum flexibility during development:
 """
 
 from posthog.hogql import ast
-
-# Re-export BOT_DEFINITIONS from the HogQL functions module (single source of truth)
 from posthog.hogql.functions.traffic_type import (
-    BOT_DEFINITIONS,
     get_bot_name as _get_bot_name,
     get_bot_type as _get_bot_type,
     get_traffic_category as _get_traffic_category,
     get_traffic_type as _get_traffic_type,
     is_bot as _is_bot,
 )
+
+from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
 
 __all__ = [
     "BOT_DEFINITIONS",
