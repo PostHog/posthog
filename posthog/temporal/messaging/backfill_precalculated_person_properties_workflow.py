@@ -184,6 +184,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     batch_size: int = 1000
     start_person_id: str = "00000000-0000-0000-0000-000000000000"  # Starting person ID for this batch
     end_person_id: str = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # Ending person ID for this batch
+    person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -202,6 +204,7 @@ def evaluate_combined_filters_sync(
     combined_bytecode: list[Any],
     hog_globals: dict[str, Any],
     person_id: str,
+    detailed_logging: bool = False,
 ) -> dict[str, Any]:
     """Execute combined bytecode for all filters, returning {condition_hash: result}.
 
@@ -210,8 +213,29 @@ def evaluate_combined_filters_sync(
     try:
         bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
         result = bytecode_result.result
+
+        if detailed_logging:
+            LOGGER.info(
+                "HogVM evaluation completed",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
         if isinstance(result, dict):
             return result
+
+        if detailed_logging:
+            LOGGER.warning(
+                "HogVM evaluation returned non-dict result",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+
         return {}
     except Exception as e:
         LOGGER.warning(
@@ -220,6 +244,120 @@ def evaluate_combined_filters_sync(
             error=str(e),
         )
         return {}
+
+
+def evaluate_individual_filters_sync(
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute each filter's bytecode individually, returning {condition_hash: result}.
+
+    Isolates failures to individual cohorts rather than failing all cohorts for a person.
+    Returns results for successful filters only; failed filters are omitted from results.
+    """
+    results = {}
+
+    for filter_obj in filters:
+        try:
+            bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+            result = bytecode_result.result
+
+            if detailed_logging:
+                LOGGER.info(
+                    "Individual filter evaluation completed",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                    execution_successful=True,
+                    execution_stdout=bytecode_result.stdout,
+                )
+
+            # Store the result for this specific condition
+            if isinstance(result, bool):
+                results[filter_obj.condition_hash] = result
+            elif detailed_logging:
+                LOGGER.warning(
+                    "Individual filter evaluation returned non-bool result",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                )
+        except Exception as e:
+            LOGGER.warning(
+                "Failed to execute filter bytecode for person",
+                person_id=person_id,
+                condition_hash=filter_obj.condition_hash,
+                cohort_ids=filter_obj.cohort_ids,
+                error=str(e),
+            )
+
+    return results
+
+
+def evaluate_combined_filters_with_fallback_sync(
+    combined_bytecode: list[Any],
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute combined bytecode with fallback to individual filter execution.
+
+    First attempts to execute all filters in a single combined bytecode for performance.
+    If that fails, falls back to executing each filter individually to isolate failures.
+    """
+    # First, try the fast path with combined bytecode
+    try:
+        bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
+        result = bytecode_result.result
+
+        if detailed_logging:
+            LOGGER.info(
+                "Combined filter evaluation completed successfully",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
+        if isinstance(result, dict):
+            invalid_result_entries = {
+                condition_hash: value for condition_hash, value in result.items() if not isinstance(value, bool)
+            }
+            if not invalid_result_entries:
+                return result
+            LOGGER.warning(
+                "Combined filter evaluation returned non-boolean values, falling back to individual execution",
+                person_id=person_id,
+                invalid_condition_hashes=list(invalid_result_entries.keys()),
+                invalid_result_types={
+                    condition_hash: type(value).__name__ for condition_hash, value in invalid_result_entries.items()
+                },
+            )
+
+        if detailed_logging:
+            LOGGER.warning(
+                "Combined filter evaluation returned non-dict result, falling back to individual execution",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+    except Exception as e:
+        LOGGER.info(
+            "Combined filter execution failed, falling back to individual filter evaluation",
+            person_id=person_id,
+            error=str(e),
+            fallback_reason="combined_execution_failed",
+        )
+
+    # Fallback to individual filter execution for error isolation
+    return evaluate_individual_filters_sync(filters, hog_globals, person_id, detailed_logging)
 
 
 @temporalio.activity.defn
@@ -274,6 +412,9 @@ async def backfill_precalculated_person_properties_activity(
         f"processing {len(filters)} total filters from person ID {inputs.start_person_id} to {inputs.end_person_id} "
         f"with batch size {inputs.batch_size} ({len(filters)} filters = ~{inputs.batch_size * len(filters)} events per batch)"
     )
+
+    # Enable detailed logging when both cohort_id and person_id are set (single cohort + single person mode)
+    detailed_logging_enabled = inputs.person_id is not None and inputs.single_cohort_mode
 
     async with Heartbeater(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
@@ -361,6 +502,7 @@ async def backfill_precalculated_person_properties_activity(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
+        person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
         persons_query = f"""
             SELECT
                 id as person_id,
@@ -370,6 +512,7 @@ async def backfill_precalculated_person_properties_activity(
               AND id >= %(start_person_id)s
               AND id <= %(end_person_id)s
               AND is_deleted = 0
+              {person_filter_clause}
             ORDER BY id
             FORMAT JSONEachRow
         """
@@ -379,6 +522,8 @@ async def backfill_precalculated_person_properties_activity(
             "start_person_id": inputs.start_person_id,
             "end_person_id": inputs.end_person_id,
         }
+        if inputs.person_id is not None:
+            query_params["person_id"] = inputs.person_id
 
         last_person_id = inputs.start_person_id
         batch_count = 0
@@ -417,11 +562,30 @@ async def backfill_precalculated_person_properties_activity(
                     hog_globals = {"person": {"properties": parsed_properties}}
 
                     filter_results = await asyncio.to_thread(
-                        evaluate_combined_filters_sync,
+                        evaluate_combined_filters_with_fallback_sync,
                         combined_bytecode,
+                        filters,
                         hog_globals,
                         person_id,
+                        detailed_logging=detailed_logging_enabled,
                     )
+
+                    # Detailed logging for filter results when in single cohort + single person mode
+                    if detailed_logging_enabled:
+                        person_filter_duration = time.monotonic() - person_filter_start
+                        matching_conditions = [
+                            condition_hash for condition_hash, matches in filter_results.items() if matches
+                        ]
+                        logger.info(
+                            "Filter evaluation results",
+                            person_id=person_id,
+                            total_conditions=len(filter_results),
+                            matching_conditions=len(matching_conditions),
+                            matching_condition_hashes=matching_conditions,
+                            all_results=filter_results,
+                            evaluation_duration_ms=round(person_filter_duration * 1000, 2),
+                            person_properties_count=len(parsed_properties),
+                        )
 
                     # Produce Kafka messages for matching conditions
                     for condition_hash, matches in filter_results.items():
@@ -440,10 +604,20 @@ async def backfill_precalculated_person_properties_activity(
                                 )
                                 kafka_results.append(produce_result)
                                 total_events_produced += 1
+
+                                if detailed_logging_enabled:
+                                    logger.info(
+                                        "Kafka message produced for matching condition",
+                                        person_id=person_id,
+                                        condition_hash=condition_hash,
+                                        matches=matches,
+                                        kafka_topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    )
                             except Exception as e:
                                 logger.warning(
                                     f"Failed to produce Kafka message for person {person_id}: {e}",
                                     person_id=person_id,
+                                    condition_hash=condition_hash,
                                     error=str(e),
                                 )
 

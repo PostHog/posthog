@@ -93,22 +93,34 @@ export class IngestionTestingConsumer {
 
     public async start(): Promise<void> {
         const outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-            [HEATMAPS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
-            [INGESTION_WARNINGS_OUTPUT]: {
-                topic: KAFKA_INGESTION_WARNINGS,
-                producer: this.kafkaProducer!,
-            },
-            [DLQ_OUTPUT]: {
-                topic: this.dlqTopic,
-                producer: this.kafkaProducer!,
-            },
+            [EVENTS_OUTPUT]: [
+                {
+                    topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [HEATMAPS_OUTPUT]: [
+                {
+                    topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [INGESTION_WARNINGS_OUTPUT]: [
+                {
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
+            [DLQ_OUTPUT]: [
+                {
+                    topic: this.dlqTopic,
+                    producer: this.kafkaProducer!,
+                    producerName: 'default',
+                },
+            ],
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {

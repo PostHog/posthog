@@ -30,6 +30,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
     LLMPromptDuplicateNameConflictError,
+    LLMPromptEditError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
@@ -260,7 +261,8 @@ class LLMPromptViewSet(
                 self.team,
                 user=cast(User, request.user),
                 prompt_name=prompt_name,
-                prompt_payload=payload.validated_data["prompt"],
+                prompt_payload=payload.validated_data.get("prompt"),
+                edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
             )
         except LLMPromptNotFoundError:
@@ -280,6 +282,14 @@ class LLMPromptViewSet(
                         f"Prompt has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the prompt to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMPromptEditError as err:
+            return Response(
+                {
+                    "detail": err.message,
+                    "edit_index": err.edit_index,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

@@ -381,6 +381,20 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
+
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1013,6 +1027,19 @@ describe('dashboardLogic', () => {
                 ])
             }
         )
+
+        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-override',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
     })
 
     describe('external updates', () => {

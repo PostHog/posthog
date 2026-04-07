@@ -71,7 +71,21 @@ export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
 })
 
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
-    prompt: zod.unknown().optional().describe('Prompt payload to publish as a new version.'),
+    prompt: zod
+        .unknown()
+        .optional()
+        .describe('Full prompt payload to publish as a new version. Mutually exclusive with edits.'),
+    edits: zod
+        .array(
+            zod.object({
+                old: zod.string().describe('Text to find in the current prompt. Must match exactly once.'),
+                new: zod.string().describe('Replacement text.'),
+            })
+        )
+        .optional()
+        .describe(
+            "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
     base_version: zod
         .number()
         .min(1)

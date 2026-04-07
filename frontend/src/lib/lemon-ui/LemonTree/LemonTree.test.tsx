@@ -12,9 +12,28 @@ class ResizeObserverMock {
 }
 
 describe('LemonTree virtualization', () => {
+    let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
+    let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
+
     beforeAll(() => {
         ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
             ResizeObserverMock as unknown as typeof ResizeObserver
+    })
+
+    beforeEach(() => {
+        jest.useRealTimers()
+        requestAnimationFrameSpy = jest
+            .spyOn(window, 'requestAnimationFrame')
+            .mockImplementation((callback: FrameRequestCallback): number => {
+                callback(performance.now())
+                return 0
+            })
+        cancelAnimationFrameSpy = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined)
+    })
+
+    afterEach(() => {
+        requestAnimationFrameSpy.mockRestore()
+        cancelAnimationFrameSpy.mockRestore()
     })
 
     const setViewportHeight = (container: HTMLElement, height: number): HTMLElement => {
@@ -203,7 +222,7 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
-    })
+    }, 10000)
 
     it('supports an overridden virtualization overscan', async () => {
         const data: TreeDataItem[] = [
@@ -234,5 +253,5 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
-    })
+    }, 10000)
 })

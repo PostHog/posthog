@@ -14,6 +14,8 @@ class MaterializedViewFailureCheck(HealthCheck):
     kind = "materialized_view_failure"
     owner = JobOwners.TEAM_DATA_MODELING
     policy = DEFAULT_EXECUTION_POLICY
+    schedule = "30 7 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         queryset = (

@@ -63,11 +63,10 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { getSurveyResponse, isThumbQuestion } from './utils'
+import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -101,6 +100,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -230,9 +230,15 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? undefined
+                                                : () => editingSurvey(true)
                                         }
-                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
+                                        to={
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >

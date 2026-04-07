@@ -317,6 +317,42 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in q2_es["choices"][1]
         assert "Opción B" in q2_es["choices"][1]
 
+    def test_question_fields_sanitize_all_top_level_translatable_fields(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "<i>Rate us</i><script>xss()</script>",
+                        "description": "<b>Please rate</b><script>bad()</script>",
+                        "buttonText": "<strong>Submit</strong><script>evil()</script>",
+                        "lowerBoundLabel": "<em>Bad</em><script>x()</script>",
+                        "upperBoundLabel": "<u>Good</u><script>y()</script>",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.questions is not None
+
+        question = survey.questions[0]
+        assert "<i>Rate us</i>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<b>Please rate</b>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Submit</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+        assert "<em>Bad</em>" in question["lowerBoundLabel"]
+        assert "<script>" not in question["lowerBoundLabel"]
+        assert "<u>Good</u>" in question["upperBoundLabel"]
+        assert "<script>" not in question["upperBoundLabel"]
+
     def test_translated_link_validation(self):
         # Test invalid URL scheme in translated link
         response = self.client.post(

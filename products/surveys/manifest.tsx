@@ -28,7 +28,7 @@ export const manifest: ProductManifest = {
         {
             path: `Survey`,
             type: 'survey',
-            href: urls.survey('new'),
+            href: urls.surveyWizard('new'),
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         },
