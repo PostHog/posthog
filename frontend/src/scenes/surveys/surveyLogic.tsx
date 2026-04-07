@@ -998,7 +998,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
             loadArchivedResponseUuidsSuccess: () => {
-                if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
+                // Initial survey load fetches archived UUIDs before any results requery is active.
+                // Archive/unarchive flows update this state manually and trigger the results reload explicitly.
+                if (
+                    values.survey.id !== NEW_SURVEY.id &&
+                    values.survey.start_date &&
+                    !values.resultsRequeryInProgress
+                ) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
                 }
@@ -1183,6 +1189,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.add(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+                    actions.loadSurveyBaseStats()
+                    actions.loadSurveyDismissedAndSentCount()
 
                     lemonToast.success('Response archived')
                 } catch (error) {
@@ -1204,6 +1212,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.delete(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+                    actions.loadSurveyBaseStats()
+                    actions.loadSurveyDismissedAndSentCount()
 
                     lemonToast.success('Response unarchived')
                 } catch (error) {

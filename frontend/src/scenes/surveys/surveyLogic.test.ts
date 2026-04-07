@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import {
     mergeResponsesByQuestion,
@@ -1854,6 +1855,45 @@ describe('survey stats calculation', () => {
             processedSurveyStats: expectedStats,
             surveyRates: expectedRates,
         })
+    })
+})
+
+describe('surveyLogic archived response refresh', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(async () => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.surveys, 'archiveResponse').mockResolvedValue({ success: true })
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.clearAllMocks()
+    })
+
+    it('reloads survey results explicitly after archiving a response', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.archiveResponse('response-1')
+        }).toDispatchActions([
+            'archiveResponse',
+            'startResultsRequery',
+            'loadArchivedResponseUuidsSuccess',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+        ])
+
+        expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
     })
 })
 
