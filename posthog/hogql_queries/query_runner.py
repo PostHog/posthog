@@ -108,13 +108,13 @@ logger = structlog.get_logger(__name__)
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
-    labelnames=["query_type", "category", "error_type"],
+    labelnames=["query_type", "product_key", "scene", "query_name", "category", "error_type"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
     "posthog_query_execution_duration_seconds",
     "Query execution duration in seconds",
-    labelnames=["query_type"],
+    labelnames=["query_type", "product_key", "scene", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
@@ -148,6 +148,19 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
+
+UNKNOWN_QUERY_METRIC_LABEL = "unknown"
+
+
+def get_query_metric_labels(query: Any) -> dict[str, str]:
+    tags = getattr(query, "tags", None)
+
+    return {
+        "query_type": getattr(query, "kind", "Other"),
+        "product_key": getattr(tags, "productKey", None) or UNKNOWN_QUERY_METRIC_LABEL,
+        "scene": getattr(tags, "scene", None) or UNKNOWN_QUERY_METRIC_LABEL,
+        "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
+    }
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -1248,6 +1261,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
             if tags := getattr(self.query, "tags", None):
+                if tags.name:
+                    posthoganalytics.tag("query_name", tags.name)
+                    tag_queries(name=tags.name)
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
                     tag_queries(product=tags.productKey)
@@ -1394,20 +1410,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        query_type = getattr(self.query, "kind", "Other")
+        query_metric_labels = get_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
             query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+            QUERY_EXECUTION_TOTAL.labels(**query_metric_labels, category="success", error_type="none").inc()
         except Exception as e:
             QUERY_EXECUTION_TOTAL.labels(
-                query_type=query_type,
+                **query_metric_labels,
                 category=classify_query_error(e),
                 error_type=clickhouse_error_type(e),
             ).inc()
             raise
         finally:
-            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+            QUERY_EXECUTION_DURATION.labels(**query_metric_labels).observe(perf_counter() - query_start)
 
         fresh_response_dict = {
             **query_result.model_dump(),
@@ -1456,7 +1472,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "cache_key": cache_key,
             "calculation_trigger": trigger,
             "execution_mode": execution_mode.value,
-            "query_type": query_type,
+            "query_type": query_metric_labels["query_type"],
             "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
             "query_duration_ms": query_duration_ms,
             "has_error": has_error,
