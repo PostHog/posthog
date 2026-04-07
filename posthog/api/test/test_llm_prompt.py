@@ -167,6 +167,38 @@ class TestLLMPromptAPI(APIBaseTest):
         assert prompt_a["version"] == 2
         assert prompt_a["latest_version"] == 2
         assert prompt_a["version_count"] == 2
+        assert prompt_a["prompt"] == "v2"
+        assert prompt_a["prompt_size_bytes"] > 0
+
+    @parameterized.expand(
+        [
+            ("full", True, False),
+            ("preview", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_list_content_mode(self, mock_feature_enabled, mode, has_prompt, has_preview):
+        self.create_prompt_version(name="content-prompt", prompt="x" * 200)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content={mode}")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert ("prompt" in prompt) is has_prompt
+        assert ("prompt_preview" in prompt) is has_preview
+        assert prompt["prompt_size_bytes"] > 0
+        if has_preview:
+            assert len(prompt["prompt_preview"]) <= 163
+
+    def test_list_can_order_by_prompt_size_bytes(self, mock_feature_enabled):
+        self.create_prompt_version(name="small", prompt="abc")
+        self.create_prompt_version(name="large", prompt="x" * 50)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?order_by=-prompt_size_bytes")
+
+        assert response.status_code == status.HTTP_200_OK
+        names = [prompt["name"] for prompt in response.json()["results"]]
+        assert names == ["large", "small"]
 
     def test_fetch_prompt_by_name_returns_latest_by_default(self, mock_feature_enabled):
         first_version = self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")

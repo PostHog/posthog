@@ -137,7 +137,6 @@ ee/clickhouse/views/test/test_clickhouse_groups.py:0: error: Invalid index type 
 ee/clickhouse/views/test/test_clickhouse_groups.py:0: error: Item "None" of "ResourceNotebook | None" has no attribute "notebook"  [union-attr]
 ee/clickhouse/views/test/test_clickhouse_groups.py:0: error: Item "None" of "ResourceNotebook | None" has no attribute "notebook"  [union-attr]
 ee/clickhouse/views/test/test_clickhouse_groups.py:0: error: Module "orjson" has no attribute "orjson"; maybe "json"?  [attr-defined]
-ee/clickhouse/views/test/test_clickhouse_stickiness.py:0: error: Unsupported dynamic base class "stickiness_test_factory"  [misc]
 ee/clickhouse/views/test/test_experiment_saved_metrics.py:0: error: Item "None" of "Any | None" has no attribute "description"  [union-attr]
 ee/clickhouse/views/test/test_experiment_saved_metrics.py:0: error: Item "None" of "Any | None" has no attribute "id"  [union-attr]
 ee/clickhouse/views/test/test_experiment_saved_metrics.py:0: error: Item "None" of "Any | None" has no attribute "id"  [union-attr]
