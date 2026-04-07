@@ -1,5 +1,7 @@
 import { cleanup } from '@testing-library/react'
 
+import { ChartEvent, InteractionItem } from 'lib/Chart'
+
 import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -8,7 +10,9 @@ import {
     renderInsightPage,
     waitForChart,
 } from '~/test/insight-testing'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, GraphDataset, GraphPointPayload } from '~/types'
+
+import { onChartClick } from './LineGraph'
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -150,6 +154,126 @@ describe('LineGraph', () => {
 
             const firstTickLabel = chart.axes.x.tickLabel(0)
             expect(firstTickLabel).toBe('Jun 10')
+        })
+    })
+
+    describe('onChartClick', () => {
+        // Stacked bar geometry (canvas coords, y=0 at top):
+        //   Email (dataset 2):      top=50,  base=150, center=100
+        //   Flutter (dataset 1):    top=150, base=250, center=200
+        //   Webapp DAU (dataset 0): top=250, base=350, center=300
+        const datasets: GraphDataset[] = [
+            { id: 0, label: 'Webapp DAU', data: [100], action: { order: 0 } } as GraphDataset,
+            { id: 1, label: 'Flutter', data: [100], action: { order: 1 } } as GraphDataset,
+            { id: 2, label: 'Email', data: [100], action: { order: 2 } } as GraphDataset,
+        ]
+
+        const barElements = [
+            { y: 250, base: 350, x: 100 }, // Webapp DAU (bottom of stack)
+            { y: 150, base: 250, x: 100 }, // Flutter (middle)
+            { y: 50, base: 150, x: 100 }, // Email (top)
+        ]
+
+        function makeIndexElements(): InteractionItem[] {
+            return barElements.map((el, i) => ({
+                element: el as any,
+                datasetIndex: i,
+                index: 0,
+            }))
+        }
+
+        function makeMockChart(pointHits: InteractionItem[] = []): any {
+            return {
+                getElementsAtEventForMode: (_event: Event, mode: string) => {
+                    if (mode === 'point') {
+                        return pointHits
+                    }
+                    return makeIndexElements()
+                },
+            }
+        }
+
+        function makeEvent(y: number): ChartEvent {
+            return {
+                type: 'click',
+                native: new MouseEvent('click'),
+                x: 100,
+                y,
+            }
+        }
+
+        function clickAndCapture(chart: any, event: ChartEvent): GraphPointPayload | undefined {
+            let captured: GraphPointPayload | undefined
+            onChartClick(event, chart, datasets, (payload) => {
+                captured = payload
+            })
+            return captured
+        }
+
+        it('selects the correct series in a stacked bar chart when clicking below center', () => {
+            // Click at y=220, inside Flutter bar (150-250) but below its center (200)
+            // Bug: sortPoints compares to element.y (top=150) vs Webapp's top (250).
+            //   distance to Flutter top: |220-150| = 70
+            //   distance to Webapp top: |220-250| = 30  ← Webapp wins (WRONG!)
+            const chart = makeMockChart()
+            const payload = clickAndCapture(chart, makeEvent(220))
+
+            expect(payload).toBeTruthy()
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
+            expect(payload!.points.referencePoint.datasetIndex).toBe(1)
+        })
+
+        it('selects the correct series in a stacked bar chart when clicking above center', () => {
+            // Click at y=180, inside Flutter bar (150-250) but above its center (200)
+            const chart = makeMockChart()
+            const payload = clickAndCapture(chart, makeEvent(180))
+
+            expect(payload).toBeTruthy()
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
+            expect(payload!.points.referencePoint.datasetIndex).toBe(1)
+        })
+
+        it('selects the correct series when pointsIntersectingClick has a direct hit', () => {
+            // When Chart.js 'point' mode returns the correct bar, it should be used
+            const directHit: InteractionItem[] = [{ element: barElements[1] as any, datasetIndex: 1, index: 0 }]
+            const chart = makeMockChart(directHit)
+            const payload = clickAndCapture(chart, makeEvent(200))
+
+            expect(payload).toBeTruthy()
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
+            expect(payload!.points.clickedPointNotLine).toBe(true)
+        })
+
+        it('works correctly for line charts where elements have no base property', () => {
+            const lineDatasets: GraphDataset[] = [
+                { id: 0, label: 'Series A', data: [50], action: { order: 0 } } as GraphDataset,
+                { id: 1, label: 'Series B', data: [80], action: { order: 1 } } as GraphDataset,
+            ]
+            const lineElements = [
+                { y: 200, x: 100 }, // Series A
+                { y: 100, x: 100 }, // Series B (higher value = lower y)
+            ]
+            const chart = {
+                getElementsAtEventForMode: (_event: Event, mode: string) => {
+                    if (mode === 'point') {
+                        return []
+                    }
+                    return lineElements.map((el, i) => ({
+                        element: el as any,
+                        datasetIndex: i,
+                        index: 0,
+                    }))
+                },
+            }
+
+            // Click at y=110, closer to Series B (y=100)
+            let captured: GraphPointPayload | undefined
+            onChartClick(makeEvent(110), chart as any, lineDatasets, (payload) => {
+                captured = payload
+            })
+
+            expect(captured).toBeTruthy()
+            expect(captured!.points.referencePoint.dataset.label).toBe('Series B')
         })
     })
 })

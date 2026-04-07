@@ -116,10 +116,18 @@ export function onChartClick(
         return
     }
     // Get all points along line
-    const sortDirection = 'y'
-    const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
-        Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
-        Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
+    const sortPoints = (a: InteractionItem, b: InteractionItem): number => {
+        const eventY = event.y ?? 0
+        // For bar elements, compare distance to the bar's vertical center
+        // rather than its top edge. Adjacent stacked bars share edges, so
+        // using the top causes off-by-one selection when clicking below a
+        // bar's center.
+        const aEl = a.element as any
+        const bEl = b.element as any
+        const aY = aEl.base != null ? (aEl.y + aEl.base) / 2 : aEl.y
+        const bY = bEl.base != null ? (bEl.y + bEl.base) / 2 : bEl.y
+        return Math.abs(aY - eventY) - Math.abs(bY - eventY)
+    }
     const pointsIntersectingLine = chart
         .getElementsAtEventForMode(
             nativeEvent,
