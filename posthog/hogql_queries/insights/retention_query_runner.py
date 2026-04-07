@@ -360,20 +360,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
-        if not is_first_ever_occurrence:
-            # Pre filter event
-            events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-            unique_events = set(events)
-            # Don't pre-filter if any of them is "All events"
-            if None not in unique_events:
-                events_where.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        # Sorting for consistent snapshots in tests
-                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                        op=ast.CompareOperationOp.In,
-                    )
+        # Pre-filter by event name
+        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
+        unique_events = set(events)
+        # Don't pre-filter if any of them is "All events"
+        if None not in unique_events:
+            events_where.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    # Sorting for consistent snapshots in tests
+                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+                    op=ast.CompareOperationOp.In,
                 )
+            )
 
         return events_where
 
