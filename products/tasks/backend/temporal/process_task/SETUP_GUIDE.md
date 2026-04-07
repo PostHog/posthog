@@ -154,6 +154,22 @@ tunnels:
     addr: 3308
 ```
 
+**IMPORTANT:** The free version of Ngrok includes on `dev` domain, that will try to cover both tunnels, and it won't work. Use Cloudflare (free). If you want to use ngrok, upgrade to `Hobbyist` plan, create custom domans, and add them to config:
+
+```yaml
+tunnels:
+  django:
+    proto: http
+    addr: 8000
+    domain: alexl-django.ngrok.dev
+  gateway:
+    proto: http
+    addr: 3308
+    domain: alexl-llmg.ngrok.dev
+agent:
+  authtoken: ...
+```
+
 Then, get an auth token at `https://dashboard.ngrok.com/get-started/your-authtoken` and add it locally (either to ngrok directly, through `ngrok config add-authtoken`, or to the config file).
 
 After that, start both tunnels:
