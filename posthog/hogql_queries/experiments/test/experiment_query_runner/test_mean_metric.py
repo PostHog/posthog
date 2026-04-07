@@ -1209,8 +1209,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
         self.assertEqual(result.variant_results[0].sum, 75)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
-    def test_hogql_count_metric_with_winsorization(self):
+    @snapshot_clickhouse_queries
+    def test_hogql_count_metric_with_winsorization(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -1291,9 +1300,11 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
