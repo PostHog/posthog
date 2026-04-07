@@ -249,7 +249,8 @@ function NewLayoutVariant(
 export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const v = featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
-    const variant: DashboardTemplateChooserExperimentVariant = v === 'simple' || v === 'new' ? v : 'new'
+    const variant: DashboardTemplateChooserExperimentVariant =
+        v === 'simple' || v === 'new' || v === 'control' ? v : 'new'
 
     switch (variant) {
         case 'simple':

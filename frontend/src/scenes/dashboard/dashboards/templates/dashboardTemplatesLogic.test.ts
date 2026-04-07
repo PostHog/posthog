@@ -117,7 +117,7 @@ describe('dashboardTemplatesLogic', () => {
     it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
         router.actions.push('/dashboard', {})
         const listMock = api.dashboardTemplates.list as jest.Mock
-        const stub: Pick<DashboardTemplateType, 'id'> = { id: 1 }
+        const stub: Pick<DashboardTemplateType, 'id'> = { id: '1' }
         listMock.mockResolvedValue({ results: [stub as DashboardTemplateType] })
         const mounted = dashboardTemplatesLogic({ scope: 'default' })
         logic = mounted
