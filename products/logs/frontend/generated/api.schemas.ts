@@ -272,6 +272,72 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
+export interface LogsAlertSimulateRequestApi {
+    /** Filter criteria — same format as LogsAlertConfiguration.filters. */
+    filters: unknown
+    /**
+     * Threshold count to evaluate against.
+     * @minimum 1
+     */
+    threshold_count: number
+    /** Whether the alert fires when the count is above or below the threshold.
+
+* `above` - Above
+* `below` - Below */
+    threshold_operator: ThresholdOperatorEnumApi
+    /** Window size in minutes — determines bucket interval. */
+    window_minutes: number
+    /**
+     * Total check periods in the N-of-M evaluation window (M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * How many periods must breach to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minutes to wait after firing before sending another notification.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d'). */
+    date_from: string
+}
+
+export interface LogsAlertSimulateBucketApi {
+    /** Bucket start timestamp. */
+    timestamp: string
+    /** Number of matching logs in this bucket. */
+    count: number
+    /** Whether the count crossed the threshold in this bucket. */
+    threshold_breached: boolean
+    /** Alert state after evaluating this bucket. */
+    state: string
+    /** Notification action: none, fire, or resolve. */
+    notification: string
+    /** Human-readable explanation of the state transition. */
+    reason: string
+}
+
+export interface LogsAlertSimulateResponseApi {
+    /** Time-bucketed counts with full state machine evaluation. */
+    buckets: LogsAlertSimulateBucketApi[]
+    /** Number of times the alert would have sent a fire notification. */
+    fire_count: number
+    /** Number of times the alert would have sent a resolve notification. */
+    resolve_count: number
+    /** Total number of buckets in the simulation window. */
+    total_buckets: number
+    /** Threshold count used for evaluation. */
+    threshold_count: number
+    /** Threshold operator used for evaluation. */
+    threshold_operator: string
+}
+
 /**
  * * `SYSTEM` - SYSTEM
  * `PLUGIN` - PLUGIN
