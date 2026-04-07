@@ -102,7 +102,7 @@ function QueuedMessageItem({
 
     return (
         <div className="group flex items-center gap-2 py-1 px-2 rounded-md hover:bg-bg-light">
-            <p className="flex-1 text-sm text-secondary truncate">{message.content}</p>
+            <p className="flex-1 text-sm text-secondary truncate mb-0">{message.content}</p>
             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
                     size="xsmall"
