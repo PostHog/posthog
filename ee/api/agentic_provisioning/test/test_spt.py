@@ -7,8 +7,8 @@ from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
 
 class TestSharedPaymentToken(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.post")
-    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
-    @patch("posthog.cloud_utils.get_cached_instance_license")
+    @patch("ee.api.agentic_provisioning.views.build_billing_token", return_value="test_billing_token")
+    @patch("ee.api.agentic_provisioning.views.get_cached_instance_license")
     def test_provisioning_calls_billing_with_spt(self, mock_license, mock_build_token, mock_post):
         mock_license.return_value = MagicMock()
         mock_post.return_value = MagicMock(status_code=200)
@@ -62,8 +62,8 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         mock_post.assert_not_called()
 
     @patch("ee.api.agentic_provisioning.views.requests.post")
-    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
-    @patch("posthog.cloud_utils.get_cached_instance_license")
+    @patch("ee.api.agentic_provisioning.views.build_billing_token", return_value="test_billing_token")
+    @patch("ee.api.agentic_provisioning.views.get_cached_instance_license")
     def test_provisioning_succeeds_even_if_billing_activation_fails(self, mock_license, mock_build_token, mock_post):
         mock_license.return_value = MagicMock()
         mock_post.return_value = MagicMock(status_code=500)
