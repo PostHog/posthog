@@ -450,7 +450,6 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_deliver_subscription(self, mock_sync):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
-        mock_client.execute_workflow = AsyncMock(return_value=None)
         mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
@@ -458,10 +457,11 @@ class TestSubscriptionTemporal(APILicensedTest):
         mock_client.start_workflow.reset_mock()
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_202_ACCEPTED
 
-        mock_client.execute_workflow.assert_called_once()
-        wf_args, wf_kwargs = mock_client.execute_workflow.call_args
+        # start_workflow is called twice: once for the create (target change) and once for test-delivery
+        assert mock_client.start_workflow.call_count == 1
+        wf_args, wf_kwargs = mock_client.start_workflow.call_args
         assert wf_args[0] == "handle-subscription-value-change"
         activity_inputs = wf_args[1]
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
@@ -473,7 +473,6 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_deliver_cross_team_returns_404(self, mock_sync):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
-        mock_client.execute_workflow = AsyncMock(return_value=None)
         mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
@@ -497,8 +496,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_deliver_temporal_error_returns_500(self, mock_sync):
         mock_client = MagicMock()
-        mock_client.start_workflow = AsyncMock()
-        mock_client.execute_workflow = AsyncMock(side_effect=RuntimeError("Temporal unavailable"))
+        mock_client.start_workflow = AsyncMock(side_effect=[None, RuntimeError("Temporal unavailable")])
         mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
@@ -506,13 +504,17 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert response.json()["detail"] == "Failed to deliver subscription"
+        assert response.json()["detail"] == "Failed to schedule delivery"
 
     def test_deliver_concurrent_returns_409(self, mock_sync):
         mock_client = MagicMock()
-        mock_client.start_workflow = AsyncMock()
-        mock_client.execute_workflow = AsyncMock(
-            side_effect=WorkflowAlreadyStartedError("test-delivery-subscription-1", "handle-subscription-value-change")
+        mock_client.start_workflow = AsyncMock(
+            side_effect=[
+                None,  # create subscription
+                WorkflowAlreadyStartedError(
+                    "test-delivery-subscription-1", "handle-subscription-value-change"
+                ),  # test-delivery
+            ]
         )
         mock_sync.return_value = mock_client
 

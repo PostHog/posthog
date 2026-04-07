@@ -271,7 +271,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     @extend_schema(
         request=None,
-        responses={200: OpenApiResponse(description="Returns OK if the test delivery was scheduled successfully")},
+        responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
     @action(methods=["POST"], detail=True, url_path="test-delivery")
     def test_delivery(self, request, **kwargs):
@@ -283,7 +283,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         workflow_id = f"test-delivery-subscription-{subscription.id}"
         try:
             asyncio.run(
-                temporal.execute_workflow(
+                temporal.start_workflow(
                     "handle-subscription-value-change",
                     ProcessSubscriptionWorkflowInputs(
                         subscription_id=subscription.id,
@@ -307,11 +307,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         except Exception as e:
             capture_exception(e)
             return Response(
-                {"detail": "Failed to deliver subscription"},
+                {"detail": "Failed to schedule delivery"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_202_ACCEPTED)
 
 
 def unsubscribe(request: HttpRequest):
