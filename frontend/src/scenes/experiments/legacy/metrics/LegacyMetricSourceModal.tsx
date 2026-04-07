@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { experimentLogic } from '../../experimentLogic'
-import { modalsLogic } from '../../modalsLogic'
 import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../../utils'
+import { legacyExperimentModalsLogic } from '../legacyExperimentModalsLogic'
 
 /**
  *
@@ -22,8 +22,8 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(modalsLogic)
+    } = useActions(legacyExperimentModalsLogic)
+    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
     const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen

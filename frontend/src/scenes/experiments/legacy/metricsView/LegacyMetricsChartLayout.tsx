@@ -1,11 +1,10 @@
 import { ReactNode } from 'react'
 
-import { useSvgResizeObserver } from '~/scenes/experiments/MetricsView/hooks/useSvgResizeObserver'
-import { valueToXCoordinate } from '~/scenes/experiments/MetricsView/shared/utils'
+import { useLegacySvgResizeObserver } from '../hooks/useLegacySvgResizeObserver'
+import { LegacyTickPanel } from './LegacyTickPanel'
+import { legacyValueToXCoordinate } from './legacyUtils'
 
-import { TickPanel } from './TickPanel'
-
-interface MetricsChartLayoutProps {
+interface LegacyMetricsChartLayoutProps {
     isFirstMetric: boolean
     tickValues: number[]
     chartBound: number
@@ -17,10 +16,11 @@ interface MetricsChartLayoutProps {
 }
 
 /**
+ * @deprecated
  * Reusable component to handle the layout and animation concerns for metric charts
  * This component extracts the `isFirstMetric` logic from DeltaChart
  */
-export function MetricsChartLayout({
+export function LegacyMetricsChartLayout({
     isFirstMetric,
     tickValues,
     chartBound,
@@ -29,12 +29,16 @@ export function MetricsChartLayout({
     viewBoxWidth = 800,
     horizontalPadding = 20,
     tickPanelHeight = 20,
-}: MetricsChartLayoutProps): JSX.Element {
+}: LegacyMetricsChartLayoutProps): JSX.Element {
     // Use the shared resize observer hook to maintain synchronized heights
     // This hook is responsible for the animation effects when metrics are added/removed
-    const { ticksSvgRef, chartSvgRef, ticksSvgHeight, chartSvgHeight } = useSvgResizeObserver([tickValues, chartBound])
+    const { ticksSvgRef, chartSvgRef, ticksSvgHeight, chartSvgHeight } = useLegacySvgResizeObserver([
+        tickValues,
+        chartBound,
+    ])
 
-    const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
+    const valueToX = (value: number): number =>
+        legacyValueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
 
     // Ensure a minimum height for the title panel even when chart is empty/error state
     const metricTitlePanelHeight = Math.max(chartSvgHeight, 80)
@@ -71,7 +75,7 @@ export function MetricsChartLayout({
                     {isFirstMetric && (
                         <>
                             <div className="flex justify-center">
-                                <TickPanel
+                                <LegacyTickPanel
                                     svgRef={ticksSvgRef}
                                     tickValues={tickValues}
                                     valueToX={valueToX}

@@ -2291,9 +2291,11 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     urlToAction(({ actions, props, values }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate, preserveLocalChanges }, { method }) => {
-            const shouldPreserveLocalChanges =
-                preserveLocalChanges && values.surveyChanged && values.survey.id === (props.id ?? NEW_SURVEY.id)
+        [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+            // Preserve unsaved edits whenever we re-enter the same survey URL — covers
+            // both explicit opt-in navigations (e.g. guided↔full editor switch) and
+            // implicit re-entries like tab switching, which also dispatch a PUSH.
+            const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === (props.id ?? NEW_SURVEY.id)
 
             // Parse filters from URL params
             if (searchParams.propertyFilters) {

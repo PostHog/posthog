@@ -4,21 +4,26 @@ import { useValues } from 'kea'
 import { IconMinus, IconTrending } from '@posthog/icons'
 import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '../../experimentLogic'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 
-interface SignificanceHighlightProps {
+interface LegacySignificanceHighlightProps {
     displayOrder?: number
     metricUuid?: string
     isSecondary?: boolean
     className?: string
 }
 
-export function SignificanceHighlight({
+/**
+ * @deprecated
+ * Legacy significance highlight component.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+export function LegacySignificanceHighlight({
     displayOrder = 0,
     metricUuid,
     isSecondary = false,
     className = '',
-}: SignificanceHighlightProps): JSX.Element {
+}: LegacySignificanceHighlightProps): JSX.Element {
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails, experiment } =
         useValues(experimentLogic)
 
