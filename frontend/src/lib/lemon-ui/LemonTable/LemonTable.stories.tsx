@@ -462,11 +462,7 @@ export const WithRowActions: Story = {
                                 >
                                     View profile
                                 </LemonButton>
-                                <LemonButton
-                                    fullWidth
-                                    size="small"
-                                    onClick={() => alert(`Editing ${record.name}`)}
-                                >
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
                                     Edit
                                 </LemonButton>
                                 <LemonDivider />
