@@ -731,8 +731,13 @@ const STRUCTURED_CONTENT_TYPES = new Set([
 ])
 
 function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
+    const trimmed = content.trim()
+    if (!trimmed.startsWith('[')) {
+        return content
+    }
+
     try {
-        const parsed = JSON.parse(content)
+        const parsed = JSON.parse(trimmed)
         if (
             Array.isArray(parsed) &&
             (parsed.length === 0 ||
