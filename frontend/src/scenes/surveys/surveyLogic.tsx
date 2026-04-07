@@ -761,9 +761,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     }
                 )
-                actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
+                actions.setBaseStatsResults(results)
                 actions.loadConsolidatedSurveyResults()
-                return response.results as SurveyBaseStatsResult
+                return results
             },
         },
         surveyDismissedAndSentCount: {
