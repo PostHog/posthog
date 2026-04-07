@@ -8,6 +8,9 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - packages/quill
+    - packages/quill/apps/*
+    - packages/quill/packages/*
     - frontend
     - playwright
     - nodejs
@@ -76,3 +79,6 @@ minimumReleaseAgeExclude:
     - '@oxfmt/*'
     - bloommx@1.0.3
     - kea-typegen
+    - shiki
+    - shadcn
+    - '@shikijs/*'
