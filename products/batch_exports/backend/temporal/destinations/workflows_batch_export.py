@@ -146,14 +146,7 @@ class WorkflowsConsumer(Consumer):
         post = make_retryable_with_exponential_backoff(
             self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
         )
-        task = self.request_task_group.create_task(post(data))
-        task.add_done_callback(self._pending_requests.remove)
-        self._pending_requests.add(task)
-
-    def _on_request_complete(self, request: Request) -> None:
-        self._pending_requests.remove(request)
-        if (exc := request.exception()) is not None:
-            self.logger.exception("Request failed", exc_info=exc)
+        self.request_task_group.create_task(post(data))
 
     async def post(self, data: bytes) -> None:
         async with self._requests_semaphore:
@@ -187,12 +180,8 @@ class WorkflowsConsumer(Consumer):
         pass
 
     async def finalize(self) -> None:
-        """Await any pending requests.
-
-        Will raise if any requests failed.
-        """
-        if self._pending_requests:
-            await asyncio.gather(*self._pending_requests)
+        """Required by consumer interface."""
+        pass
 
 
 @dataclasses.dataclass
