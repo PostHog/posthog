@@ -8,6 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
+import { LogsAlertCheckHistory } from './LogsAlertCheckHistory'
 import { LogsAlertForm } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -44,6 +45,7 @@ function LogsAlertingSectionInner(): JSX.Element {
             >
                 {isModalOpen && <LogsAlertModalContent editingAlert={editingAlert} />}
             </LemonModal>
+            <LogsAlertCheckHistory />
         </>
     )
 }

@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -38,6 +38,17 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.post(self.base_url, self._valid_payload(**overrides), format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
+
+    def _make_alert(self, **overrides) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Test alert",
+            "threshold_count": 100,
+            "created_by": self.user,
+            "filters": {"severityLevels": ["error"]},
+        }
+        defaults.update(overrides)
+        return LogsAlertConfiguration.objects.create(**defaults)
 
     # --- CRUD ---
 
@@ -674,3 +685,124 @@ class TestLogsAlertAPI(APIBaseTest):
         data = response.json()
         assert data["threshold_count"] == 42
         assert data["threshold_operator"] == "below"
+
+    # --- Sparkline ---
+
+    @freeze_time("2025-01-01T12:00:00Z")
+    def test_list_includes_sparkline(self):
+        alert = self._make_alert()
+        for i in range(3):
+            check = LogsAlertCheck.objects.create(
+                alert=alert,
+                result_count=50,
+                threshold_breached=False,
+                state_before="not_firing",
+                state_after="not_firing",
+            )
+            LogsAlertCheck.objects.filter(pk=check.pk).update(created_at=datetime(2025, 1, 1, 10, i, tzinfo=UTC))
+        check = LogsAlertCheck.objects.create(
+            alert=alert,
+            result_count=150,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        LogsAlertCheck.objects.filter(pk=check.pk).update(created_at=datetime(2025, 1, 1, 11, 0, tzinfo=UTC))
+
+        response = self.client.get(self.base_url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()["results"][0]
+        assert "sparkline" in data
+        sparkline = data["sparkline"]
+        assert len(sparkline) == 24
+        assert all({"timestamp", "ok", "breached", "errored"} <= set(b.keys()) for b in sparkline)
+        hour_10 = next(b for b in sparkline if "T10:" in b["timestamp"])
+        assert hour_10["ok"] == 3
+        hour_11 = next(b for b in sparkline if "T11:" in b["timestamp"])
+        assert hour_11["breached"] == 1
+
+    def test_list_sparkline_empty_when_no_checks(self):
+        self._make_alert()
+        response = self.client.get(self.base_url, format="json")
+        data = response.json()["results"][0]
+        assert "sparkline" in data
+        assert all(b["ok"] == 0 and b["breached"] == 0 and b["errored"] == 0 for b in data["sparkline"])
+
+    # --- Checks ---
+
+    @freeze_time("2025-01-01T12:00:00Z")
+    def test_checks_endpoint_returns_paginated_results(self):
+        alert = self._make_alert()
+        for i in range(5):
+            check = LogsAlertCheck.objects.create(
+                alert=alert,
+                result_count=50 + i,
+                threshold_breached=i > 2,
+                state_before="not_firing",
+                state_after="not_firing" if i <= 2 else "firing",
+            )
+            LogsAlertCheck.objects.filter(pk=check.pk).update(created_at=datetime(2025, 1, 1, 10, i, tzinfo=UTC))
+
+        url = f"{self.base_url}{alert.id}/checks/"
+        response = self.client.get(url, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "results" in data
+        assert len(data["results"]) == 5
+        # Most recent first (minute 4 = result_count 54)
+        assert data["results"][0]["result_count"] == 54
+
+    def test_checks_endpoint_scoped_to_alert(self):
+        alert1 = self._make_alert(name="Alert 1")
+        alert2 = self._make_alert(name="Alert 2")
+        LogsAlertCheck.objects.create(
+            alert=alert1,
+            result_count=10,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert2,
+            result_count=20,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        url = f"{self.base_url}{alert1.id}/checks/"
+        response = self.client.get(url, format="json")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["result_count"] == 10
+
+    @parameterized.expand(
+        [
+            ("breached", {"threshold_breached": True}, {"threshold_breached": False}),
+            ("ok", {"threshold_breached": False, "error_message": None}, {"threshold_breached": True}),
+            (
+                "errored",
+                {"threshold_breached": False, "error_message": "bang"},
+                {"threshold_breached": False, "error_message": None},
+            ),
+        ]
+    )
+    def test_checks_endpoint_filter_by_outcome(self, outcome, matching_extra, nonmatching_extra):
+        alert = self._make_alert()
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            result_count=50,
+            state_before="not_firing",
+            state_after="not_firing",
+            **nonmatching_extra,
+        )
+        LogsAlertCheck.objects.create(
+            alert=alert,
+            result_count=150,
+            state_before="not_firing",
+            state_after="firing",
+            **matching_extra,
+        )
+
+        url = f"{self.base_url}{alert.id}/checks/?outcome={outcome}"
+        response = self.client.get(url, format="json")
+        assert len(response.json()["results"]) == 1

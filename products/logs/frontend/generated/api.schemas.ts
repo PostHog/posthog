@@ -151,6 +151,13 @@ export const LogsAlertConfigurationStateEnumApi = {
     Snoozed: 'snoozed',
 } as const
 
+export interface LogsAlertSparklineBucketApi {
+    timestamp: string
+    ok: number
+    breached: number
+    errored: number
+}
+
 export interface LogsAlertConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -205,6 +212,7 @@ export interface LogsAlertConfigurationApi {
     readonly created_by: UserBasicApi
     /** @nullable */
     readonly updated_at: string | null
+    readonly sparkline: readonly LogsAlertSparklineBucketApi[]
 }
 
 export interface PaginatedLogsAlertConfigurationListApi {
@@ -270,6 +278,40 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly created_by?: UserBasicApi
     /** @nullable */
     readonly updated_at?: string | null
+    readonly sparkline?: readonly LogsAlertSparklineBucketApi[]
+}
+
+export interface LogsAlertCheckApi {
+    readonly id: string
+    readonly created_at: string
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    result_count?: number | null
+    threshold_breached: boolean
+    /** @maxLength 20 */
+    state_before: string
+    /** @maxLength 20 */
+    state_after: string
+    /** @nullable */
+    error_message?: string | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    query_duration_ms?: number | null
+}
+
+export interface PaginatedLogsAlertCheckListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertCheckApi[]
 }
 
 export interface LogsAlertSimulateRequestApi {
@@ -620,6 +662,29 @@ export type LogsValuesRetrieveAttributeType =
 export const LogsValuesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
+} as const
+
+export type LogsAlertsChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter checks by outcome.
+     */
+    outcome?: LogsAlertsChecksListOutcome
+}
+
+export type LogsAlertsChecksListOutcome = (typeof LogsAlertsChecksListOutcome)[keyof typeof LogsAlertsChecksListOutcome]
+
+export const LogsAlertsChecksListOutcome = {
+    Breached: 'breached',
+    Errored: 'errored',
+    Ok: 'ok',
 } as const
 
 export type PluginConfigsLogsListParams = {

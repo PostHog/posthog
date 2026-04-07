@@ -13,11 +13,13 @@ import type {
     LogsAlertConfigurationApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsChecksListParams,
     LogsAlertsListParams,
     LogsAttributesRetrieveParams,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
+    PaginatedLogsAlertCheckListApi,
     PaginatedLogsAlertConfigurationListApi,
     PaginatedLogsViewListApi,
     PaginatedPluginLogEntryListApi,
@@ -290,6 +292,37 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
     return apiMutator<void>(getLogsAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * List check history for a specific alert, most recent first.
+ */
+export const getLogsAlertsChecksListUrl = (projectId: string, id: string, params?: LogsAlertsChecksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/checks/`
+}
+
+export const logsAlertsChecksList = async (
+    projectId: string,
+    id: string,
+    params?: LogsAlertsChecksListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsAlertCheckListApi> => {
+    return apiMutator<PaginatedLogsAlertCheckListApi>(getLogsAlertsChecksListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -3,10 +3,20 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { logsAlertsDestroy, logsAlertsList, logsAlertsPartialUpdate } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    logsAlertsChecksList,
+    logsAlertsDestroy,
+    logsAlertsList,
+    logsAlertsPartialUpdate,
+} from 'products/logs/frontend/generated/api'
+import {
+    LogsAlertCheckApi,
+    LogsAlertsChecksListOutcome,
+    LogsAlertConfigurationApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
 
@@ -24,6 +34,10 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         deleteAlert: (id: string) => ({ id }),
         toggleAlertEnabled: (alert: LogsAlertConfigurationApi) => ({ alert }),
+        viewCheckHistory: (alert: LogsAlertConfigurationApi) => ({ alert }),
+        closeCheckHistory: true,
+        setCheckHistoryOutcome: (outcome: string) => ({ outcome }),
+        loadCheckHistoryPage: (url: string) => ({ url }),
     }),
 
     reducers({
@@ -41,6 +55,34 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 setEditingAlert: () => false,
             },
         ],
+        checkHistoryAlert: [
+            null as LogsAlertConfigurationApi | null,
+            {
+                viewCheckHistory: (_, { alert }) => alert,
+                closeCheckHistory: () => null,
+            },
+        ],
+        checkHistoryOutcome: [
+            'all' as string,
+            {
+                setCheckHistoryOutcome: (_, { outcome }) => outcome,
+                closeCheckHistory: () => 'all',
+            },
+        ],
+        checkHistoryNext: [
+            null as string | null,
+            {
+                loadCheckHistorySuccess: (_, { checkHistory }) => checkHistory.next ?? null,
+                closeCheckHistory: () => null,
+            },
+        ],
+        checkHistoryPrevious: [
+            null as string | null,
+            {
+                loadCheckHistorySuccess: (_, { checkHistory }) => checkHistory.previous ?? null,
+                closeCheckHistory: () => null,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -51,6 +93,32 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                     const projectId = String(values.currentTeamId)
                     const response = await logsAlertsList(projectId)
                     return response.results
+                },
+            },
+        ],
+        checkHistory: [
+            {
+                count: 0,
+                results: [] as LogsAlertCheckApi[],
+                next: null as string | null,
+                previous: null as string | null,
+            },
+            {
+                loadCheckHistory: async () => {
+                    const alert = values.checkHistoryAlert
+                    if (!alert) {
+                        return { results: [], next: null, previous: null }
+                    }
+                    const projectId = String(values.currentTeamId)
+                    const outcome = values.checkHistoryOutcome
+                    return await logsAlertsChecksList(
+                        projectId,
+                        alert.id,
+                        outcome !== 'all' ? { outcome: outcome as LogsAlertsChecksListOutcome } : {}
+                    )
+                },
+                loadCheckHistoryPage: async ({ url }) => {
+                    return await api.get(url)
                 },
             },
         ],
@@ -77,6 +145,12 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             } catch {
                 lemonToast.error('Failed to update alert')
             }
+        },
+        viewCheckHistory: () => {
+            actions.loadCheckHistory()
+        },
+        setCheckHistoryOutcome: () => {
+            actions.loadCheckHistory()
         },
     })),
 

@@ -4,9 +4,9 @@ from typing import Final
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -31,7 +31,7 @@ from products.logs.backend.alert_state_machine import (
     NotificationAction,
     evaluate_alert_check,
 )
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
@@ -44,8 +44,16 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
+class LogsAlertSparklineBucketSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField()
+    ok = serializers.IntegerField()
+    breached = serializers.IntegerField()
+    errored = serializers.IntegerField()
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    sparkline = serializers.SerializerMethodField()
     filters = serializers.JSONField(
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
@@ -92,6 +100,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "sparkline",
         ]
         read_only_fields = [
             "id",
@@ -104,7 +113,37 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "sparkline",
         ]
+
+    @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
+    def get_sparkline(self, obj: LogsAlertConfiguration) -> list[dict]:
+        start = self.context.get("sparkline_start") or (datetime.now(UTC) - dt.timedelta(hours=24))
+        checks = getattr(obj, "recent_checks", [])
+
+        buckets: list[dict] = []
+        for i in range(24):
+            bucket_start = start + dt.timedelta(hours=i)
+            buckets.append(
+                {
+                    "timestamp": bucket_start.isoformat(),
+                    "ok": 0,
+                    "breached": 0,
+                    "errored": 0,
+                }
+            )
+
+        for check in checks:
+            hour_offset = int((check.created_at - start).total_seconds() // 3600)
+            if 0 <= hour_offset < 24:
+                if check.error_message:
+                    buckets[hour_offset]["errored"] += 1
+                elif check.threshold_breached:
+                    buckets[hour_offset]["breached"] += 1
+                else:
+                    buckets[hour_offset]["ok"] += 1
+
+        return buckets
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
@@ -187,6 +226,21 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+
+
+class LogsAlertCheckSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogsAlertCheck
+        fields = [
+            "id",
+            "created_at",
+            "result_count",
+            "threshold_breached",
+            "state_before",
+            "state_after",
+            "error_message",
+            "query_duration_ms",
+        ]
 
 
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
@@ -373,7 +427,19 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        self._sparkline_start = datetime.now(UTC) - dt.timedelta(hours=24)
+        return queryset.filter(team_id=self.team_id).prefetch_related(
+            Prefetch(
+                "checks",
+                queryset=LogsAlertCheck.objects.filter(created_at__gte=self._sparkline_start),
+                to_attr="recent_checks",
+            )
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["sparkline_start"] = getattr(self, "_sparkline_start", None)
+        return context
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,
@@ -510,6 +576,41 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response_serializer = LogsAlertSimulateResponseSerializer(response_data)
         return Response(response_serializer.data)
+
+    @extend_schema(
+        responses={200: LogsAlertCheckSerializer(many=True)},
+        description="List check history for a specific alert, most recent first.",
+        parameters=[
+            OpenApiParameter(
+                name="outcome",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["breached", "ok", "errored"],
+                description="Filter checks by outcome.",
+            ),
+        ],
+    )
+    @action(detail=True, methods=["GET"], url_path="checks")
+    def checks(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        queryset = LogsAlertCheck.objects.filter(alert=alert).order_by("-created_at")
+
+        outcome = request.query_params.get("outcome")
+        if outcome == "breached":
+            queryset = queryset.filter(threshold_breached=True, error_message__isnull=True)
+        elif outcome == "ok":
+            queryset = queryset.filter(threshold_breached=False, error_message__isnull=True)
+        elif outcome == "errored":
+            queryset = queryset.exclude(error_message__isnull=True)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = LogsAlertCheckSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertCheckSerializer(queryset, many=True)
+        return Response(serializer.data)
 
     def _track(self, event: str, instance: LogsAlertConfiguration) -> None:
         report_user_action(

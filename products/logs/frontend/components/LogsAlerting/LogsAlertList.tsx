@@ -2,14 +2,38 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertSparklineBucketApi,
+    ThresholdOperatorEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
+
+function alertSparklineData(sparkline: readonly LogsAlertSparklineBucketApi[] | undefined): SparklineTimeSeries[] {
+    if (!sparkline || sparkline.length === 0) {
+        return []
+    }
+    return [
+        {
+            name: 'Breached',
+            values: sparkline.map((b) => b.breached),
+            color: 'danger',
+        },
+        {
+            name: 'Errored',
+            values: sparkline.map((b) => b.errored),
+            color: 'warning',
+        },
+    ]
+}
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
@@ -18,7 +42,8 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 
 export function LogsAlertList(): JSX.Element {
     const { alerts, alertsLoading } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled } = useActions(logsAlertingLogic)
+    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, viewCheckHistory } =
+        useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
         {
@@ -50,6 +75,16 @@ export function LogsAlertList(): JSX.Element {
                 ),
         },
         {
+            title: (
+                <Tooltip title="Breached (red) and errored (yellow) checks over the last 24 hours. Empty = healthy.">
+                    <span className="cursor-help">Last 24h</span>
+                </Tooltip>
+            ),
+            render: (_, alert) => (
+                <Sparkline data={alertSparklineData(alert.sparkline)} className="h-6 w-20" type="bar" />
+            ),
+        },
+        {
             title: 'Enabled',
             dataIndex: 'enabled',
             render: (_, alert) => (
@@ -63,6 +98,10 @@ export function LogsAlertList(): JSX.Element {
                     overlay={
                         <LemonMenuOverlay
                             items={[
+                                {
+                                    label: 'View history',
+                                    onClick: () => viewCheckHistory(alert),
+                                },
                                 {
                                     label: 'Edit',
                                     onClick: () => setEditingAlert(alert),
