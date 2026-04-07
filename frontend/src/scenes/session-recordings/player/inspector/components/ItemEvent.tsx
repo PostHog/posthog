@@ -257,29 +257,25 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
 
     return (
         <div className={index > 0 ? 'border-t' : ''}>
-            <div
-                className="flex items-center gap-1 cursor-pointer hover:bg-surface-primary"
-                onClick={() => {
-                    seekToEvent()
-                    setExpanded(!expanded)
-                }}
-            >
-                <span className="shrink-0 text-secondary pl-2">
+            <div className="flex items-center gap-1 cursor-pointer hover:bg-surface-primary">
+                <span className="shrink-0 text-secondary pl-2" onClick={() => setExpanded(!expanded)}>
                     {expanded ? <IconCollapse className="text-sm" /> : <IconExpand className="text-sm" />}
                 </span>
-                <ItemTimeDisplay
-                    timestamp={event.timestamp}
-                    timeInRecording={event.timeInRecording}
-                    className="shrink-0 text-secondary !py-0"
-                />
-                <PropertyKeyInfo
-                    className="truncate"
-                    disablePopover
-                    disableIcon
-                    ellipsis
-                    value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
-                    type={TaxonomicFilterGroupType.Events}
-                />
+                <div className="flex items-center gap-1 flex-1 overflow-hidden" onClick={seekToEvent}>
+                    <ItemTimeDisplay
+                        timestamp={event.timestamp}
+                        timeInRecording={event.timeInRecording}
+                        className="shrink-0 text-secondary !py-0"
+                    />
+                    <PropertyKeyInfo
+                        className="truncate"
+                        disablePopover
+                        disableIcon
+                        ellipsis
+                        value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
+                </div>
             </div>
             {expanded ? (
                 <div className="pl-6 pb-1">
