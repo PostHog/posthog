@@ -2,7 +2,6 @@ import { IconTrash, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonSnack } from '@posthog/lemon-ui'
 
 import { IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
@@ -106,23 +105,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                             size="small"
                             icon={<IconTrash />}
                             status="danger"
-                            onClick={() => {
-                                if (!onDelete) {
-                                    return
-                                }
-                                LemonDialog.open({
-                                    title: 'Delete trigger group?',
-                                    description: `Are you sure you want to delete "${displayName}"? This cannot be undone.`,
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => onDelete(id),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            }}
+                            onClick={onDelete ? () => onDelete(id) : undefined}
                             disabledReason={!onDelete ? 'Delete not yet implemented' : undefined}
                         >
                             Delete
