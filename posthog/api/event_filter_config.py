@@ -61,10 +61,10 @@ class EventFilterConfigSerializer(serializers.ModelSerializer):
 class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Single event filter per team. Auto-creates on first access.
-    GET  /event_filters/ — returns the config
-    POST /event_filters/ — updates the config (upsert)
-    GET  /event_filters/metrics/ — time-series metrics
-    GET  /event_filters/metrics/totals/ — aggregate totals
+    GET  /event_filter/ — returns the config
+    POST /event_filter/ — updates the config (upsert)
+    GET  /event_filter/metrics/ — time-series metrics
+    GET  /event_filter/metrics/totals/ — aggregate totals
     """
 
     scope_object = "event_filter"

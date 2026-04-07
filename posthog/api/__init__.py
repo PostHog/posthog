@@ -326,9 +326,9 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"event_filters",
+    r"event_filter",
     EventFilterConfigViewSet,
-    "environment_event_filters",
+    "environment_event_filter",
     ["team_id"],
 )
 
