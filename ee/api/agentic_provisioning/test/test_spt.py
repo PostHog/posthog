@@ -64,7 +64,7 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.post")
     @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
     @patch("posthog.cloud_utils.get_cached_instance_license")
-    def test_provisioning_succeeds_even_if_billing_activation_fails(self, mock_license, mock_build_token, mock_post):
+    def test_provisioning_returns_error_if_billing_activation_fails(self, mock_license, mock_build_token, mock_post):
         mock_license.return_value = MagicMock()
         mock_post.return_value = MagicMock(status_code=500)
 
@@ -80,8 +80,10 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
             },
             token=token,
         )
-        assert res.status_code == 200
-        assert res.json()["status"] == "complete"
+        assert res.status_code == 400
+        body = res.json()
+        assert body["status"] == "error"
+        assert body["error"]["code"] == "requires_payment_credentials"
 
     def test_token_exchange_returns_orchestrator(self):
         """Token exchange should return payment_credentials: orchestrator so Stripe collects payment."""
