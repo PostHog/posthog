@@ -3685,9 +3685,9 @@ snapshots:
     scenes-app-batchexports--history-with-activity--light:
         hash: v1.k794b7964.011cdfd74225ad3689755c2f489f9ff6b0710a17cb65d781d87399b16b5200c8.1K31OFBO4PeY0imbVEvrg5zblHYBAii5hEAW7lQgnGE
     scenes-app-batchexports--logs--dark:
-        hash: v1.k794b7964.d526b04c347618206f627e1e4c07d8883c634a106c2bd4178a0ae1f1f6c4897b.W5SfyVLSr3JJ5USTQSu_zF_1BskM85VkTORu_cf4hY8
+        hash: v1.k794b7964.1dbad3c7ca76730a971645d9034aa6fa787fa3385230e7dc93b0d98bc60f04ca.lNKaTewGAiAG0ACGc0Hwy5ODZsd2tSLKQyf5eLetud8
     scenes-app-batchexports--logs--light:
-        hash: v1.k794b7964.074d74f7610beb40503dd571cbabadfe2a7b6150f17b2e670edc3257e45c0ffa.gi2OsSy5UPTBOuZGJ2OhwYKFoo6waDAH85DJAeMyHkQ
+        hash: v1.k794b7964.8291fcd159c89ef584b61a46dbe93de56f47c10c5a499aa7f36776e06749941b.iPVW07WverL39Iox6yAlL3Ks7StXDQaIBGHSf9-eDJA
     scenes-app-batchexports--metrics--dark:
         hash: v1.k794b7964.05d7f391fdbe1f565e9329575dd8fff8c86069cff8345c39c05c1a4f286df301.AM7OsTQnhgqypXvL58dwrdjoxBeSBt7EvF7GdNKix_U
     scenes-app-batchexports--metrics--light:
@@ -4320,6 +4320,10 @@ snapshots:
         hash: v1.k794b7964.b1c1af53c0a648a989cc3e7567389e74b0626f269133254b862f3b641c35905e.FXN00w3PSSscrHc2QC-mc97qGwh1a8dnVDL1OjegjJc
     scenes-app-hogfunctions-destination--configuration--light:
         hash: v1.k794b7964.e16f7f589e20d284b3d920f52f4c6f663f233330c433d0089eac4c2e5937c4a8.4erwuYxi0HdTVRIQch3BpGdvImzdiyECz1ggJ4u2FAE
+    scenes-app-hogfunctions-destination--logs--dark:
+        hash: v1.k794b7964.41d8a3b552386a03b24a0b7b5b127bd0889126f25b0ddac4b342973b6c2aabc3.d0JNd9NGhwzr9wf0KQXkdyZjxMjuVjcgGOdKWMVZRg0
+    scenes-app-hogfunctions-destination--logs--light:
+        hash: v1.k794b7964.4298464b361f0f8ac52b90e4abd383096f90ea5280ce4ba1675189d450fc3ac4._pow3i1EBIdo7fsClXY3SgjETJ8VZfFyxeXI-Ddeja8
     scenes-app-hogfunctions-destination--runs-empty--dark:
         hash: v1.k794b7964.f73a4ce27231855f5cb5824111fad9531121ad7a7998143ba8224da742839777.AzV9BMcQhll58q568DXPAJUAXDfNyf8Rdg6FRsSSbTk
     scenes-app-hogfunctions-destination--runs-empty--light:
