@@ -3,7 +3,7 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useCallback, useEffect, useRef, useState } from 'react'
+import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
@@ -232,37 +232,6 @@ const canSelectItem = (
         !!listGroupType &&
         (dataWarehousePopoverFields?.length === 0 || listGroupType !== TaxonomicFilterGroupType.DataWarehouse)
     )
-}
-
-export function getInitialPinnedRowIndex({
-    results,
-    taxonomicGroups,
-    group,
-    listGroupType,
-    groupType,
-    value,
-    isActiveTab,
-}: Pick<InfiniteListRowProps, 'results' | 'taxonomicGroups' | 'group' | 'listGroupType' | 'groupType' | 'value'> & {
-    isActiveTab: boolean
-}): number | null {
-    if (
-        !isActiveTab ||
-        listGroupType !== TaxonomicFilterGroupType.DataWarehouse ||
-        groupType !== TaxonomicFilterGroupType.DataWarehouse ||
-        value == null
-    ) {
-        return null
-    }
-
-    const selectedIndex = results.findIndex((result) => {
-        if (isSkeletonItem(result)) {
-            return false
-        }
-
-        return getItemGroup(result, taxonomicGroups, group)?.getValue?.(result) === value
-    })
-
-    return selectedIndex >= 0 ? selectedIndex : null
 }
 
 interface InfiniteListRowProps {
@@ -621,8 +590,6 @@ function InfiniteListEmptyState(): JSX.Element {
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
-        activeTab,
-        searchQuery,
         eventNames,
         groupType,
         value,
@@ -650,14 +617,15 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showEmptyState,
         showLoadingState,
         isSuggestedFilters,
+        isActiveTab,
+        rowCount,
+        pinnedRowIndex,
+        trimmedSearchQuery,
+        showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-    const [pinnedRowIndex, setPinnedRowIndex] = useState<number | null>(null)
-    const hasAppliedInitialPinRef = useRef(false)
-    const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
-    const trimmedSearchQuery = searchQuery.trim()
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -667,65 +635,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
-    const showSuggestedFiltersEmptyState = isSuggestedFilters && !trimmedSearchQuery && results.length > 0
-
-    useEffect(() => {
-        setPinnedRowIndex(null)
-        hasAppliedInitialPinRef.current = false
-    }, [searchQuery, activeTab, listGroupType, showPopover])
-
-    useEffect(() => {
-        if (pinnedRowIndex === null) {
-            return
-        }
-        const maxIndex =
-            (showNonCapturedEventOption
-                ? 1
-                : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
-                  (showSuggestedFiltersEmptyState ? 1 : 0)) - 1
-        if (pinnedRowIndex > maxIndex) {
-            setPinnedRowIndex(null)
-        }
-    }, [
-        pinnedRowIndex,
-        showNonCapturedEventOption,
-        results.length,
-        isLoading,
-        totalListCount,
-        showSuggestedFiltersEmptyState,
-    ])
-
-    useEffect(() => {
-        if (hasAppliedInitialPinRef.current || pinnedRowIndex !== null) {
-            return
-        }
-
-        const initialPinnedRowIndex = getInitialPinnedRowIndex({
-            results,
-            taxonomicGroups,
-            group,
-            listGroupType,
-            groupType,
-            value,
-            isActiveTab,
-        })
-
-        if (initialPinnedRowIndex === null) {
-            return
-        }
-
-        setIndex(initialPinnedRowIndex)
-        setPinnedRowIndex(initialPinnedRowIndex)
-        hasAppliedInitialPinRef.current = true
-    }, [pinnedRowIndex, results, taxonomicGroups, group, listGroupType, groupType, value, isActiveTab, setIndex])
-
-    const handleToggleRowPin = useCallback(
-        (rowIndex: number) => {
-            setIndex(rowIndex)
-            setPinnedRowIndex((currentPinnedRowIndex) => (currentPinnedRowIndex === rowIndex ? null : rowIndex))
-        },
-        [setIndex]
-    )
 
     return (
         <div
@@ -749,12 +658,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={
-                                    showNonCapturedEventOption
-                                        ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
-                                          (showSuggestedFiltersEmptyState ? 1 : 0)
-                                }
+                                rowCount={rowCount}
                                 overscanCount={100}
                                 rowHeight={(i) => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36)}
                                 rowComponent={InfiniteListRow}
@@ -784,7 +688,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     taxonomicGroupTypes,
                                     setIndex,
                                     pinnedRowIndex,
-                                    onToggleRowPin: handleToggleRowPin,
+                                    onToggleRowPin: togglePinnedRow,
                                     expand,
                                     selectItem,
                                     setHighlightedItemElement,
