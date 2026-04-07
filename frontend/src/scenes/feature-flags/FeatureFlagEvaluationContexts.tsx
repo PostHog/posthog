@@ -173,7 +173,7 @@ export function FeatureFlagEvaluationContexts({
             {/* Evaluation contexts section */}
             <div className="flex flex-col gap-1">
                 <span className="text-sm font-medium inline-flex items-center gap-1">
-                    Evaluation contexts{' '}
+                    Evaluation contexts
                     <LemonTag type="warning" size="small">
                         BETA
                     </LemonTag>
