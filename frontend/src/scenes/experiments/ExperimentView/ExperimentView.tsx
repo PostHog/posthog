@@ -4,6 +4,8 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
@@ -268,6 +270,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+    const { superpowersEnabled } = useValues(superpowersLogic)
 
     return (
         <SceneContent>
@@ -356,6 +359,15 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                               </div>
                                           ),
                                           content: <ExperimentFeedbackTab experiment={experiment} />,
+                                      },
+                                  ]
+                                : []),
+                            ...(superpowersEnabled
+                                ? [
+                                      {
+                                          key: 'debug',
+                                          label: 'Debug',
+                                          content: <DebugCHQueries experimentId={experiment.id} />,
                                       },
                                   ]
                                 : []),
