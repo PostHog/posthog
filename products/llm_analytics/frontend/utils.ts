@@ -735,15 +735,15 @@ function parseStringifiedStructuredContent(content: string): string | MultiModal
         const parsed = JSON.parse(content)
         if (
             Array.isArray(parsed) &&
-            parsed.length > 0 &&
-            parsed.every(
-                (item) =>
-                    item &&
-                    typeof item === 'object' &&
-                    'type' in item &&
-                    typeof item.type === 'string' &&
-                    STRUCTURED_CONTENT_TYPES.has(item.type)
-            )
+            (parsed.length === 0 ||
+                parsed.every(
+                    (item) =>
+                        item &&
+                        typeof item === 'object' &&
+                        'type' in item &&
+                        typeof item.type === 'string' &&
+                        STRUCTURED_CONTENT_TYPES.has(item.type)
+                ))
         ) {
             return parsed as MultiModalContentItem[]
         }

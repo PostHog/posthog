@@ -655,6 +655,7 @@ describe('LLM Analytics utils', () => {
                 { role: 'user', content: JSON.stringify([{ type: 'schema', definition: { foo: 'bar' } }]) },
                 '[{"type":"schema","definition":{"foo":"bar"}}]',
             ],
+            ['empty structured array parses as empty array', { role: 'user', content: '[]' }, []],
         ])(
             'handles stringified structured content in OpenAI-compatible messages: %s',
             (_label, message, expectedContent) => {
