@@ -171,6 +171,23 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
 
+    def test_issue_merge_requires_ids(self):
+        issue = self.create_issue(fingerprints=["fingerprint_one"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/merge",
+            data={},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "required",
+            "detail": "This field is required.",
+            "attr": "ids",
+        }
+
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()
         response = self.client.post(
