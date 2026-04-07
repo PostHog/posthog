@@ -14,7 +14,10 @@ import { ExperimentIdType, InsightType } from '~/types'
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { isLaunched } from '../experimentsLogic'
-import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
+import {
+    legacyMinimumSampleSizePerVariant,
+    legacyRecommendedExposureForCountData,
+} from '../legacy/calculations/legacyExperimentCalculations'
 
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType
@@ -27,7 +30,7 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
     const conversionRate = conversionMetrics.totalRate * 100
-    const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
+    const sampleSizePerVariant = legacyMinimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
 
     // Displayed values
@@ -71,7 +74,7 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
     const { minimumDetectableEffect, experiment, trendResults } = useValues(experimentLogic({ experimentId }))
 
     const trendCount = trendResults[0]?.count || 0
-    const trendExposure = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
+    const trendExposure = legacyRecommendedExposureForCountData(minimumDetectableEffect, trendCount)
 
     // Displayed values
     const baselineCount = humanFriendlyNumber(trendCount || 0)

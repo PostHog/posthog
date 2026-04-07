@@ -13,7 +13,6 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     AutoApproveResultApi,
-    CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
@@ -234,10 +233,7 @@ export const visualReviewRunsApproveCreate = async (
 }
 
 /**
- * Signal that all artifacts have been uploaded. Triggers diff processing.
-
-Accepts an optional body for shard flow reconciliation (removed_identifiers,
-unchanged_count, baseline_hashes). Empty body is backward compatible.
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
  */
 export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/complete/`
@@ -246,14 +242,11 @@ export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: stri
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
-    completeRunInputApi: CompleteRunInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsCompleteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(completeRunInputApi),
     })
 }
 

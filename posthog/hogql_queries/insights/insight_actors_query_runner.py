@@ -1,6 +1,7 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    ExperimentActorsQuery,
     FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -21,6 +22,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -103,6 +105,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             day = query.day
             status = query.status
             return lifecycle_runner.to_actors_query(day=str(day) if day else None, status=status)
+        elif isinstance(self.source_runner, ExperimentQueryRunner):
+            experiment_runner = cast(ExperimentQueryRunner, self.source_runner)
+            experiment_runner.actors_query = cast(ExperimentActorsQuery, self.query)
+            return experiment_runner.to_actors_query()
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 
@@ -153,6 +159,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # Lifecycle Query uses a plain InsightActorsQuery
             assert isinstance(self.query.source, LifecycleQuery)
             return self.query.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, ExperimentQueryRunner):
+            # Get group_type_index from experiment runner
+            return cast(ExperimentQueryRunner, self.source_runner).group_type_index
 
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)

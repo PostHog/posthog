@@ -170,7 +170,7 @@ ORDER BY date DESC, metric_name
 Run the test suite to validate SQL structure and logic:
 
 ```bash
-python -m pytest products/llm_analytics/dags/tests/daily_metrics/test_sql_metrics.py -v
+pytest products/llm_analytics/dags/tests/daily_metrics/test_sql_metrics.py -v
 ```
 
 Tests validate:

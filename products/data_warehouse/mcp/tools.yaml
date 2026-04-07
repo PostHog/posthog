@@ -7,6 +7,7 @@
 category: Data warehouse
 feature: data_warehouse
 url_prefix: /sql
+ui_apps: {}
 tools:
     fix-hogql-retrieve:
         operation: fix_hogql_retrieve
@@ -159,7 +160,6 @@ tools:
             List all data warehouse saved queries (views) in the project. Returns each view's name, materialization
             status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available
             views before querying them in HogQL.
-
     view-create:
         operation: warehouse_saved_queries_create
         enabled: true
@@ -213,7 +213,6 @@ tools:
         description: >
             Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
             query, column schema, materialization status, sync frequency, and run history metadata.
-
     warehouse-saved-queries-update:
         operation: warehouse_saved_queries_update
         enabled: false
@@ -353,7 +352,6 @@ tools:
         description: >
             Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and
             timestamp. Use this to monitor whether materialization is running successfully.
-
     warehouse-saved-queries-resume-schedules-create:
         operation: warehouse_saved_queries_resume_schedules_create
         enabled: false
@@ -387,6 +385,15 @@ tools:
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
+    data-warehouse-deprovision-create:
+        operation: data_warehouse_deprovision_create
+        enabled: false
+    data-warehouse-provision-create:
+        operation: data_warehouse_provision_create
+        enabled: false
+    data-warehouse-warehouse-status-retrieve:
+        operation: data_warehouse_warehouse_status_retrieve
+        enabled: false
     external-data-sources-create-webhook-create:
         operation: external_data_sources_create_webhook_create
         enabled: false
@@ -401,4 +408,25 @@ tools:
         enabled: false
     external-data-sources-delete-webhook-create:
         operation: external_data_sources_delete_webhook_create
+        enabled: false
+    data-warehouse-check-database-name-retrieve:
+        operation: data_warehouse_check_database_name_retrieve
+        enabled: false
+    warehouse-saved-query-folders-list:
+        operation: warehouse_saved_query_folders_list
+        enabled: false
+    warehouse-saved-query-folders-create:
+        operation: warehouse_saved_query_folders_create
+        enabled: false
+    warehouse-saved-query-folders-retrieve:
+        operation: warehouse_saved_query_folders_retrieve
+        enabled: false
+    warehouse-saved-query-folders-partial-update:
+        operation: warehouse_saved_query_folders_partial_update
+        enabled: false
+    warehouse-saved-query-folders-destroy:
+        operation: warehouse_saved_query_folders_destroy
+        enabled: false
+    data-warehouse-reset-password-create:
+        operation: data_warehouse_reset_password_create
         enabled: false

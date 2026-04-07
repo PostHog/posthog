@@ -16,14 +16,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
-// Number of taxonomic groups after which we switch to vertical layout by default
-const VERTICAL_LAYOUT_THRESHOLD = 4
-
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
-    useVerticalLayout?: boolean
     definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
@@ -124,7 +120,6 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
     popupAnchorElement,
-    useVerticalLayout: useVerticalLayoutProp,
     definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
@@ -166,27 +161,12 @@ export function InfiniteSelectResults({
 
     const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
-    const useVerticalLayout =
-        useVerticalLayoutProp !== undefined
-            ? useVerticalLayoutProp
-            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
-
     return (
-        <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
+        <div className="flex flex-row h-full">
             {hasMultipleGroups && (
-                <div
-                    className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
-                        'border-primary'
-                    )}
-                >
+                <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
                     <div className="taxonomic-group-title">Categories</div>
-                    <div
-                        className={cn(
-                            'taxonomic-pills flex',
-                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
-                        )}
-                    >
+                    <div className="taxonomic-pills flex flex-col gap-1">
                         {taxonomicGroupTypes.map((groupType) => {
                             return (
                                 <CategoryPill

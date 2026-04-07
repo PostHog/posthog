@@ -38,11 +38,12 @@ program
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         try {
-            await runSubmit(options)
+            const exitCode = await runSubmit(options)
+            process.exit(exitCode)
         } catch (error) {
             console.error('Error:', error)
+            process.exit(1)
         }
-        process.exit(0)
     })
 
 // --- verify command ---
@@ -55,6 +56,71 @@ program
     .action(async (options: VerifyOptions) => {
         try {
             const exitCode = await runVerify(options)
+            process.exit(exitCode)
+        } catch (error) {
+            console.error('Error:', error)
+            process.exit(1)
+        }
+    })
+
+// --- run subcommands (shard-based flow) ---
+
+const run = program.command('run').description('Shard-based run management')
+
+run.command('create')
+    .description('Create a new run (call once before shards)')
+    .requiredOption('--type <type>', 'Run type (e.g., storybook, playwright)')
+    .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--api <url>', 'API URL (overrides snapshots.yml config)')
+    .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
+    .option('--repo <id>', 'Repo ID (UUID, overrides snapshots.yml config)')
+    .option('--branch <name>', 'Git branch name')
+    .option('--commit <sha>', 'Git commit SHA')
+    .option('--pr <number>', 'PR number')
+    .option('--token <value>', 'Personal API token')
+    .option('--cookie <value>', 'Session cookie')
+    .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
+    .action(async (options: RunCreateOptions) => {
+        try {
+            const runId = await runCreate(options)
+            // Output just the run ID so CI can capture it
+            process.stdout.write(runId + '\n')
+        } catch (error) {
+            console.error('Error:', error)
+            process.exit(1)
+        }
+    })
+
+run.command('upload')
+    .description('Hash and upload snapshots from a shard')
+    .requiredOption('--run-id <id>', 'Run ID from `run create`')
+    .requiredOption('--dir <path>', 'Directory containing PNG screenshots')
+    .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--api <url>', 'API URL (overrides snapshots.yml config)')
+    .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
+    .option('--token <value>', 'Personal API token')
+    .option('--cookie <value>', 'Session cookie')
+    .action(async (options: RunUploadOptions) => {
+        try {
+            await runUpload(options)
+        } catch (error) {
+            console.error('Error:', error)
+            process.exit(1)
+        }
+    })
+
+run.command('complete')
+    .description('Complete a run after all shards have uploaded')
+    .requiredOption('--run-id <id>', 'Run ID from `run create`')
+    .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--api <url>', 'API URL (overrides snapshots.yml config)')
+    .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
+    .option('--token <value>', 'Personal API token')
+    .option('--cookie <value>', 'Session cookie')
+    .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
+    .action(async (options: RunCompleteOptions) => {
+        try {
+            const exitCode = await runComplete(options)
             process.exit(exitCode)
         } catch (error) {
             console.error('Error:', error)
@@ -86,11 +152,50 @@ interface SubmitOptions {
     autoApprove?: boolean
 }
 
+interface RunCreateOptions {
+    type: string
+    baseline: string
+    api?: string
+    team?: string
+    repo?: string
+    branch?: string
+    commit?: string
+    pr?: string
+    token?: string
+    cookie?: string
+    purpose?: string
+}
+
+interface RunUploadOptions {
+    runId: string
+    dir: string
+    baseline: string
+    api?: string
+    team?: string
+    token?: string
+    cookie?: string
+}
+
+interface RunCompleteOptions {
+    runId: string
+    baseline: string
+    api?: string
+    team?: string
+    token?: string
+    cookie?: string
+    autoApprove?: boolean
+}
+
 // --- Helpers ---
 
-// Wrapper around stdout.write — console.log gets stripped by lint-staged
+// Log to stderr so stdout stays clean for machine-readable output (e.g. run IDs)
 function log(message: string): void {
-    process.stdout.write(message + '\n')
+    process.stderr.write(message + '\n')
+}
+
+function extractContentHash(signedHash: string): string {
+    const parts = signedHash.split('.')
+    return parts.length === 4 ? parts[2] : signedHash
 }
 
 function getCurrentBranch(): string {
@@ -109,7 +214,11 @@ function getCurrentCommit(): string {
     }
 }
 
-function resolveConfig(options: SubmitOptions): { api: string; team: string; repo: string } {
+function resolveConfig(options: { baseline: string; api?: string; team?: string; repo?: string }): {
+    api: string
+    team: string
+    repo: string
+} {
     const baselinePath = resolve(options.baseline)
     const snapshotsFile = readSnapshotsFile(baselinePath)
     const config = snapshotsFile?.config
@@ -132,7 +241,168 @@ function resolveConfig(options: SubmitOptions): { api: string; team: string; rep
     return { api, team, repo }
 }
 
+function makeClient(options: { baseline: string; api?: string; team?: string; token?: string; cookie?: string }): {
+    client: VisualReviewClient
+    api: string
+    team: string
+    repo: string
+} {
+    const config = resolveConfig(options)
+    const client = new VisualReviewClient({
+        apiUrl: config.api,
+        teamId: config.team,
+        token: options.token,
+        sessionCookie: options.cookie,
+    })
+    return { client, ...config }
+}
+
 // --- Command implementations ---
+
+// --- Shard command implementations ---
+
+async function runCreate(options: RunCreateOptions): Promise<string> {
+    const { client, repo } = makeClient(options)
+
+    const branch = options.branch ?? getCurrentBranch()
+    const commit = options.commit ?? getCurrentCommit()
+
+    log(
+        `Creating run: type=${options.type}, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${options.purpose ?? 'review'}`
+    )
+
+    const result = await client.createRun({
+        repoId: repo,
+        runType: options.type,
+        commitSha: commit,
+        branch,
+        prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+        snapshots: [],
+        purpose: options.purpose,
+    })
+
+    log(`Run created: ${result.run_id}`)
+    return result.run_id
+}
+
+async function runUpload(options: RunUploadOptions): Promise<void> {
+    const { client } = makeClient(options)
+
+    const dirPath = resolve(options.dir)
+
+    // Scan and hash
+    log(`Scanning ${dirPath} for PNGs...`)
+    const scanned = scanDirectory(dirPath)
+    if (scanned.length === 0) {
+        log('No PNGs found — nothing to upload')
+        return
+    }
+
+    const snapshots: Array<{ identifier: string; hash: string; width: number; height: number; data: Buffer }> = []
+    log(`Found ${scanned.length} snapshots, hashing...`)
+    const HASH_CONCURRENCY = 16
+    for (let i = 0; i < scanned.length; i += HASH_CONCURRENCY) {
+        const batch = scanned.slice(i, i + HASH_CONCURRENCY)
+        const results = await Promise.all(
+            batch.map(async ({ identifier, filePath }) => {
+                const data = await readFile(filePath)
+                const { hash, width, height } = await hashImageWithDimensions(data)
+                return { identifier, hash, width, height, data }
+            })
+        )
+        snapshots.push(...results)
+    }
+
+    log(`Sending ${snapshots.length} snapshots to backend`)
+
+    // Send ALL identifiers — backend fetches baseline and classifies
+    const addResult = await client.addSnapshots(options.runId, {
+        snapshots: snapshots.map((s) => ({
+            identifier: s.identifier,
+            content_hash: s.hash,
+            width: s.width,
+            height: s.height,
+        })),
+    })
+
+    log(`Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)
+
+    // Upload artifacts
+    if (addResult.uploads.length > 0) {
+        const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
+        const CONCURRENCY = 10
+        let uploaded = 0
+        let failed = 0
+
+        for (let i = 0; i < addResult.uploads.length; i += CONCURRENCY) {
+            const batch = addResult.uploads.slice(i, i + CONCURRENCY)
+            await Promise.all(
+                batch.map(async (upload) => {
+                    const snapshot = hashToSnapshot.get(upload.content_hash)
+                    if (!snapshot) {
+                        return
+                    }
+                    try {
+                        await client.uploadToS3(upload, snapshot.data)
+                        uploaded++
+                    } catch (error) {
+                        failed++
+                        console.error(`  upload failed ${snapshot.identifier}: ${error}`)
+                    }
+                })
+            )
+        }
+        log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        if (failed > 0) {
+            throw new Error(`${failed} artifact upload(s) failed`)
+        }
+    }
+}
+
+async function runComplete(options: RunCompleteOptions): Promise<number> {
+    const { client } = makeClient(options)
+    const baselinePath = resolve(options.baseline)
+
+    log(`Completing run ${options.runId}`)
+
+    // No body — shards already sent everything. Removal detection is a follow-up
+    // (requires backend to track covered identifiers per shard).
+    let run = await client.completeRun(options.runId)
+
+    log(`Run status after complete: ${run.status}`)
+
+    // Wait for diff processing
+    if (run.status !== 'completed' && run.status !== 'failed') {
+        log('Waiting for diff processing...')
+        run = await waitForCompletion(client, options.runId)
+    }
+
+    const s = run.summary
+    log(
+        `\nRun complete: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
+    )
+
+    // Auto-approve if requested
+    if (options.autoApprove) {
+        log('Auto-approving all changes...')
+        const approveResult = await client.autoApproveRun(options.runId)
+        writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
+        log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
+        return 0
+    }
+
+    // Exit code: 1 if changes detected, 0 if clean
+    const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
+    if (hasChanges) {
+        log('Visual changes detected — review required')
+        return 1
+    }
+
+    log('No visual changes')
+    return 0
+}
+
+// --- Legacy command implementations ---
 
 async function runVerify(options: VerifyOptions): Promise<number> {
     const dirPath = resolve(options.dir)
@@ -164,10 +434,7 @@ async function runVerify(options: VerifyOptions): Promise<number> {
         if (!baselineSignedHash) {
             added.push(identifier)
         } else {
-            // Extract the plain content hash from the signed format: v1.<kid>.<hash>.<tag>
-            const parts = baselineSignedHash.split('.')
-            const baselineContentHash = parts.length === 4 ? parts[2] : baselineSignedHash
-            if (hash !== baselineContentHash) {
+            if (hash !== extractContentHash(baselineSignedHash)) {
                 changed.push(identifier)
             }
         }
@@ -266,12 +533,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         snapshots.push(...results)
     }
 
-    // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
-    const baselinePath = resolve(options.baseline)
-    const baselineHashes = readBaselineHashes(baselinePath)
-    log(`Loaded ${Object.keys(baselineHashes).length} baseline hashes from ${baselinePath}`)
-
-    // 4. Create run with manifest
+    // 3. Create run with full manifest — backend fetches baseline and classifies
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
     log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
@@ -288,7 +550,6 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
             width: s.width,
             height: s.height,
         })),
-        baselineHashes,
     })
 
     log(`Run created: ${result.run_id}`)
@@ -296,7 +557,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
     )
 
-    // 5. Upload missing artifacts (10 concurrent uploads)
+    // 6. Upload missing artifacts (10 concurrent uploads)
     if (result.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
         const CONCURRENCY = 10
@@ -323,6 +584,9 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
             await Promise.all(batch.map(uploadOne))
         }
         log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        if (failed > 0) {
+            throw new Error(`${failed} artifact upload(s) failed`)
+        }
     }
 
     // 6. Complete run
@@ -351,13 +615,13 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    // 10. Exit code — always 0 during migration (VR is observational)
-    // When VR becomes the gate, change this to exit 1 on changes
+    // Without --auto-approve, unapproved changes exit 1 (gating)
     const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
     if (hasChanges) {
         log('Visual changes detected — review required')
-    } else {
-        log('No visual changes')
+        return 1
     }
+
+    log('No visual changes')
     return 0
 }

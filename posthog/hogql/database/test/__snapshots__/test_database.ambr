@@ -61,6 +61,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -101,6 +102,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -141,6 +143,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -181,6 +184,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -221,6 +225,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -261,6 +266,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -301,6 +307,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -330,6 +337,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -394,6 +402,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -567,6 +576,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -607,6 +617,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -647,6 +658,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at"
@@ -676,6 +688,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -740,6 +753,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."folder_id",
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
@@ -1418,6 +1432,46 @@
                   "hogql_value": "issue_id",
                   "id": null,
                   "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
@@ -3006,6 +3060,252 @@
           "row_count": null,
           "type": "system"
       },
+      "system.batch_export_backfills": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "batch_export_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "batch_export_id",
+                  "id": null,
+                  "name": "batch_export_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "start_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_at",
+                  "id": null,
+                  "name": "start_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_at",
+                  "id": null,
+                  "name": "end_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "finished_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "finished_at",
+                  "id": null,
+                  "name": "finished_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_updated_at",
+                  "id": null,
+                  "name": "last_updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "total_records_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "total_records_count",
+                  "id": null,
+                  "name": "total_records_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.batch_export_backfills",
+          "name": "system.batch_export_backfills",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.batch_exports": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval",
+                  "id": null,
+                  "name": "interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "paused": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "paused",
+                  "id": null,
+                  "name": "paused",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "destination_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "destination_id",
+                  "id": null,
+                  "name": "destination_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timezone": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timezone",
+                  "id": null,
+                  "name": "timezone",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval_offset": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval_offset",
+                  "id": null,
+                  "name": "interval_offset",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_updated_at",
+                  "id": null,
+                  "name": "last_updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_paused_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_paused_at",
+                  "id": null,
+                  "name": "last_paused_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "start_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_at",
+                  "id": null,
+                  "name": "start_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_at",
+                  "id": null,
+                  "name": "end_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.batch_exports",
+          "name": "system.batch_exports",
+          "row_count": null,
+          "type": "system"
+      },
       "system.cohort_calculation_history": {
           "fields": {
               "id": {
@@ -3503,6 +3803,202 @@
           },
           "id": "system.data_modeling_views",
           "name": "system.data_modeling_views",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.data_modeling_endpoint_versions": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "endpoint_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint_id",
+                  "id": null,
+                  "name": "endpoint_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "cache_age_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cache_age_seconds",
+                  "id": null,
+                  "name": "cache_age_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "is_active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_active",
+                  "id": null,
+                  "name": "is_active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "columns": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "columns",
+                  "id": null,
+                  "name": "columns",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              }
+          },
+          "id": "system.data_modeling_endpoint_versions",
+          "name": "system.data_modeling_endpoint_versions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.data_modeling_endpoints": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_active",
+                  "id": null,
+                  "name": "is_active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "current_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version",
+                  "id": null,
+                  "name": "current_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "derived_from_insight": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "derived_from_insight",
+                  "id": null,
+                  "name": "derived_from_insight",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_executed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_executed_at",
+                  "id": null,
+                  "name": "last_executed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              }
+          },
+          "id": "system.data_modeling_endpoints",
+          "name": "system.data_modeling_endpoints",
           "row_count": null,
           "type": "system"
       },
@@ -4565,6 +5061,84 @@
           },
           "id": "system.ingestion_warnings",
           "name": "system.ingestion_warnings",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.integrations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "errors": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "errors",
+                  "id": null,
+                  "name": "errors",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.integrations",
+          "name": "system.integrations",
           "row_count": null,
           "type": "system"
       },
@@ -5771,6 +6345,46 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
               }
           },
           "id": "events",
@@ -7356,6 +7970,252 @@
           "row_count": null,
           "type": "system"
       },
+      "system.batch_export_backfills": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "batch_export_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "batch_export_id",
+                  "id": null,
+                  "name": "batch_export_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "start_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_at",
+                  "id": null,
+                  "name": "start_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_at",
+                  "id": null,
+                  "name": "end_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "finished_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "finished_at",
+                  "id": null,
+                  "name": "finished_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_updated_at",
+                  "id": null,
+                  "name": "last_updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "total_records_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "total_records_count",
+                  "id": null,
+                  "name": "total_records_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.batch_export_backfills",
+          "name": "system.batch_export_backfills",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.batch_exports": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval",
+                  "id": null,
+                  "name": "interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "paused": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "paused",
+                  "id": null,
+                  "name": "paused",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "destination_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "destination_id",
+                  "id": null,
+                  "name": "destination_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timezone": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timezone",
+                  "id": null,
+                  "name": "timezone",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval_offset": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval_offset",
+                  "id": null,
+                  "name": "interval_offset",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_updated_at",
+                  "id": null,
+                  "name": "last_updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_paused_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_paused_at",
+                  "id": null,
+                  "name": "last_paused_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "start_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_at",
+                  "id": null,
+                  "name": "start_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_at",
+                  "id": null,
+                  "name": "end_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.batch_exports",
+          "name": "system.batch_exports",
+          "row_count": null,
+          "type": "system"
+      },
       "system.cohort_calculation_history": {
           "fields": {
               "id": {
@@ -7853,6 +8713,202 @@
           },
           "id": "system.data_modeling_views",
           "name": "system.data_modeling_views",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.data_modeling_endpoint_versions": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "endpoint_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint_id",
+                  "id": null,
+                  "name": "endpoint_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "cache_age_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cache_age_seconds",
+                  "id": null,
+                  "name": "cache_age_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "is_active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_active",
+                  "id": null,
+                  "name": "is_active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "columns": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "columns",
+                  "id": null,
+                  "name": "columns",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              }
+          },
+          "id": "system.data_modeling_endpoint_versions",
+          "name": "system.data_modeling_endpoint_versions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.data_modeling_endpoints": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_active",
+                  "id": null,
+                  "name": "is_active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "current_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version",
+                  "id": null,
+                  "name": "current_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "derived_from_insight": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "derived_from_insight",
+                  "id": null,
+                  "name": "derived_from_insight",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_executed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_executed_at",
+                  "id": null,
+                  "name": "last_executed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              }
+          },
+          "id": "system.data_modeling_endpoints",
+          "name": "system.data_modeling_endpoints",
           "row_count": null,
           "type": "system"
       },
@@ -8915,6 +9971,84 @@
           },
           "id": "system.ingestion_warnings",
           "name": "system.ingestion_warnings",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.integrations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "integration_id",
+                  "id": null,
+                  "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "errors": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "errors",
+                  "id": null,
+                  "name": "errors",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.integrations",
+          "name": "system.integrations",
           "row_count": null,
           "type": "system"
       },

@@ -26,7 +26,7 @@ export function EventName({
     allEventsOption,
     ...props
 }: (EventNamePropsWithAllEvents | EventNamePropsWithoutAllEvents) &
-    Pick<TaxonomicPopoverProps, 'placement'>): JSX.Element {
+    Pick<TaxonomicPopoverProps, 'placement' | 'groupTypes'>): JSX.Element {
     return (
         <TaxonomicPopover
             groupType={TaxonomicFilterGroupType.Events}

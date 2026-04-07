@@ -753,6 +753,8 @@ class Resolver(CloningVisitor):
 
         If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
         """
+        if isinstance(asterisk.table_type, ast.ColumnAliasedTableType):
+            return [ast.Field(chain=[*chain_prefix, key]) for key in asterisk.table_type.alias_to_original]
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
@@ -793,10 +795,13 @@ class Resolver(CloningVisitor):
                     raw_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
                 except QueryError:
                     continue
-                column_aliases = table_column_aliases.get(alias)
                 resolved_fields: list[ast.Expr] = list(raw_fields)
-                if column_aliases:
-                    resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
+                # For ColumnAliasedTableType, _asterisk_columns already returns
+                # aliased names. Only apply manual remapping for other types.
+                if not isinstance(table_type, ast.ColumnAliasedTableType):
+                    column_aliases = table_column_aliases.get(alias)
+                    if column_aliases:
+                        resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
                 for field in resolved_fields:
                     table_fields.append((alias, field))
 
@@ -1051,7 +1056,33 @@ class Resolver(CloningVisitor):
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
-            if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            if node.column_aliases:
+                # Build alias→original mapping from the table's visible columns
+                asterisk_fields = list(database_table.get_asterisk().keys())
+                if len(node.column_aliases) > len(asterisk_fields):
+                    raise QueryError(
+                        f"Table has {len(asterisk_fields)} column(s) available for aliasing "
+                        f"but {len(node.column_aliases)} alias(es) were provided"
+                    )
+                seen_aliases: set[str] = set()
+                for alias_name in node.column_aliases:
+                    if alias_name in seen_aliases:
+                        raise QueryError(f"Duplicate column alias '{alias_name}' in table alias '{table_alias}'")
+                    seen_aliases.add(alias_name)
+                alias_to_original: dict[str, str] = {}
+                aliased_originals = set()
+                for alias_name, orig_name in zip(node.column_aliases, asterisk_fields):
+                    alias_to_original[alias_name] = orig_name
+                    aliased_originals.add(orig_name)
+                # Remaining columns keep their original names, unless
+                # their name collides with an already-defined alias.
+                for orig_name in asterisk_fields:
+                    if orig_name not in aliased_originals and orig_name not in alias_to_original:
+                        alias_to_original[orig_name] = orig_name
+                node_type = ast.ColumnAliasedTableType(
+                    alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
+                )
+            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -1064,7 +1095,7 @@ class Resolver(CloningVisitor):
             scope.tables[table_alias] = node_type
             scope_table_names = self._get_scope_table_names(scope)
             scope_table_names[table_alias] = ".".join(table_name_chain)
-            if node.column_aliases:
+            if node.column_aliases and not isinstance(node_type, ast.ColumnAliasedTableType):
                 scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
                 scope_table_column_aliases[table_alias] = node.column_aliases
 
@@ -1082,7 +1113,9 @@ class Resolver(CloningVisitor):
             if USE_GLOBAL_JOINS:
                 global_table: ast.TableType | None = None
 
-                if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType)) and isinstance(
+                    node.type.table_type, ast.TableType
+                ):
                     global_table = node.type.table_type
                 elif isinstance(node.type, ast.TableType):
                     global_table = node.type
@@ -1115,7 +1148,7 @@ class Resolver(CloningVisitor):
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
-            if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+            if isinstance(node_type, (ast.TableAliasType, ast.ColumnAliasedTableType)) and node.alias is None:
                 node.alias = node_type.alias
 
             return node
@@ -1158,6 +1191,25 @@ class Resolver(CloningVisitor):
                     new_name: (expr.type if expr.type is not None else ast.UnknownType())
                     for new_name, expr in zip(node.column_aliases, select_list)
                 }
+
+                # For non-postgres dialects, bake column aliases into the inner
+                # SELECT as AS aliases so ClickHouse/HogQL (which don't support
+                # the ``AS t(col1, col2)`` syntax) get correct column names.
+                if self.dialect != "postgres":
+                    inner_query = cast(ast.SelectQuery, inner_select)
+                    new_select: list[ast.Expr] = []
+                    for i, expr in enumerate(inner_query.select):
+                        if i < len(node.column_aliases):
+                            alias_name = node.column_aliases[i]
+                            # Avoid wrapping if the expression is already aliased with the same name
+                            if isinstance(expr, ast.Alias) and expr.alias == alias_name:
+                                new_select.append(expr)
+                            else:
+                                new_select.append(ast.Alias(alias=alias_name, expr=expr, type=expr.type))
+                        else:
+                            new_select.append(expr)
+                    inner_query.select = new_select
+                    node.column_aliases = None
 
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
@@ -1865,7 +1917,7 @@ class Resolver(CloningVisitor):
             if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
                 return alias, table_type.table
 
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 if isinstance(table_type.table_type, ast.TableType) and isinstance(
                     table_type.table_type.table, EventsTable
                 ):
@@ -1877,12 +1929,12 @@ class Resolver(CloningVisitor):
         while isinstance(node, ast.Alias):
             node = node.expr
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.table_type, ast.TableAliasType):
+            if isinstance(node.type.table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
         elif isinstance(node, ast.Field) and isinstance(node.type, ast.PropertyType):
-            if isinstance(node.type.field_type.table_type, ast.TableAliasType):
+            if isinstance(node.type.field_type.table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.field_type.table_type, ast.TableType):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
@@ -1896,14 +1948,14 @@ class Resolver(CloningVisitor):
             and node.select_from
             and isinstance(node.select_from.type, ast.BaseTableType)
         ):
-            if isinstance(node.select_from.type, ast.TableAliasType):
+            if isinstance(node.select_from.type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.select_from.type.table_type.table, S3Table)
             elif isinstance(node.select_from.type, ast.TableType):
                 return isinstance(node.select_from.type.table, S3Table)
         return False
 
     def _is_s3_table(self, table: ast.TableOrSelectType) -> bool:
-        if isinstance(table, ast.TableAliasType):
+        if isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             return self._is_s3_table(table.table_type)
 
         if isinstance(table, ast.CTETableAliasType):
@@ -1921,7 +1973,10 @@ class Resolver(CloningVisitor):
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
-        if isinstance(node.type, (ast.TableAliasType, ast.CTETableAliasType, ast.CTETableType, ast.TableType)):
+        if isinstance(
+            node.type,
+            (ast.TableAliasType, ast.ColumnAliasedTableType, ast.CTETableAliasType, ast.CTETableType, ast.TableType),
+        ):
             return self._is_s3_table(node.type)
         return False
 

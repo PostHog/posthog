@@ -33,7 +33,7 @@ const batchExportRequestBodySchema = z.object({
         elements_chain: z.string().default(''),
         person_properties: z.string().optional(),
     }),
-    invocation_id: z.string().uuid().optional(),
+    invocation_id: z.guid().optional(),
 })
 
 export class BatchExportHogFunctionService {
@@ -88,7 +88,7 @@ export class BatchExportHogFunctionService {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
         invocation.id = invocationId.toString()
 
-        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 }) // Retries are handled by the batch export service
 
         // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
         // We have the parent_id but that overrides the function id which is not always what we want

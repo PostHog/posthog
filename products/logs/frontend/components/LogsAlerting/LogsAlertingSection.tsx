@@ -54,37 +54,39 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
     const hasPendingNotifications = pendingNotifications.length > 0
 
     return (
-        <BindLogic logic={logsAlertNotificationLogic} props={notifLogicProps}>
-            <Form
-                logic={logsAlertFormLogic}
-                props={formLogicProps}
-                formKey="alertForm"
-                enableFormOnSubmit
-                className="LemonModal__layout"
-            >
-                <LemonModal.Header>
-                    <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
-                    <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
-                </LemonModal.Header>
-                <LemonModal.Content>
-                    <LogsAlertForm />
-                </LemonModal.Content>
-                <LemonModal.Footer>
-                    <div className="flex-1" />
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        loading={isAlertFormSubmitting}
-                        disabledReason={
-                            editingAlert && !alertFormChanged && !hasPendingNotifications
-                                ? 'No changes to save'
-                                : undefined
-                        }
-                    >
-                        {editingAlert ? 'Save' : 'Create alert'}
-                    </LemonButton>
-                </LemonModal.Footer>
-            </Form>
+        <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
+            <BindLogic logic={logsAlertNotificationLogic} props={notifLogicProps}>
+                <Form
+                    logic={logsAlertFormLogic}
+                    props={formLogicProps}
+                    formKey="alertForm"
+                    enableFormOnSubmit
+                    className="LemonModal__layout"
+                >
+                    <LemonModal.Header>
+                        <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
+                        <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
+                    </LemonModal.Header>
+                    <LemonModal.Content>
+                        <LogsAlertForm />
+                    </LemonModal.Content>
+                    <LemonModal.Footer>
+                        <div className="flex-1" />
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isAlertFormSubmitting}
+                            disabledReason={
+                                editingAlert && !alertFormChanged && !hasPendingNotifications
+                                    ? 'No changes to save'
+                                    : undefined
+                            }
+                        >
+                            {editingAlert ? 'Save' : 'Create alert'}
+                        </LemonButton>
+                    </LemonModal.Footer>
+                </Form>
+            </BindLogic>
         </BindLogic>
     )
 }
