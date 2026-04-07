@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -918,27 +918,33 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => {
-        let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    listeners(({ actions, values, cache, props }) => {
         const maybeCompleteResultsRequery = (): void => {
-            setTimeout(() => {
-                if (!values.resultsRequeryInProgress || values.isAnyResultsLoading) {
+            if (cache.resultsRequeryCompletionTimer) {
+                clearTimeout(cache.resultsRequeryCompletionTimer)
+            }
+
+            cache.resultsRequeryCompletionTimer = setTimeout(() => {
+                cache.resultsRequeryCompletionTimer = null
+
+                const mountedLogic = surveyLogic.findMounted(props)
+                if (!mountedLogic?.values.resultsRequeryInProgress || mountedLogic.values.isAnyResultsLoading) {
                     return
                 }
 
-                actions.markResultsRequeryCompleted()
+                mountedLogic.actions.markResultsRequeryCompleted()
             }, 0)
         }
         const reloadAllSurveyResults = (): void => {
-            if (reloadDebounceTimer) {
-                clearTimeout(reloadDebounceTimer)
+            if (cache.reloadDebounceTimer) {
+                clearTimeout(cache.reloadDebounceTimer)
             }
 
             if (!values.resultsRequeryInProgress) {
                 actions.startResultsRequery()
             }
 
-            reloadDebounceTimer = setTimeout(() => {
+            cache.reloadDebounceTimer = setTimeout(() => {
                 actions.loadSurveyBaseStats()
                 actions.loadSurveyDismissedAndSentCount()
             }, 300)
@@ -1008,11 +1014,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 if (distinctIds.size === 0) {
+                    maybeCompleteResultsRequery()
                     return
                 }
 
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    maybeCompleteResultsRequery()
                     return
                 }
 
@@ -1049,23 +1057,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 maybeCompleteResultsRequery()
             },
             loadSurveyBaseStatsSuccess: () => {
-                if (!values.isSurveyHeadlineEnabled || !values.dataProcessingAccepted) {
-                    return
+                if (values.isSurveyHeadlineEnabled && values.dataProcessingAccepted) {
+                    const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
+                    const cachedCount = values.survey.headline_response_count ?? 0
+
+                    if (currentCount > 0) {
+                        const needsGeneration = !values.survey.headline_summary
+                        const isStale = currentCount > cachedCount + 5
+
+                        if (needsGeneration || isStale) {
+                            actions.loadSurveyHeadline(true)
+                        }
+                    }
                 }
 
-                const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
-                const cachedCount = values.survey.headline_response_count ?? 0
-
-                if (currentCount === 0) {
-                    return
-                }
-
-                const needsGeneration = !values.survey.headline_summary
-                const isStale = currentCount > cachedCount + 5
-
-                if (needsGeneration || isStale) {
-                    actions.loadSurveyHeadline(true)
-                }
+                maybeCompleteResultsRequery()
             },
             loadSurveyBaseStatsFailure: () => {
                 maybeCompleteResultsRequery()
@@ -1230,6 +1236,19 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         }
     }),
+    events(({ cache }) => ({
+        beforeUnmount: () => {
+            if (cache.reloadDebounceTimer) {
+                clearTimeout(cache.reloadDebounceTimer)
+                cache.reloadDebounceTimer = null
+            }
+
+            if (cache.resultsRequeryCompletionTimer) {
+                clearTimeout(cache.resultsRequeryCompletionTimer)
+                cache.resultsRequeryCompletionTimer = null
+            }
+        },
+    })),
     reducers({
         personNames: [
             {} as Record<string, string>,
