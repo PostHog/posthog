@@ -252,32 +252,32 @@ def execute_bytecode(
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 push_stack(var1 != var2)
             case Operation.GT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 try:
+                    var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                     push_stack(var1 > var2)
-                except TypeError:
-                    # Handle None values and incompatible types (SQL standard: return False)
+                except (TypeError, ValueError):
+                    # Handle None values, incompatible types, and conversion errors (SQL standard: return False)
                     push_stack(False)
             case Operation.GT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 try:
+                    var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                     push_stack(var1 >= var2)
-                except TypeError:
-                    # Handle None values and incompatible types (SQL standard: return False)
+                except (TypeError, ValueError):
+                    # Handle None values, incompatible types, and conversion errors (SQL standard: return False)
                     push_stack(False)
             case Operation.LT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 try:
+                    var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                     push_stack(var1 < var2)
-                except TypeError:
-                    # Handle None values and incompatible types (SQL standard: return False)
+                except (TypeError, ValueError):
+                    # Handle None values, incompatible types, and conversion errors (SQL standard: return False)
                     push_stack(False)
             case Operation.LT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 try:
+                    var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                     push_stack(var1 <= var2)
-                except TypeError:
-                    # Handle None values and incompatible types (SQL standard: return False)
+                except (TypeError, ValueError):
+                    # Handle None values, incompatible types, and conversion errors (SQL standard: return False)
                     push_stack(False)
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
