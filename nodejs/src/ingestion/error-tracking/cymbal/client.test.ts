@@ -418,6 +418,39 @@ describe('CymbalClient', () => {
             expect(url).toMatch(/^http:\/\/10\.0\.0\.\d+:8080\/process$/)
         })
 
+        it('coalesces teams that hash to the same pod into one HTTP call', async () => {
+            const client = createRoutedClient()
+
+            // Teams 1 and 3 hash to the same pod (index 1), team 2 hashes to a different pod (index 0)
+            const requests = [
+                createRequest({ uuid: 'uuid-a', team_id: 1 }),
+                createRequest({ uuid: 'uuid-b', team_id: 2 }),
+                createRequest({ uuid: 'uuid-c', team_id: 3 }),
+            ]
+
+            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
+                const parsed = parseJSON(options.body)
+                const responses = parsed.map((req: CymbalRequest) =>
+                    createResponse({ uuid: req.uuid, team_id: req.team_id })
+                )
+                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            // 2 HTTP calls (one per pod), not 3 (one per team)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+
+            // The call to pod index 1 should contain both team 1 and team 3 events
+            const callBodies = mockFetch.mock.calls.map((call) => parseJSON(call[1].body))
+            const twoEventCall = callBodies.find((body: CymbalRequest[]) => body.length === 2)
+            expect(twoEventCall).toBeDefined()
+            expect(twoEventCall!.map((r: CymbalRequest) => r.team_id)).toEqual([1, 3])
+
+            // Results still maintain 1:1 position correspondence
+            expect(results.map((r) => r!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c'])
+        })
+
         it('routes events from different teams to potentially different pods in parallel', async () => {
             const client = createRoutedClient()
 

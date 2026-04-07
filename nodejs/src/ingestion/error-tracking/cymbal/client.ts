@@ -185,25 +185,25 @@ export class CymbalClient {
             return this.processExceptionsToUrl(`http://${endpoints[0]}:${this.port}`, items)
         }
 
-        // Multiple endpoints (headless service) — group by team_id for cache locality
-        const groups = new Map<number, { index: number; item: (typeof items)[0] }[]>()
+        // Multiple endpoints (headless service) — route each item to a pod by
+        // team_id, then group by destination pod so we make one HTTP call per pod
+        const podGroups = new Map<number, { index: number; item: (typeof items)[0] }[]>()
         for (let i = 0; i < items.length; i++) {
-            const teamId = items[i].request.team_id
-            let group = groups.get(teamId)
+            const podIndex = jumpConsistentHash(items[i].request.team_id, endpoints.length)
+            let group = podGroups.get(podIndex)
             if (!group) {
                 group = []
-                groups.set(teamId, group)
+                podGroups.set(podIndex, group)
             }
             group.push({ index: i, item: items[i] })
         }
 
-        cymbalRoutingGroupsHistogram.observe(groups.size)
+        cymbalRoutingGroupsHistogram.observe(podGroups.size)
 
-        // Send each team's events to its designated pod in parallel
+        // Send each pod's batch in parallel
         const results = new Array<CymbalResponse | null>(items.length)
         await Promise.all(
-            Array.from(groups.entries()).map(async ([teamId, group]) => {
-                const podIndex = jumpConsistentHash(teamId, endpoints.length)
+            Array.from(podGroups.entries()).map(async ([podIndex, group]) => {
                 const url = `http://${endpoints[podIndex]}:${this.port}`
                 const groupItems = group.map((g) => g.item)
                 const responses = await this.processExceptionsToUrl(url, groupItems)
