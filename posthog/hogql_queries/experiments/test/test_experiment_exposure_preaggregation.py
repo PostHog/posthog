@@ -605,7 +605,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        # Enable filterTestAccounts via exposure criteria
+        # The bug only triggers when test-account filters produce a NOT IN clause,
+        # which requires filterTestAccounts to be enabled on the experiment.
         experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.save()
 
