@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from posthog.api.app_metrics2 import (
     AppMetricResponseSerializer,
     AppMetricsRequestSerializer,
+    AppMetricsResponse,
+    AppMetricsTotalsResponse,
     AppMetricsTotalsResponseSerializer,
     fetch_app_metric_totals,
     fetch_app_metrics_trends,
@@ -92,7 +94,16 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.save()
         return Response(serializer.data)
 
-    def _parse_metrics_params(self, request: Request) -> dict:
+    def _get_config_id(self) -> str | None:
+        """Return the config UUID without creating one. Returns None if no config exists."""
+        return EventFilterConfig.objects.filter(team_id=self.team_id).values_list("id", flat=True).first()
+
+    def _parse_metrics_params(self, request: Request) -> dict | None:
+        """Parse and validate metrics query params. Returns None if no config exists yet."""
+        config_id = self._get_config_id()
+        if config_id is None:
+            return None
+
         param_serializer = AppMetricsRequestSerializer(data=request.query_params)
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)
@@ -103,7 +114,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return {
             "team_id": self.team_id,
             "app_source": "event_filter",
-            "app_source_id": str(self._get_or_create().id),
+            "app_source_id": str(config_id),
             "after": after_date,
             "before": before_date,
             "interval": params.get("interval", "day"),
@@ -115,12 +126,16 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["GET"], url_path="metrics")
     def metrics(self, request: Request, **kwargs):
         params = self._parse_metrics_params(request)
+        if params is None:
+            return Response(AppMetricResponseSerializer(instance=AppMetricsResponse(labels=[], series=[])).data)
         data = fetch_app_metrics_trends(**params)
         return Response(AppMetricResponseSerializer(instance=data).data)
 
     @action(detail=False, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, **kwargs):
         params = self._parse_metrics_params(request)
+        if params is None:
+            return Response(AppMetricsTotalsResponseSerializer(instance=AppMetricsTotalsResponse(totals={})).data)
         params.pop("interval", None)
         data = fetch_app_metric_totals(**params)
         return Response(AppMetricsTotalsResponseSerializer(instance=data).data)

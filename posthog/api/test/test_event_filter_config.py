@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
@@ -249,17 +251,56 @@ class TestEventFilterConfigAPI(APIBaseTest):
 
     # -- Disallowed methods --
 
-    def test_put_not_allowed(self):
-        response = self.client.put(self._url(), data={"mode": "live"}, format="json")
+    @parameterized.expand(["put", "patch", "delete"])
+    def test_disallowed_method(self, method: str):
+        response = getattr(self.client, method)(self._url(), data={"mode": "live"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_patch_not_allowed(self):
-        response = self.client.patch(self._url(), data={"mode": "live"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+    # -- Metrics --
 
-    def test_delete_not_allowed(self):
-        response = self.client.delete(self._url())
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+    @patch("posthog.api.event_filter_config.fetch_app_metrics_trends")
+    def test_metrics_returns_empty_when_no_config(self, mock_fetch):
+        response = self.client.get(self._url() + "metrics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"labels": [], "series": []})
+        mock_fetch.assert_not_called()
+        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
+
+    @patch("posthog.api.event_filter_config.fetch_app_metric_totals")
+    def test_metrics_totals_returns_empty_when_no_config(self, mock_fetch):
+        response = self.client.get(self._url() + "metrics/totals/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"totals": {}})
+        mock_fetch.assert_not_called()
+        self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
+
+    @patch("posthog.api.event_filter_config.fetch_app_metrics_trends")
+    def test_metrics_calls_clickhouse_when_config_exists(self, mock_fetch):
+        from posthog.api.app_metrics2 import AppMetricsResponse
+
+        mock_fetch.return_value = AppMetricsResponse(labels=["2026-04-01"], series=[])
+        self._seed_config()
+
+        response = self.client.get(self._url() + "metrics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+        self.assertEqual(mock_fetch.call_args.kwargs["app_source"], "event_filter")
+
+    @patch("posthog.api.event_filter_config.fetch_app_metric_totals")
+    def test_metrics_totals_calls_clickhouse_when_config_exists(self, mock_fetch):
+        from posthog.api.app_metrics2 import AppMetricsTotalsResponse
+
+        mock_fetch.return_value = AppMetricsTotalsResponse(totals={"success": 10})
+        self._seed_config()
+
+        response = self.client.get(self._url() + "metrics/totals/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+        self.assertEqual(response.json(), {"totals": {"success": 10}})
 
     # -- Complex end-to-end --
 
