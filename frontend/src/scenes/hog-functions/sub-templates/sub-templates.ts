@@ -93,6 +93,13 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
         flag: FEATURE_FLAGS.LOGS_ALERTING,
     },
+    'logs-alert-resolved': {
+        sub_template_id: 'logs-alert-resolved',
+        type: 'internal_destination',
+        context_id: 'logs-alerting',
+        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
+        flag: FEATURE_FLAGS.LOGS_ALERTING,
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -777,6 +784,58 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'logs-alert-resolved': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-resolved'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on log alert resolved',
+            description: 'Send a webhook when a log alert resolves',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-resolved'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on log alert resolved',
+            description: 'Post to a Slack channel when a log alert resolves',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Log alert '{event.properties.alert_name}' has resolved",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*Current count:* {event.properties.result_count} in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    text: { text: 'View logs', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Log alert '{event.properties.alert_name}' has resolved",
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -801,6 +860,7 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$discussion_mention_created':
             return 'discussion-mention'
         case '$logs_alert_firing':
+        case '$logs_alert_resolved':
             return 'logs-alerting'
         default:
             return 'standard'

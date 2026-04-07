@@ -184,6 +184,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     batch_size: int = 1000
     start_person_id: str = "00000000-0000-0000-0000-000000000000"  # Starting person ID for this batch
     end_person_id: str = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # Ending person ID for this batch
+    person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -198,44 +200,164 @@ class BackfillPrecalculatedPersonPropertiesInputs:
         }
 
 
-def evaluate_single_filter_sync(
-    filter_obj: PersonPropertyFilter,
+def evaluate_combined_filters_sync(
+    combined_bytecode: list[Any],
     hog_globals: dict[str, Any],
     person_id: str,
-    inputs: BackfillPrecalculatedPersonPropertiesInputs,
-) -> dict[str, Any] | None:
-    """
-    Evaluate a single filter for a person and return event data if it matches.
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute combined bytecode for all filters, returning {condition_hash: result}.
 
-    This is a synchronous function that will be run in a thread pool for concurrency.
-
-    Returns:
-        Event dict if filter matches, None otherwise
+    Returns empty dict on error so the person is skipped without crashing the activity.
     """
     try:
-        # Execute the filter bytecode to get the result
-        bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+        bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
         result = bytecode_result.result
 
-        # If filter matches, return event data
-        if result:
-            return {
-                "team_id": inputs.team_id,
-                "distinct_id": person_id,
-                "person_id": person_id,
-                "condition": filter_obj.condition_hash,
-                "matches": result,
-                "source": f"cohort_filter_{filter_obj.condition_hash}",
-            }
+        if detailed_logging:
+            LOGGER.info(
+                "HogVM evaluation completed",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
+        if isinstance(result, dict):
+            return result
+
+        if detailed_logging:
+            LOGGER.warning(
+                "HogVM evaluation returned non-dict result",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+
+        return {}
     except Exception as e:
         LOGGER.warning(
-            f"Failed to execute filter bytecode for person {person_id}: {e}",
+            "Failed to execute combined filter bytecode for person",
             person_id=person_id,
-            condition_hash=filter_obj.condition_hash,
             error=str(e),
         )
+        return {}
 
-    return None
+
+def evaluate_individual_filters_sync(
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute each filter's bytecode individually, returning {condition_hash: result}.
+
+    Isolates failures to individual cohorts rather than failing all cohorts for a person.
+    Returns results for successful filters only; failed filters are omitted from results.
+    """
+    results = {}
+
+    for filter_obj in filters:
+        try:
+            bytecode_result: BytecodeResult = execute_bytecode(filter_obj.bytecode, hog_globals)
+            result = bytecode_result.result
+
+            if detailed_logging:
+                LOGGER.info(
+                    "Individual filter evaluation completed",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                    execution_successful=True,
+                    execution_stdout=bytecode_result.stdout,
+                )
+
+            # Store the result for this specific condition
+            if isinstance(result, bool):
+                results[filter_obj.condition_hash] = result
+            elif detailed_logging:
+                LOGGER.warning(
+                    "Individual filter evaluation returned non-bool result",
+                    person_id=person_id,
+                    condition_hash=filter_obj.condition_hash,
+                    result=result,
+                    result_type=type(result).__name__,
+                )
+        except Exception as e:
+            LOGGER.warning(
+                "Failed to execute filter bytecode for person",
+                person_id=person_id,
+                condition_hash=filter_obj.condition_hash,
+                cohort_ids=filter_obj.cohort_ids,
+                error=str(e),
+            )
+
+    return results
+
+
+def evaluate_combined_filters_with_fallback_sync(
+    combined_bytecode: list[Any],
+    filters: list[PersonPropertyFilter],
+    hog_globals: dict[str, Any],
+    person_id: str,
+    detailed_logging: bool = False,
+) -> dict[str, Any]:
+    """Execute combined bytecode with fallback to individual filter execution.
+
+    First attempts to execute all filters in a single combined bytecode for performance.
+    If that fails, falls back to executing each filter individually to isolate failures.
+    """
+    # First, try the fast path with combined bytecode
+    try:
+        bytecode_result: BytecodeResult = execute_bytecode(combined_bytecode, hog_globals)
+        result = bytecode_result.result
+
+        if detailed_logging:
+            LOGGER.info(
+                "Combined filter evaluation completed successfully",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+                person_properties=hog_globals.get("person", {}).get("properties", {}),
+                execution_successful=True,
+                execution_stdout=bytecode_result.stdout,
+            )
+
+        if isinstance(result, dict):
+            invalid_result_entries = {
+                condition_hash: value for condition_hash, value in result.items() if not isinstance(value, bool)
+            }
+            if not invalid_result_entries:
+                return result
+            LOGGER.warning(
+                "Combined filter evaluation returned non-boolean values, falling back to individual execution",
+                person_id=person_id,
+                invalid_condition_hashes=list(invalid_result_entries.keys()),
+                invalid_result_types={
+                    condition_hash: type(value).__name__ for condition_hash, value in invalid_result_entries.items()
+                },
+            )
+
+        if detailed_logging:
+            LOGGER.warning(
+                "Combined filter evaluation returned non-dict result, falling back to individual execution",
+                person_id=person_id,
+                result=result,
+                result_type=type(result).__name__,
+            )
+    except Exception as e:
+        LOGGER.info(
+            "Combined filter execution failed, falling back to individual filter evaluation",
+            person_id=person_id,
+            error=str(e),
+            fallback_reason="combined_execution_failed",
+        )
+
+    # Fallback to individual filter execution for error isolation
+    return evaluate_individual_filters_sync(filters, hog_globals, person_id, detailed_logging)
 
 
 @temporalio.activity.defn
@@ -256,7 +378,7 @@ async def backfill_precalculated_person_properties_activity(
         team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=format_cohort_ids_for_logging(cohort_ids)
     )
 
-    # Load filters and person properties from Redis storage without blocking the event loop
+    # Load filters, person properties, and combined bytecode from Redis storage without blocking the event loop
     storage_result = await asyncio.to_thread(get_filters_and_properties, inputs.filter_storage_key)
     if storage_result is None:
         raise temporalio.exceptions.ApplicationError(
@@ -266,7 +388,7 @@ async def backfill_precalculated_person_properties_activity(
             non_retryable=True,
         )
 
-    filters, person_properties = storage_result
+    filters, person_properties, combined_bytecode = storage_result
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
     # Early abort if no filters to process
@@ -290,6 +412,9 @@ async def backfill_precalculated_person_properties_activity(
         f"processing {len(filters)} total filters from person ID {inputs.start_person_id} to {inputs.end_person_id} "
         f"with batch size {inputs.batch_size} ({len(filters)} filters = ~{inputs.batch_size * len(filters)} events per batch)"
     )
+
+    # Enable detailed logging when both cohort_id and person_id are set (single cohort + single person mode)
+    detailed_logging_enabled = inputs.person_id is not None and inputs.single_cohort_mode
 
     async with Heartbeater(
         details=(f"Processing persons from {inputs.start_person_id} to {inputs.end_person_id}",)
@@ -377,6 +502,7 @@ async def backfill_precalculated_person_properties_activity(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
+        person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
         persons_query = f"""
             SELECT
                 id as person_id,
@@ -386,6 +512,7 @@ async def backfill_precalculated_person_properties_activity(
               AND id >= %(start_person_id)s
               AND id <= %(end_person_id)s
               AND is_deleted = 0
+              {person_filter_clause}
             ORDER BY id
             FORMAT JSONEachRow
         """
@@ -395,23 +522,11 @@ async def backfill_precalculated_person_properties_activity(
             "start_person_id": inputs.start_person_id,
             "end_person_id": inputs.end_person_id,
         }
+        if inputs.person_id is not None:
+            query_params["person_id"] = inputs.person_id
 
         last_person_id = inputs.start_person_id
         batch_count = 0
-
-        # Initialize semaphore and async function outside the loop
-        MAX_CONCURRENT_FILTERS = min(20, len(filters))  # Cap at 20 concurrent threads
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_FILTERS)
-
-        async def run_filter_in_thread(filter_obj, hog_globals_bound, person_id_bound):
-            async with semaphore:
-                return await asyncio.to_thread(
-                    evaluate_single_filter_sync,
-                    filter_obj,
-                    hog_globals_bound,
-                    person_id_bound,
-                    inputs,
-                )
 
         with tags_context(
             team_id=inputs.team_id,
@@ -442,44 +557,69 @@ async def backfill_precalculated_person_properties_activity(
                         # Fallback format: use full properties JSON
                         parsed_properties = parse_person_properties(row.get("properties"), person_id)
 
-                    # Evaluate all filters concurrently for this person using thread pool
+                    # Evaluate all filters in a single VM call
                     person_filter_start = time.monotonic()
                     hog_globals = {"person": {"properties": parsed_properties}}
 
-                    # Create tasks for concurrent filter evaluation
-                    filter_tasks = [run_filter_in_thread(filter_obj, hog_globals, person_id) for filter_obj in filters]
+                    filter_results = await asyncio.to_thread(
+                        evaluate_combined_filters_with_fallback_sync,
+                        combined_bytecode,
+                        filters,
+                        hog_globals,
+                        person_id,
+                        detailed_logging=detailed_logging_enabled,
+                    )
 
-                    # Execute all filters concurrently
-                    filter_results = await asyncio.gather(*filter_tasks, return_exceptions=True)
+                    # Detailed logging for filter results when in single cohort + single person mode
+                    if detailed_logging_enabled:
+                        person_filter_duration = time.monotonic() - person_filter_start
+                        matching_conditions = [
+                            condition_hash for condition_hash, matches in filter_results.items() if matches
+                        ]
+                        logger.info(
+                            "Filter evaluation results",
+                            person_id=person_id,
+                            total_conditions=len(filter_results),
+                            matching_conditions=len(matching_conditions),
+                            matching_condition_hashes=matching_conditions,
+                            all_results=filter_results,
+                            evaluation_duration_ms=round(person_filter_duration * 1000, 2),
+                            person_properties_count=len(parsed_properties),
+                        )
 
-                    # Collect matching events and produce to Kafka sequentially (thread-safe)
-                    matching_events = []
-                    for result in filter_results:
-                        if isinstance(result, dict):  # Successful result with event data
-                            matching_events.append(result)
-                        elif isinstance(result, Exception):
-                            logger.error(
-                                "Error while evaluating filter for person_id %s: %r",
-                                person_id,
-                                result,
-                            )
-                        # None results (no match) are ignored
+                    # Produce Kafka messages for matching conditions
+                    for condition_hash, matches in filter_results.items():
+                        if matches:
+                            try:
+                                produce_result = kafka_producer.produce(
+                                    topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    data={
+                                        "team_id": inputs.team_id,
+                                        "distinct_id": person_id,
+                                        "person_id": person_id,
+                                        "condition": condition_hash,
+                                        "matches": matches,
+                                        "source": f"cohort_filter_{condition_hash}",
+                                    },
+                                )
+                                kafka_results.append(produce_result)
+                                total_events_produced += 1
 
-                    # Produce all matching events to Kafka sequentially in main thread
-                    for event in matching_events:
-                        try:
-                            produce_result = kafka_producer.produce(
-                                topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                data=event,
-                            )
-                            kafka_results.append(produce_result)
-                            total_events_produced += 1
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to produce Kafka message for person {person_id}: {e}",
-                                person_id=person_id,
-                                error=str(e),
-                            )
+                                if detailed_logging_enabled:
+                                    logger.info(
+                                        "Kafka message produced for matching condition",
+                                        person_id=person_id,
+                                        condition_hash=condition_hash,
+                                        matches=matches,
+                                        kafka_topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                    )
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to produce Kafka message for person {person_id}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=condition_hash,
+                                    error=str(e),
+                                )
 
                     # Periodically flush Kafka batches to avoid memory buildup
                     if len(kafka_results) >= KAFKA_FLUSH_BATCH_SIZE:

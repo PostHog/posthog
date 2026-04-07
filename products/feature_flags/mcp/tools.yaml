@@ -38,6 +38,14 @@ tools:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
+        response:
+            include:
+                - id
+                - key
+                - name
+                - updated_at
+                - status
+                - tags
     feature-flag-get-definition:
         operation: feature_flags_retrieve_2
         enabled: true

@@ -192,6 +192,7 @@ const ExperimentsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
 const ExperimentsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ExperimentsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,

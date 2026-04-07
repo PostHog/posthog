@@ -304,22 +304,55 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "Get all person properties",
+                "no search returns all person properties sorted by name",
                 "type=person",
                 [
+                    "$browser",
+                    "$initial_browser",
+                    "$initial_os",
                     "$initial_referrer",
+                    "$os",
                     "another",
                     "person property",
                 ],
             ),
-            ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
-            ("Search all properties containing 'prop'", "search=prop", ["event property"]),
+            ("substring match on name", "type=person&search=prop", ["person property"]),
+            ("type=event excludes person properties", "search=prop", ["event property"]),
             (
-                "Search person properties containing 'latest'",
+                "'latest' alone finds all 'Latest X' properties via label alias",
                 "type=person&search=latest",
-                ["another", "person property"],
+                ["$os", "$browser"],
             ),
-            ("Search person properties containing 'late'", "type=person&search=late", ["another", "person property"]),
+            (
+                "'late' matches same aliases ('late' is substring of 'Latest' labels)",
+                "type=person&search=late",
+                ["$os", "$browser"],
+            ),
+            (
+                "'latest os' finds $os via label alias ('Latest OS'), excludes $initial_os",
+                "type=person&search=latest os",
+                ["$os"],
+            ),
+            (
+                "'latest browser' finds $browser via label alias ('Latest browser'), excludes $initial_browser",
+                "type=person&search=latest browser",
+                ["$browser"],
+            ),
+            (
+                "'initial' matches properties containing 'initial' in name (sorted by length)",
+                "type=person&search=initial",
+                ["$initial_os", "$initial_browser", "$initial_referrer"],
+            ),
+            (
+                "'initial os' matches only $initial_os (both words must match)",
+                "type=person&search=initial os",
+                ["$initial_os"],
+            ),
+            (
+                "'os' matches name substring and label alias",
+                "type=person&search=os",
+                ["$os", "$initial_os"],
+            ),
         ]
     )
     def test_person_property_filters(self, _name: str, query_params: str, expected_results: list[str]) -> None:
@@ -340,10 +373,34 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             name="$initial_referrer",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
-        )  # We want to hide this property on events, but not on persons
+        )
         PropertyDefinition.objects.create(
             team=self.team,
             name="another",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$browser",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_browser",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
         )

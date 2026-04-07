@@ -1,6 +1,7 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -15,8 +16,9 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -377,6 +379,20 @@ describe('dashboardLogic', () => {
                     filters: expect.objectContaining({ date_from: '-7d' }),
                 })
             )
+        })
+
+        it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
         })
 
         it('saving after breakdown color change calls api', async () => {
@@ -895,6 +911,137 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('dashboard variables', () => {
+        const variableId = '019d4e3a-3ae0-0000-0698-96f9eecd74ef'
+        const baseVariable = {
+            code_name: 'organization',
+            variableId,
+        }
+
+        const mountDashboardWithVariable = async ({
+            urlValue,
+            dashboardOverride,
+            insightOverride,
+        }: {
+            urlValue?: string | null
+            dashboardOverride?: Partial<HogQLVariable>
+            insightOverride?: Partial<HogQLVariable>
+        }): Promise<void> => {
+            router.actions.push(
+                '/',
+                urlValue === undefined
+                    ? {}
+                    : {
+                          [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({
+                              organization: urlValue,
+                          }),
+                      }
+            )
+
+            const insightWithVariable = {
+                ...insightOnDashboard(175, [12]),
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select {variables.organization}',
+                        variables: {
+                            [variableId]: {
+                                ...baseVariable,
+                                ...insightOverride,
+                            },
+                        },
+                    },
+                    chartSettings: {},
+                    tableSettings: {},
+                } as any,
+            }
+
+            const dashboardWithVariableOverride = {
+                ...dashboardResult(12, [tileFromInsight(insightWithVariable)]),
+                persisted_variables: dashboardOverride
+                    ? {
+                          [variableId]: {
+                              ...baseVariable,
+                              ...dashboardOverride,
+                          },
+                      }
+                    : undefined,
+            }
+
+            variableDataLogic.mount()
+            logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(variableDataLogic, () => {
+                variableDataLogic.actions.loadVariablesSuccess([
+                    {
+                        id: variableId,
+                        name: 'Organization',
+                        code_name: 'organization',
+                        type: 'String',
+                        default_value: 'Default org',
+                    },
+                ] as any)
+            }).toMatchValues({
+                variables: [
+                    expect.objectContaining({
+                        id: variableId,
+                        code_name: 'organization',
+                    }),
+                ],
+            })
+        }
+
+        it.each([
+            ['url override (non-null)', 'url-val', undefined, undefined, 'url-val', false],
+            ['url override (null)', null, undefined, undefined, null, true],
+            ['persisted null override', undefined, { value: null, isNull: true }, undefined, null, true],
+            ['insight value fallback', undefined, undefined, { value: 'insight' }, 'insight', undefined],
+            ['default value fallback', undefined, undefined, undefined, 'Default org', undefined],
+        ])(
+            'resolves variable value: %s',
+            async (
+                _name: string,
+                urlValue: string | null | undefined,
+                dashboardOverride: Partial<HogQLVariable> | undefined,
+                insightOverride: Partial<HogQLVariable> | undefined,
+                expectedValue: string | null,
+                expectedIsNull: boolean | undefined
+            ) => {
+                await mountDashboardWithVariable({ urlValue, dashboardOverride, insightOverride })
+
+                expect(logic.values.effectiveVariablesAndAssociatedInsights).toEqual([
+                    {
+                        variable: expect.objectContaining({
+                            id: variableId,
+                            name: 'Organization',
+                            code_name: 'organization',
+                            value: expectedValue,
+                            isNull: expectedIsNull,
+                        }),
+                        insightNames: ['donut'],
+                    },
+                ])
+            }
+        )
+
+        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-override',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
+    })
+
     describe('external updates', () => {
         beforeEach(async () => {
             logic = dashboardLogic({ id: 9 })
@@ -932,6 +1079,41 @@ describe('dashboardLogic', () => {
             expect(query?.source?.dateRange?.date_from).toEqual('-1d')
             expect(query?.source?.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
+        })
+
+        it('refreshing a shared insight on one dashboard does not change its date range on another dashboard', async () => {
+            const nineLogic = dashboardLogic({ id: 9 })
+            const tenLogic = dashboardLogic({ id: 10 })
+            nineLogic.mount()
+            tenLogic.mount()
+            await expectLogic(nineLogic).toFinishAllListeners()
+            await expectLogic(tenLogic).toFinishAllListeners()
+
+            const copiedInsight = insight800()
+            const insightQuery = copiedInsight.query as InsightVizNode<TrendsQuery> | undefined
+            const payload = {
+                ...copiedInsight,
+                query: {
+                    ...insightQuery,
+                    source: {
+                        ...insightQuery?.source,
+                        dateRange: { ...insightQuery?.source?.dateRange, date_from: '-1d' },
+                        interval: 'hour',
+                    },
+                } as InsightVizNode<TrendsQuery>,
+                last_refresh: '2012-04-01T00:00:00Z',
+            }
+
+            dashboardsModel.actions.updateDashboardInsight(payload, undefined, 10)
+
+            await expectLogic(nineLogic).toFinishAllListeners()
+            const nineQuery = nineLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(nineQuery?.source?.dateRange?.date_from).toBeUndefined()
+            expect(nineQuery?.source?.interval).toEqual('day')
+
+            const tenQuery = tenLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(tenQuery?.source?.dateRange?.date_from).toEqual('-1d')
+            expect(tenQuery?.source?.interval).toEqual('hour')
         })
 
         it('can respond to external insight rename', async () => {
