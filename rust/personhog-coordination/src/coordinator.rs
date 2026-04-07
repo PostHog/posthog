@@ -7,6 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
 use assignment_coordination::util::compute_required_handoffs;
+use k8s_awareness::types::ControllerKind;
+use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
@@ -43,6 +45,7 @@ pub struct Coordinator {
     store: Arc<PersonhogStore>,
     config: CoordinatorConfig,
     strategy: Arc<dyn AssignmentStrategy>,
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl Coordinator {
@@ -50,11 +53,13 @@ impl Coordinator {
         store: Arc<PersonhogStore>,
         config: CoordinatorConfig,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             store,
             config,
             strategy,
+            k8s_awareness,
         }
     }
 
@@ -133,18 +138,23 @@ impl Coordinator {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s_awareness = self.k8s_awareness.clone();
             let debounce_interval = self.config.rebalance_debounce_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_pods_loop(store, strategy, debounce_interval, token).await
+                Self::watch_pods_loop(store, strategy, k8s_awareness, debounce_interval, token)
+                    .await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s_awareness = self.k8s_awareness.clone();
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_handoffs_loop(store, strategy, token).await });
+            tasks.spawn(async move {
+                Self::watch_handoffs_loop(store, strategy, k8s_awareness, token).await
+            });
         }
 
         {
@@ -169,6 +179,7 @@ impl Coordinator {
     async fn watch_pods_loop(
         store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -197,7 +208,8 @@ impl Coordinator {
                 }
             }
 
-            Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+            Self::handle_pod_change_static(&store, strategy.as_ref(), k8s_awareness.as_deref())
+                .await?;
         }
     }
 
@@ -213,6 +225,7 @@ impl Coordinator {
     async fn watch_handoffs_loop(
         store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
@@ -239,7 +252,12 @@ impl Coordinator {
                     // handoffs have completed. If so, re-trigger rebalancing to
                     // pick up any pod changes that were deferred.
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+                        Self::handle_pod_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -335,12 +353,18 @@ impl Coordinator {
 
     /// Handle a pod registration/deletion by recomputing assignments.
     async fn handle_pod_change(&self) -> Result<()> {
-        Self::handle_pod_change_static(&self.store, self.strategy.as_ref()).await
+        Self::handle_pod_change_static(
+            &self.store,
+            self.strategy.as_ref(),
+            self.k8s_awareness.as_deref(),
+        )
+        .await
     }
 
     async fn handle_pod_change_static(
         store: &PersonhogStore,
         strategy: &dyn AssignmentStrategy,
+        k8s_awareness: Option<&K8sAwareness>,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
         let total_partitions = match store.get_total_partitions().await {
@@ -352,7 +376,12 @@ impl Coordinator {
             Err(e) => return Err(e),
         };
 
-        let active_pods = active_pod_names(&pods);
+        let mut active_pods = active_pod_names(&pods);
+
+        // K8s-aware pod filtering for smarter rebalancing
+        if let Some(k8s) = k8s_awareness {
+            active_pods = filter_pods_for_k8s(k8s, &pods, active_pods).await;
+        }
 
         // Clean up any in-flight handoffs targeting pods that are no longer active.
         // This happens when a pod crashes during the Warming phase before it can
@@ -492,6 +521,66 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
+/// Adjust the active pod list based on K8s controller intent.
+///
+/// Two adjustments during rollouts:
+///
+/// 1. **Deployment rollout** — old-gen Ready pods are excluded from the
+///    active list so the strategy never assigns partitions to them. Existing
+///    assignments move to new-gen pods via handoff.
+///
+/// 2. **StatefulSet rollout** — Draining pods are *added back* to the
+///    active list so their assignments are held. In a StatefulSet rollout the
+///    same pod name comes back with a new revision, so there's no point
+///    handing off to a different pod.
+async fn filter_pods_for_k8s(
+    k8s: &K8sAwareness,
+    pods: &[RegisteredPod],
+    mut active: Vec<String>,
+) -> Vec<String> {
+    for pod in pods {
+        let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
+            continue;
+        };
+
+        if generation.is_empty() {
+            continue;
+        }
+
+        let reason = k8s.classify_departure(controller, generation).await;
+
+        match (&controller.kind, pod.status, reason) {
+            // Deployment rollout: old-gen Ready pod → exclude
+            (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
+                tracing::info!(
+                    pod = %pod.pod_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "excluding old-gen deployment pod from active list"
+                );
+                active.retain(|name| name != &pod.pod_name);
+            }
+            // StatefulSet rollout: Draining pod → add back (hold assignment)
+            (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
+                tracing::info!(
+                    pod = %pod.pod_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "holding assignment for statefulset pod during rollout"
+                );
+                if !active.contains(&pod.pod_name) {
+                    active.push(pod.pod_name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    active.sort();
+    active.dedup();
+    active
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,10 +588,11 @@ mod tests {
     fn make_pod(name: &str) -> RegisteredPod {
         RegisteredPod {
             pod_name: name.to_string(),
-            generation: "blue".to_string(),
+            generation: String::new(),
             status: PodStatus::Ready,
             registered_at: 0,
             last_heartbeat: 0,
+            controller: None,
         }
     }
 

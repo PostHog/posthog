@@ -26,6 +26,13 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         on_delete=models.CASCADE,
         related_name="ducklake_catalog",
     )
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="ducklake_catalog",
+        null=True,
+        blank=True,
+    )
 
     # Database connection settings
     db_host = models.CharField(max_length=255)
@@ -90,6 +97,13 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="duckgres_server",
+    )
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server",
+        null=True,
+        blank=True,
     )
     host = models.CharField(max_length=255)
     port = models.IntegerField(default=5432)

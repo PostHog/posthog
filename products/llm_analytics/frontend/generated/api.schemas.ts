@@ -1072,9 +1072,18 @@ export interface LLMPromptPublicApi {
     first_version_created_at: string
 }
 
+export interface LLMPromptEditOperationApi {
+    /** Text to find in the current prompt. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
 export interface PatchedLLMPromptPublishApi {
-    /** Prompt payload to publish as a new version. */
+    /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
     prompt?: unknown
+    /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
+    edits?: LLMPromptEditOperationApi[]
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
