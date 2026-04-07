@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
@@ -598,53 +600,38 @@ class TestBytecode(BaseTest):
             {"__hx_tag": "Sparkline", "data": [1, 2, 3]},
         )
 
-    def test_null_safe_comparisons(self):
-        """Test that null-safe comparisons handle None values properly without throwing TypeErrors."""
+    @parameterized.expand(
+        [
+            ("gt_none", "person.properties.test_prop > 'value'", None, False),
+            ("gte_none", "person.properties.test_prop >= 'value'", None, False),
+            ("lt_none", "person.properties.test_prop < 'value'", None, False),
+            ("lte_none", "person.properties.test_prop <= 'value'", None, False),
+            ("gt_match", "person.properties.test_prop > 'value'", "xyz", True),
+            ("gte_match", "person.properties.test_prop >= 'value'", "xyz", True),
+            ("lt_match", "person.properties.test_prop < 'value'", "abc", True),
+            ("lte_match", "person.properties.test_prop <= 'value'", "abc", True),
+        ]
+    )
+    def test_null_safe_comparisons(self, _name, expr_str, property_value, expected):
         from common.hogvm.python.execute import execute_bytecode
 
-        # Test cases that should work with null_safe_comparisons=True
-        test_cases = [
-            ("person.properties.test_prop > 'value'", None, False),
-            ("person.properties.test_prop >= 'value'", None, False),
-            ("person.properties.test_prop < 'value'", None, False),
-            ("person.properties.test_prop <= 'value'", None, False),
-            ("person.properties.test_prop > 'value'", "xyz", True),
-            ("person.properties.test_prop >= 'value'", "xyz", True),
-            ("person.properties.test_prop < 'value'", "abc", True),
-            ("person.properties.test_prop <= 'value'", "abc", True),
+        bytecode = create_bytecode(expr_str, null_safe_comparisons=True).bytecode
+        hog_globals = {"person": {"properties": {"test_prop": property_value}}}
+        result = execute_bytecode(bytecode, hog_globals)
+        self.assertEqual(result.result, expected)
+
+    @parameterized.expand(
+        [
+            ("gt", "person.properties.test_prop > 'value'"),
+            ("gte", "person.properties.test_prop >= 'value'"),
+            ("lt", "person.properties.test_prop < 'value'"),
+            ("lte", "person.properties.test_prop <= 'value'"),
         ]
-
-        for expr_str, property_value, expected in test_cases:
-            with self.subTest(expr=expr_str, value=property_value, expected=expected):
-                # Compile with null-safe comparisons enabled
-                bytecode = create_bytecode(expr_str, null_safe_comparisons=True).bytecode
-
-                # Test execution with the property value
-                hog_globals = {"person": {"properties": {"test_prop": property_value}}}
-                result = execute_bytecode(bytecode, hog_globals)
-
-                # Should not throw an error and should return the expected result
-                self.assertEqual(result.result, expected, f"Failed for {expr_str} with value {property_value}")
-
-    def test_unsafe_comparisons_now_safe_with_none(self):
-        """Test that comparisons without null_safe_comparisons now work with None values after the HogVM fix."""
+    )
+    def test_unsafe_comparisons_now_safe_with_none(self, _name, expr_str):
         from common.hogvm.python.execute import execute_bytecode
 
-        test_cases = [
-            "person.properties.test_prop > 'value'",
-            "person.properties.test_prop >= 'value'",
-            "person.properties.test_prop < 'value'",
-            "person.properties.test_prop <= 'value'",
-        ]
-
-        for expr_str in test_cases:
-            with self.subTest(expr=expr_str):
-                # Compile without null-safe comparisons
-                bytecode = create_bytecode(expr_str, null_safe_comparisons=False).bytecode
-
-                # Test execution with None property value should now work (return False)
-                hog_globals = {"person": {"properties": {"test_prop": None}}}
-                result = execute_bytecode(bytecode, hog_globals)
-
-                # Should return False instead of throwing an error
-                self.assertEqual(result.result, False, f"Should return False for {expr_str} with None value")
+        bytecode = create_bytecode(expr_str, null_safe_comparisons=False).bytecode
+        hog_globals = {"person": {"properties": {"test_prop": None}}}
+        result = execute_bytecode(bytecode, hog_globals)
+        self.assertEqual(result.result, False)
