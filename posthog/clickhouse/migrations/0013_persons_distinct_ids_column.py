@@ -4,8 +4,8 @@ from posthog.models.person.sql import KAFKA_PERSONS_TABLE_SQL, PERSONS_TABLE, PE
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 operations = [
-    run_sql_with_exceptions(f"DROP TABLE person_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
-    run_sql_with_exceptions(f"DROP TABLE kafka_person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS person_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS kafka_person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     run_sql_with_exceptions(
         "ALTER TABLE person ADD COLUMN IF NOT EXISTS distinct_ids Array(VARCHAR)",
         node_roles=[NodeRole.DATA],

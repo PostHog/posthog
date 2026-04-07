@@ -77,10 +77,13 @@ describe('BatchWritingPersonStore', () => {
         } as unknown as PostgresRouter
 
         mockIngestionWarningsOutputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: {
-                topic: 'ingestion_warnings_test',
-                producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-            },
+            [INGESTION_WARNINGS_OUTPUT]: [
+                {
+                    topic: 'ingestion_warnings_test',
+                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
+                    producerName: 'test',
+                },
+            ],
         })
 
         mockRepo = createMockRepository()

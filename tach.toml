@@ -144,6 +144,7 @@ layer = "non_isolated"
 [[modules]]
 path = "products.customer_analytics"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "non_isolated"
@@ -394,6 +395,7 @@ depends_on = [
     "products.error_tracking",
     "products.event_definitions",
     "products.llm_analytics",
+    "products.signals",
     "products.slack_app",
 ]
 layer = "non_isolated"
@@ -464,4 +466,13 @@ layer = "products"
 interfaces = [
     "products.mcp_analytics.backend.facade",
     "products.mcp_analytics.backend.presentation.views",
+]
+
+[[modules]]
+path = "products.platform_features"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.platform_features.backend.facade",
+    "products.platform_features.backend.presentation.views",
 ]

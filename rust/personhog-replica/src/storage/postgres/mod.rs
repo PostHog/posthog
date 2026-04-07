@@ -72,7 +72,7 @@ impl PostgresStorage {
     }
 
     /// Acquire a connection from the given pool, recording the acquisition time
-    /// as `personhog_replica_db_pool_acquire_duration_ms` with a `pool` label.
+    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool` and `client` labels.
     pub(crate) async fn acquire_timed(
         pool: &PgPool,
         pool_label: &str,
@@ -82,7 +82,13 @@ impl PostgresStorage {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         common_metrics::histogram(
             DB_POOL_ACQUIRE_DURATION,
-            &[("pool".to_string(), pool_label.to_string())],
+            &[
+                ("pool".to_string(), pool_label.to_string()),
+                (
+                    "client".to_string(),
+                    personhog_common::grpc::current_client_name().to_string(),
+                ),
+            ],
             elapsed_ms,
         );
         Ok(conn)

@@ -80,6 +80,7 @@ const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,

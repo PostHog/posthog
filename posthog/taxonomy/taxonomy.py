@@ -2649,3 +2649,9 @@ IGNORED_EVENT_NAMES: list[str] = [
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if defn.get("system") or defn.get("ignored_in_assistant")
 ]
+
+WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if name not in IGNORED_EVENT_NAMES and name != "All events"
+)

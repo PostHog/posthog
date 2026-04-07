@@ -13,11 +13,10 @@
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
-  - All tests: `pytest`
-  - Single test: `pytest path/to/test.py::TestClass::test_method`
-  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
-  - Frontend: `pnpm --filter=@posthog/frontend test`
-  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - Universal: `hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
+  - Single test: `hogli test path/to/test.py::TestClass::test_method`
+  - Watch mode: `hogli test path/to/test.py --watch`
+  - Changed files only: `hogli test --changed`
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`

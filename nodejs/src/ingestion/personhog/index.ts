@@ -28,6 +28,8 @@ export function createPersonHogClient(config: PersonHogConfig): PersonHogClient 
         pingIntervalMs: config.PERSONHOG_PING_INTERVAL_MS,
         pingTimeoutMs: config.PERSONHOG_PING_TIMEOUT_MS,
         pingIdleConnection: config.PERSONHOG_PING_IDLE_CONNECTION,
+        idleConnectionTimeoutMs: config.PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS,
+        stateMonitorPollIntervalMs: config.PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS,
     })
 }
 

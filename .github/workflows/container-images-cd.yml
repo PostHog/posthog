@@ -430,6 +430,18 @@ jobs:
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
+                      dataModeling:
+                        - 'posthog/hogql/**'
+                        - 'posthog/ducklake/**'
+                        - 'posthog/temporal/data_modeling/**'
+                        - 'posthog/temporal/data_warehouse/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/warehouse/**'
+                        - 'products/data_modeling/**'
+                        - 'products/data_warehouse/**'
+                        - 'posthog/management/commands/**'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
 
             - name: Trigger Health Check Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true'
@@ -596,13 +608,8 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes that affect data modeling temporal worker
-              id: check_changes_data_modeling_temporal_worker
-              run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_warehouse|^posthog/temporal/common|^posthog/warehouse|^products/data_modeling|^products/data_warehouse|^posthog/management/commands|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
-
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
-              if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.dataModeling == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}

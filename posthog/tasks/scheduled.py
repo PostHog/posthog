@@ -76,6 +76,7 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -593,4 +594,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
+    )
+
+    # Hard-delete expired test saved queries and their downstream objects
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_expired_test_saved_queries.s(),
+        name="cleanup expired test saved queries",
     )

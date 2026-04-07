@@ -452,9 +452,11 @@ describe('Pipeline Phases', () => {
 
         const pipelineConfig: PipelineConfig = {
             outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer },
-                [OVERFLOW_OUTPUT]: { topic: '', producer: mockKafkaProducer },
-                [INGESTION_WARNINGS_OUTPUT]: { topic: 'warnings_test', producer: mockKafkaProducer },
+                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockKafkaProducer, producerName: 'test' }],
+                [OVERFLOW_OUTPUT]: [{ topic: '', producer: mockKafkaProducer, producerName: 'test' }],
+                [INGESTION_WARNINGS_OUTPUT]: [
+                    { topic: 'warnings_test', producer: mockKafkaProducer, producerName: 'test' },
+                ],
             }),
             promiseScheduler,
         }

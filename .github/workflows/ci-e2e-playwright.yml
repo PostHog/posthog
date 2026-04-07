@@ -164,7 +164,7 @@ jobs:
         if: needs.changes.outputs.shouldRun == 'true'
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
-        timeout-minutes: 30
+        timeout-minutes: 45
         steps:
             - uses: actions/checkout@v6
               with:
