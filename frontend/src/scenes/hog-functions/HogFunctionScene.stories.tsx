@@ -295,7 +295,7 @@ export const Logs: Story = {
             },
             post: {
                 ...commonMocks.post,
-                '/api/environments/:team_id/query/': MOCK_HOG_FUNCTION_LOG_RESULTS,
+                '/api/environments/:team_id/query/HogQLQuery/': MOCK_HOG_FUNCTION_LOG_RESULTS,
             },
         }),
     ],

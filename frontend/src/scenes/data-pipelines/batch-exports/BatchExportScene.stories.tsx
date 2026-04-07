@@ -228,7 +228,7 @@ export const Logs: Story = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': MOCK_LOG_RESULTS,
+                '/api/environments/:team_id/query/HogQLQuery/': MOCK_LOG_RESULTS,
             },
         }),
     ],
