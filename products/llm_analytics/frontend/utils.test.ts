@@ -642,7 +642,9 @@ describe('LLM Analytics utils', () => {
                 'single text block',
                 {
                     role: 'user',
-                    content: JSON.stringify([{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }]),
+                    content: JSON.stringify([
+                        { type: 'text', text: 'lets respond inline to each bot to explain that its fine' },
+                    ]),
                 },
                 [{ type: 'text', text: 'lets respond inline to each bot to explain that its fine' }],
             ],
@@ -653,13 +655,16 @@ describe('LLM Analytics utils', () => {
                 { role: 'user', content: JSON.stringify([{ type: 'schema', definition: { foo: 'bar' } }]) },
                 '[{"type":"schema","definition":{"foo":"bar"}}]',
             ],
-        ])('handles stringified structured content in OpenAI-compatible messages: %s', (_label, message, expectedContent) => {
-            const result = normalizeMessage(message, 'user')
+        ])(
+            'handles stringified structured content in OpenAI-compatible messages: %s',
+            (_label, message, expectedContent) => {
+                const result = normalizeMessage(message, 'user')
 
-            expect(result).toHaveLength(1)
-            expect(result[0].role).toBe('user')
-            expect(result[0].content).toEqual(expectedContent)
-        })
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('user')
+                expect(result[0].content).toEqual(expectedContent)
+            }
+        )
 
         it('handles LiteLLM choice wrapper and preserves nested role', () => {
             const liteLLMChoice = {
