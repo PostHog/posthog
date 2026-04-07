@@ -18473,6 +18473,25 @@ export namespace Schemas {
       new: string;
     }
 
+    export interface LLMPromptList {
+      readonly id: string;
+      /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
+      readonly name: string;
+      /** Prompt payload as JSON or string data. */
+      readonly prompt: unknown;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+      readonly prompt_preview: string;
+      readonly prompt_size_bytes: number;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -20194,13 +20213,13 @@ export namespace Schemas {
       results: Integration[];
     }
 
-    export interface PaginatedLLMPromptList {
+    export interface PaginatedLLMPromptListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: LLMPrompt[];
+      results: LLMPromptList[];
     }
 
     export interface PaginatedLLMProviderKeyList {
@@ -32814,6 +32833,15 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
+     * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsListContent;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -32826,6 +32854,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
+
+
+    export const LlmPromptsListContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
 
     export type LlmPromptsNameRetrieveParams = {
     /**

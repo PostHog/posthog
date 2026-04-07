@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+@import 'shadcn/tailwind.css';
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind.css';
+@import '@fontsource-variable/inter';
+@import 'tw-animate-css';
+@source "../../../packages/primitives/src/**/*.{ts,tsx}";
+@source "../../../packages/components/src/**/*.{ts,tsx}";
+@source "../../../packages/blocks/src/**/*.{ts,tsx}";
+@source "../stories/**/*.{ts,tsx}";
+
+/* Disable animations during visual regression tests */
+body.storybook-test-runner *,
+body.storybook-test-runner *::before,
+body.storybook-test-runner *::after {
+    transition-delay: 0s !important;
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+}

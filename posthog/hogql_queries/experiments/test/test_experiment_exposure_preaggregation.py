@@ -530,6 +530,74 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert lazy_result.variant_results is not None
         assert lazy_result.variant_results[0].number_of_samples == 3, "Should only count test users from Jan 7+"
 
+    def test_precomputed_variant_not_affected_by_wider_job_window(self):
+        """When an experiment starts mid-day, the job window extends to the
+        UTC-day boundary — earlier than the experiment start. Events in that
+        extra window must not affect variant assignment. Without the fix, a
+        user who had a different variant before the experiment would be
+        misclassified as $multiple."""
+        feature_flag = self.create_feature_flag(key="midday-start-test")
+        # Experiment starts at 14:00 UTC — job window will start at 00:00 UTC
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 2, 14, 0, 0),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # User sees "test" BEFORE the experiment starts (at 06:00 UTC, within
+        # the wider job window but outside the experiment)
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 2, 6, 0, 0, tzinfo=UTC))
+        # Same user sees "control" DURING the experiment (at 15:00 UTC)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 16, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal control user during the experiment
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 3, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 3, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal test user during the experiment
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 3, 14, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 3, 15, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # "switcher" should be counted as control (only saw control during the
+        # experiment), not $multiple. So: 2 control + 1 test.
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        assert direct_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 2
+        assert direct_result.variant_results is not None
+        assert direct_result.variant_results[0].number_of_samples == 1
+
     def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
