@@ -66,9 +66,6 @@ export function SidebarQuestionInput({
                 <div className="border border-primary rounded-lg bg-surface-primary">
                     <InputFormArea />
                 </div>
-                <p className="w-full flex text-xs text-muted mt-1">
-                    <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
-                </p>
             </div>
         )
     }
