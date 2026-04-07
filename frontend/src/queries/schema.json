@@ -3439,7 +3439,7 @@
             "type": "object"
         },
         "AttributionMode": {
-            "enum": ["first_touch", "last_touch"],
+            "enum": ["first_touch", "last_touch", "linear", "time_decay", "position_based"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {

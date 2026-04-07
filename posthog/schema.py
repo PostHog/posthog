@@ -613,6 +613,9 @@ class AssistantUpdateEvent(BaseModel):
 class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
+    LINEAR = "linear"
+    TIME_DECAY = "time_decay"
+    POSITION_BASED = "position_based"
 
 
 class AutocompleteCompletionItemKind(StrEnum):

@@ -5608,6 +5608,9 @@ export namespace Schemas {
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
+    * `linear` - Linear
+    * `time_decay` - Time Decay
+    * `position_based` - Position Based
      */
     export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
 
@@ -5615,6 +5618,9 @@ export namespace Schemas {
     export const AttributionModeEnum = {
       FirstTouch: 'first_touch',
       LastTouch: 'last_touch',
+      Linear: 'linear',
+      TimeDecay: 'time_decay',
+      PositionBased: 'position_based',
     } as const;
 
     export interface RunSummary {
@@ -33768,7 +33774,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
      */
     ordering?: string;
     };
