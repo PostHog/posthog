@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
@@ -135,9 +136,10 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
                 }}
             >
                 <div
-                    className={`PlayerSeekBarPreview__tooltip__content ${
-                        canShowPreview ? 'PlayerSeekBarPreview__tooltip__content--with-preview' : ''
-                    }`}
+                    className={cn(
+                        'PlayerSeekBarPreview__tooltip__content',
+                        canShowPreview && 'PlayerSeekBarPreview__tooltip__content--with-preview'
+                    )}
                 >
                     {canShowPreview && (
                         <PlayerSeekbarPreviewFrame
