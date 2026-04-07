@@ -54,6 +54,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
@@ -239,15 +240,23 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> list[tuple]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
+        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+            experiment_metric_uuid=self.metric.uuid,
+            experiment_metric_name=metric_name,
         )
 
         experiment_query_ast = self._get_experiment_query()
+
+        # Tag after _get_experiment_query() which sets _is_precomputed
+        tag_queries(
+            experiment_execution_path="precomputed" if self._is_precomputed else "direct_scan",
+        )
         experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]

@@ -20,8 +20,8 @@ describe('config', () => {
         it.each([
             { field: 'playback_speed', value: 0, error: 'playback_speed must be positive' },
             { field: 'playback_speed', value: -1, error: 'playback_speed must be positive' },
-            { field: 'capture_timeout', value: 0, error: 'capture_timeout must be positive' },
-            { field: 'capture_timeout', value: -5, error: 'capture_timeout must be positive' },
+            { field: 'max_virtual_time', value: 0, error: 'max_virtual_time must be positive' },
+            { field: 'max_virtual_time', value: -5, error: 'max_virtual_time must be positive' },
             { field: 'recording_fps', value: 0, error: 'recording_fps must be positive' },
             { field: 'recording_fps', value: -10, error: 'recording_fps must be positive' },
             { field: 'trim', value: 0, error: 'trim must be positive' },
@@ -89,14 +89,14 @@ describe('config', () => {
         })
 
         describe('capture timeout', () => {
-            it('converts capture_timeout seconds to ms', () => {
-                const config = buildCaptureConfig(baseInput({ capture_timeout: 300 }))
-                expect(config.captureTimeoutMs).toBe(300_000)
+            it('converts max_virtual_time seconds to ms', () => {
+                const config = buildCaptureConfig(baseInput({ max_virtual_time: 300 }))
+                expect(config.maxVirtualTimeMs).toBe(300_000)
             })
 
-            it('defaults to Infinity when no capture_timeout', () => {
+            it('defaults to Infinity when no max_virtual_time', () => {
                 const config = buildCaptureConfig(baseInput())
-                expect(config.captureTimeoutMs).toBe(Infinity)
+                expect(config.maxVirtualTimeMs).toBe(Infinity)
             })
         })
 

@@ -18,8 +18,9 @@ import structlog
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -69,6 +70,24 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
 # ClickHouse setup and we want them to remain fast and deterministic).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+
+
+def _get_insert_settings(team_id: int) -> dict:
+    """Build ClickHouse settings for preaggregation INSERT queries.
+
+    Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
+    uses for regular queries, then applies INSERT-specific overrides.
+    """
+    settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
+    settings.pop("readonly", None)  # INSERTs need write access
+    settings.update(
+        {
+            "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+        }
+    )
+    return settings
 
 
 @dataclass
@@ -571,11 +590,7 @@ def run_lazy_computation_insert(
         sync_execute(
             insert_sql,
             values,
-            settings={
-                "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
-                **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-            },
+            settings=_get_insert_settings(team.id),
         )
 
 
@@ -970,11 +985,7 @@ def ensure_precomputed(
             sync_execute(
                 insert_sql,
                 values,
-                settings={
-                    "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                    "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
-                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-                },
+                settings=_get_insert_settings(t.id),
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
@@ -1029,7 +1040,13 @@ def _build_manual_insert_sql(
     query.select.append(expires_at_expr)
 
     # Print to SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=create_default_modifiers_for_team(team),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
