@@ -1,9 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 
-import { Badge } from './badge'
-import { InfoIcon } from 'lucide-react'
-import { Spinner } from './spinner'
-import { Button } from './button'
 import { Dot } from './dot'
 
 const meta = {
