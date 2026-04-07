@@ -560,7 +560,28 @@ class TestDashboardTemplates(APIBaseTest):
         assert default_order.status_code == status.HTTP_200_OK
         default_results = default_order.json()["results"]
         assert len(default_results) == 2
-        assert {r["template_name"] for r in default_results} == {"Alpha", "Zebra"}
+        assert [r["template_name"] for r in default_results] == ["Alpha", "Zebra"]
+
+    def test_featured_templates_list_before_non_featured_when_listing_without_search(self) -> None:
+        DashboardTemplate.objects.all().delete()
+        self.create_template(
+            {
+                "scope": DashboardTemplate.Scope.GLOBAL,
+                "template_name": "Aardvark not featured",
+                "is_featured": False,
+            }
+        )
+        self.create_template(
+            {
+                "scope": DashboardTemplate.Scope.GLOBAL,
+                "template_name": "Zebra featured",
+                "is_featured": True,
+            }
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["template_name"] for r in response.json()["results"]] == ["Zebra featured", "Aardvark not featured"]
 
     def test_search_when_listing_templates(self):
         # ensure there are no templates
@@ -638,7 +659,9 @@ class TestDashboardTemplates(APIBaseTest):
 
         all_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert all_response.status_code == status.HTTP_200_OK
-        assert len(all_response.json()["results"]) == 2
+        all_results = all_response.json()["results"]
+        assert len(all_results) == 2
+        assert [r["template_name"] for r in all_results] == ["Featured list filter A", "Not featured list filter B"]
 
         featured_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?is_featured=true")
         assert featured_response.status_code == status.HTTP_200_OK

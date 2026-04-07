@@ -6,8 +6,8 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/
 import { InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
-import { modalsLogic } from '../../modalsLogic'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../../utils'
+import { legacyExperimentModalsLogic } from '../legacyExperimentModalsLogic'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
@@ -20,8 +20,8 @@ export function LegacyMetricModal({ isSecondary }: { isSecondary?: boolean }): J
     const { experiment, experimentLoading, getInsightType, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
-    const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
+    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(legacyExperimentModalsLogic)
+    const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'

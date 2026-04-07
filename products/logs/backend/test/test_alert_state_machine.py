@@ -93,7 +93,8 @@ class TestFiringTransitions(TestCase):
             ("still_breaching_1_of_1", 1, 1, (), True, FIRING, NotificationAction.NONE),
             ("still_breaching_2_of_3", 2, 3, (True, True), True, FIRING, NotificationAction.NONE),
             ("clears_1_of_1", 1, 1, (), False, NOT_FIRING, NotificationAction.RESOLVE),
-            ("clears_enters_pending_2_of_3", 2, 3, (True, True), False, PENDING_RESOLVE, NotificationAction.NONE),
+            # N-of-M only governs firing — resolution is always immediate on first OK check
+            ("clears_immediately_2_of_3", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
         ]
     )
     def test_firing_transitions(
@@ -120,12 +121,12 @@ class TestFiringTransitions(TestCase):
 class TestPendingResolveTransitions(TestCase):
     @parameterized.expand(
         [
-            # 2-of-3: window [False, False, True] -> 2 clears >= 2 -> resolve
+            # Any non-breaching check from PENDING_RESOLVE resolves immediately
             ("clears_fully", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
-            # 2-of-3: window [True, False, True] -> 2 breaches >= 2 -> back to FIRING
+            # Re-breach goes back to FIRING
             ("re_breaches", 2, 3, (False, True), True, FIRING, NotificationAction.NONE),
-            # 2-of-3: window [False, True, True] -> 1 clear < 2, 2 breach >= 2 -> FIRING
-            ("mixed_still_breaching", 2, 3, (True, True), False, PENDING_RESOLVE, NotificationAction.NONE),
+            # Non-breaching resolves immediately regardless of recent history
+            ("mixed_resolves_immediately", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
         ]
     )
     def test_pending_resolve_transitions(
@@ -275,7 +276,7 @@ class TestSnooze(TestCase):
 
 
 class TestEdgeCases(TestCase):
-    def test_1_of_1_skips_pending_resolve(self) -> None:
+    def test_non_breaching_check_resolves_immediately(self) -> None:
         snapshot = _snapshot(state=FIRING, datapoints_to_alarm=1, evaluation_periods=1)
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.new_state == NOT_FIRING

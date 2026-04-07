@@ -70,6 +70,14 @@ describe('logsAlertUtils', () => {
             expect(headerText).toContain("if(event.event == '$logs_alert_resolved'")
             expect(headerText).toContain('has resolved')
             expect(headerText).toContain('is firing')
+
+            // Context block includes services/severities element
+            const contextBlock = payload.inputs?.blocks?.value?.[2]
+            expect(contextBlock?.type).toBe('context')
+            expect(contextBlock?.elements).toHaveLength(2)
+            const filterContext = contextBlock?.elements?.[0]?.text
+            expect(filterContext).toContain('severity_levels')
+            expect(filterContext).toContain('service_names')
         })
 
         it('uses fallback name when alertName is undefined for slack', () => {
@@ -115,12 +123,16 @@ describe('logsAlertUtils', () => {
             expect(payload.inputs?.url).toEqual({ value: 'https://example.com/hook' })
             expect(payload.inputs?.body?.value).toMatchObject({
                 event: "{if(event.event == '$logs_alert_resolved', 'resolved', 'firing')}",
+                alert_id: '{event.properties.alert_id}',
                 alert_name: '{event.properties.alert_name}',
                 result_count: '{event.properties.result_count}',
                 threshold_count: '{event.properties.threshold_count}',
                 threshold_operator: '{event.properties.threshold_operator}',
                 window_minutes: '{event.properties.window_minutes}',
+                service_names: '{event.properties.service_names}',
+                severity_levels: '{event.properties.severity_levels}',
                 logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
+                triggered_at: '{event.properties.triggered_at}',
             })
             expect(payload.filters?.events).toHaveLength(2)
         })

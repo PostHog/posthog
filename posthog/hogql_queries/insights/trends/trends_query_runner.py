@@ -712,8 +712,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 else:
                     new_result["count"] = float(sum(new_result["data"]))
 
-            # Filter action.days too
-            if "action" in new_result and "days" in new_result["action"]:
+            # Filter action.days too (formula series have action=None)
+            if new_result.get("action") is not None and "days" in new_result["action"]:
                 action_days = new_result["action"]["days"]
                 new_result["action"] = {**new_result["action"]}
                 new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]

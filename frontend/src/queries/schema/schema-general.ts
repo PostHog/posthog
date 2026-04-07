@@ -3369,6 +3369,15 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
+// Legacy experiment query type guards
+export const isExperimentTrendsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentTrendsQuery => query.kind === NodeKind.ExperimentTrendsQuery
+
+export const isExperimentFunnelsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentFunnelsQuery => query.kind === NodeKind.ExperimentFunnelsQuery
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
@@ -4031,6 +4040,17 @@ export interface TrendsAlertConfig {
     series_index: integer
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
+}
+
+/** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
+export interface AlertScheduleRestrictionWindow {
+    start: string
+    end: string
+}
+
+/** Quiet hours: local time windows when the alert must not run. At most five windows after API normalization. */
+export interface AlertScheduleRestriction {
+    blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
 // Detector types for anomaly detection alerts
@@ -5089,6 +5109,9 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
 export enum AttributionMode {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
+    Linear = 'linear',
+    TimeDecay = 'time_decay',
+    PositionBased = 'position_based',
 }
 
 export enum MatchField {

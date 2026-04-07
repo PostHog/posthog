@@ -12,9 +12,18 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
+
+try:
+    from posthoganalytics.ai.claude_agent_sdk import query
+
+    _POSTHOG_AI_AVAILABLE = True
+except ImportError:
+    from claude_agent_sdk import query  # type: ignore[no-redef]
+
+    _POSTHOG_AI_AVAILABLE = False
 
 MODEL = "claude-sonnet-4-6"
 
@@ -212,8 +221,21 @@ class Reviewer:
             extra_args={"no-session-persistence": None},
         )
 
+        posthog_kwargs: dict = {}
+        if _POSTHOG_AI_AVAILABLE:
+            posthog_kwargs = {
+                "posthog_distinct_id": "stamphog",
+                "posthog_properties": {
+                    "stamphog_pr_number": pr.number,
+                    "stamphog_repo": pr.repo,
+                    "stamphog_author": pr.author,
+                    "stamphog_tier": classification.get("tier", ""),
+                    "stamphog_verdict": gate_context.get("gate_verdict", ""),
+                },
+            }
+
         structured_output = None
-        async for message in query(prompt=prompt, options=options):
+        async for message in query(prompt=prompt, options=options, **posthog_kwargs):
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
             if isinstance(message, ResultMessage):

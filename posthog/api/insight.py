@@ -41,7 +41,8 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import generate_insight_metadata, get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_metadata import SUPPORTED_ACTOR_SOURCES, generate_insight_metadata
+from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.query_coalescer import QueryCoalescingMixin
@@ -1565,8 +1566,20 @@ When set, the specified dashboard's filters and date range override will be appl
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        kind = query_data.get("kind")
+
         try:
-            query = schema.InsightVizNode.model_validate(query_data)
+            if kind == "ActorsQuery":
+                validated_query: schema.InsightVizNode | schema.ActorsQuery = schema.ActorsQuery.model_validate(
+                    query_data
+                )
+                if not isinstance(validated_query.source, SUPPORTED_ACTOR_SOURCES):
+                    return Response(
+                        {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
             return Response(
                 {"error": "Invalid query format"},
@@ -1574,7 +1587,7 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         try:
-            metadata = generate_insight_metadata(query, self.team)
+            metadata = generate_insight_metadata(validated_query, self.team)
         except Exception:
             return Response(
                 {"error": "Failed to generate insight metadata. Please try again."},
