@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -381,9 +382,9 @@ def hour_window(hours_back: int) -> tuple[datetime, datetime]:
     return REFERENCE_TIME - timedelta(hours=hours_back), REFERENCE_TIME
 
 
-def run_backfill_command(*args):
+def run_backfill_command(*args, stderr=None):
     """Run the backfill_batch_export_runs management command with --no-delay and --no-confirm."""
-    call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm")
+    call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm", stderr=stderr)
 
 
 @pytest.mark.django_db
@@ -502,14 +503,15 @@ class TestBackfillCommand:
         workflows = list_schedule_workflows(temporal, str(export.id))
         assert len(workflows) == 0
 
-    def test_schedule_not_found_does_not_raise(self, team, temporal, caplog):
+    def test_schedule_not_found_does_not_raise(self, team, temporal):
         export = create_noop_export_with_schedule(team, interval="hour")
         start, end = hour_window(2)
 
         delete_temporal_schedule(temporal, str(export.id))
 
+        stderr = StringIO()
         run_backfill_command(
-            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}"
+            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}", stderr=stderr
         )
 
-        assert any(f"Schedule {export.id} not found" in msg for msg in caplog.messages)
+        assert f"Schedule {export.id} not found" in stderr.getvalue()
