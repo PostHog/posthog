@@ -37,18 +37,18 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 
 ## Tools
 
-| Tool                                          | Purpose                                                       |
-| --------------------------------------------- | ------------------------------------------------------------- |
-| `posthog:evaluations-get`                     | List/search evaluation configs (filter by name, enabled flag) |
-| `posthog:evaluation-get`                      | Get a single evaluation config by UUID                        |
-| `posthog:evaluation-create`                   | Create a new `llm_judge` or `hog` evaluation                  |
-| `posthog:evaluation-update`                   | Update an existing evaluation (name, prompt, enabled, …)      |
-| `posthog:evaluation-delete`                   | Soft-delete an evaluation                                     |
-| `posthog:evaluation-run`                      | Run an evaluation against a specific `$ai_generation` event   |
-| `posthog:evaluation-test-hog`                 | Dry-run Hog source against recent generations (no save)       |
-| `posthog:llm-analytics-evaluation-summary-create` | AI-powered summary of pass/fail/N/A patterns across runs  |
-| `posthog:execute-sql`                         | Ad-hoc HogQL over `$ai_evaluation` events                     |
-| `posthog:query-llm-trace`                     | Drill into the underlying generation that an evaluation scored |
+| Tool                                              | Purpose                                                        |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `posthog:evaluations-get`                         | List/search evaluation configs (filter by name, enabled flag)  |
+| `posthog:evaluation-get`                          | Get a single evaluation config by UUID                         |
+| `posthog:evaluation-create`                       | Create a new `llm_judge` or `hog` evaluation                   |
+| `posthog:evaluation-update`                       | Update an existing evaluation (name, prompt, enabled, …)       |
+| `posthog:evaluation-delete`                       | Soft-delete an evaluation                                      |
+| `posthog:evaluation-run`                          | Run an evaluation against a specific `$ai_generation` event    |
+| `posthog:evaluation-test-hog`                     | Dry-run Hog source against recent generations (no save)        |
+| `posthog:llm-analytics-evaluation-summary-create` | AI-powered summary of pass/fail/N/A patterns across runs       |
+| `posthog:execute-sql`                             | Ad-hoc HogQL over `$ai_evaluation` events                      |
+| `posthog:query-llm-trace`                         | Drill into the underlying generation that an evaluation scored |
 
 The first seven `evaluation-*` tools are hand-coded; `llm-analytics-evaluation-summary-create`
 is generated from `products/llm_analytics/mcp/tools.yaml`.
@@ -57,15 +57,15 @@ is generated from `products/llm_analytics/mcp/tools.yaml`.
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                       | Meaning                                                              |
-| ------------------------------ | -------------------------------------------------------------------- |
-| `$ai_evaluation_id`            | UUID of the evaluation config                                        |
-| `$ai_evaluation_name`          | Human-readable name                                                  |
-| `$ai_target_event_id`          | UUID of the `$ai_generation` event being scored                      |
-| `$ai_trace_id`                 | Parent trace ID (for jumping to the trace UI)                        |
-| `$ai_evaluation_result`        | `true` = pass, `false` = fail                                        |
-| `$ai_evaluation_reasoning`     | Free-text explanation (set by the LLM judge or Hog code)             |
-| `$ai_evaluation_applicable`    | `false` when the evaluator decided the generation is N/A             |
+| Property                    | Meaning                                                  |
+| --------------------------- | -------------------------------------------------------- |
+| `$ai_evaluation_id`         | UUID of the evaluation config                            |
+| `$ai_evaluation_name`       | Human-readable name                                      |
+| `$ai_target_event_id`       | UUID of the `$ai_generation` event being scored          |
+| `$ai_trace_id`              | Parent trace ID (for jumping to the trace UI)            |
+| `$ai_evaluation_result`     | `true` = pass, `false` = fail                            |
+| `$ai_evaluation_reasoning`  | Free-text explanation (set by the LLM judge or Hog code) |
+| `$ai_evaluation_applicable` | `false` when the evaluator decided the generation is N/A |
 
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
@@ -262,14 +262,14 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 
 ## Workflow: manage the evaluation lifecycle
 
-| Action                       | Tool                                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------------------- |
-| Add a Hog evaluator          | `evaluation-create` with `evaluation_type: "hog"` and `evaluation_config.source`                    |
-| Add an LLM-judge evaluator   | `evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
-| Tweak the source or prompt   | `evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge) |
-| Toggle N/A handling          | `evaluation-update` with `output_config.allows_na`                                                  |
-| Disable temporarily          | `evaluation-update` with `enabled: false`                                                           |
-| Remove                       | `evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                       |
+| Action                     | Tool                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Add a Hog evaluator        | `evaluation-create` with `evaluation_type: "hog"` and `evaluation_config.source`                                 |
+| Add an LLM-judge evaluator | `evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
+| Tweak the source or prompt | `evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge)         |
+| Toggle N/A handling        | `evaluation-update` with `output_config.allows_na`                                                               |
+| Disable temporarily        | `evaluation-update` with `enabled: false`                                                                        |
+| Remove                     | `evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
 
 `llm_judge` evaluations require AI data processing approval at the org level
 (`is_ai_data_processing_approved`). The same gate applies to
@@ -281,14 +281,14 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 Reach for **Hog** by default. Switch to LLM judge only when the criterion can't be
 expressed as code.
 
-| Use Hog when…                                          | Use LLM judge when…                                  |
-| ------------------------------------------------------ | ---------------------------------------------------- |
+| Use Hog when…                                         | Use LLM judge when…                                     |
+| ----------------------------------------------------- | ------------------------------------------------------- |
 | The check is structural (JSON parses, schema matches) | The check is about meaning (on-topic, helpful, factual) |
-| You need a deterministic, reproducible result          | A small amount of judgement variability is acceptable |
-| The criterion is cheap to compute                      | The criterion requires reading and understanding text |
-| You can't get AI data processing approval              | You have approval and the criterion is genuinely fuzzy |
-| You need to enforce a hard limit (length, cost, etc.) | You need to rate a quality dimension                  |
-| You want sub-millisecond evaluation                    | A few hundred milliseconds + LLM cost are acceptable  |
+| You need a deterministic, reproducible result         | A small amount of judgement variability is acceptable   |
+| The criterion is cheap to compute                     | The criterion requires reading and understanding text   |
+| You can't get AI data processing approval             | You have approval and the criterion is genuinely fuzzy  |
+| You need to enforce a hard limit (length, cost, etc.) | You need to rate a quality dimension                    |
+| You want sub-millisecond evaluation                   | A few hundred milliseconds + LLM cost are acceptable    |
 
 A common pattern is to **layer them**: a Hog evaluator gates obvious format/length
 violations cheaply, and an LLM-judge evaluator only fires on the generations that pass
@@ -320,6 +320,7 @@ identical.
    GROUP BY day
    ORDER BY day
    ```
+
 4. Drill into a representative trace per pattern via `query-llm-trace`
 
 ### "Are passes and fails caused by the same root content?"
@@ -341,7 +342,7 @@ yield identical outputs. When fail rates jump for a Hog evaluator:
 2. Spot-check the latest failing runs with the SQL query from Step 4 above
 3. Re-run the source against those exact generations using `evaluation-test-hog` with a
    modified `conditions` filter that targets them
-4. If the test results match the live results, the change is in the *generations*, not
+4. If the test results match the live results, the change is in the _generations_, not
    the evaluator (a model upgrade, prompt change upstream, etc.) — investigate the
    producer
 5. If they diverge, the evaluator was edited; check git history of the source field via
