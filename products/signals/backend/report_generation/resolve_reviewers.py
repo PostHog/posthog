@@ -159,6 +159,8 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
         )
         .only("extra_data", "user__uuid", "user_id")
         .select_related("user")
+        .order_by("user_id", "-id")
+        .distinct("user_id")
     )
 
     user_uuid_to_login: dict[str, str] = {}
