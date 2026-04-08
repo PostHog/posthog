@@ -1,7 +1,12 @@
 {
     "name": "@posthog/quill-components",
-    "version": "0.0.1",
-    "private": true,
+    "version": "0.1.0-alpha.0",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "packages/quill/packages/components"
+    },
     "files": [
         "src",
         "dist"
@@ -17,6 +22,9 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         }
+    },
+    "publishConfig": {
+        "access": "public"
     },
     "scripts": {
         "build": "vite build"

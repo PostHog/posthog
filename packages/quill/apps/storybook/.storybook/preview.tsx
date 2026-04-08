@@ -1,7 +1,7 @@
 import './storybook.css'
 
 import React, { useEffect } from 'react'
-import type { Preview } from 'storybook'
+import type { Preview } from '@storybook/react'
 
 const preview: Preview = {
     parameters: {
@@ -15,6 +15,7 @@ const preview: Preview = {
     globalTypes: {
         theme: {
             description: 'Toggle light/dark theme',
+            defaultValue: 'light',
             toolbar: {
                 title: 'Theme',
                 icon: 'paintbrush',
@@ -25,9 +26,6 @@ const preview: Preview = {
                 dynamicTitle: true,
             },
         },
-    },
-    initialGlobals: {
-        theme: 'light',
     },
     decorators: [
         (Story, context) => {
