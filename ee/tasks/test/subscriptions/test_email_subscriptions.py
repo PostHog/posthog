@@ -108,7 +108,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
 
     def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
-        """Shared email on multiple subscriptions must not be deduped to a single send."""
+    def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         insight_b = Insight.objects.create(team=self.team, short_id="789abc", name="Second insight")
