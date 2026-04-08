@@ -82,6 +82,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
 
+    def _run_query(self, trend_query: TrendsQuery, team: Team):
+        flush_persons_and_events()
+
+        tqr = TrendsQueryRunner(team=team, query=trend_query)
+        return tqr.calculate().results
+
     def _get_actors(self, filters: dict[str, Any], **kwargs) -> list[list[Any]]:
         trends_query = cast(TrendsQuery, filter_to_query(filters))
         return get_actors(trends_query=trends_query, **kwargs)
