@@ -931,11 +931,13 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     if service_id not in VALID_SERVICE_IDS:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
-    payment_credentials = request.data.get("payment_credentials")
-    if payment_credentials:
-        spt = payment_credentials.get("stripe_payment_token")
-        if spt:
-            _activate_billing_with_spt(team, spt)
+    billing_result = _try_activate_billing_with_spt(request, team, user)
+    if billing_result is False:
+        return _error_response(
+            "billing_activation_failed",
+            "Failed to activate billing with payment credentials",
+            resource_id=resource_id,
+        )
 
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", service_id, timeout=None)
 
@@ -960,19 +962,6 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         }
     )
 
-
-def _activate_billing_with_spt(team: Team, spt: str) -> None:
-    """Forward a Stripe Payment Token to the billing service to activate a paid subscription."""
-    try:
-        res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/activate",
-            headers={"Authorization": f"Bearer {team.api_token}"},
-            json={"products": "all_products:", "stripe_payment_token": spt},
-        )
-        res.raise_for_status()
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id})
-        logger.warning("agentic_provisioning.activate_billing_with_spt_failed", team_id=team.id)
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
