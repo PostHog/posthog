@@ -133,6 +133,7 @@ export class ErrorTrackingServer implements NodeServer {
             personhogClient,
             postgresPersonRepository,
             this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
@@ -140,6 +141,7 @@ export class ErrorTrackingServer implements NodeServer {
             personhogClient,
             postgresGroupRepository,
             this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)

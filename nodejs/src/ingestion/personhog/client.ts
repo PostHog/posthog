@@ -27,6 +27,47 @@ export function shouldUseGrpc(percentage: number): boolean {
     return Math.random() * 100 < percentage
 }
 
+/**
+ * Team ID-aware rollout check. If rolloutTeamIds is non-empty, routes based on
+ * team membership (ignoring percentage). Otherwise falls back to percentage.
+ */
+export function shouldUseGrpcForTeam(rolloutTeamIds: ReadonlySet<number>, teamId: number, percentage: number): boolean {
+    if (rolloutTeamIds.size > 0) {
+        return rolloutTeamIds.has(teamId)
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/**
+ * Batch variant: returns true only if ALL provided team IDs are in the rollout set.
+ * When rolloutTeamIds is empty, falls back to percentage-based sampling.
+ */
+export function shouldUseGrpcForTeams(
+    rolloutTeamIds: ReadonlySet<number>,
+    teamIds: number[],
+    percentage: number
+): boolean {
+    if (rolloutTeamIds.size > 0) {
+        return teamIds.length > 0 && teamIds.every((id) => rolloutTeamIds.has(id))
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/** Parse a comma-separated string of team IDs into a Set. */
+export function parseRolloutTeamIds(raw: string): Set<number> {
+    if (!raw.trim()) {
+        return new Set()
+    }
+    const ids = new Set<number>()
+    for (const part of raw.split(',')) {
+        const n = parseInt(part.trim(), 10)
+        if (!isNaN(n)) {
+            ids.add(n)
+        }
+    }
+    return ids
+}
+
 export function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
@@ -41,7 +82,7 @@ export interface PersonHogClientConfig {
 
     // -- Request limits --
 
-    /** Per-request timeout in milliseconds. Default: 5 000. */
+    /** Per-request timeout in milliseconds. Default: 1 000. */
     timeoutMs?: number
     /** Maximum inbound message size in bytes. Default: 128 MiB. */
     readMaxBytes?: number
@@ -129,7 +170,7 @@ export class PersonHogClient {
 
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
-            defaultTimeoutMs: config.timeoutMs ?? 5_000,
+            defaultTimeoutMs: config.timeoutMs ?? 1_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
             sessionManager: stateMonitor,

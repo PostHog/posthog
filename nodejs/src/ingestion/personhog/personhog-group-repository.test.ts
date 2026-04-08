@@ -158,8 +158,8 @@ describe('PersonHogGroupRepository', () => {
         handlers = grpc.handlers
     })
 
-    function createRepo(grpcPercentage: number): PersonHogGroupRepository {
-        return new PersonHogGroupRepository(mockPostgres, grpcClient, grpcPercentage, 'test')
+    function createRepo(grpcPercentage: number, rolloutTeamIds: Set<number> = new Set()): PersonHogGroupRepository {
+        return new PersonHogGroupRepository(mockPostgres, grpcClient, grpcPercentage, rolloutTeamIds, 'test')
     }
 
     describe.each([
