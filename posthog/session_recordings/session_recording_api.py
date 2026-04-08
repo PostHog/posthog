@@ -1890,18 +1890,17 @@ def list_recordings_from_query(
                     SingleSessionSummary.objects.filter(
                         team_id=team.id,
                         session_id__in=recording_ids_in_list,
+                        # Keep this aligned with summarize() default behavior (no extra context).
                         extra_summary_context__isnull=True,
                     )
                     .order_by("session_id", "-created_at")
                     .distinct("session_id")
-                    .values_list("session_id", "summary")
+                    .values_list("session_id", "summary__session_outcome")
                 )
-                for session_id, summary in summaries:
+                for session_id, outcome in summaries:
                     default_summary_session_ids.add(session_id)
-                    if summary and isinstance(summary, dict):
-                        outcome = summary.get("session_outcome")
-                        if outcome:
-                            summary_outcomes[session_id] = outcome
+                    if outcome and isinstance(outcome, dict):
+                        summary_outcomes[session_id] = outcome
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
