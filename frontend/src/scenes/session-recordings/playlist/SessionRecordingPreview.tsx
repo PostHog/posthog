@@ -349,22 +349,24 @@ export const SessionRecordingPreview = memo(
                             )}
                         </div>
 
-                        <FirstURL startUrl={recording.start_url} />
-
-                        {recording.summary_outcome && (
-                            <Tooltip title={recording.summary_outcome.description}>
-                                <div className="flex items-center gap-1 text-xs text-muted-alt truncate">
-                                    <IconAIText className="shrink-0 text-secondary" />
-                                    <span className="truncate">{recording.summary_outcome.description}</span>
-                                </div>
-                            </Tooltip>
-                        )}
+                        <div className="flex items-center justify-between">
+                            <FirstURL startUrl={recording.start_url} />
+                            {recording.summary_outcome && (
+                                <Tooltip title={recording.summary_outcome.description}>
+                                    <IconAIText
+                                        className={clsx(
+                                            'shrink-0 text-lg',
+                                            recording.summary_outcome.success ? 'text-success' : 'text-danger'
+                                        )}
+                                    />
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
 
                     <div
                         className={clsx(
                             'min-w-6 flex flex-col gap-x-0.5 items-center',
-                            // need different margin if the first item is an icon
                             recording.ongoing ? 'mt-1' : 'mt-2'
                         )}
                     >
