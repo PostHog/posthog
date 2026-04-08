@@ -3,7 +3,6 @@ from typing import Optional
 from uuid import UUID
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,6 +13,8 @@ from posthog.test.base import (
 )
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.schema import (
     ActorsQuery,
