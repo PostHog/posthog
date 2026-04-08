@@ -164,9 +164,19 @@ services:
             timeout: 10s
             retries: 10
 
-    zookeeper:
-        image: zookeeper:3.7.0
+    keeper:
+        image: clickhouse/clickhouse-keeper:25.12.8.9
+        hostname: keeper
         restart: on-failure
+        volumes:
+            - ./docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+
+    keeper-logs:
+        image: clickhouse/clickhouse-keeper:25.12.8.9
+        hostname: keeper-logs
+        restart: on-failure
+        volumes:
+            - ./docker/clickhouse/keeper_logs_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
 
     kafka:
         image: docker.redpanda.com/redpandadata/redpanda:v25.1.9

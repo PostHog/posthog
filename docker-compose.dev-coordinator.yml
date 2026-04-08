@@ -73,7 +73,8 @@ services:
             - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
+            - keeper-logs
 
     clickhouse-coordinator:
         hostname: clickhouse-coordinator
@@ -92,12 +93,19 @@ services:
         ports:
             - '9001:9001'
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
         ports:
-            - '2181:2181'
+            - '9181:9181'
+
+    keeper-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: keeper-logs
+        ports:
+            - '9182:9181'
 
     kafka:
         extends:
@@ -105,8 +113,6 @@ services:
             service: kafka
         ports:
             - '9092:9092'
-        depends_on:
-            - zookeeper
 
     kafka_ui:
         extends:

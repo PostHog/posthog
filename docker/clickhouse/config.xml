@@ -171,8 +171,8 @@
 
     <zookeeper>
         <node>
-            <host>zookeeper</host>
-            <port>2181</port>
+            <host>keeper</host>
+            <port>9181</port>
         </node>
     </zookeeper>
 
