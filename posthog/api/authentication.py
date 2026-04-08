@@ -137,7 +137,8 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    request.session.flush()
+    if not request.user.is_authenticated:
+        request.session.flush()  # Only flush for fresh logins — keep session for authenticated users so the pipeline links the new social auth to their account
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE

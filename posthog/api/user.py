@@ -116,6 +116,7 @@ class UserSerializer(serializers.ModelSerializer):
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    github_login = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
@@ -160,6 +161,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
+            "github_login",
             "has_sso_enforcement",
             "has_seen_product_intro_for",
             "scene_personalisation",
@@ -187,6 +189,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
             "organizations",
             "has_social_auth",
+            "github_login",
             "has_sso_enforcement",
         ]
 
@@ -236,6 +239,16 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
+
+    def get_github_login(self, instance: User) -> Optional[str]:
+        from social_django.models import UserSocialAuth
+
+        sa = UserSocialAuth.objects.filter(provider="github", user=instance).only("extra_data").first()
+        if sa and isinstance(sa.extra_data, dict):
+            login = sa.extra_data.get("login")
+            if login:
+                return str(login)
+        return None
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
