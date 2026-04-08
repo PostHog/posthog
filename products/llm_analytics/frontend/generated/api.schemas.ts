@@ -1029,6 +1029,34 @@ export interface PatchedTraceReviewUpdateApi {
     queue_id?: string | null
 }
 
+export interface LLMPromptListApi {
+    readonly id: string
+    /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
+    readonly name: string
+    /** Prompt payload as JSON or string data. */
+    readonly prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+    readonly prompt_preview: string
+    readonly prompt_size_bytes: number
+}
+
+export interface PaginatedLLMPromptListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptListApi[]
+}
+
 export interface LLMPromptApi {
     readonly id: string
     /**
@@ -1047,15 +1075,6 @@ export interface LLMPromptApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
-}
-
-export interface PaginatedLLMPromptListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LLMPromptApi[]
 }
 
 export interface LLMPromptPublicApi {
@@ -1416,6 +1435,15 @@ export type LlmAnalyticsTraceReviewsListParams = {
 
 export type LlmPromptsListParams = {
     /**
+ * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+
+* `full` - full
+* `preview` - preview
+* `none` - none
+ * @minLength 1
+ */
+    content?: LlmPromptsListContent
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1428,6 +1456,14 @@ export type LlmPromptsListParams = {
      */
     search?: string
 }
+
+export type LlmPromptsListContent = (typeof LlmPromptsListContent)[keyof typeof LlmPromptsListContent]
+
+export const LlmPromptsListContent = {
+    Full: 'full',
+    Preview: 'preview',
+    None: 'none',
+} as const
 
 export type LlmPromptsNameRetrieveParams = {
     /**

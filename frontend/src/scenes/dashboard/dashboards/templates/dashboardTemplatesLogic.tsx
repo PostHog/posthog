@@ -67,6 +67,13 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 setTemplateNameOrdering: (_, { ordering }) => ordering,
             },
         ],
+        // lazyLoaders has no "loaded" flag; empty API results must not look "unfetched" forever (see urlToAction /dashboard).
+        allTemplatesLoaded: [
+            false,
+            {
+                getAllTemplatesSuccess: () => true,
+            },
+        ],
     }),
     lazyLoaders(({ props, values }) => ({
         allTemplates: [
@@ -101,10 +108,16 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             actions.getAllTemplates()
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
-            if (searchParams.templateFilter) {
-                actions.setTemplateFilter(searchParams.templateFilter)
+            const raw = searchParams.templateFilter
+            const filter = Array.isArray(raw) ? raw[0] : raw
+            const next = typeof filter === 'string' ? filter : ''
+            // Same value as URL: skip setTemplateFilter — its listener debounces and would refetch (modal flicker).
+            if (values.templateFilter !== next) {
+                actions.setTemplateFilter(next)
+            } else if (!values.allTemplatesLoading && !values.allTemplatesLoaded) {
+                actions.getAllTemplates()
             }
         },
     })),

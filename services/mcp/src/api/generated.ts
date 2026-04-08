@@ -5327,6 +5327,18 @@ export namespace Schemas {
       Monthly: 'monthly',
     } as const;
 
+    export interface AlertScheduleRestrictionWindow {
+      /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+      start: string;
+      /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+      end: string;
+    }
+
+    export interface AlertScheduleRestriction {
+      /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+      blocked_windows: AlertScheduleRestrictionWindow[];
+    }
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -5369,10 +5381,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable
@@ -5608,6 +5622,9 @@ export namespace Schemas {
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
+    * `linear` - Linear
+    * `time_decay` - Time Decay
+    * `position_based` - Position Based
      */
     export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
 
@@ -5615,6 +5632,9 @@ export namespace Schemas {
     export const AttributionModeEnum = {
       FirstTouch: 'first_touch',
       LastTouch: 'last_touch',
+      Linear: 'linear',
+      TimeDecay: 'time_decay',
+      PositionBased: 'position_based',
     } as const;
 
     export interface RunSummary {
@@ -18473,6 +18493,25 @@ export namespace Schemas {
       new: string;
     }
 
+    export interface LLMPromptList {
+      readonly id: string;
+      /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
+      readonly name: string;
+      /** Prompt payload as JSON or string data. */
+      readonly prompt: unknown;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+      readonly prompt_preview: string;
+      readonly prompt_size_bytes: number;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -18656,6 +18695,72 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface LogsAlertSimulateBucket {
+      /** Bucket start timestamp. */
+      timestamp: string;
+      /** Number of matching logs in this bucket. */
+      count: number;
+      /** Whether the count crossed the threshold in this bucket. */
+      threshold_breached: boolean;
+      /** Alert state after evaluating this bucket. */
+      state: string;
+      /** Notification action: none, fire, or resolve. */
+      notification: string;
+      /** Human-readable explanation of the state transition. */
+      reason: string;
+    }
+
+    export interface LogsAlertSimulateRequest {
+      /** Filter criteria — same format as LogsAlertConfiguration.filters. */
+      filters: unknown;
+      /**
+       * Threshold count to evaluate against.
+       * @minimum 1
+       */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator: ThresholdOperatorEnum;
+      /** Window size in minutes — determines bucket interval. */
+      window_minutes: number;
+      /**
+       * Total check periods in the N-of-M evaluation window (M).
+       * @minimum 1
+       * @maximum 10
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods must breach to fire (N in N-of-M).
+       * @minimum 1
+       * @maximum 10
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * Minutes to wait after firing before sending another notification.
+       * @minimum 0
+       */
+      cooldown_minutes?: number;
+      /** Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d'). */
+      date_from: string;
+    }
+
+    export interface LogsAlertSimulateResponse {
+      /** Time-bucketed counts with full state machine evaluation. */
+      buckets: LogsAlertSimulateBucket[];
+      /** Number of times the alert would have sent a fire notification. */
+      fire_count: number;
+      /** Number of times the alert would have sent a resolve notification. */
+      resolve_count: number;
+      /** Total number of buckets in the simulation window. */
+      total_buckets: number;
+      /** Threshold count used for evaluation. */
+      threshold_count: number;
+      /** Threshold operator used for evaluation. */
+      threshold_operator: string;
     }
 
     /**
@@ -19343,7 +19448,8 @@ export namespace Schemas {
       readonly projects: readonly OrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features: readonly unknown[] | null;
-      is_member_join_email_enabled?: boolean;
+      /** Legacy field; member-join emails are controlled per user in account notification settings. */
+      readonly is_member_join_email_enabled: boolean;
       readonly metadata: OrganizationMetadata;
       /** @nullable */
       readonly customer_id: string | null;
@@ -20194,13 +20300,13 @@ export namespace Schemas {
       results: Integration[];
     }
 
-    export interface PaginatedLLMPromptList {
+    export interface PaginatedLLMPromptListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: LLMPrompt[];
+      results: LLMPromptList[];
     }
 
     export interface PaginatedLLMProviderKeyList {
@@ -22271,10 +22377,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable
@@ -24253,7 +24361,8 @@ export namespace Schemas {
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features?: readonly unknown[] | null;
-      is_member_join_email_enabled?: boolean;
+      /** Legacy field; member-join emails are controlled per user in account notification settings. */
+      readonly is_member_join_email_enabled?: boolean;
       readonly metadata?: PatchedOrganizationMetadata;
       /** @nullable */
       readonly customer_id?: string | null;
@@ -32182,18 +32291,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsStickinessRetrieveParams = {
-    format?: EnvironmentsPersonsStickinessRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsStickinessRetrieveFormat = typeof EnvironmentsPersonsStickinessRetrieveFormat[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat];
-
-
-    export const EnvironmentsPersonsStickinessRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsTrendsRetrieveParams = {
     format?: EnvironmentsPersonsTrendsRetrieveFormat;
     };
@@ -32826,6 +32923,15 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
+     * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsListContent;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -32838,6 +32944,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
+
+
+    export const LlmPromptsListContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
 
     export type LlmPromptsNameRetrieveParams = {
     /**
@@ -33677,7 +33792,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
      */
     ordering?: string;
     };
@@ -35335,18 +35450,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat;
-    };
-
-    export type PersonsStickinessRetrieveFormat = typeof PersonsStickinessRetrieveFormat[keyof typeof PersonsStickinessRetrieveFormat];
-
-
-    export const PersonsStickinessRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
