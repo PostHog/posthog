@@ -1,3 +1,5 @@
+use std::ops::Not;
+
 use chrono::{DateTime, SecondsFormat, Utc};
 use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
@@ -72,14 +74,14 @@ impl Event {
 #[derive(Debug)]
 pub struct WrappedEvent {
     pub event: Event,
-    /// Pre-parsed UUID for result correlation. Copy, zero alloc.
+    /// Pre-parsed UUID from Event.uuid, set once during validate_events.
     pub uuid: Uuid,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
     pub destination: Destination,
-    pub skip_person_processing: bool,
+    pub force_disable_person_processing: bool,
 }
 
 impl SinkEvent for WrappedEvent {
@@ -97,10 +99,10 @@ impl SinkEvent for WrappedEvent {
 
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
-        // v1 decouples overflow routing from person-processing skip (unlike v0 where
+        // v1 decouples overflow routing from person-processing (unlike v0 where
         // overflow ForceLimited unconditionally sets this); operators configure
-        // SkipPersonProcessing alongside ForceOverflow when needed.
-        let force_disable_person_processing = if self.skip_person_processing {
+        // this flag alongside ForceOverflow when needed.
+        let force_disable_person_processing = if self.force_disable_person_processing {
             Some(true)
         } else {
             None
@@ -147,7 +149,7 @@ impl SinkEvent for WrappedEvent {
 
     fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
-        if self.skip_person_processing {
+        if self.force_disable_person_processing {
             // buffer remains empty as sentinel for "no partition key set"
             // this signals Kafka producer to supply no key, causing
             // round-robin or random partition production depending on
@@ -168,10 +170,120 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn serialize_into(&self, _ctx: &Context, _buf: &mut String) -> anyhow::Result<()> {
-        // TODO: builds IngestionEvent from self + Context, applies $-prefix
-        // remapping, IP redaction, property merging. Tackled separately.
-        unimplemented!("WrappedEvent::serialize_into")
+    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
+        let ingestion_data = self.build_ingestion_data()?;
+        let data = serde_json::to_string(&ingestion_data)
+            .map_err(|e| anyhow::anyhow!("serializing IngestionData: {e:#}"))?;
+        let ip = if ctx.capture_internal {
+            "127.0.0.1".to_string()
+        } else {
+            ctx.client_ip.to_string()
+        };
+        let timestamp = self
+            .adjusted_timestamp
+            .ok_or_else(|| anyhow::anyhow!("serialize_into called on event without adjusted_timestamp"))?;
+        let ie = IngestionEvent {
+            uuid: self.uuid,
+            distinct_id: self.event.distinct_id.clone(),
+            ip,
+            data,
+            now: ctx
+                .server_received_at
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+            sent_at: Some(ctx.client_timestamp),
+            token: ctx.api_token.clone(),
+            event: self.event.event.clone(),
+            timestamp,
+            is_cookieless_mode: self.event.options.cookieless_mode.unwrap_or(false),
+            historical_migration: ctx.historical_migration,
+        };
+
+        serde_json::to_string(&ie)
+            .map(|s| buf.push_str(&s))
+            .map_err(|e| anyhow::anyhow!("serializing IngestionEvent: {e:#}"))
+    }
+}
+
+impl WrappedEvent {
+    #[allow(unused_assignments)]
+    fn build_property_injections(&self) -> anyhow::Result<String> {
+        let mut buf = String::with_capacity(256);
+        let mut first = true;
+
+        macro_rules! inject {
+            ($buf:expr, $first:expr, $key:expr, $val:expr) => {{
+                if !$first {
+                    $buf.push(',');
+                }
+                $first = false;
+                $buf.push('"');
+                $buf.push_str($key);
+                $buf.push_str("\":");
+                // SAFETY: serde_json::to_writer only emits valid UTF-8 (JSON spec
+                // mandates UTF-8), so writing into String's backing Vec<u8> cannot
+                // produce invalid UTF-8.
+                serde_json::to_writer(unsafe { $buf.as_mut_vec() }, $val)
+                    .map_err(|e| anyhow::anyhow!("injecting {}: {e:#}", $key))?;
+            }};
+        }
+
+        if let Some(ref sid) = self.event.session_id {
+            inject!(buf, first, "$session_id", sid);
+        }
+        if let Some(ref wid) = self.event.window_id {
+            inject!(buf, first, "$window_id", wid);
+        }
+        if let Some(cm) = self.event.options.cookieless_mode {
+            inject!(buf, first, "$cookieless_mode", &cm);
+        }
+        if let Some(dsa) = self.event.options.disable_skew_adjustment {
+            inject!(buf, first, "$ignore_sent_at", &dsa);
+        }
+        if let Some(ref pti) = self.event.options.product_tour_id {
+            inject!(buf, first, "$product_tour_id", pti);
+        }
+        if let Some(ppp) = self.event.options.process_person_profile {
+            inject!(buf, first, "$process_person_profile", &ppp);
+        }
+
+        Ok(buf)
+    }
+
+    fn build_ingestion_data(&self) -> anyhow::Result<IngestionData> {
+        let injection = self.build_property_injections()?;
+        let raw = self.event.properties.get();
+
+        let properties = if injection.is_empty() {
+            self.event.properties.clone()
+        } else {
+            if raw.len() < 2 {
+                return Err(anyhow::anyhow!(
+                    "properties too short ({} bytes) for JSON object",
+                    raw.len()
+                ));
+            }
+            let prefix = &raw[..raw.len() - 1];
+            let has_existing = raw.len() > 2;
+
+            let mut buf = String::with_capacity(raw.len() + injection.len() + 2);
+            buf.push_str(prefix);
+            if has_existing {
+                buf.push(',');
+            }
+            buf.push_str(&injection);
+            buf.push('}');
+
+            RawValue::from_string(buf)
+                .map_err(|e| anyhow::anyhow!("property surgery produced invalid JSON: {e:#}"))?
+        };
+
+        Ok(IngestionData {
+            event: self.event.event.clone(),
+            distinct_id: Some(self.event.distinct_id.clone()),
+            uuid: Some(self.uuid),
+            properties,
+            timestamp: Some(self.event.timestamp.clone()),
+        })
     }
 }
 
@@ -194,53 +306,48 @@ impl HasEventName for WrappedEvent {
     }
 }
 
-/// The Kafka-ready event produced by the v1 analytics pipeline.
-/// Replaces legacy `CapturedEvent` from `common_types`.
+/// The Kafka payload produced by `WrappedEvent::serialize_into`.
 ///
-/// Constructed from a valid `WrappedEvent` + request `Context` in a future
-/// transformation step within `process_batch`, before being handed to a
-/// `v1::Sink` for publishing. The sink should not perform any enrichment
-/// or property inspection -- all transformations happen at construction time.
-///
-/// Checks needed at construction time (from legacy parity):
-/// - `Context.capture_internal`: if true, redact `ip` to "127.0.0.1"
-///   AND force the Kafka partition key to `token:127.0.0.1` to match
-///   the IP redaction (otherwise the key references a real IP while the
-///   payload carries a redacted one). See `CapturedEvent::key()` in
-///   `common_types/event.rs` for the v0 key derivation pattern.
-/// - `Options.cookieless_mode`: controls Kafka partition key selection
-///   (true -> partition by token:ip, false -> token:distinct_id).
-///   Non-boolean values are rejected at deserialization by serde.
-///
-/// Will implement the upcoming `v1::Sink` trait to abstract serialization
-/// and partition key derivation.
-// TODO(v1::Sink): when publishing to Kafka, re-apply `$` prefixes to these
-// fields for legacy consumer compatibility:
-//   Event: session_id -> $session_id, window_id -> $window_id
-//   Options: cookieless_mode -> $cookieless_mode,
-//            disable_skew_adjustment -> $disable_skew_adjustment,
-//            product_tour_id -> $product_tour_id,
-//            process_person_profile -> $process_person_profile
+/// Field order matches `CapturedEvent` from `common_types` so that serde's
+/// derived `Serialize` emits JSON keys in the same order as v0. Serde
+/// annotations (`skip_serializing_if`) also match CapturedEvent exactly.
 #[derive(Debug, Serialize)]
 pub struct IngestionEvent {
-    pub uuid: String,
+    pub uuid: Uuid,
     pub distinct_id: String,
     pub ip: String,
-    pub event: String,
-    pub timestamp: DateTime<Utc>,
-    pub token: String,
-    pub is_cookieless_mode: bool,
-    // TODO: custom build this serialized JSON from Event's raw payload
-    // and inject event.options including legacy $-prefixes
     pub data: String,
     pub now: String,
-    #[serde(skip)]
-    pub destination: Destination,
-    #[serde(skip)]
-    pub skip_person_processing: bool,
-    /// Maps back to the originating WrappedEvent via HashMap key for result tracking.
-    #[serde(skip)]
-    pub uuid_key: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<DateTime<Utc>>,
+    pub token: String,
+    pub event: String,
+    pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
+    pub is_cookieless_mode: bool,
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
+    pub historical_migration: bool,
+}
+
+/// The inner `data` payload: a simplified RawEvent-shaped struct for
+/// constructing the double-encoded JSON in `IngestionEvent.data`.
+///
+/// Omitted vs RawEvent:
+/// - `token`: v1 uses Authorization header; downstream handles absence
+/// - `offset`: dead field; Node.js ingestion parses but never reads it
+/// - `$set`/`$set_once` at top level: legacy Python SDK cruft; v1 schema
+///   does not support these at top level (clients send them inside
+///   `properties`, where they pass through the opaque blob as-is)
+#[derive(Debug, Serialize)]
+pub struct IngestionData {
+    pub event: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<Uuid>,
+    pub properties: Box<RawValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
 }
 
 #[cfg(test)]
@@ -631,7 +738,7 @@ mod tests {
     fn headers_include_force_disable_person_processing() {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.skip_person_processing = true;
+        ev.force_disable_person_processing = true;
         let h = ev.headers(&ctx);
         assert_eq!(h.force_disable_person_processing, Some(true));
     }
@@ -640,7 +747,7 @@ mod tests {
     fn headers_omit_force_disable_person_processing_when_false() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        assert!(!ev.skip_person_processing);
+        assert!(!ev.force_disable_person_processing);
         let h = ev.headers(&ctx);
         assert!(h.force_disable_person_processing.is_none());
     }
@@ -792,5 +899,464 @@ mod tests {
     fn has_property_unknown_key() {
         let ev = ok_wrapped("$pageview", "user-1");
         assert!(!ev.has_property("unknown_key"));
+    }
+
+    // --- serialize_into ---
+
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use common_types::{CapturedEvent, RawEvent};
+    use serde_json::Value;
+
+    fn raw_obj(s: &str) -> Box<RawValue> {
+        RawValue::from_string(s.to_owned()).unwrap()
+    }
+
+    fn dt(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    fn serialize_ctx() -> crate::v1::context::Context {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_project_abc123".to_string();
+        ctx.client_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 42));
+        ctx.client_timestamp = dt("2026-03-19T14:30:01.500Z");
+        ctx.server_received_at = dt("2026-03-19T14:30:00.000Z");
+        ctx.capture_internal = false;
+        ctx.historical_migration = false;
+        ctx
+    }
+
+    fn pageview_event() -> WrappedEvent {
+        let uuid = Uuid::new_v4();
+        WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-01jq9abc".to_string()),
+                window_id: Some("win-xyz789".to_string()),
+                options: Options {
+                    cookieless_mode: Some(false),
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: Some(true),
+                },
+                properties: raw_obj(
+                    r#"{"$current_url":"https://app.example.com/dashboard","$browser":"Chrome","custom_prop":42}"#,
+                ),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        }
+    }
+
+    fn serialize_and_parse(
+        wrapped: &WrappedEvent,
+        ctx: &crate::v1::context::Context,
+    ) -> (CapturedEvent, RawEvent) {
+        let mut buf = String::new();
+        wrapped
+            .serialize_into(ctx, &mut buf)
+            .expect("serialize_into failed");
+        let captured: CapturedEvent =
+            serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+        let data: RawEvent =
+            serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
+        (captured, data)
+    }
+
+    #[test]
+    fn serialize_round_trip_basic() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx();
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+
+        assert_eq!(captured.uuid, wrapped.uuid);
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(captured.ip, "203.0.113.42");
+        assert_eq!(captured.token, "phc_project_abc123");
+        assert_eq!(captured.event, "$pageview");
+        assert_eq!(captured.timestamp, wrapped.adjusted_timestamp.unwrap());
+        assert!(!captured.is_cookieless_mode);
+        assert!(!captured.historical_migration);
+
+        assert_eq!(data.event, "$pageview");
+        assert_eq!(data.distinct_id, Some(Value::String("user-42".to_string())));
+        assert_eq!(data.timestamp.as_deref(), Some("2026-03-19T14:29:58.123Z"));
+
+        let props = &data.properties;
+        assert_eq!(props["$current_url"], "https://app.example.com/dashboard");
+        assert_eq!(props["$browser"], "Chrome");
+        assert_eq!(props["custom_prop"], 42);
+        assert_eq!(props["$session_id"], "sess-01jq9abc");
+        assert_eq!(props["$window_id"], "win-xyz789");
+        assert_eq!(props["$cookieless_mode"], false);
+        assert_eq!(props["$process_person_profile"], true);
+    }
+
+    #[test]
+    fn serialize_ip_redaction_capture_internal() {
+        let wrapped = pageview_event();
+        let mut ctx = serialize_ctx();
+        ctx.capture_internal = true;
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(captured.ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn serialize_ip_normal() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx();
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(captured.ip, "203.0.113.42");
+    }
+
+    #[test]
+    fn serialize_all_options_injected() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-01jq9abc".to_string()),
+                window_id: Some("win-xyz789".to_string()),
+                options: Options {
+                    cookieless_mode: Some(true),
+                    disable_skew_adjustment: Some(true),
+                    product_tour_id: Some("tour-onboarding-v2".to_string()),
+                    process_person_profile: Some(false),
+                },
+                properties: raw_obj(r#"{"existing":"value"}"#),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let props = &data.properties;
+
+        assert_eq!(props["existing"], "value");
+        assert_eq!(props["$session_id"], "sess-01jq9abc");
+        assert_eq!(props["$window_id"], "win-xyz789");
+        assert_eq!(props["$cookieless_mode"], true);
+        assert_eq!(props["$ignore_sent_at"], true);
+        assert_eq!(props["$product_tour_id"], "tour-onboarding-v2");
+        assert_eq!(props["$process_person_profile"], false);
+    }
+
+    #[test]
+    fn serialize_partial_options() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-abc".to_string()),
+                window_id: None,
+                options: Options {
+                    cookieless_mode: Some(false),
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj(r#"{"x":1}"#),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let props = &data.properties;
+
+        assert_eq!(props["$session_id"], "sess-abc");
+        assert_eq!(props["$cookieless_mode"], false);
+        assert!(!props.contains_key("$window_id"));
+        assert!(!props.contains_key("$ignore_sent_at"));
+        assert!(!props.contains_key("$product_tour_id"));
+        assert!(!props.contains_key("$process_person_profile"));
+    }
+
+    #[test]
+    fn serialize_empty_properties_no_options() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: None,
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj("{}"),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        assert!(data.properties.is_empty());
+    }
+
+    #[test]
+    fn serialize_empty_properties_with_options() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-abc".to_string()),
+                window_id: None,
+                options: Options {
+                    cookieless_mode: Some(true),
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj("{}"),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let props = &data.properties;
+        assert_eq!(props["$session_id"], "sess-abc");
+        assert_eq!(props["$cookieless_mode"], true);
+        assert_eq!(props.len(), 2);
+    }
+
+    #[test]
+    fn serialize_existing_properties_preserved() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-abc".to_string()),
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj(
+                    r#"{"$lib":"posthog-js","$lib_version":"1.150.0","$referrer":"https://google.com"}"#,
+                ),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let props = &data.properties;
+        assert_eq!(props["$lib"], "posthog-js");
+        assert_eq!(props["$lib_version"], "1.150.0");
+        assert_eq!(props["$referrer"], "https://google.com");
+        assert_eq!(props["$session_id"], "sess-abc");
+    }
+
+    #[test]
+    fn serialize_is_cookieless_mode_true() {
+        let mut wrapped = pageview_event();
+        wrapped.event.options.cookieless_mode = Some(true);
+        let ctx = serialize_ctx();
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert!(captured.is_cookieless_mode);
+        assert_eq!(data.properties["$cookieless_mode"], true);
+    }
+
+    #[test]
+    fn serialize_is_cookieless_mode_false_skipped() {
+        let wrapped = pageview_event();
+        assert_eq!(wrapped.event.options.cookieless_mode, Some(false));
+        let ctx = serialize_ctx();
+        let mut buf = String::new();
+        wrapped.serialize_into(&ctx, &mut buf).unwrap();
+        let val: Value = serde_json::from_str(&buf).unwrap();
+        assert!(
+            val.get("is_cookieless_mode").is_none(),
+            "is_cookieless_mode should be absent when false"
+        );
+    }
+
+    #[test]
+    fn serialize_historical_migration_true() {
+        let wrapped = pageview_event();
+        let mut ctx = serialize_ctx();
+        ctx.historical_migration = true;
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert!(captured.historical_migration);
+    }
+
+    #[test]
+    fn serialize_historical_migration_false_skipped() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx();
+        let mut buf = String::new();
+        wrapped.serialize_into(&ctx, &mut buf).unwrap();
+        let val: Value = serde_json::from_str(&buf).unwrap();
+        assert!(
+            val.get("historical_migration").is_none(),
+            "historical_migration should be absent when false"
+        );
+    }
+
+    #[test]
+    fn serialize_sent_at_present() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx();
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert!(captured.sent_at.is_some());
+    }
+
+    #[test]
+    fn serialize_data_timestamp_is_original_not_adjusted() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx();
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(
+            data.timestamp.as_deref(),
+            Some("2026-03-19T14:29:58.123Z"),
+            "data.timestamp should be the original client timestamp"
+        );
+        assert_eq!(
+            captured.timestamp,
+            dt("2026-03-19T14:29:53.123Z"),
+            "captured.timestamp should be the adjusted timestamp"
+        );
+    }
+
+    #[test]
+    fn serialize_process_person_profile_in_properties() {
+        let mut wrapped = pageview_event();
+        wrapped.event.options.process_person_profile = Some(false);
+        wrapped.force_disable_person_processing = false;
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(data.properties["$process_person_profile"], false);
+    }
+
+    #[test]
+    fn serialize_force_disable_does_not_affect_data() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: None,
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj(r#"{"x":1}"#),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: true,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        assert!(
+            !data
+                .properties
+                .contains_key("force_disable_person_processing"),
+            "force_disable_person_processing must not appear in properties"
+        );
+        assert!(
+            !data.properties.contains_key("$process_person_profile"),
+            "$process_person_profile must not appear when options.process_person_profile is None"
+        );
+    }
+
+    #[test]
+    fn serialize_identify_event() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$identify".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-99".to_string(),
+                timestamp: "2026-03-19T14:30:00.000Z".to_string(),
+                session_id: None,
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: Some(true),
+                },
+                properties: raw_obj(r#"{"$browser":"Safari","$os":"macOS"}"#),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(captured.event, "$identify");
+        assert_eq!(captured.uuid, uuid);
+        assert_eq!(data.event, "$identify");
+        assert_eq!(data.properties["$browser"], "Safari");
+        assert_eq!(data.properties["$os"], "macOS");
+        assert_eq!(data.properties["$process_person_profile"], true);
     }
 }
