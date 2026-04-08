@@ -1,5 +1,3 @@
-import posthoganalytics
-
 from posthog.schema import CohortPropertyFilter, PropertyOperator, RecordingsQuery
 
 from posthog.hogql import ast
@@ -7,7 +5,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.models import Cohort, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.utils import poe_is_active
+from posthog.session_recordings.queries.utils import is_anonymous_cohort_fix_enabled, poe_is_active
 
 
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
@@ -21,6 +19,11 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
     The JOIN-based approach allows ClickHouse to use more efficient join algorithms
     (hash join, merge join) and doesn't require loading all IDs into memory upfront.
+
+    When the anonymous-user cohort fix is enabled and PoE is active, this subquery is
+    skipped entirely — ReplayFiltersEventsSubQuery handles cohort filtering against the
+    events table instead, which correctly preserves anonymous events (events whose
+    person_id is not in person_distinct_id2).
     """
 
     def __init__(self, team: Team, query: RecordingsQuery):
@@ -29,6 +32,13 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         cohort_filters = self._extract_cohort_filters()
         if not cohort_filters:
+            return None
+
+        # Hand the cohort filter off to ReplayFiltersEventsSubQuery when we can.
+        # That path filters against the events table (so events whose person_id isn't
+        # in person_distinct_id2 are still considered), but it only works for AND queries
+        # because its NOT-IN handling rides on _negative_blocklist_query, which no-ops on OR.
+        if poe_is_active(self._team) and self._query.operand != "OR" and is_anonymous_cohort_fix_enabled(self._team):
             return None
 
         return self._build_join_based_query(cohort_filters)
@@ -66,10 +76,6 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
         Filters by cohort_id (and version for dynamic) inside the subquery,
         joins only on person_id. HogQL automatically adds team_id filtering.
-
-        In persons-on-events mode with NOT_IN filters, we need to handle distinct_ids
-        that don't have person mappings - they should pass NOT_IN filters since they
-        can't be in a person-based cohort.
         """
         join_clauses: list[str] = []
         where_conditions: list[str] = []
@@ -102,86 +108,20 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         else:
             combined_where = " OR ".join(f"({cond})" for cond in where_conditions)
 
-        # Check if we have any NOT_IN filters and are in PoE mode
-        has_not_in_filter = any(is_negated for _, is_negated, _, _ in cohort_filters)
-
-        # Check feature flag - default to False if there's any issue
-        feature_flag_enabled = False
-        try:
-            feature_flag_enabled = (
-                posthoganalytics.feature_enabled(
-                    "anonymous-user-session-replay-filtering-fix",
-                    str(self._team.pk),
-                )
-                or False
-            )
-        except Exception:
-            feature_flag_enabled = False
-
-        use_poe_mode_fix = poe_is_active(self._team) and has_not_in_filter and feature_flag_enabled
-
-        if use_poe_mode_fix:
-            # In PoE mode with NOT_IN filters, we need to include distinct_ids without person mappings
-            # We do this by UNIONing distinct_ids from session replays that aren't in raw_person_distinct_ids
-            # Add date range filter if available to improve performance
-            date_filter = ""
-            query_date_from = self.query_date_range.date_from()
-            if query_date_from:
-                placeholders["date_from"] = ast.Constant(value=query_date_from)
-                date_filter = "AND min_first_timestamp >= {date_from}"
-            query_date_to = self.query_date_range.date_to()
-            if query_date_to:
-                placeholders["date_to"] = ast.Constant(value=query_date_to)
-                date_filter += " AND min_first_timestamp <= {date_to}"
-
-            query_template = f"""
-            SELECT distinct_id FROM (
-                -- Distinct_ids with person mappings: check cohort membership
-                SELECT pdi.distinct_id AS distinct_id
-                FROM (
-                    SELECT
-                        distinct_id,
-                        argMax(person_id, version) AS person_id,
-                        argMax(is_deleted, version) AS is_deleted
-                    FROM raw_person_distinct_ids
-                    WHERE team_id = {{team_id}}
-                    GROUP BY distinct_id
-                    HAVING is_deleted = 0
-                ) AS pdi
-                {" ".join(join_clauses)}
-                WHERE {combined_where}
-
-                UNION DISTINCT
-
-                -- Distinct_ids without person mappings: automatically pass NOT_IN filters
-                SELECT DISTINCT s.distinct_id AS distinct_id
-                FROM raw_session_replay_events s
-                LEFT JOIN (
-                    SELECT DISTINCT distinct_id
-                    FROM raw_person_distinct_ids
-                    WHERE team_id = {{team_id}}
-                ) pdi_check ON s.distinct_id = pdi_check.distinct_id
-                WHERE s.team_id = {{team_id}}
-                  {date_filter}
-                  AND pdi_check.distinct_id IS NULL
-            )
-            """
-        else:
-            # Standard query for non-PoE mode or IN filters
-            query_template = f"""
-            SELECT pdi.distinct_id AS distinct_id
-            FROM (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) AS person_id,
-                    argMax(is_deleted, version) AS is_deleted
-                FROM raw_person_distinct_ids
-                WHERE team_id = {{team_id}}
-                GROUP BY distinct_id
-                HAVING is_deleted = 0
-            ) AS pdi
-            {" ".join(join_clauses)}
-            WHERE {combined_where}
-            """
+        query_template = f"""
+        SELECT pdi.distinct_id AS distinct_id
+        FROM (
+            SELECT
+                distinct_id,
+                argMax(person_id, version) AS person_id,
+                argMax(is_deleted, version) AS is_deleted
+            FROM raw_person_distinct_ids
+            WHERE team_id = {{team_id}}
+            GROUP BY distinct_id
+            HAVING is_deleted = 0
+        ) AS pdi
+        {" ".join(join_clauses)}
+        WHERE {combined_where}
+        """
 
         return parse_select(query_template, placeholders)

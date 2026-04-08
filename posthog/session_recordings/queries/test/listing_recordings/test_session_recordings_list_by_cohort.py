@@ -1065,8 +1065,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 )
 
     @snapshot_clickhouse_queries
-    @snapshot_clickhouse_queries
-    @patch("posthog.session_recordings.queries.sub_queries.cohort_subquery.posthoganalytics.feature_enabled")
+    @patch("posthog.session_recordings.queries.utils.posthoganalytics.feature_enabled")
     def test_not_in_cohort_with_anonymous_users_in_poe_mode(self, mock_feature_enabled) -> None:
         """
         Test that NOT IN cohort filters correctly include anonymous users in PoE mode.
@@ -1079,15 +1078,12 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
         - Internal user (in cohort) -> should be filtered out
         - External user (not in cohort) -> should be included
         - Anonymous user (no person record) -> should be included (the fix)
-
-        NOTE: This test is currently failing - the fix needs more work.
         """
-        # Enable the feature flag for this test
         mock_feature_enabled.return_value = True
 
         with self.settings(
             USE_PRECALCULATED_CH_COHORT_PEOPLE=True,
-            PERSON_ON_EVENTS_V2_OVERRIDE=True,  # Enable PoE mode
+            PERSON_ON_EVENTS_V2_OVERRIDE=True,
         ):
             internal_user = "internal@company.com"
             external_user = "external@customer.com"
@@ -1097,27 +1093,17 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
             session_external = "session-external"
             session_anonymous = "session-anonymous"
 
-            # Create person records for internal and external users
             Person.objects.create(
                 team=self.team,
                 distinct_ids=[internal_user],
-                properties={"is_internal": True},
+                properties={"user_group": "internal"},
             )
             Person.objects.create(
                 team=self.team,
                 distinct_ids=[external_user],
-                properties={"is_internal": False},
+                properties={"user_group": "external"},
             )
 
-            # Create internal users cohort
-            internal_cohort = Cohort.objects.create(
-                team=self.team,
-                name="internal_users",
-                groups=[{"properties": [{"key": "is_internal", "value": True, "type": "person"}]}],
-            )
-            internal_cohort.calculate_people_ch(pending_version=0)
-
-            # Create sessions for internal and external users (with person mappings)
             for user, session_id in [
                 (internal_user, session_internal),
                 (external_user, session_external),
@@ -1129,17 +1115,24 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-            # Create session for anonymous user WITHOUT creating analytics events/person mapping
+            # Anonymous user: no Person row, but produce_replay_summary still creates an
+            # analytics event so the PoE events-join can find the session. bulk_create_events
+            # falls back to a random person_id when no Person exists, which matches the
+            # production shape of an anonymous (propertyless-person-mode) event.
             produce_replay_summary(
                 distinct_id=anonymous_user,
                 session_id=session_anonymous,
                 first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
-                ensure_analytics_event_in_session=False,
             )
 
-            # Test: NOT IN internal_users (simulates "filter test accounts" toggle)
-            # Should return external and anonymous users, but not internal
+            internal_cohort = Cohort.objects.create(
+                team=self.team,
+                name="internal_users",
+                groups=[{"properties": [{"key": "user_group", "value": "internal", "type": "person"}]}],
+            )
+            internal_cohort.calculate_people_ch(pending_version=0)
+
             self._assert_query_matches_session_ids(
                 {
                     "properties": [
