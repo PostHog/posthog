@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
+use crate::v1::context::Context;
+use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 
 fn empty_raw_object() -> Box<RawValue> {
@@ -76,6 +78,50 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub skip_person_processing: bool,
+}
+
+impl SinkEvent for WrappedEvent {
+    fn uuid_key(&self) -> &str {
+        &self.event.uuid
+    }
+
+    fn should_publish(&self) -> bool {
+        self.result == EventResult::Ok && self.destination != Destination::Drop
+    }
+
+    fn destination(&self) -> &Destination {
+        &self.destination
+    }
+
+    fn headers(&self) -> Vec<(String, String)> {
+        let mut h = Vec::new();
+        if self.skip_person_processing {
+            h.push(("skip_person_processing".into(), "true".into()));
+        }
+        h
+    }
+
+    fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
+        use std::fmt::Write;
+        if self.event.options.cookieless_mode == Some(true) {
+            let ip = if ctx.capture_internal {
+                "127.0.0.1"
+            } else {
+                // client_ip.to_string() allocates; write! into the buffer avoids that
+                let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
+                return;
+            };
+            let _ = write!(buf, "{}:{}", ctx.api_token, ip);
+        } else {
+            let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
+        }
+    }
+
+    fn serialize_into(&self, _ctx: &Context, _buf: &mut String) -> Result<(), String> {
+        // TODO: builds IngestionEvent from self + Context, applies $-prefix
+        // remapping, IP redaction, property merging. Tackled separately.
+        unimplemented!("WrappedEvent::serialize_into")
+    }
 }
 
 /// Shim implementation of HasEventName for CaptureQuotaLimiter compatibility.
@@ -439,5 +485,137 @@ mod tests {
     fn parse_invalid_json() {
         let garbage = b"this is not json at all {{{";
         assert!(serde_json::from_slice::<Batch>(garbage).is_err());
+    }
+
+    // --- SinkEvent impl for WrappedEvent ---
+
+    use crate::v1::sinks::event::Event as SinkEventTrait;
+    use crate::v1::sinks::Destination;
+    use crate::v1::test_utils;
+    use common_types::HasEventName;
+
+    fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
+        test_utils::wrapped_event(event_name, distinct_id)
+    }
+
+    #[test]
+    fn uuid_key_returns_event_uuid() {
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert_eq!(ev.uuid_key(), ev.event.uuid);
+    }
+
+    #[test]
+    fn should_publish_ok_and_non_drop() {
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert!(ev.should_publish());
+    }
+
+    #[test]
+    fn should_publish_false_when_dropped() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = EventResult::Drop;
+        assert!(!ev.should_publish());
+    }
+
+    #[test]
+    fn should_publish_false_when_destination_drop() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = Destination::Drop;
+        assert!(!ev.should_publish());
+    }
+
+    #[test]
+    fn should_publish_false_when_limited() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = EventResult::Limited;
+        assert!(!ev.should_publish());
+    }
+
+    #[test]
+    fn headers_empty_when_no_skip_person() {
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert!(ev.headers().is_empty());
+    }
+
+    #[test]
+    fn headers_include_skip_person_processing() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.skip_person_processing = true;
+        let h = ev.headers();
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0], ("skip_person_processing".into(), "true".into()));
+    }
+
+    fn partition_key(ev: &WrappedEvent, ctx: &Context) -> String {
+        let mut buf = String::new();
+        ev.write_partition_key(ctx, &mut buf);
+        buf
+    }
+
+    #[test]
+    fn partition_key_normal_mode() {
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-42");
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:user-42", ctx.api_token)
+        );
+    }
+
+    #[test]
+    fn partition_key_cookieless_mode() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.event.options.cookieless_mode = Some(true);
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:{}", ctx.api_token, ctx.client_ip)
+        );
+    }
+
+    #[test]
+    fn partition_key_cookieless_capture_internal() {
+        let mut ctx = test_utils::test_context();
+        ctx.capture_internal = true;
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.event.options.cookieless_mode = Some(true);
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:127.0.0.1", ctx.api_token)
+        );
+    }
+
+    #[test]
+    fn destination_returns_event_destination() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = Destination::Overflow;
+        assert_eq!(*ev.destination(), Destination::Overflow);
+    }
+
+    // --- HasEventName impl for WrappedEvent ---
+
+    #[test]
+    fn event_name_returns_event_field() {
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert_eq!(ev.event_name(), "$pageview");
+    }
+
+    #[test]
+    fn has_property_product_tour_id_some() {
+        let mut ev = ok_wrapped("survey sent", "user-1");
+        ev.event.options.product_tour_id = Some("tour-123".into());
+        assert!(ev.has_property("product_tour_id"));
+    }
+
+    #[test]
+    fn has_property_product_tour_id_none() {
+        let ev = ok_wrapped("survey sent", "user-1");
+        assert!(!ev.has_property("product_tour_id"));
+    }
+
+    #[test]
+    fn has_property_unknown_key() {
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert!(!ev.has_property("unknown_key"));
     }
 }

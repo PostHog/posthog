@@ -1,3 +1,5 @@
+// Some helpers here are only consumed by process.rs tests (PR 1 / sinks-1).
+// Remove this allow once that branch has landed on master.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
