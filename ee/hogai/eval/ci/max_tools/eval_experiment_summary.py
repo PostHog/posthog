@@ -37,7 +37,6 @@ from ee.models.assistant import Conversation
 
 class EvalInput(TypedDict):
     input: str
-    experiment_id: int
 
 
 EXPERIMENT_SUMMARY_ACCURACY_PROMPT = """
@@ -258,12 +257,7 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
             EvalCase(
                 input=EvalInput(
                     input="Summarize experiment {experiment_id}. What do the results show?",
-                    experiment_id=0,  # placeholder, replaced at runtime via format()
                 ),
-                expected={
-                    "summary_reflects_tool_data": True,
-                    "no_hallucinated_numbers": True,
-                },
                 metadata={"test_type": "bayesian_summary_accuracy"},
             ),
         ],
