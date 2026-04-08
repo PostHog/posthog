@@ -53,13 +53,17 @@ const VERCEL_AI: SupportedProvider = SupportedProvider {
 /// (`llm.request.type`) doesn't share the `traceloop.` prefix, so both
 /// prefixes are needed to catch all Traceloop spans.
 const TRACELOOP: SupportedProvider = SupportedProvider {
-    prefixes: &["traceloop.", "llm."],
+    prefixes: &["traceloop.", "llm.request.type"],
     classify: |attrs| {
-        classify_by_key(attrs, "llm.request.type", |request_type| match request_type {
-            "chat" | "completion" => "$ai_generation",
-            "embedding" | "embeddings" => "$ai_embedding",
-            _ => "$ai_span",
-        })
+        classify_by_key(
+            attrs,
+            "llm.request.type",
+            |request_type| match request_type {
+                "chat" | "completion" => "$ai_generation",
+                "embedding" | "embeddings" => "$ai_embedding",
+                _ => "$ai_span",
+            },
+        )
     },
 };
 
@@ -86,7 +90,6 @@ pub fn get_provider_raw(
             .any(|kv| p.prefixes.iter().any(|prefix| kv.key.starts_with(prefix)))
     })
 }
-
 
 #[cfg(test)]
 mod tests {
