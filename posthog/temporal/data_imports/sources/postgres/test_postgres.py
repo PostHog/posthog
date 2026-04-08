@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    _build_count_query,
     _build_query,
     _get_primary_keys,
     _get_sslmode,
@@ -286,6 +287,30 @@ class TestBuildQuery:
         assert "random() < 0.01" in rendered
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
+
+
+class TestBuildCountQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_count_query(self):
+        query = _build_count_query("public", "users", False, None, None, None)
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."users"' in rendered
+        assert "WHERE" not in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
+
+    def test_incremental_count_query(self):
+        query = _build_count_query("public", "events", True, "created_at", IncrementalFieldType.Timestamp, "2024-01-01")
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."events"' in rendered
+        assert '"created_at"' in rendered
+        assert "'2024-01-01'" in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
 
 
 class TestPostgreSQLColumnToArrowField:

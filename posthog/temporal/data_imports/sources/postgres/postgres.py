@@ -495,6 +495,34 @@ def _build_query(
         return query
 
 
+def _build_count_query(
+    schema: str,
+    table_name: str,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType],
+    db_incremental_field_last_value: Optional[Any],
+) -> sql.Composed:
+    if not should_use_incremental_field:
+        return sql.SQL("SELECT COUNT(*) FROM {schema}.{table}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+        )
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
@@ -664,15 +692,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         return DEFAULT_CHUNK_SIZE
 
 
-def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
-        query = sql.SQL("""
-            SELECT COUNT(*) FROM ({}) as t
-        """).format(inner_query)
-
-        _explain_query(cursor, query, logger)
-        logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
+        _explain_query(cursor, count_query, logger)
+        logger.debug(f"Running query: {count_query.as_string()}")
+        cursor.execute(count_query)
         row = cursor.fetchone()
 
         if row is None:
@@ -985,15 +1009,13 @@ def postgres_source(
                     add_sampling=True,
                 )
 
-                inner_query_without_limit = _build_query(
+                count_query = _build_count_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
-                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    add_order_by=False,
                 )
                 cursor.execute(
                     sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
@@ -1015,7 +1037,7 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
