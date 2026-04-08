@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 import urllib.parse
@@ -36,7 +37,7 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = []
+NON_RETRYABLE_ERROR_TYPES: list[str] = ["NotFoundErrorGroup", "BadRequestErrorGroup"]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -85,6 +86,27 @@ class InternalServerError(aiohttp.ClientResponseError):
     pass
 
 
+class ServiceUnavailable(aiohttp.ClientResponseError):
+    pass
+
+
+class ClientResponseErrorGroup(ExceptionGroup[aiohttp.ClientResponseError]):
+    """Base class for grouped HTTP errors."""
+
+    def derive(self, excs):
+        return ClientResponseErrorGroup(self.message, excs)
+
+
+class BadRequestErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return BadRequestErrorGroup(self.message, excs)
+
+
+class NotFoundErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return NotFoundErrorGroup(self.message, excs)
+
+
 def _make_exception(
     exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
 ) -> aiohttp.ClientResponseError:
@@ -102,7 +124,9 @@ class WorkflowsConsumer(Consumer):
         hog_function_id: str,
         team_id: int,
         session: aiohttp.ClientSession,
+        request_task_group: asyncio.TaskGroup,
         model: str = "events",
+        max_concurrent_requests: int = 1_000,
     ):
         super().__init__(model=model)
 
@@ -115,44 +139,52 @@ class WorkflowsConsumer(Consumer):
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
         self.internal_api_secret = settings.INTERNAL_API_SECRET
+        self.request_task_group = request_task_group
+        self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
-    async def consume_chunk(self, data: bytes):
+    async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
-            self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
+            self.post,
+            retryable_exceptions=(InternalServerError, ServiceUnavailable, TooManyRequests),
+            # Retry forever on retryable errors
+            max_attempts=None,
         )
-        await post(data)
+        self.request_task_group.create_task(post(data))
 
-    async def post(self, data: bytes):
-        async with await self.session.post(
-            self.url,
-            # Data is already JSON encoded, so we can't use json=data.
-            data=b'{"clickhouse_event":' + data + b"}",
-            headers={
-                "Content-Type": "application/json",
-                "X-Internal-Api-Secret": self.internal_api_secret,
-            },
-        ) as response:
-            try:
-                response.raise_for_status()
-            except aiohttp.ClientResponseError as err:
-                response_body = await response.text()
-                self.logger.exception("Request failed", status=err.status, response_body=response_body)
+    async def post(self, data: bytes) -> None:
+        async with self._requests_semaphore:
+            async with self.session.post(
+                self.url,
+                # Data is already JSON encoded, so we can't use json=data.
+                data=b'{"clickhouse_event":' + data + b"}",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Internal-Api-Secret": self.internal_api_secret,
+                },
+            ) as response:
+                try:
+                    response.raise_for_status()
+                except aiohttp.ClientResponseError as err:
+                    response_body = await response.text()
+                    self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
-                match err.status:
-                    case 404:
-                        raise _make_exception(NotFound, err)
-                    case 429:
-                        raise _make_exception(TooManyRequests, err)
-                    case n if n >= 400 and n < 500:
-                        raise _make_exception(BadRequest, err)
-                    case n if n >= 500:
-                        raise _make_exception(InternalServerError, err)
+                    match err.status:
+                        case 404:
+                            raise _make_exception(NotFound, err)
+                        case 429:
+                            raise _make_exception(TooManyRequests, err)
+                        case n if n >= 400 and n < 500:
+                            raise _make_exception(BadRequest, err)
+                        case 503:
+                            raise _make_exception(ServiceUnavailable, err)
+                        case n if n >= 500:
+                            raise _make_exception(InternalServerError, err)
 
     async def finalize_file(self):
         """Required by consumer interface."""
         pass
 
-    async def finalize(self):
+    async def finalize(self) -> None:
         """Required by consumer interface."""
         pass
 
@@ -206,26 +238,45 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         transformer = JSONLStreamTransformer(max_workers=1)
 
-        async with aiohttp.ClientSession(trust_env=True) as session:
+        # NOTE: We initialize the TaskGroup first so that any errors in setting up
+        # the consumer are not raised in the TaskGroup context.
+        # TODO: The consumer should be refactored.
+        tg = asyncio.TaskGroup()
+        async with aiohttp.ClientSession(
+            trust_env=True,
+            connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+        ) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
                 team_id=inputs.batch_export.team_id,
                 session=session,
+                request_task_group=tg,
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
+                max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
             )
-
-            # TODO: Use multiple consumers
-            result = await run_consumer_from_stage(
-                queue=queue,
-                consumer=consumer,
-                producer_task=producer_task,
-                transformer=transformer,
-                # the CDP API expects the JSON columns to be strings
-                json_columns=(),
-            )
+            try:
+                async with tg:
+                    # TODO: Use multiple consumers
+                    result = await run_consumer_from_stage(
+                        queue=queue,
+                        consumer=consumer,
+                        producer_task=producer_task,
+                        transformer=transformer,
+                        # the CDP API expects the JSON columns to be strings
+                        json_columns=(),
+                    )
+            # NOTE: Nothing inside the TaskGroup raises an ExceptionGroup, so it is
+            # impossible for a nested ExceptionGroup to be captured by except*.
+            # Mypy is unable to figure this out, so we just ignore the errors. Otherwise
+            # We would need a lot of extra code to flatten any groups (that do not
+            # exist). If you are adding a TaskGroup inside this TaskGroup revisit this!
+            except* BadRequest as exc_group:
+                raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
+            except* NotFound as exc_group:
+                raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
 
         return result
 
