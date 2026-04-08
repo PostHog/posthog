@@ -27,8 +27,6 @@ funnels_query = FunnelsQuery(
     dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 23:59:59"),
     funnelsFilter=FunnelsFilter(
         funnelVizType=FunnelVizType.TRENDS,
-        funnelWindowInterval=14,
-        funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
         funnelFromStep=0,
     ),
 )
