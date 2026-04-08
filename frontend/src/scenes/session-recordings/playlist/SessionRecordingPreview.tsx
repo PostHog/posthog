@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
+import { IconAIText, IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -350,6 +350,15 @@ export const SessionRecordingPreview = memo(
                         </div>
 
                         <FirstURL startUrl={recording.start_url} />
+
+                        {recording.summary_outcome && (
+                            <Tooltip title={recording.summary_outcome.description}>
+                                <div className="flex items-center gap-1 text-xs text-muted-alt truncate">
+                                    <IconAIText className="shrink-0 text-secondary" />
+                                    <span className="truncate">{recording.summary_outcome.description}</span>
+                                </div>
+                            </Tooltip>
+                        )}
                     </div>
 
                     <div
