@@ -43,23 +43,16 @@ def next_interval_boundary(current: datetime, export: BatchExport) -> datetime:
     return align_timestamp_to_interval(rough_next, export)
 
 
-def get_backfill_bounds(interval: str, first_end: datetime, last_end: datetime) -> tuple[datetime, datetime]:
-    """Create bounds around a range of data_interval_ends so the schedule backfill covers all runs.
+def get_backfill_bounds(
+    export: BatchExport, first_interval_end: datetime, last_interval_end: datetime
+) -> tuple[datetime, datetime]:
+    """Create a backfill window around data_interval_end values.
 
-    The end padding needs to be wide enough for Temporal to recognize the last schedule tick
-    within the window, but narrow enough to avoid triggering an extra run beyond the range.
+    Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at].
+    The padding on `last_interval_end` uses the export's jitter — wide enough for Temporal
+    to recognize the action, but narrow enough to avoid triggering an extra run.
     """
-    if interval == "hour":
-        padding = timedelta(minutes=30)
-    elif interval == "day":
-        padding = timedelta(hours=2)
-    elif interval == "week":
-        padding = timedelta(hours=6)
-    elif interval.startswith("every"):
-        padding = timedelta(minutes=2)
-    else:
-        raise ValueError(f"Unsupported interval: '{interval}'")
-    return (first_end, last_end + padding)
+    return (first_interval_end, last_interval_end + export.jitter)
 
 
 def get_batch_exports(
@@ -170,8 +163,11 @@ async def backfill_export(
 
     count = 0
     for interval_start, interval_end in missing_intervals:
+        # Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at],
+        # where each action time corresponds to a data_interval_end
+        first_interval_end = next_interval_boundary(interval_start, export)
         try:
-            backfill_start, backfill_end = get_backfill_bounds(export.interval, interval_start, interval_end)
+            backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, interval_end)
         except ValueError as err:
             logger.warning(f"Unsupported interval for {batch_export_id} ({err}), skipping export")
             return count
