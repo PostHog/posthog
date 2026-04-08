@@ -1,5 +1,6 @@
 """Temporal activities for logs alerting."""
 
+import time
 import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
@@ -22,7 +23,9 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +99,8 @@ def _evaluate_single_alert(
     stats: dict[str, int],
 ) -> None:
     """Run the ClickHouse query, apply state machine, persist, and emit events for a single alert."""
+    start_time = time.perf_counter()
+    original_next_check_at = alert.next_check_at
 
     date_to = now
     date_from = now - timedelta(minutes=alert.window_minutes)
@@ -151,7 +156,14 @@ def _evaluate_single_alert(
     notified = False
     notification_failed = False
     if outcome.notification == NotificationAction.FIRE:
-        notified = _emit_alert_event(alert, "$logs_alert_firing", check_result, now)
+        notified = _emit_alert_event(
+            alert,
+            "$logs_alert_firing",
+            check_result,
+            now,
+            date_from=date_from,
+            date_to=date_to,
+        )
         notification_failed = not notified
         if notified:
             stats["fired"] += 1
@@ -164,7 +176,14 @@ def _evaluate_single_alert(
             notified=notified,
         )
     elif outcome.notification == NotificationAction.RESOLVE:
-        notified = _emit_alert_event(alert, "$logs_alert_resolved", check_result, now)
+        notified = _emit_alert_event(
+            alert,
+            "$logs_alert_resolved",
+            check_result,
+            now,
+            date_from=date_from,
+            date_to=date_to,
+        )
         notification_failed = not notified
         if notified:
             stats["resolved"] += 1
@@ -210,12 +229,36 @@ def _evaluate_single_alert(
     if outcome.error_message:
         stats["errored"] += 1
 
+    # Per-alert metrics — must never break alerting
+    try:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        record_check_duration(elapsed_ms)
+        if original_next_check_at is not None:
+            lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
+            if lag_ms > 0:
+                record_scheduler_lag(lag_ms)
+        if outcome.error_message:
+            increment_checks_total("errored")
+        elif notification_failed:
+            increment_checks_total("errored")
+        elif outcome.notification == NotificationAction.FIRE:
+            increment_checks_total("fired")
+        elif outcome.notification == NotificationAction.RESOLVE:
+            increment_checks_total("resolved")
+        else:
+            increment_checks_total("ok")
+    except Exception:
+        logger.exception("Failed to record alert check metrics", alert_id=str(alert.id))
+
 
 def _emit_alert_event(
     alert: LogsAlertConfiguration,
     event_name: str,
     check_result: CheckResult,
     now: datetime,
+    *,
+    date_from: datetime,
+    date_to: datetime,
 ) -> bool:
     """Produce an internal event to Kafka for CDP processing. Returns True on success."""
     properties: dict = {
@@ -227,6 +270,10 @@ def _emit_alert_event(
         "window_minutes": alert.window_minutes,
         "result_count": check_result.result_count,
         "filters": alert.filters,
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
+        "triggered_at": now.isoformat(),
     }
 
     try:

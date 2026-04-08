@@ -55,7 +55,7 @@ def _get_sslmode(require_ssl: bool) -> str:
             tries SSL but falls back to unencrypted if not available.
     """
 
-    if settings.TEST or settings.DEBUG:
+    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
         return "prefer"
 
     return "require" if require_ssl else "prefer"

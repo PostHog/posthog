@@ -44,6 +44,7 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    ingestion_api = 'ingestion-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -95,6 +96,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_INTERVAL_MS: number
     PERSONHOG_PING_TIMEOUT_MS: number
     PERSONHOG_PING_IDLE_CONNECTION: boolean
+    PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
+    PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
     // Redis
     REDIS_URL: string
@@ -246,6 +249,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_INTERVAL_MS: 30_000,
         PERSONHOG_PING_TIMEOUT_MS: 5_000,
         PERSONHOG_PING_IDLE_CONNECTION: true,
+        PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
+        PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
 
         // Redis
         // ok to connect to localhost over plaintext

@@ -139,6 +139,10 @@ tools:
     param_overrides:
       name:
         description: Custom description for the LLM
+    response: # filter response fields (applied per-item on list endpoints)
+      include: [id, key, name] # keep only these fields (dot-path wildcards supported)
+      exclude: [filters.groups.*.properties] # remove these fields
+      # include and exclude are mutually exclusive
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`).

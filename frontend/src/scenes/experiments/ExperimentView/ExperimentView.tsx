@@ -11,7 +11,13 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
+import {
+    LegacyExperimentInfo,
+    LegacyResultsQuery,
+    LegacyExploreButton,
+    LegacyExperimentHeader,
+    LegacyMetricsView,
+} from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
 import {
@@ -28,23 +34,17 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { LegacyEditConclusionModal } from '../legacy/LegacyEditConclusionModal'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
-import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
-import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-} from './components'
+import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -52,7 +52,6 @@ import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
-import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
@@ -151,7 +150,7 @@ const MetricsTab = (): JSX.Element => {
              */}
             {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
-                    <MetricsViewLegacy isSecondary={false} />
+                    <LegacyMetricsView isSecondary={false} />
                     {showResultDetails && (
                         <div>
                             <div className="pb-4">
@@ -210,7 +209,7 @@ const MetricsTab = (): JSX.Element => {
                             )}
                         </div>
                     )}
-                    <MetricsViewLegacy isSecondary={true} />
+                    <LegacyMetricsView isSecondary={true} />
                 </>
             ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
                 <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
@@ -407,11 +406,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric) => {
-                                    removeSharedMetricFromExperiment(metric.id)
-                                    closeSharedMetricModal()
-                                }}
                             />
+                            <SharedMetricDetailsModal onDelete={removeSharedMetricFromExperiment} />
                             <ExposureCriteriaModal
                                 onSave={(exposureCriteria) => {
                                     setExposureCriteria(exposureCriteria)
@@ -430,8 +426,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ReleaseConditionsModal />
 
                     <EditConclusionModal />
-
-                    <VariantDeltaTimeseries />
+                    <LegacyEditConclusionModal />
                 </>
             )}
         </SceneContent>

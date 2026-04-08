@@ -16,6 +16,7 @@ import type { RefObject } from 'react'
 import api from 'lib/api'
 
 import {
+    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingJobStatus,
@@ -148,13 +149,25 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         toggleFilterType: (nodeType: DataModelingNodeType) => ({ nodeType }),
         clearFilterTypes: true,
         setNodeTypePanelCollapsed: (collapsed: boolean) => ({ collapsed }),
+        setSelectedDagId: (dagId: string | null) => ({ dagId }),
+        setGraphReady: (ready: boolean) => ({ ready }),
     }),
-    loaders({
+    loaders(({ values }) => ({
+        dags: [
+            [] as DataModelingDAG[],
+            {
+                loadDags: async () => {
+                    const response = await api.dataModelingDags.list()
+                    return response.results
+                },
+            },
+        ],
         dataModelingNodes: [
             [] as DataModelingNode[],
             {
                 loadDataModelingNodes: async () => {
-                    const response = await api.dataModelingNodes.list()
+                    const dagId = values.selectedDagId ?? undefined
+                    const response = await api.dataModelingNodes.list(dagId)
                     return response.results
                 },
             },
@@ -163,12 +176,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             [] as DataModelingEdge[],
             {
                 loadDataModelingEdges: async () => {
-                    const response = await api.dataModelingEdges.list()
+                    const dagId = values.selectedDagId ?? undefined
+                    const response = await api.dataModelingEdges.list(dagId)
                     return response.results
                 },
             },
         ],
-    }),
+    })),
     reducers(() => ({
         nodes: [
             [] as Node[],
@@ -254,6 +268,23 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 setNodeTypePanelCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
+        selectedDagId: [
+            null as string | null,
+            { persist: true },
+            {
+                setSelectedDagId: (_, { dagId }) => dagId,
+            },
+        ],
+        graphReady: [
+            false as boolean,
+            {
+                setGraphReady: (_, { ready }) => ready,
+                // reset when DAG changes so spinner shows immediately
+                setSelectedDagId: () => false,
+                // reset on initial load
+                loadDataModelingNodes: () => false,
+            },
+        ],
         viewMode: [
             'graph' as ViewMode,
             { persist: true },
@@ -333,9 +364,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             { resultEqualityCheck: equal },
         ],
         nodesLoading: [
-            (s) => [s.dataModelingNodesLoading, s.dataModelingEdgesLoading],
-            (dataModelingNodesLoading: boolean, dataModelingEdgesLoading: boolean): boolean =>
-                dataModelingNodesLoading || dataModelingEdgesLoading,
+            (s) => [s.dataModelingNodesLoading, s.dataModelingEdgesLoading, s.graphReady, s.viewMode],
+            (
+                dataModelingNodesLoading: boolean,
+                dataModelingEdgesLoading: boolean,
+                graphReady: boolean,
+                viewMode: ViewMode
+            ): boolean => dataModelingNodesLoading || dataModelingEdgesLoading || (viewMode === 'graph' && !graphReady),
         ],
         latestJobMetadataByNodeId: [
             (s) => [s.nodes, s.latestJobMetadataBySavedQueryId],
@@ -457,13 +492,22 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
             },
         ],
+        selectedDag: [
+            (s) => [s.dags, s.selectedDagId],
+            (dags: DataModelingDAG[], selectedDagId: string | null): DataModelingDAG | null => {
+                if (!selectedDagId) {
+                    return null
+                }
+                return dags.find((d) => d.id === selectedDagId) ?? null
+            },
+        ],
         availableDagIds: [
             (s) => [s.filteredNodes],
             (nodes: DataModelingNode[]): string[] => {
                 const viewableNodes = nodes.filter(
                     (n) => n.type === 'matview' || n.type === 'view' || n.type === 'endpoint'
                 )
-                return [...new Set(viewableNodes.map((n) => n.dag_id))].sort()
+                return [...new Set(viewableNodes.map((n) => n.dag_name).filter(Boolean) as string[])].sort()
             },
         ],
         availableTypes: [
@@ -484,7 +528,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             ): DataModelingNode[] => {
                 return nodes
                     .filter((n) => n.type === 'matview' || n.type === 'view' || n.type === 'endpoint')
-                    .filter((n) => filterDagIds.length === 0 || filterDagIds.includes(n.dag_id))
+                    .filter((n) => filterDagIds.length === 0 || (n.dag_name && filterDagIds.includes(n.dag_name)))
                     .filter((n) => filterTypes.length === 0 || filterTypes.includes(n.type))
             },
         ],
@@ -502,20 +546,34 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             if (viewMode !== 'graph' && values.reactFlowInstance) {
                 actions.setSavedViewport(values.reactFlowInstance.getViewport())
             }
+            // graph view requires a single DAG — auto-select the first one
+            if (viewMode === 'graph' && !values.selectedDagId && values.dags.length > 0) {
+                actions.setSelectedDagId(values.dags[0].id)
+            }
         },
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
         },
         onNodesChange: ({ nodes }) => {
-            actions.setNodes(applyNodeChanges(nodes, values.nodes))
+            // apply ReactFlow's dimension/position changes directly without re-running layout
+            actions.setNodesRaw(applyNodeChanges(nodes, values.nodes))
+        },
+        loadDagsSuccess: ({ dags }) => {
+            const isStale = values.selectedDagId && !dags.some((d) => d.id === values.selectedDagId)
+            // graph view requires a single DAG — auto-select the first one, or reset stale persisted ID
+            if (values.viewMode === 'graph' && (!values.selectedDagId || isStale) && dags.length > 0) {
+                actions.setSelectedDagId(dags[0].id)
+            } else if (isStale) {
+                actions.setSelectedDagId(null)
+            }
         },
         loadDataModelingNodesSuccess: () => {
-            if (values.dataModelingEdges.length > 0 || !values.dataModelingEdgesLoading) {
+            if (!values.dataModelingEdgesLoading) {
                 actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
             }
         },
         loadDataModelingEdgesSuccess: () => {
-            if (values.dataModelingNodes.length > 0 || !values.dataModelingNodesLoading) {
+            if (!values.dataModelingNodesLoading) {
                 actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
             }
         },
@@ -552,7 +610,8 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                         id: node.id,
                         name: node.name,
                         type: node.type,
-                        dagId: node.dag_id,
+                        dag: node.dag,
+                        dagName: node.dag_name,
                         savedQueryId: node.saved_query_id,
                         handles: Object.values(handlesByNodeId[node.id] ?? {}),
                         upstreamCount: node.upstream_count,
@@ -589,6 +648,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         setNodes: async ({ nodes, fitViewAfter }) => {
             if (nodes.length === 0) {
                 actions.setNodesRaw([])
+                actions.setGraphReady(true)
                 return
             }
             const formattedNodes = await getFormattedNodes(nodes, values.edges, values.layoutDirection)
@@ -596,6 +656,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             if (fitViewAfter) {
                 values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1 })
             }
+            actions.setGraphReady(true)
         },
         setLayoutDirection: () => {
             if (values.dataModelingNodes.length > 0) {
@@ -693,8 +754,16 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 actions.loadRecentJobs()
             }
         },
+        setSelectedDagId: () => {
+            // clear stale graph immediately so old nodes don't flash
+            actions.setNodesRaw([])
+            actions.setEdges([])
+            actions.loadDataModelingNodes()
+            actions.loadDataModelingEdges()
+        },
     })),
     afterMount(({ actions }) => {
+        actions.loadDags()
         actions.loadDataModelingNodes()
         actions.loadDataModelingEdges()
         actions.loadRecentJobs()

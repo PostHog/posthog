@@ -26,6 +26,8 @@ RRULE_WEEKDAY_MAP = {
     "sunday": SU,
 }
 
+WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
+
 
 @dataclass
 class SubscriptionResourceInfo:
@@ -151,6 +153,8 @@ class Subscription(models.Model):
         )
 
     def set_next_delivery_date(self, from_dt=None):
+        # Authoritative schedule — a client-side preview mirror lives in
+        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate)
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
@@ -198,9 +202,13 @@ class Subscription(models.Model):
                     4: "fourth",
                     -1: "last",
                 }[self.bysetpos]
-                summary += (
-                    f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
-                )
+                if len(self.byweekday) == 1:
+                    day_label = self.byweekday[0].capitalize()
+                elif set(self.byweekday) == WEEKDAY_SET:
+                    day_label = "weekday"
+                else:
+                    day_label = "day"
+                summary += f" on the {human_bysetpos} {day_label}"
             return summary
         except KeyError as e:
             capture_exception(e)

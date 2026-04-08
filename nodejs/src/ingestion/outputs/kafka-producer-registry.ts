@@ -54,7 +54,9 @@ export class KafkaProducerRegistry<P extends string> {
     private async createProducer(name: P): Promise<KafkaProducerWrapper> {
         const config = getProducerConfig(this.configMaps[name])
         logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(config) })
-        return KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
+        const producer = await KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
+        producer.name = name
+        return producer
     }
 
     /**

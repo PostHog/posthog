@@ -71,6 +71,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
+    scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
@@ -256,6 +257,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         symbol_sets.extend([SymbolSetUpload(x, release_id, None) for x in chunk_ids])
 
+        # force=True allows overwriting an existing symbol set whose content has changed.
+        # Without it, changed-content re-uploads are silently skipped to prevent
+        # accidental overwrites of production symbol sets from a local dev machine.
+        force: bool = bool(request.data.get("force", False))
+
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
                 code="object_storage_required",
@@ -263,7 +269,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         chunk_id_url_map = bulk_create_symbol_sets(
-            symbol_sets, self.team, distinct_id=str(request.user.pk) if request.user.pk else None
+            symbol_sets, self.team, force=force, distinct_id=str(request.user.pk) if request.user.pk else None
         )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
@@ -398,6 +404,7 @@ def create_symbol_set(
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
+    force: bool = False,
     distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
     accelerate = bool(
@@ -479,20 +486,17 @@ def bulk_create_symbol_sets(
                         detail=f"Symbol set {existing.ref} already has a release ID",
                     )
 
-            if existing.content_hash is not None and existing.content_hash != upload.content_hash:
-                # If this symbol set already has a content hash, and they differ, raise. We do not support changing
-                # the content of a symbol set once it's been uploaded - callers should inject a new chunk_id instead.
-                # Note - this will also return an error if the upload's content hash is None. This is
-                # intentional - we can't tell whether its safe to overwrite the existing content hash
-                # here. This will only be the case for older CLI versions, which we expect to misbehave
-                # in this code path anyway.
-                raise ValidationError(
-                    code="content_hash_mismatch",
-                    detail=f"Symbol set {existing.ref} already exists, with different content.",
-                )
-            elif existing.content_hash is None:
-                # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
-                # so the CLI will send the data to s3
+            if upload.content_hash is None:
+                if existing.content_hash is not None:
+                    # Old CLI (no content hash) trying to re-upload a symbol set
+                    # that was already fully uploaded. We can't determine safety,
+                    # so reject rather than silently overwrite production data.
+                    raise ValidationError(
+                        code="content_hash_required",
+                        detail=f"Symbol set {existing.ref} already has content; provide a content_hash to update it.",
+                    )
+                # Both sides have no hash: this is a pending upload being restarted.
+                # Issue a fresh presigned URL so the client can retry.
                 storage_ptr = generate_symbol_set_file_key()
                 presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
                 id_url_map[existing.ref] = {
@@ -501,10 +505,43 @@ def bulk_create_symbol_sets(
                 }
                 existing.storage_ptr = storage_ptr
                 dirty = True
-            else:
-                # No-op with respect to the client - the upload was done already, and the content hash matches.
-                # Called out explicitly for clarity. Note we may still update this record, if the release has changed.
+            elif existing.content_hash is None:
+                # Existing record has no hash (pending upload or uploaded by old CLI
+                # without hash support). Allow the new upload to supply one.
+                storage_ptr = generate_symbol_set_file_key()
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                id_url_map[existing.ref] = {
+                    "presigned_url": presigned_url,
+                    "symbol_set_id": str(existing.id),
+                }
+                existing.storage_ptr = storage_ptr
+                dirty = True
+            elif existing.content_hash == upload.content_hash:
+                # Content is identical — no upload needed.
+                # (We may still update the release below if it changed.)
                 pass
+            elif not force:
+                # Content has changed but the caller did not pass force=True.
+                # Silently skip to prevent accidental overwrites of production
+                # symbol sets from a local development machine.
+                logger.warning(
+                    "symbol_set_content_changed_skipped",
+                    ref=existing.ref,
+                    team_id=team.id,
+                )
+            else:
+                # force=True: content has changed and the caller explicitly
+                # requested an overwrite. Issue a new presigned URL and clear
+                # the old content hash so bulk_finish_upload stores the new one.
+                storage_ptr = generate_symbol_set_file_key()
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                id_url_map[existing.ref] = {
+                    "presigned_url": presigned_url,
+                    "symbol_set_id": str(existing.id),
+                }
+                existing.storage_ptr = storage_ptr
+                existing.content_hash = None  # will be set by bulk_finish_upload
+                dirty = True
 
             if dirty:
                 to_update.append(existing)
