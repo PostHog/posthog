@@ -197,7 +197,7 @@ class TestErrorFormattingEmbedding:
 
 
 class TestEvaluationFormatting:
-    def test_evaluation_pass(self):
+    def test_evaluation_pass_with_reasoning(self):
         event = {
             "properties": {
                 "$ai_evaluation_name": "Factual accuracy",
@@ -206,12 +206,9 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Factual accuracy" in result
-        assert "Result: PASS" in result
-        assert "Reasoning:" in result
-        assert "The response is factually correct." in result
+        assert "EVALUATION: Factual accuracy | Result: PASS | Reasoning: The response is factually correct." in result
 
-    def test_evaluation_fail(self):
+    def test_evaluation_fail_with_reasoning(self):
         event = {
             "properties": {
                 "$ai_evaluation_name": "Relevance check",
@@ -220,9 +217,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Relevance check" in result
-        assert "Result: FAIL" in result
-        assert "The response does not address the query." in result
+        assert "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
 
     def test_evaluation_na(self):
         event = {
@@ -233,8 +228,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Code quality" in result
-        assert "Result: N/A" in result
+        assert "EVALUATION: Code quality | Result: N/A" in result
 
     def test_evaluation_string_result(self):
         event = {
@@ -244,7 +238,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "Result: PASS" in result
+        assert "EVALUATION: Check | Result: PASS" in result
 
     def test_evaluation_no_reasoning(self):
         event = {
@@ -254,8 +248,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Quick check" in result
-        assert "Result: PASS" in result
+        assert "EVALUATION: Quick check | Result: PASS" in result
         assert "Reasoning:" not in result
 
     def test_evaluation_missing_name(self):
@@ -265,5 +258,4 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Unknown evaluation" in result
-        assert "Result: FAIL" in result
+        assert "EVALUATION: Unknown evaluation | Result: FAIL" in result

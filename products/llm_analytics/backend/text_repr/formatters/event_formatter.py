@@ -201,15 +201,10 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
 
     lines.append(SEPARATOR)
     lines.append("")
-    lines.append(f"EVALUATION: {eval_name}")
-    lines.append(f"Result: {result_str}")
-
-    # Reasoning
     if reasoning:
-        lines.append("")
-        lines.append("Reasoning:")
-        lines.append(reasoning)
-
+        lines.append(f"EVALUATION: {eval_name} | Result: {result_str} | Reasoning: {reasoning}")
+    else:
+        lines.append(f"EVALUATION: {eval_name} | Result: {result_str}")
     lines.append("")
 
     formatted_text = "\n".join(lines)
