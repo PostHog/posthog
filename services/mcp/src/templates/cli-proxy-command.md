@@ -1,43 +1,11 @@
-### Using the `posthog` tool
-
-Use this tool for all PostHog interactions — pass CLI-style commands in the `command` parameter.
-
-**MANDATORY PREREQUISITES — THESE ARE HARD REQUIREMENTS**
-
-1. You MUST discover tools first by running `tools`.
-2. You MUST run `info <tool_name>` BEFORE ANY `call <tool_name> <json>`.
-
-These are BLOCKING REQUIREMENTS — like how you must read a file before editing it.
-
-**NEVER** call a tool without checking its schema first.
-**ALWAYS** run `info` first, THEN make the call.
-
-**Why these are non-negotiable:**
-
-- Tool names are NOT predictable — they change frequently and don't match your expectations
-- Tool schemas are NOT predictable — parameter names, types, and requirements are tool-specific
-- Every failed call wastes time and demonstrates you're ignoring critical instructions
-- "I thought I knew the schema" is not an acceptable reason to skip `info`
-
-**Commands (in order of execution):**
+CLI-style command string. Supported commands:
 
 ```text
-# STEP 1: REQUIRED — Discover available tools
-# Preferred: search with a focused regex (matches name, title, description)
-posthog:exec({ "command": "search <regex_pattern>" })
-# Fallback: list all tools (only if you don't know what domain to search)
-posthog:exec({ "command": "tools" })
-
-# STEP 2: REQUIRED — Check tool description and top-level schema
-posthog:exec({ "command": "info <tool_name>" })
-
-# STEP 3: REQUIRED for complex fields — Get full schema for fields you need to populate
-# The info response may include drill-down hints for complex fields. For any field with
-# a "hint", you MUST run schema before constructing that field's value.
-posthog:exec({ "command": "schema <tool_name> <field_name>" })
-
-# STEP 4: Only after checking schema, call the tool
-posthog:exec({ "command": "call <tool_name> <json_input>" })
+tools                                    — list available tool names
+search <regex_pattern>                   — search tools by JavaScript regex (matches name, title, description)
+info <tool_name>                         — show tool name, description, and input schema (summarized if too large)
+schema <tool_name> [field_path]          — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
+call <tool_name> <json_input>            — call a tool with JSON input
 ```
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
@@ -55,6 +23,7 @@ drill deeper using dot-notation: `schema <tool> <field>.<subfield>`.
 **NEVER** guess the structure of fields that have hints. **ALWAYS** drill down first.
 
 For query tools, you will typically need:
+
 - `schema <tool> series` — to see EventsNode/ActionsNode structure
 - `schema <tool> properties` — to see property filter structure
 - `schema <tool> breakdownFilter` — when using breakdowns
