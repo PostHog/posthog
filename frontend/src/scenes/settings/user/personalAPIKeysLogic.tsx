@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -31,7 +31,7 @@ export type EditingKeyFormValues = Pick<
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
@@ -145,13 +145,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     selectors(() => ({
         filteredScopes: [
-            (s) => [s.searchTerm, s.featureFlags],
-            (searchTerm: string, featureFlags: Record<string, boolean | string>): APIScope[] => {
+            (s) => [s.searchTerm, s.featureFlags, s.hasAvailableFeature],
+            (searchTerm, featureFlags, hasAvailableFeature): APIScope[] => {
                 let scopes = API_SCOPES
 
                 // Filter out llm_gateway scope if feature flag is disabled
                 if (!featureFlags[FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]) {
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
+                }
+
+                // Hide approvals scope unless the org has the APPROVALS feature
+                if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
+                    scopes = scopes.filter((scope) => scope.key !== 'approvals')
                 }
 
                 if (!searchTerm.trim()) {

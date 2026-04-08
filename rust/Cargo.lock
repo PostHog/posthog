@@ -5033,6 +5033,7 @@ dependencies = [
  "kube",
  "prost 0.13.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "serial_test",
