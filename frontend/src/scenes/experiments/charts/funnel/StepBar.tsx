@@ -38,14 +38,16 @@ interface StepBarCSSProperties extends React.CSSProperties {
  */
 function openExperimentPersonsModalForSeries({
     step,
+    stepIndex,
     converted,
     experimentQuery,
 }: {
     step: FunnelStepWithConversionMetrics
+    stepIndex: number
     converted: boolean
     experimentQuery: ExperimentQuery
 }): void {
-    const stepNo = step.order + 1
+    const stepNo = stepIndex + 1
     const variantKey = step.breakdown_value as string
 
     // This should only be called for funnel metrics
@@ -133,6 +135,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (hasActorsQueryFeature && experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
+                stepIndex: stepIndex,
                 converted: false, // Dropoffs
                 experimentQuery,
             })
@@ -146,6 +149,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (hasActorsQueryFeature && experimentQuery) {
             openExperimentPersonsModalForSeries({
                 step: step,
+                stepIndex: stepIndex,
                 converted: true, // Conversions
                 experimentQuery,
             })
