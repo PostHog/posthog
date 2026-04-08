@@ -504,6 +504,40 @@ class TestGetPrimaryKeys:
             assert result is not None
             assert result == ["order_id"]
 
+    @pytest.mark.django_db
+    def test_returns_none_for_partitioned_parent_with_inconsistent_child_pks(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk (
+                    col_a INTEGER NOT NULL,
+                    col_b INTEGER NOT NULL,
+                    created_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q1
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q2
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q1
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q1_pkey PRIMARY KEY (col_a)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q2
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q2_pkey PRIMARY KEY (col_b)
+            """)
+
+            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_inconsistent_pk", logger)
+            assert result is None
+
 
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
