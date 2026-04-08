@@ -80,7 +80,7 @@ function filterOptions<T>(
     }
 
     const flatOptions = flattenOptions(options)
-    const fuse = createFuse(flatOptions, { keys: searchKeys, threshold: 0.3 })
+    const fuse = createFuse(flatOptions, { keys: searchKeys })
     const matchedOptions = new Set(fuse.search(searchTerm).map((result) => result.item))
 
     return options.map((item) => filterStructure(item, matchedOptions)).filter(Boolean) as LemonSelectOptions<T>
