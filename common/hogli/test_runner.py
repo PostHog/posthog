@@ -19,7 +19,7 @@ from hogli.core.cli import cli
 from hogli.core.command_types import _run
 from hogli.core.manifest import REPO_ROOT
 
-_PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/")
+_PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
 
 
 def _is_test_file(path: str) -> bool:
@@ -36,6 +36,21 @@ def _is_test_file(path: str) -> bool:
     if path.endswith("_test.rs") or ("/tests/" in path and path.endswith(".rs")):
         return True
     return False
+
+
+def _find_test_files(dir_path: str) -> list[str]:
+    """Find all test files recursively in a directory."""
+    abs_dir = REPO_ROOT / dir_path
+    test_files = []
+    for p in sorted(abs_dir.rglob("*")):
+        if p.is_file():
+            try:
+                rel = str(p.relative_to(REPO_ROOT))
+            except ValueError:
+                continue
+            if _is_test_file(rel):
+                test_files.append(rel)
+    return test_files
 
 
 @dataclass
@@ -402,21 +417,8 @@ def _get_changed_files() -> list[str]:
     return sorted(set(diff_vs_master + uncommitted))
 
 
-def _run_changed(extra_args: list[str]) -> None:
-    """Find changed test files, group by type, and run each group."""
-    changed = _get_changed_files()
-    test_files = [f for f in changed if _is_test_file(f)]
-
-    if not test_files:
-        click.secho("No changed test files found on this branch.", fg="yellow")
-        raise SystemExit(0)
-
-    click.secho(f"Found {len(test_files)} changed test file(s):", fg="cyan")
-    for f in test_files:
-        click.echo(f"  {f}")
-    click.echo()
-
-    # Group by test type and run each group
+def _run_grouped(test_files: list[str], extra_args: list[str]) -> None:
+    """Group test files by type and run each group with its appropriate runner."""
     groups: dict[str, list[str]] = {}
     for f in test_files:
         try:
@@ -451,6 +453,23 @@ def _run_changed(extra_args: list[str]) -> None:
                 config = detect_test_type(f)
                 click.secho(f"Running: {f}", fg="cyan")
                 _run(config.command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
+
+
+def _run_changed(extra_args: list[str]) -> None:
+    """Find changed test files, group by type, and run each group."""
+    changed = _get_changed_files()
+    test_files = [f for f in changed if _is_test_file(f)]
+
+    if not test_files:
+        click.secho("No changed test files found on this branch.", fg="yellow")
+        raise SystemExit(0)
+
+    click.secho(f"Found {len(test_files)} changed test file(s):", fg="cyan")
+    for f in test_files:
+        click.echo(f"  {f}")
+    click.echo()
+
+    _run_grouped(test_files, extra_args)
 
 
 # ---------------------------------------------------------------------------
@@ -509,9 +528,9 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "Examples:\n\n"
         "\b\n"
         "  hogli test posthog/api/test/\n"
-        "  hogli test posthog/api/test/test_user.py\n"
-        "  hogli test posthog/api/test/test_user.py::TestUser::test_create\n"
         "  hogli test posthog/api/test/test_user.py --watch\n"
+        "  hogli test posthog/api/test/test_user.py::TestUser::test_create\n"
+        "  hogli test playwright/e2e/sql-editor.spec.ts\n"
         "  hogli test --changed\n"
         "  hogli test livestream/\n"
         "  hogli test products/visual_review/"
@@ -542,7 +561,26 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
         return
 
     resolved = _resolve_to_repo_relative(file_path)
-    config = detect_test_type(resolved)
+    abs_path = REPO_ROOT / resolved
 
+    # For directories, check if multiple test types are present and run each group
+    if abs_path.is_dir():
+        test_files = _find_test_files(resolved)
+        if test_files:
+            types: set[str] = set()
+            for f in test_files:
+                try:
+                    types.add(detect_test_type(f).test_type)
+                except click.UsageError:
+                    pass
+            if len(types) > 1:
+                click.secho(
+                    f"Found {len(test_files)} test file(s) across {len(types)} type(s)",
+                    fg="cyan",
+                )
+                _run_grouped(test_files, list(ctx.args))
+                return
+
+    config = detect_test_type(resolved)
     click.secho(f"Detected: {config.description}", fg="cyan")
     _run(config.command + list(ctx.args), env=config.env if config.env else None, cwd=config.cwd)

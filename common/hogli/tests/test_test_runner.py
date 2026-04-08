@@ -13,6 +13,7 @@ from hogli.test_runner import (
     _parse_porcelain_path,
     _resolve_to_repo_relative,
     _run_changed,
+    _run_grouped,
     detect_test_type,
 )
 from parameterized import parameterized
@@ -326,6 +327,49 @@ class TestRunChanged:
         mock_changed.side_effect = click.UsageError("Cannot use --changed on the master branch.")
         with pytest.raises(click.UsageError, match="master"):
             _run_changed([])
+
+
+class TestRunGrouped:
+    @patch("hogli.test_runner._run")
+    def test_mixed_python_and_jest(self, mock_run) -> None:
+        _run_grouped(
+            [
+                "posthog/api/test/test_user.py",
+                "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+            ],
+            [],
+        )
+        assert mock_run.call_count == 2
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        python_cmd = next(c for c in commands if c[0] == "pytest")
+        jest_cmd = next(c for c in commands if c[0] == "pnpm")
+        assert "posthog/api/test/test_user.py" in python_cmd
+        assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in jest_cmd
+
+    @patch("hogli.test_runner._run")
+    def test_passes_extra_args(self, mock_run) -> None:
+        _run_grouped(["posthog/api/test/test_user.py"], ["-v", "--tb=short"])
+        command = mock_run.call_args[0][0]
+        assert "-v" in command
+        assert "--tb=short" in command
+
+    @patch("hogli.test_runner._run")
+    def test_jest_grouped_by_package(self, mock_run) -> None:
+        _run_grouped(
+            [
+                "frontend/src/scenes/dashboard/Dashboard.test.tsx",
+                "frontend/src/lib/utils.test.ts",
+                "nodejs/tests/cdp/cdp-api.test.ts",
+            ],
+            [],
+        )
+        assert mock_run.call_count == 2
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        frontend_cmd = next(c for c in commands if "--filter=@posthog/frontend" in c)
+        nodejs_cmd = next(c for c in commands if "--filter=@posthog/nodejs" in c)
+        assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in frontend_cmd
+        assert "frontend/src/lib/utils.test.ts" in frontend_cmd
+        assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
 
 
 def _get_repo_root():
