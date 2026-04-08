@@ -11,7 +11,8 @@ if [ -x .claude/hooks/install-tool-versions.sh ]; then
     .claude/hooks/install-tool-versions.sh
 fi
 
-# Pick up the correct Node version
+# install-tool-versions.sh runs in a subprocess so its PATH export doesn't propagate here;
+# re-apply it explicitly so pnpm below sees the right node.
 NODE_MAJOR=$(cat .nvmrc 2>/dev/null | tr -d 'v[:space:]' | cut -d. -f1)
 if [ -n "$NODE_MAJOR" ] && [ -d "/opt/node${NODE_MAJOR}/bin" ]; then
     export PATH="/opt/node${NODE_MAJOR}/bin:$PATH"
