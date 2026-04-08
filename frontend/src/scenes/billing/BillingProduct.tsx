@@ -31,8 +31,7 @@ import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { CODE_PRODUCT_KEY, REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
-import { CodeSeatsSection } from './CodeSeatsSection'
+import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -101,14 +100,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         700: 'medium',
     })
 
-    const isSeatBasedProduct = !product.usage_key
-
     // Used when a product is offered for free to beta users, so we want to show usage but
     // there is no pricing (aka tiers) and no free_allotment
     const isTemporaryFreeProduct =
-        !isSeatBasedProduct &&
-        ((!product.tiered && !product.free_allocation && !product.inclusion_only) ||
-            (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0'))
+        (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
+        (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
@@ -212,13 +208,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
-                    {product.type === CODE_PRODUCT_KEY ? (
-                        <div className="py-4">
-                            <CodeSeatsSection />
-                        </div>
-                    ) : (
-                        <>
-                            {/* Exceeded limit notice */}
+                    {/* Exceeded limit notice */}
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
                             You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
@@ -537,7 +527,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
 
                     {/* Add-ons (hide for product variants) */}
-                    {product.addons?.length > 0 && !isProductWithVariants && product.type !== CODE_PRODUCT_KEY && (
+                    {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Legacy teams addon */}
                             {product.type === 'platform_and_support' &&
@@ -583,12 +573,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             </div>
                         </div>
                     )}
-                        </>
-                    )}
                 </div>
 
                 {/* Billing limit */}
-                {!isTemporaryFreeProduct && !isSeatBasedProduct && (
+                {!isTemporaryFreeProduct && (
                     <div className={isProductWithVariants ? 'mt-8' : ''}>
                         <BillingLimit product={product} />
                     </div>

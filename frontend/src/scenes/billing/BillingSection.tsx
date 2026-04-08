@@ -5,6 +5,8 @@ import { router } from 'kea-router'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,15 +22,19 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-const tabs: { key: BillingSectionId; label: string }[] = [
+const baseTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
-    { key: 'seats', label: 'Seats' },
 ]
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const tabs = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING]
+        ? [...baseTabs, { key: 'seats' as BillingSectionId, label: 'Seats' }]
+        : baseTabs
 
     const section = location.pathname.includes('seats')
         ? 'seats'
@@ -72,7 +78,7 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
-            {section === 'seats' && <BillingSeats />}
+            {section === 'seats' && featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && <BillingSeats />}
         </div>
     )
 }

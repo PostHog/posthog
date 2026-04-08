@@ -6,6 +6,7 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
@@ -26,10 +27,13 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
+import { getProductIcon } from 'scenes/onboarding/utils'
+
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
+import { CodeSeatsSection } from './CodeSeatsSection'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
@@ -249,6 +253,35 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
+
+            {featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
+                <div className="flex flex-wrap max-w-300 pb-8">
+                    <div className="border border-primary rounded w-full bg-surface-primary">
+                        <div className="border-b border-primary rounded-t p-4">
+                            <div className="flex gap-4 items-center justify-between">
+                                <div className="flex gap-x-2">
+                                    <div>
+                                        {getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold mb-0">Code</h3>
+                                        <div>Seat-based billing for PostHog Code.</div>
+                                    </div>
+                                </div>
+                                <LemonButton
+                                    icon={<IconDocument />}
+                                    size="small"
+                                    to="https://posthog.com/docs/posthog-code"
+                                    tooltip="Read the docs"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-8">
+                            <CodeSeatsSection />
+                        </div>
+                    </div>
+                </div>
+            )}
             <div>
                 {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
                     <>
