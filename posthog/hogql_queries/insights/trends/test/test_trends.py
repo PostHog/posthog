@@ -2505,7 +2505,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
             interval="month",
-            date_from="2020-6-7",  # should round down to 6-1
+            date_from="2020-6-7",  # rounds labels down to 6-1 but only includes events after date_from
             date_to="2020-7-30",
             result=[
                 {
@@ -2522,8 +2522,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 2.0,
-                    "data": [1.0, 1.0],
+                    "count": 1.0,
+                    "data": [0.0, 1.0],
                     "labels": ["Jun 2020", "Jul 2020"],
                     "days": ["2020-06-01", "2020-07-01"],
                 }
