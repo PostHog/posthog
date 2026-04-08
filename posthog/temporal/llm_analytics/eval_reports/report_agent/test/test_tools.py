@@ -1,14 +1,30 @@
+"""Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import REPORT_SECTIONS, ReportSection
-from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import (
-    UUID_PATTERN,
-    _ch_ts,
-    finalize_report,
-    set_report_section,
+from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
+    MAX_REPORT_SECTIONS,
+    Citation,
+    EvalReportContent,
+    ReportSection,
 )
+from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import (
+    _UUID_RE,
+    _ch_ts,
+    add_citation,
+    add_section,
+    set_title,
+)
+
+_VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
+_VALID_TRACE_ID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
+
+
+def _state_with_empty_report() -> dict:
+    """Build a minimal state dict with an empty EvalReportContent (matches runtime)."""
+    return {"report": EvalReportContent()}
 
 
 class TestChTs(SimpleTestCase):
@@ -25,69 +41,187 @@ class TestChTs(SimpleTestCase):
         self.assertEqual(_ch_ts(iso_input), expected)
 
 
-class TestUuidPattern(SimpleTestCase):
-    def test_extracts_uuids_from_backticks(self):
-        text = "See generation `12345678-1234-1234-1234-123456789abc` and `abcdefab-cdef-abcd-efab-cdefabcdefab`."
-        matches = UUID_PATTERN.findall(text)
-        self.assertEqual(len(matches), 2)
-        self.assertEqual(matches[0], "12345678-1234-1234-1234-123456789abc")
+class TestUuidRegex(SimpleTestCase):
+    def test_matches_canonical_uuid(self):
+        self.assertIsNotNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc"))
 
-    def test_no_match_without_backticks(self):
-        text = "See 12345678-1234-1234-1234-123456789abc."
-        matches = UUID_PATTERN.findall(text)
-        self.assertEqual(len(matches), 0)
+    def test_rejects_uppercase(self):
+        # Our pattern is strict lowercase — matches the format PostHog emits.
+        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ABC"))
+
+    def test_rejects_too_short(self):
+        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ab"))
+
+    def test_rejects_extra_chars(self):
+        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc-extra"))
 
 
-class TestSetReportSection(SimpleTestCase):
-    def test_sets_section_with_content(self):
-        state = {"report": {}}
-        result = set_report_section.func(
+class TestSetTitle(SimpleTestCase):
+    def test_sets_title_on_state(self):
+        state = _state_with_empty_report()
+        result = set_title.func(state=state, title="Pass rate steady at 94%")
+        self.assertEqual(state["report"].title, "Pass rate steady at 94%")
+        self.assertIn("Pass rate steady at 94%", result)
+
+    def test_strips_whitespace(self):
+        state = _state_with_empty_report()
+        set_title.func(state=state, title="  padded title  ")
+        self.assertEqual(state["report"].title, "padded title")
+
+    def test_rejects_empty_title(self):
+        state = _state_with_empty_report()
+        result = set_title.func(state=state, title="")
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].title, "")
+
+    def test_rejects_whitespace_only_title(self):
+        state = _state_with_empty_report()
+        result = set_title.func(state=state, title="   ")
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].title, "")
+
+    def test_clips_very_long_title(self):
+        state = _state_with_empty_report()
+        long_title = "x" * 500
+        set_title.func(state=state, title=long_title)
+        self.assertLessEqual(len(state["report"].title), 200)
+        self.assertTrue(state["report"].title.endswith("..."))
+
+
+class TestAddSection(SimpleTestCase):
+    def test_appends_section(self):
+        state = _state_with_empty_report()
+        result = add_section.func(state=state, title="Summary", content="Pass rate is 94%.")
+        self.assertEqual(len(state["report"].sections), 1)
+        self.assertEqual(state["report"].sections[0].title, "Summary")
+        self.assertEqual(state["report"].sections[0].content, "Pass rate is 94%.")
+        self.assertIn("Summary", result)
+
+    def test_rejects_empty_title(self):
+        state = _state_with_empty_report()
+        result = add_section.func(state=state, title="", content="body")
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_rejects_empty_content(self):
+        state = _state_with_empty_report()
+        result = add_section.func(state=state, title="Summary", content="")
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_allows_up_to_max_sections(self):
+        state = _state_with_empty_report()
+        for i in range(MAX_REPORT_SECTIONS):
+            result = add_section.func(state=state, title=f"Section {i}", content=f"Body {i}")
+            self.assertNotIn("Error", result)
+        self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
+
+    def test_rejects_over_max_sections(self):
+        state = _state_with_empty_report()
+        # Fill to the max
+        for i in range(MAX_REPORT_SECTIONS):
+            add_section.func(state=state, title=f"Section {i}", content="body")
+        # Next one should be rejected
+        result = add_section.func(state=state, title="One too many", content="body")
+        self.assertIn("Error", result)
+        self.assertIn("maximum", result)
+        self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
+
+    def test_preserves_section_order(self):
+        state = _state_with_empty_report()
+        add_section.func(state=state, title="First", content="a")
+        add_section.func(state=state, title="Second", content="b")
+        add_section.func(state=state, title="Third", content="c")
+        titles = [s.title for s in state["report"].sections]
+        self.assertEqual(titles, ["First", "Second", "Third"])
+
+
+class TestAddCitation(SimpleTestCase):
+    def test_appends_citation(self):
+        state = _state_with_empty_report()
+        result = add_citation.func(
             state=state,
-            section="executive_summary",
-            content="Pass rate is 85%.",
+            generation_id=_VALID_GEN_ID,
+            trace_id=_VALID_TRACE_ID,
+            reason="high_cost",
         )
-        self.assertIn("executive_summary", state["report"])
-        self.assertEqual(state["report"]["executive_summary"].content, "Pass rate is 85%.")
-        self.assertIn("executive_summary", result)
+        self.assertEqual(len(state["report"].citations), 1)
+        cit = state["report"].citations[0]
+        self.assertIsInstance(cit, Citation)
+        self.assertEqual(cit.generation_id, _VALID_GEN_ID)
+        self.assertEqual(cit.trace_id, _VALID_TRACE_ID)
+        self.assertEqual(cit.reason, "high_cost")
+        self.assertIn("Citation", result)
 
-    def test_extracts_generation_ids(self):
-        state = {"report": {}}
-        set_report_section.func(
+    def test_rejects_non_uuid_generation_id(self):
+        state = _state_with_empty_report()
+        result = add_citation.func(
             state=state,
-            section="failure_patterns",
-            content="Failed: `12345678-1234-1234-1234-123456789abc` and `abcdefab-cdef-abcd-efab-cdefabcdefab`.",
+            generation_id="not-a-uuid",
+            trace_id=_VALID_TRACE_ID,
+            reason="r",
         )
-        section = state["report"]["failure_patterns"]
-        self.assertEqual(len(section.referenced_generation_ids), 2)
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].citations, [])
 
-    def test_invalid_section_returns_error(self):
-        state = {"report": {}}
-        result = set_report_section.func(state=state, section="nonexistent", content="test")
-        self.assertIn("Invalid section", result)
-        self.assertNotIn("nonexistent", state["report"])
+    def test_rejects_non_uuid_trace_id(self):
+        state = _state_with_empty_report()
+        result = add_citation.func(
+            state=state,
+            generation_id=_VALID_GEN_ID,
+            trace_id="also-not-a-uuid",
+            reason="r",
+        )
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].citations, [])
 
-    @parameterized.expand([(name,) for name in REPORT_SECTIONS])
-    def test_accepts_all_valid_sections(self, section_name):
-        state = {"report": {}}
-        result = set_report_section.func(state=state, section=section_name, content="content")
-        self.assertIn(section_name, state["report"])
-        self.assertNotIn("Invalid", result)
+    def test_rejects_empty_ids(self):
+        state = _state_with_empty_report()
+        result = add_citation.func(state=state, generation_id="", trace_id="", reason="r")
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].citations, [])
+
+    def test_clips_very_long_reason(self):
+        state = _state_with_empty_report()
+        long_reason = "x" * 500
+        add_citation.func(
+            state=state,
+            generation_id=_VALID_GEN_ID,
+            trace_id=_VALID_TRACE_ID,
+            reason=long_reason,
+        )
+        self.assertLessEqual(len(state["report"].citations[0].reason), 200)
+
+    def test_multiple_citations_preserve_order(self):
+        state = _state_with_empty_report()
+        add_citation.func(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="first")
+        add_citation.func(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="second")
+        self.assertEqual(len(state["report"].citations), 2)
+        self.assertEqual(state["report"].citations[0].reason, "first")
+        self.assertEqual(state["report"].citations[1].reason, "second")
 
 
-class TestFinalizeReport(SimpleTestCase):
-    def test_finalize_with_all_sections(self):
-        report = {name: ReportSection(content="x") for name in REPORT_SECTIONS}
-        state = {"report": report}
-        result = finalize_report.func(state=state)
-        self.assertIn(str(len(REPORT_SECTIONS)), result)
+class TestToolsCoordinate(SimpleTestCase):
+    """Smoke: a realistic agent-like sequence of calls produces a valid report."""
 
-    def test_finalize_with_partial_sections(self):
-        state = {"report": {"executive_summary": ReportSection(content="x")}}
-        result = finalize_report.func(state=state)
-        self.assertIn("1 sections", result)
-        self.assertIn("executive_summary", result)
+    def test_full_agent_sequence(self):
+        state = _state_with_empty_report()
+        set_title.func(state=state, title="Pass rate steady, one bucket dip")
+        add_section.func(state=state, title="Summary", content="Overall healthy.")
+        add_section.func(
+            state=state,
+            title="14:00 bucket",
+            content="Dropped to 50% pass rate in the 14:00 bucket.",
+        )
+        add_citation.func(
+            state=state,
+            generation_id=_VALID_GEN_ID,
+            trace_id=_VALID_TRACE_ID,
+            reason="14:00_bucket_fail",
+        )
 
-    def test_finalize_with_no_sections(self):
-        state = {"report": {}}
-        result = finalize_report.func(state=state)
-        self.assertIn("0 sections", result)
+        report = state["report"]
+        self.assertEqual(report.title, "Pass rate steady, one bucket dip")
+        self.assertEqual(len(report.sections), 2)
+        self.assertIsInstance(report.sections[0], ReportSection)
+        self.assertEqual(len(report.citations), 1)

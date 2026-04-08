@@ -32,6 +32,7 @@ class PrepareReportContextOutput:
     period_start: str
     period_end: str
     previous_period_start: str
+    report_prompt_guidance: str = ""
 
 
 @dataclasses.dataclass
@@ -46,13 +47,19 @@ class RunEvalReportAgentInput:
     period_start: str
     period_end: str
     previous_period_start: str
+    report_prompt_guidance: str = ""
 
 
 @dataclasses.dataclass
 class RunEvalReportAgentOutput:
+    """Output of the eval report agent activity.
+
+    `content` is a serialized `EvalReportContent` dict (includes title, sections,
+    citations, metrics — no separate metadata field).
+    """
+
     report_id: str
     content: dict[str, Any]
-    metadata: dict[str, Any] | None
     period_start: str
     period_end: str
 
@@ -63,7 +70,6 @@ class StoreReportRunInput:
     team_id: int
     evaluation_id: str
     content: dict[str, Any]
-    metadata: dict[str, Any] | None
     period_start: str
     period_end: str
 

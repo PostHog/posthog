@@ -84,6 +84,12 @@ async def prepare_report_context_activity(
         period_duration = period_end - period_start
         previous_period_start = period_start - period_duration
 
+        # `report_prompt_guidance` is a per-report TextField that lets users steer
+        # the agent. Added in migration 0024 (Commit 2 of the v2 schema refactor).
+        # `getattr` with fallback keeps this activity compatible with the unmigrated
+        # database state during Commit 1 local testing.
+        guidance = getattr(report, "report_prompt_guidance", "") or ""
+
         return PrepareReportContextOutput(
             report_id=str(report.id),
             team_id=report.team_id,
@@ -95,6 +101,7 @@ async def prepare_report_context_activity(
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
+            report_prompt_guidance=guidance,
         )
 
     return await prepare()
@@ -126,14 +133,14 @@ async def run_eval_report_agent_activity(
                 period_start=inputs.period_start,
                 period_end=inputs.period_end,
                 previous_period_start=inputs.previous_period_start,
+                report_prompt_guidance=inputs.report_prompt_guidance,
             )
 
-        content, metadata = await run_agent()
+        content = await run_agent()
 
         return RunEvalReportAgentOutput(
             report_id=inputs.report_id,
             content=content.to_dict(),
-            metadata=metadata.to_dict() if metadata else None,
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )
@@ -154,40 +161,47 @@ async def store_report_run_activity(
 
         from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
 
+        # Mirror content.metrics into the legacy `metadata` JSONField so existing
+        # consumers that read from it (e.g. the UI's run preview before Commit 2's
+        # frontend refresh) still work.
+        content = inputs.content or {}
+        metrics = content.get("metrics", {}) or {}
+
         run = EvaluationReportRun.objects.create(
             report_id=inputs.report_id,
-            content=inputs.content,
-            metadata=inputs.metadata or {},
+            content=content,
+            metadata=metrics,
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )
 
         # Emit $ai_evaluation_report event to ClickHouse
         team = Team.objects.get(id=inputs.team_id)
-        metadata = inputs.metadata or {}
 
-        # Collect all referenced generation IDs across sections
-        all_referenced_ids: list[str] = []
-        for section_data in (inputs.content or {}).values():
-            if isinstance(section_data, dict):
-                all_referenced_ids.extend(section_data.get("referenced_generation_ids", []))
+        # Collect citations from structured content (v2), not from per-section lists
+        citations = content.get("citations", []) or []
+        all_referenced_ids = [c.get("generation_id", "") for c in citations if c.get("generation_id")]
 
         properties: dict = {
             "$ai_evaluation_id": inputs.evaluation_id,
             "$ai_evaluation_report_id": str(run.report_id),
             "$ai_evaluation_report_run_id": str(run.id),
+            "$ai_report_title": content.get("title", ""),
             "$ai_report_period_start": inputs.period_start,
             "$ai_report_period_end": inputs.period_end,
-            # Metrics for querying/alerting
-            "$ai_report_total_runs": metadata.get("total_runs", 0),
-            "$ai_report_pass_count": metadata.get("pass_count", 0),
-            "$ai_report_fail_count": metadata.get("fail_count", 0),
-            "$ai_report_na_count": metadata.get("na_count", 0),
-            "$ai_report_pass_rate": metadata.get("pass_rate", 0.0),
-            "$ai_report_previous_pass_rate": metadata.get("previous_pass_rate"),
-            # Full content for downstream consumption
-            "$ai_report_content": inputs.content,
+            # Metrics for querying/alerting (flattened from content.metrics)
+            "$ai_report_total_runs": metrics.get("total_runs", 0),
+            "$ai_report_pass_count": metrics.get("pass_count", 0),
+            "$ai_report_fail_count": metrics.get("fail_count", 0),
+            "$ai_report_na_count": metrics.get("na_count", 0),
+            "$ai_report_pass_rate": metrics.get("pass_rate", 0.0),
+            "$ai_report_previous_pass_rate": metrics.get("previous_pass_rate"),
+            "$ai_report_previous_total_runs": metrics.get("previous_total_runs"),
+            # Structured content + citations for downstream consumption
+            "$ai_report_content": content,
+            "$ai_report_citations": citations,
             "$ai_report_referenced_generation_ids": all_referenced_ids,
+            "$ai_report_section_count": len(content.get("sections", [])),
         }
 
         create_event(

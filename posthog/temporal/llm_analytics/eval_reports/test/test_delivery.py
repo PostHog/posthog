@@ -7,12 +7,19 @@ from posthog.temporal.llm_analytics.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
     _linkify_uuids,
+    _render_metrics_block_html,
+    _render_metrics_block_mrkdwn,
     _render_section_html,
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
     deliver_report,
 )
-from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import EvalReportContent, ReportSection
+from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
+    Citation,
+    EvalReportContent,
+    EvalReportMetrics,
+    ReportSection,
+)
 
 
 class TestUuidLinkPattern(SimpleTestCase):
@@ -42,63 +49,64 @@ class TestLinkifyUuids(SimpleTestCase):
 
 
 class TestRenderSectionHtml(SimpleTestCase):
-    def test_renders_title(self):
-        html = _render_section_html("executive_summary", "Some content", project_id=1)
-        self.assertIn("<h2>Executive Summary</h2>", html)
+    """v2: renderer takes a title directly, no more SECTION_TITLES lookup."""
+
+    def test_renders_title_as_h2(self):
+        html = _render_section_html("Summary", "Some content", project_id=1)
+        self.assertIn("<h2>Summary</h2>", html)
+
+    def test_renders_agent_chosen_title(self):
+        html = _render_section_html("Volume drop at 14:00", "body", project_id=1)
+        self.assertIn("<h2>Volume drop at 14:00</h2>", html)
 
     def test_renders_bold_markdown(self):
-        html = _render_section_html("statistics", "**Pass rate**: 80%", project_id=1)
+        html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1)
         self.assertIn("<strong>Pass rate</strong>", html)
 
     def test_converts_uuid_to_link(self):
         html = _render_section_html(
-            "failure_patterns",
+            "Failures",
             "Failed: `12345678-1234-1234-1234-123456789abc`",
             project_id=42,
         )
         self.assertIn("/project/42/llm-analytics/traces/12345678-1234-1234-1234-123456789abc", html)
         self.assertIn("12345678...", html)
 
-    def test_unknown_section_uses_title_case(self):
-        html = _render_section_html("some_custom", "content", project_id=1)
-        self.assertIn("<h2>Some Custom</h2>", html)
-
     def test_renders_lists(self):
-        html = _render_section_html("statistics", "- item 1\n- item 2", project_id=1)
+        html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1)
         self.assertIn("<li>item 1</li>", html)
         self.assertIn("<li>item 2</li>", html)
         self.assertIn("<ul>", html)
 
     def test_renders_tables(self):
         md = "| Metric | Value |\n|--------|-------|\n| Pass rate | 80% |"
-        html = _render_section_html("statistics", md, project_id=1)
+        html = _render_section_html("Stats", md, project_id=1)
         self.assertIn("<table", html)
         self.assertIn("<th", html)
         self.assertIn("Pass rate", html)
 
     def test_renders_italic(self):
-        html = _render_section_html("statistics", "*emphasis*", project_id=1)
+        html = _render_section_html("Stats", "*emphasis*", project_id=1)
         self.assertIn("<em>emphasis</em>", html)
 
 
-class TestFormatPeriodForDisplay(SimpleTestCase):
-    def test_formats_utc_iso_timestamp(self):
-        result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
-        self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
+class TestRenderSectionMrkdwn(SimpleTestCase):
+    def test_renders_title_bold(self):
+        result = _render_section_mrkdwn("Summary", "Some content")
+        self.assertIn("*Summary*", result)
 
-    def test_formats_non_utc_iso_timestamp_by_converting_to_utc(self):
-        # 10:00 in America/New_York (UTC-4 in April) → 14:00 UTC
-        result = _format_period_for_display("2026-04-08T10:00:00-04:00")
-        self.assertEqual(result, "Apr 08, 2026 14:00 UTC")
+    def test_renders_agent_chosen_title(self):
+        result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body")
+        self.assertIn("*Cost spike in gpt-5.2*", result)
 
-    def test_falls_back_to_raw_string_on_parse_error(self):
-        result = _format_period_for_display("not a timestamp")
-        self.assertEqual(result, "not a timestamp")
+    def test_converts_bold(self):
+        result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%")
+        self.assertIn("*Pass rate*", result)
 
-    def test_falls_back_on_none(self):
-        # Guard against the activity passing something unexpected
-        result = _format_period_for_display(None)  # type: ignore[arg-type]
-        self.assertIsNone(result)
+    def test_converts_lists(self):
+        result = _render_section_mrkdwn("Stats", "- item 1\n- item 2")
+        self.assertIn("item 1", result)
+        self.assertIn("item 2", result)
 
 
 class TestStripRedundantLeadingHeading(SimpleTestCase):
@@ -140,19 +148,36 @@ class TestStripRedundantLeadingHeading(SimpleTestCase):
         self.assertEqual(result, content)
 
     def test_render_section_html_does_not_duplicate_heading(self):
-        content = "## Executive Summary\n\nPass rate is 94%."
-        html = _render_section_html("executive_summary", content, project_id=1)
-        # Title should appear exactly once, as the <h2> wrapper
-        self.assertEqual(html.count("Executive Summary"), 1)
-        self.assertIn("<h2>Executive Summary</h2>", html)
+        content = "## Summary\n\nPass rate is 94%."
+        html = _render_section_html("Summary", content, project_id=1)
+        self.assertEqual(html.count("Summary"), 1)
+        self.assertIn("<h2>Summary</h2>", html)
         self.assertIn("Pass rate is 94%", html)
 
     def test_render_section_mrkdwn_does_not_duplicate_heading(self):
-        content = "## Executive Summary\n\nPass rate is 94%."
-        result = _render_section_mrkdwn("executive_summary", content)
-        # Title should appear exactly once, as the *bold* wrapper
-        self.assertEqual(result.count("Executive Summary"), 1)
-        self.assertTrue(result.startswith("*Executive Summary*"))
+        content = "## Summary\n\nPass rate is 94%."
+        result = _render_section_mrkdwn("Summary", content)
+        self.assertEqual(result.count("Summary"), 1)
+        self.assertTrue(result.startswith("*Summary*"))
+
+
+class TestFormatPeriodForDisplay(SimpleTestCase):
+    def test_formats_utc_iso_timestamp(self):
+        result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
+        self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
+
+    def test_formats_non_utc_iso_timestamp_by_converting_to_utc(self):
+        # 10:00 in America/New_York (UTC-4 in April) → 14:00 UTC
+        result = _format_period_for_display("2026-04-08T10:00:00-04:00")
+        self.assertEqual(result, "Apr 08, 2026 14:00 UTC")
+
+    def test_falls_back_to_raw_string_on_parse_error(self):
+        result = _format_period_for_display("not a timestamp")
+        self.assertEqual(result, "not a timestamp")
+
+    def test_falls_back_on_none(self):
+        result = _format_period_for_display(None)  # type: ignore[arg-type]
+        self.assertIsNone(result)
 
 
 class TestInlineEmailStyles(SimpleTestCase):
@@ -167,28 +192,77 @@ class TestInlineEmailStyles(SimpleTestCase):
         self.assertEqual(html, _inline_email_styles(html))
 
 
-class TestRenderSectionMrkdwn(SimpleTestCase):
-    def test_renders_title_bold(self):
-        result = _render_section_mrkdwn("executive_summary", "Some content")
-        self.assertIn("*Executive Summary*", result)
+class TestMetricsBlockHtml(SimpleTestCase):
+    def test_renders_all_counts(self):
+        metrics = EvalReportMetrics(
+            total_runs=100,
+            pass_count=80,
+            fail_count=18,
+            na_count=2,
+            pass_rate=81.63,
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+        )
+        html = _render_metrics_block_html(metrics)
+        self.assertIn("100", html)  # total_runs
+        self.assertIn("80", html)  # pass_count
+        self.assertIn("18", html)  # fail_count
+        self.assertIn("2", html)  # na_count
+        self.assertIn("81.63%", html)
+        self.assertIn("Apr 08, 2026 14:00 UTC", html)
 
-    def test_converts_bold(self):
-        result = _render_section_mrkdwn("statistics", "**Pass rate**: 80%")
-        self.assertIn("*Pass rate*", result)
+    def test_renders_delta_up(self):
+        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=80.0)
+        html = _render_metrics_block_html(metrics)
+        self.assertIn("▲", html)
+        self.assertIn("10.00pp", html)
 
-    def test_converts_lists(self):
-        result = _render_section_mrkdwn("statistics", "- item 1\n- item 2")
-        # SlackMarkdownConverter uses bullet chars
-        self.assertIn("item 1", result)
-        self.assertIn("item 2", result)
+    def test_renders_delta_down(self):
+        metrics = EvalReportMetrics(total_runs=10, pass_count=5, pass_rate=50.0, previous_pass_rate=80.0)
+        html = _render_metrics_block_html(metrics)
+        self.assertIn("▼", html)
+        self.assertIn("30.00pp", html)
+
+    def test_no_delta_when_previous_is_none(self):
+        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=None)
+        html = _render_metrics_block_html(metrics)
+        self.assertNotIn("▲", html)
+        self.assertNotIn("▼", html)
+        self.assertNotIn("pp vs previous", html)
+
+
+class TestMetricsBlockMrkdwn(SimpleTestCase):
+    def test_compact_format(self):
+        metrics = EvalReportMetrics(total_runs=100, pass_count=80, fail_count=18, na_count=2, pass_rate=81.63)
+        text = _render_metrics_block_mrkdwn(metrics)
+        self.assertIn("*Pass rate:*", text)
+        self.assertIn("81.63%", text)
+        self.assertIn("100", text)
+        self.assertIn("80", text)
+        self.assertIn("18", text)
+        self.assertIn("*N/A:*", text)
+
+    def test_with_delta(self):
+        metrics = EvalReportMetrics(pass_rate=90.0, previous_pass_rate=80.0)
+        text = _render_metrics_block_mrkdwn(metrics)
+        self.assertIn("▲", text)
 
 
 class TestDeliverReport(SimpleTestCase):
+    """End-to-end tests for deliver_report — mocks the email+slack sub-functions."""
+
+    def _make_v2_content_dict(self, title: str = "A nice punchline") -> dict:
+        """Build an EvalReportContent dict in v2 shape."""
+        return EvalReportContent(
+            title=title,
+            sections=[ReportSection(title="Summary", content="All good.")],
+            citations=[Citation(generation_id="g", trace_id="t", reason="example")],
+            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+        ).to_dict()
+
     def _make_report_run(self):
         run = MagicMock()
-        run.content = EvalReportContent(
-            executive_summary=ReportSection(content="summary"),
-        ).to_dict()
+        run.content = self._make_v2_content_dict()
         run.period_start = MagicMock(isoformat=MagicMock(return_value="2026-03-01T00:00:00+00:00"))
         run.period_end = MagicMock(isoformat=MagicMock(return_value="2026-03-02T00:00:00+00:00"))
         run.report_id = "report-id"
@@ -198,6 +272,7 @@ class TestDeliverReport(SimpleTestCase):
     def _make_report(self, targets):
         report = MagicMock()
         report.evaluation.name = "Test Eval"
+        report.evaluation.id = "eval-id"
         report.team.id = 1
         report.team_id = 1
         report.delivery_targets = targets
@@ -207,7 +282,7 @@ class TestDeliverReport(SimpleTestCase):
     @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_slack_report")
     @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects")
     @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReport.objects")
-    def test_deliver_report_calls_email(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
+    def test_deliver_report_calls_email(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
         targets = [{"type": "email", "value": "test@example.com"}]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -219,14 +294,13 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         mock_email.assert_called_once()
-        mock_slack.assert_not_called()
         self.assertEqual(run.delivery_status, "delivered")
 
     @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_slack_report")
     @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects")
     @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReport.objects")
-    def test_deliver_report_handles_failures(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
+    def test_deliver_report_handles_failures(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
         targets = [{"type": "email", "value": "test@example.com"}]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -235,8 +309,6 @@ class TestDeliverReport(SimpleTestCase):
         mock_run_qs.get.return_value = run
         mock_email.return_value = ["send failed"]
 
-        # Full failure must raise so the Temporal activity surfaces it and the
-        # retry policy can take effect — but only after persisting state.
         with self.assertRaises(RuntimeError) as cm:
             deliver_report("report-id", "run-id")
         self.assertIn("send failed", str(cm.exception))

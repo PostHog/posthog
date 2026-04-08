@@ -1,7 +1,10 @@
 """Tool definitions for the evaluation report agent.
 
 Uses LangGraph's InjectedState pattern so tools can access graph state directly.
-All tools query ClickHouse live via HogQL since the dataset is too large/variable to pre-load.
+All query tools hit ClickHouse live via HogQL since the dataset is too large/variable
+to pre-load. Output tools mutate `state["report"]` (an EvalReportContent instance)
+via list append / attribute set — in-place mutations propagate back through
+InjectedState, but whole-key replacement does not.
 """
 
 import re
@@ -12,16 +15,12 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
-from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
-    REPORT_SECTIONS,
-    EvalReportMetadata,
-    ReportSection,
-)
+from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import MAX_REPORT_SECTIONS, Citation, ReportSection
 
-UUID_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`")
-# Strict UUID match for validating IDs before string-interpolating into HogQL.
-# generation_ids reach this code from the LLM, which can relay arbitrary
-# `$ai_target_event_id` property values set by user instrumentation.
+# Strict UUID match for validating IDs before string-interpolating into HogQL
+# and before storing in Citation. Generation IDs reach this code from the LLM,
+# which can relay arbitrary `$ai_target_event_id` property values set by user
+# instrumentation. Trace IDs have the same trust boundary.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -34,7 +33,6 @@ def _ch_ts(iso_str: str) -> str:
     from datetime import datetime
 
     dt = datetime.fromisoformat(iso_str)
-    # Ensure UTC
     if dt.tzinfo is not None:
         dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -68,8 +66,10 @@ def get_summary_metrics(
 ) -> str:
     """Get pass/fail/NA counts and pass rate for the current period AND the previous period.
 
-    Sets computed_metadata on state. Always call this first to understand the baseline.
-    Returns current and previous period statistics for comparison.
+    Returns current and previous period statistics for comparison. Call this first
+    to understand the baseline. Note: these numbers are also computed mechanically
+    after you finish and attached to the report as `metrics` — you don't need to
+    restate them in your sections, just reference them analytically.
     """
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
@@ -81,7 +81,6 @@ def get_summary_metrics(
     ts_end = _ch_ts(period_end)
     ts_prev_start = _ch_ts(previous_period_start)
 
-    # Current period
     current_rows = _execute_hogql(
         team_id,
         f"""
@@ -98,7 +97,6 @@ def get_summary_metrics(
         """,
     )
 
-    # Previous period
     previous_rows = _execute_hogql(
         team_id,
         f"""
@@ -129,16 +127,6 @@ def get_summary_metrics(
     prev_fail = int(previous[1])
     prev_applicable = prev_pass + prev_fail
     previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
-
-    metadata = EvalReportMetadata(
-        total_runs=total,
-        pass_count=pass_count,
-        fail_count=fail_count,
-        na_count=na_count,
-        pass_rate=pass_rate,
-        previous_pass_rate=previous_pass_rate,
-    )
-    state["computed_metadata"] = metadata
 
     result = {
         "current_period": {
@@ -282,7 +270,9 @@ def sample_generation_details(
 ) -> str:
     """Get full $ai_generation event data for specific generations.
 
-    Returns input, output, model, tokens for verification before citing in the report.
+    Returns input, output, model, tokens, AND trace_id for verification before
+    citing in the report. **Always call this before add_citation** so you have
+    the trace_id to pass in.
 
     Args:
         generation_ids: List of generation IDs to look up (max 20)
@@ -420,51 +410,118 @@ def get_top_failure_reasons(
 
 
 @tool
-def set_report_section(
+def set_title(
     state: Annotated[dict, InjectedState],
-    section: str,
-    content: str,
+    title: str,
 ) -> str:
-    """Write a section of the report.
+    """Set the report's top-level punchline title. REQUIRED — call exactly once.
 
-    Auto-extracts generation IDs referenced in backticks for linking in delivery.
+    The title is the single most scannable surface — it shows up in email subjects,
+    Slack headers, and the Reports tab preview row. Write a specific, scannable
+    headline that tells the reader the main finding at a glance. Avoid generic
+    titles like "Evaluation report" or "Analysis summary".
+
+    Good examples:
+      - "Pass rate steady at 94%, dip at 14:00 UTC bucket"
+      - "Volume dropped to zero — likely pipeline issue"
+      - "Cost regression: gpt-5-mini 3x more expensive than last week"
 
     Args:
-        section: Section name. One of: executive_summary, statistics, trend_analysis,
-                 failure_patterns, pass_patterns, notable_changes, recommendations, risk_assessment
-        content: Markdown content for the section. Reference generation IDs in backticks.
+        title: One-line headline (plain text, no markdown). Keep under 120 chars.
     """
-    if section not in REPORT_SECTIONS:
-        return f"Invalid section '{section}'. Valid sections: {', '.join(REPORT_SECTIONS)}"
-
-    referenced_ids = UUID_PATTERN.findall(content)
-
-    state["report"][section] = ReportSection(
-        content=content,
-        referenced_generation_ids=referenced_ids,
-    )
-    return f"Section '{section}' set ({len(content)} chars, {len(referenced_ids)} generation IDs referenced)"
+    clean = (title or "").strip()
+    if not clean:
+        return "Error: title cannot be empty"
+    # Clip to a sensible max so it doesn't blow up email subject lines.
+    if len(clean) > 200:
+        clean = clean[:197] + "..."
+    state["report"].title = clean
+    return f"Title set: {clean!r}"
 
 
 @tool
-def finalize_report(
+def add_section(
     state: Annotated[dict, InjectedState],
+    title: str,
+    content: str,
 ) -> str:
-    """Signal that the report is complete.
+    """Append a titled markdown section to the report.
 
-    Only call this when you have written all relevant sections.
+    You may call this 1 to {max_sections} times. Prefer fewer, substantive sections
+    over many with filler. By convention, the FIRST section you add should be the
+    executive summary / TL;DR — it's what lands in the Slack main message.
+
+    Don't restate raw counts like "total_runs: 53, pass_count: 50" in prose — the
+    viewer renders a separate metrics block. Focus on analysis, comparisons,
+    hypotheses, and concrete recommendations.
+
+    Reference specific traces by calling add_citation separately with the
+    generation_id + trace_id from sample_generation_details.
+
+    Args:
+        title: Short title for this section (e.g. "Summary", "Volume drop at 14:00").
+            No markdown, keep it under 100 chars.
+        content: Markdown body of the section. Headers, lists, tables, and bold
+            are all supported.
     """
-    written = [s for s in REPORT_SECTIONS if state["report"].get(s) is not None]
-    return f"Report finalized with {len(written)} sections: {', '.join(written)}"
+    clean_title = (title or "").strip()
+    clean_content = (content or "").strip()
+    if not clean_title:
+        return "Error: section title cannot be empty"
+    if not clean_content:
+        return "Error: section content cannot be empty"
+    if len(state["report"].sections) >= MAX_REPORT_SECTIONS:
+        return (
+            f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
+            "Merge your content into existing sections rather than fragmenting further."
+        )
+    state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
+    return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"
+
+
+# Make the cap visible in the docstring above (the `{max_sections}` placeholder).
+add_section.__doc__ = (add_section.__doc__ or "").replace("{max_sections}", str(MAX_REPORT_SECTIONS))
+
+
+@tool
+def add_citation(
+    state: Annotated[dict, InjectedState],
+    generation_id: str,
+    trace_id: str,
+    reason: str,
+) -> str:
+    """Cite a specific trace that supports a finding in the report.
+
+    Citations are structured references that downstream consumers (signals, inbox,
+    coding agents) can filter on without parsing prose. Always call
+    sample_generation_details first to verify the generation exists and to get
+    its trace_id.
+
+    Args:
+        generation_id: UUID of the $ai_generation event.
+        trace_id: UUID of the trace that contains the generation.
+        reason: Short free-form reason for the citation, e.g. "high_cost",
+            "refusal", "regression_at_14:00", "empty_output".
+    """
+    if not _UUID_RE.fullmatch(generation_id or ""):
+        return f"Error: generation_id {generation_id!r} is not a canonical UUID"
+    if not _UUID_RE.fullmatch(trace_id or ""):
+        return f"Error: trace_id {trace_id!r} is not a canonical UUID"
+    clean_reason = (reason or "").strip()[:200]
+    state["report"].citations.append(Citation(generation_id=generation_id, trace_id=trace_id, reason=clean_reason))
+    return f"Citation {len(state['report'].citations)} added: {generation_id[:8]}... ({clean_reason!r})"
 
 
 EVAL_REPORT_TOOLS = [
+    # Query tools (read-only, agent calls as needed)
     get_summary_metrics,
     get_pass_rate_over_time,
     sample_eval_results,
     sample_generation_details,
     get_recent_reports,
     get_top_failure_reasons,
-    set_report_section,
-    finalize_report,
+    # Output tools (mutate state["report"])
+    set_title,
+    add_section,
+    add_citation,
 ]

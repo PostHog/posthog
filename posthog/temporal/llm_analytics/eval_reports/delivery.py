@@ -1,4 +1,9 @@
-"""Delivery logic for evaluation reports (email and Slack)."""
+"""Delivery logic for evaluation reports (email and Slack).
+
+Content shape: `EvalReportContent` has a `title`, 1-6 titled `sections`, a list
+of structured `citations`, and a `metrics` block. The renderers below build the
+email HTML body and Slack Block Kit payloads from that shape.
+"""
 
 import re
 from datetime import UTC, datetime
@@ -7,7 +12,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import REPORT_SECTIONS, EvalReportContent
+from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 
 logger = structlog.get_logger(__name__)
 
@@ -18,17 +23,6 @@ UUID_LINK_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 # also started the section with its own `## Executive summary` heading we strip it
 # to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
 _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
-
-SECTION_TITLES = {
-    "executive_summary": "Executive Summary",
-    "statistics": "Statistics",
-    "trend_analysis": "Trend Analysis",
-    "failure_patterns": "Failure Patterns",
-    "pass_patterns": "Pass Patterns",
-    "notable_changes": "Notable Changes",
-    "recommendations": "Recommendations",
-    "risk_assessment": "Risk Assessment",
-}
 
 # html=False escapes any raw HTML in the markdown source — defense in depth
 # even though the markdown is produced by our own LLM agent via structured tools.
@@ -98,9 +92,59 @@ def _strip_redundant_leading_heading(content: str, section_title: str) -> str:
     return content
 
 
-def _render_section_html(section_name: str, content: str, project_id: int) -> str:
-    """Render a report section as HTML with clickable generation ID links."""
-    title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+def _format_pass_rate(rate: float | None) -> str:
+    if rate is None:
+        return "—"
+    return f"{rate:.2f}%"
+
+
+def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
+    """Render the metrics block as HTML (table + period-over-period row).
+
+    Lives at the top of the email body so the reader sees the trusted numbers
+    before reading the agent's analysis.
+    """
+    period = f"{_format_period_for_display(metrics.period_start)} → {_format_period_for_display(metrics.period_end)}"
+    delta = ""
+    if metrics.previous_pass_rate is not None:
+        diff = metrics.pass_rate - metrics.previous_pass_rate
+        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
+        delta = f" ({arrow} {abs(diff):.2f}pp vs previous)"
+
+    table = (
+        "<table>"
+        "<tr><th>Total runs</th><th>Pass</th><th>Fail</th><th>N/A</th><th>Pass rate</th></tr>"
+        f"<tr>"
+        f"<td>{metrics.total_runs}</td>"
+        f"<td>{metrics.pass_count}</td>"
+        f"<td>{metrics.fail_count}</td>"
+        f"<td>{metrics.na_count}</td>"
+        f"<td><strong>{_format_pass_rate(metrics.pass_rate)}</strong>{delta}</td>"
+        f"</tr>"
+        "</table>"
+    )
+    table = _inline_email_styles(table)
+    return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{table}\n'
+
+
+def _render_metrics_block_mrkdwn(metrics: EvalReportMetrics) -> str:
+    """Render the metrics block as Slack mrkdwn (compact)."""
+    delta = ""
+    if metrics.previous_pass_rate is not None:
+        diff = metrics.pass_rate - metrics.previous_pass_rate
+        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
+        delta = f" ({arrow} {abs(diff):.2f}pp)"
+    return (
+        f"*Pass rate:* {_format_pass_rate(metrics.pass_rate)}{delta}    "
+        f"*Runs:* {metrics.total_runs}  "
+        f"*Pass:* {metrics.pass_count}  "
+        f"*Fail:* {metrics.fail_count}  "
+        f"*N/A:* {metrics.na_count}"
+    )
+
+
+def _render_section_html(title: str, content: str, project_id: int) -> str:
+    """Render a titled markdown section as HTML with clickable generation ID links."""
     content = _strip_redundant_leading_heading(content, title)
     # Convert UUIDs to markdown links before rendering so they become <a> tags
     content_with_links = _linkify_uuids(content, project_id)
@@ -109,9 +153,8 @@ def _render_section_html(section_name: str, content: str, project_id: int) -> st
     return f"<h2>{title}</h2>\n{html_content}\n"
 
 
-def _render_section_mrkdwn(section_name: str, content: str) -> str:
-    """Render a report section as Slack mrkdwn."""
-    title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+def _render_section_mrkdwn(title: str, content: str) -> str:
+    """Render a titled markdown section as Slack mrkdwn."""
     content = _strip_redundant_leading_heading(content, title)
     mrkdwn_content = _slack_converter.convert(content)
     return f"*{title}*\n{mrkdwn_content}"
@@ -133,17 +176,17 @@ def deliver_email_report(
     content = EvalReportContent.from_dict(report_run.content)
     errors: list[str] = []
 
-    # Build HTML body from report sections
-    body_parts = []
-    for section_name in REPORT_SECTIONS:
-        section = getattr(content, section_name)
-        if section is not None:
-            body_parts.append(_render_section_html(section_name, section.content, project_id))
-
+    # Metrics block first, then each section
+    body_parts = [_render_metrics_block_html(content.metrics)]
+    for section in content.sections:
+        body_parts.append(_render_section_html(section.title, section.content, project_id))
     body_html = "\n".join(body_parts)
+
     evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
+    subject_title = content.title or f"Evaluation report for {evaluation_name}"
+    subject = f"{evaluation_name}: {subject_title}"
 
     for target in targets:
         if target.get("type") != "email":
@@ -154,9 +197,10 @@ def deliver_email_report(
             try:
                 message = EmailMessage(
                     campaign_key=f"eval_report_{report_run.report_id}_{report_run.id}",
-                    subject=f"Evaluation report: {evaluation_name} ({period_start[:10]} - {period_end[:10]})",
+                    subject=subject,
                     template_name="evaluation_report",
                     template_context={
+                        "title": content.title or f"Evaluation report for {evaluation_name}",
                         "evaluation_name": evaluation_name,
                         "period_start": period_start_display,
                         "period_end": period_end_display,
@@ -184,11 +228,25 @@ def deliver_slack_report(
     period_start: str,
     period_end: str,
 ) -> list[str]:
-    """Send report via Slack. Returns list of errors (empty if all succeeded)."""
+    """Send report via Slack. Returns list of errors (empty if all succeeded).
+
+    Main message = agent title (Block Kit header) + metrics context + first section.
+    Thread replies = sections[1:]. If there's only one section, no thread replies.
+    """
     from posthog.models.integration import Integration, SlackIntegration
 
     content = EvalReportContent.from_dict(report_run.content)
     errors: list[str] = []
+
+    header_text = content.title or f"Evaluation report: {evaluation_name}"
+    # Slack header blocks are limited to 150 chars, enforce that here.
+    if len(header_text) > 150:
+        header_text = header_text[:147] + "..."
+
+    period_line = (
+        f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+    )
+    metrics_line = _render_metrics_block_mrkdwn(content.metrics)
 
     for target in targets:
         if target.get("type") != "slack":
@@ -203,58 +261,47 @@ def deliver_slack_report(
             integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
             client = SlackIntegration(integration).client
 
-            # Post main message
-            blocks = [
+            # Main message: header + context + metrics + first section (if any)
+            blocks: list[dict] = [
                 {
                     "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f"Evaluation report: {evaluation_name}",
-                    },
+                    "text": {"type": "plain_text", "text": header_text},
                 },
                 {
                     "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Period: {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}",
-                        }
-                    ],
+                    "elements": [{"type": "mrkdwn", "text": period_line}],
+                },
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": metrics_line}],
                 },
             ]
 
-            # Add executive summary as first section
-            if content.executive_summary:
-                summary_mrkdwn = _slack_converter.convert(content.executive_summary.content)
+            if content.sections:
+                first_section_mrkdwn = _render_section_mrkdwn(content.sections[0].title, content.sections[0].content)
                 blocks.append(
                     {
                         "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": summary_mrkdwn[:3000],
-                        },
+                        "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000]},
                     }
                 )
 
             result = client.chat_postMessage(
                 channel=channel,
                 blocks=blocks,
-                text=f"Evaluation report: {evaluation_name}",
+                text=header_text,
             )
 
-            # Post remaining sections as thread replies
+            # Thread replies: remaining sections, one per reply
             thread_ts = result.get("ts")
-            if thread_ts:
-                # Skip executive summary (already in main message), post rest in thread
-                for section_name in REPORT_SECTIONS[1:]:
-                    section = getattr(content, section_name)
-                    if section is not None:
-                        mrkdwn_text = _render_section_mrkdwn(section_name, section.content)
-                        client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=mrkdwn_text[:3000],
-                        )
+            if thread_ts and len(content.sections) > 1:
+                for section in content.sections[1:]:
+                    mrkdwn_text = _render_section_mrkdwn(section.title, section.content)
+                    client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text=mrkdwn_text[:3000],
+                    )
 
         except Exception as e:
             error_msg = f"Failed to send Slack message to {channel}: {e}"
@@ -267,17 +314,17 @@ def deliver_slack_report(
 def deliver_report(report_id: str, report_run_id: str) -> None:
     """Deliver a report run via all configured delivery targets.
 
-    Raises RuntimeError when *all* delivery targets fail, so the calling Temporal
-    activity surfaces the failure and the retry policy can take effect. Partial
-    failures are persisted via delivery_errors but do not raise.
+    Raises RuntimeError after persisting FAILED status if ALL delivery targets
+    fail, so the Temporal activity surfaces the failure and the retry policy
+    kicks in. Partial failures return normally (with delivery_status=partial_failure).
     """
     from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 
-    report = EvaluationReport.objects.select_related("evaluation", "team").get(id=report_id)
     report_run = EvaluationReportRun.objects.get(id=report_run_id)
+    report = EvaluationReport.objects.select_related("evaluation", "team").get(id=report_id)
 
     evaluation_name = report.evaluation.name
-    evaluation_id = str(report.evaluation_id)
+    evaluation_id = str(report.evaluation.id)
     project_id = report.team.id
     team_id = report.team_id
     period_start = report_run.period_start.isoformat()
@@ -286,7 +333,6 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
 
     all_errors: list[str] = []
 
-    # Email delivery
     email_targets = [t for t in targets if t.get("type") == "email"]
     if email_targets:
         all_errors.extend(
@@ -295,7 +341,6 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
             )
         )
 
-    # Slack delivery
     slack_targets = [t for t in targets if t.get("type") == "slack"]
     if slack_targets:
         all_errors.extend(
@@ -304,17 +349,30 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
             )
         )
 
-    # Update delivery status
-    if not all_errors:
-        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.DELIVERED
-    elif len(all_errors) < len(targets):
+    had_any_target = bool(email_targets or slack_targets)
+    all_failed = (
+        had_any_target
+        and len(all_errors) > 0
+        and (
+            # Check if every attempted target failed. We count attempts implicitly by
+            # summing target counts — an exception in delivery appends 1 error, and
+            # targets with an attempt that succeeded don't append anything.
+            len(all_errors) >= len(email_targets) + len(slack_targets)
+        )
+    )
+
+    if not had_any_target:
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
+    elif all_failed:
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.FAILED
+    elif all_errors:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PARTIAL_FAILURE
     else:
-        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.FAILED
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.DELIVERED
 
     report_run.delivery_errors = all_errors
     report_run.save(update_fields=["delivery_status", "delivery_errors"])
 
-    # Raise on full failure so Temporal retries the activity
-    if report_run.delivery_status == EvaluationReportRun.DeliveryStatus.FAILED:
-        raise RuntimeError(f"All delivery targets failed for report {report_id}: {all_errors}")
+    if all_failed:
+        # Raise so the Temporal activity fails and retries fire per DELIVER_RETRY_POLICY.
+        raise RuntimeError(f"All delivery targets failed for report run {report_run_id}: {'; '.join(all_errors)}")
