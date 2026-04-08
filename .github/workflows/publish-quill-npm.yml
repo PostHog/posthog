@@ -51,11 +51,12 @@ jobs:
               run: |
                   for pkg in quill-tokens quill-primitives quill-components quill-blocks; do
                     echo "Publishing @posthog/$pkg"
-                    pnpm --filter "@posthog/$pkg" publish --tag ${{ inputs.tag }} --no-git-checks --access public
+                    pnpm --filter "@posthog/$pkg" publish --tag "$NPM_TAG" --no-git-checks --access public
                   done
               env:
                   NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
+                  NPM_TAG: ${{ inputs.tag }}
 
             - name: Get published versions
               id: versions
