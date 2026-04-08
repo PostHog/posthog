@@ -69,6 +69,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
     endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
