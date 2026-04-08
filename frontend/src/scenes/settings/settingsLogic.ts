@@ -24,8 +24,10 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, S
 const FUSE_THRESHOLD = 0.2
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface SettingsFuse extends FuseClass<Setting> {}
-export interface SectionsFuse extends FuseClass<SettingSection> {}
+export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
+export interface SectionsFuse extends FuseClass<
+    SettingSection & { searchValue: string; settingsSearchValues: string }
+> {}
 
 export interface SearchIndexEntry {
     settingId: SettingId
