@@ -5,21 +5,19 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from products.signals.backend.temporal.grouping import (
-    WaitForClickHouseInput,
-    WaitForClickHouseSignal,
-    wait_for_signal_in_clickhouse_activity,
-)
 from products.signals.backend.temporal.reingestion import (
     DeleteReportInput,
     SoftDeleteReportSignalsInput,
     delete_report_activity,
     soft_delete_report_signals_activity,
 )
-from products.signals.backend.temporal.summary import (
+from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
     fetch_signals_for_report_activity,
+    wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.types import SignalReportDeletionWorkflowInputs
 

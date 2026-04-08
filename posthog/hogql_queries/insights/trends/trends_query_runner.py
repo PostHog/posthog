@@ -419,6 +419,35 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
+        final_result, has_more = self.format_results(returned_results)
+
+        timings_matrix[-1] = self.timings.to_list()
+
+        timings: list[QueryTiming] = []
+        for timing in timings_matrix:
+            if isinstance(timing, list):
+                timings.extend(timing)
+
+        return TrendsQueryResponse(
+            results=final_result,
+            hasMore=has_more,
+            timings=timings,
+            hogql=response_hogql,
+            modifiers=self.modifiers,
+            error=". ".join(debug_errors),
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
+
+    def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
+        """Format pre-computed per-series results into a flat result list.
+
+        Takes a list of per-series results (each a list of dicts from build_series_response),
+        applies formula nodes, order assignment, weekend filtering, and breakdown handling.
+        Returns (final_results, has_more).
+        """
         final_result: list[dict] = []
         formula_nodes = self.query.trendsFilter and self.query.trendsFilter.formulaNodes
 
@@ -433,12 +462,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     for formula_idx, formula_node in enumerate(formula_nodes):
                         current_formula_results = self.apply_formula(formula_node, current_results)
                         previous_formula_results = self.apply_formula(formula_node, previous_results)
-                        # Create a new list for each formula's results
                         formula_results = []
                         formula_results.extend(current_formula_results)
                         formula_results.extend(previous_formula_results)
 
-                        # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
 
@@ -447,29 +474,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     for formula_idx, formula_node in enumerate(formula_nodes):
                         formula_results = self.apply_formula(formula_node, returned_results)
 
-                        # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
 
-                        # Create a new list for each formula's results
                         final_result.extend(formula_results)
         else:
-            for result in returned_results:
-                if isinstance(result, list):
-                    for item in result:
-                        # Set the order for each item based on the action order
-                        item["order"] = item.get("action", {}).get("order", 0)
+            for series_results in returned_results:
+                for item in series_results:
+                    item["order"] = item.get("action", {}).get("order", 0)
 
-                    final_result.extend(result)
-                elif isinstance(result, dict):  # type: ignore [unreachable]
-                    raise ValueError("This should not happen")
-
-        timings_matrix[-1] = self.timings.to_list()
-
-        timings: list[QueryTiming] = []
-        for timing in timings_matrix:
-            if isinstance(timing, list):
-                timings.extend(timing)
+                final_result.extend(series_results)
 
         has_more = False
         if self.breakdown_enabled and any(self._is_other_breakdown(item["breakdown_value"]) for item in final_result):
@@ -489,18 +503,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         ):
             final_result = self._filter_weekend_buckets(final_result)
 
-        return TrendsQueryResponse(
-            results=final_result,
-            hasMore=has_more,
-            timings=timings,
-            hogql=response_hogql,
-            modifiers=self.modifiers,
-            error=". ".join(debug_errors),
-            resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
-                date_to=self.query_date_range.date_to(),
-            ),
-        )
+        return final_result, has_more
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         def get_value(name: str, val: Any):
