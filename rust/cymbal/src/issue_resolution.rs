@@ -36,6 +36,11 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
 }
 
+pub struct IssueWithFirstSeen {
+    pub issue: Issue,
+    pub fingerprint_first_seen: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IssueStatus {
@@ -63,35 +68,36 @@ impl Issue {
         executor: E,
         team_id: i32,
         fingerprint: &str,
-    ) -> Result<Option<(Self, Option<DateTime<Utc>>)>, UnhandledError>
+    ) -> Result<Option<IssueWithFirstSeen>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             r#"
             SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
             "#,
-            team_id,
-            fingerprint
         )
+        .bind(team_id)
+        .bind(fingerprint)
         .fetch_optional(executor)
         .await?;
 
         Ok(row.map(|r| {
-            (
-                Issue {
-                    id: r.id,
-                    team_id: r.team_id,
-                    status: IssueStatus::from(r.status),
-                    name: r.name,
-                    description: r.description,
-                    created_at: r.created_at,
+            use sqlx::Row;
+            IssueWithFirstSeen {
+                issue: Issue {
+                    id: r.get("id"),
+                    team_id: r.get("team_id"),
+                    status: IssueStatus::from(r.get::<String, _>("status")),
+                    name: r.get("name"),
+                    description: r.get("description"),
+                    created_at: r.get("created_at"),
                 },
-                r.first_seen,
-            )
+                fingerprint_first_seen: r.get("first_seen"),
+            }
         }))
     }
 

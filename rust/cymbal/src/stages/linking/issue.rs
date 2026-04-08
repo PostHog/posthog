@@ -105,7 +105,9 @@ async fn resolve_issue(
     let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
-    if let Some((mut issue, fingerprint_first_seen)) = existing_issue {
+    if let Some(result) = existing_issue {
+        let fingerprint_first_seen = result.fingerprint_first_seen;
+        let mut issue = result.issue;
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
@@ -126,7 +128,7 @@ async fn resolve_issue(
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
-        Ok(issue)
+        return Ok(issue);
     }
 
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling
@@ -162,14 +164,11 @@ async fn resolve_issue(
     if !was_created {
         txn.rollback().await?;
         // Replace the attempt issue with the existing one
-        let fingerprint_first_seen = if let Some((existing, first_seen)) =
-            Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?
-        {
-            issue = existing;
-            first_seen
-        } else {
-            None
-        };
+        let mut fingerprint_first_seen = None;
+        if let Some(result) = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await? {
+            fingerprint_first_seen = result.fingerprint_first_seen;
+            issue = result.issue;
+        }
 
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
@@ -192,7 +191,6 @@ async fn resolve_issue(
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
-        return Ok(issue);
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
         let assignment =
