@@ -69,6 +69,19 @@ class TestDetectTestType:
         assert config.test_type == "jest"
         assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
 
+    def test_jest_node_id_adds_test_name_pattern(self) -> None:
+        config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
+        assert config.test_type == "jest"
+        assert config.command == [
+            "pnpm",
+            "--filter=@posthog/frontend",
+            "exec",
+            "jest",
+            "frontend/src/lib/utils.test.ts",
+            "--testNamePattern",
+            "some test name",
+        ]
+
     def test_nodejs_jest(self) -> None:
         config = detect_test_type("nodejs/tests/cdp/cdp-api.test.ts")
         assert config.test_type == "jest"

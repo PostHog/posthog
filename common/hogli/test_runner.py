@@ -319,7 +319,7 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
     )
 
 
-def _detect_jest_test(file_only: str, file_path: str) -> TestRunConfig:
+def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
     """Detect Jest test configuration by finding the nearest package.json."""
     package_json = _find_nearest(file_only, "package.json")
     if not package_json:
@@ -329,9 +329,13 @@ def _detect_jest_test(file_only: str, file_path: str) -> TestRunConfig:
     if not pkg_name:
         raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
 
+    command = ["pnpm", f"--filter={pkg_name}", "exec", "jest", file_only]
+    if node_id:
+        command.extend(["--testNamePattern", node_id])
+
     return TestRunConfig(
         test_type="jest",
-        command=["pnpm", f"--filter={pkg_name}", "exec", "jest", file_path],
+        command=command,
         description=f"Jest test (via {pkg_name})",
     )
 
@@ -437,7 +441,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
 
     # 4. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
     if file_only.endswith((".test.ts", ".test.tsx")):
-        return _detect_jest_test(file_only, file_path)
+        return _detect_jest_test(file_only, file_path, node_id)
 
     # 5. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
     if ext == ".rs":
@@ -453,7 +457,8 @@ def detect_test_type(file_path: str) -> TestRunConfig:
         "  Files:       *.py, *.test.ts(x), *.spec.ts, *.rs, *.go, go.mod\n"
         "  Directories: any directory under a supported test root\n"
         "  Node IDs:    path/to/test.py::TestClass::test_method\n"
-        "               path/to/file.rs::test_function_name"
+        "               path/to/file.rs::test_function_name\n"
+        "               path/to/file.test.ts::test name pattern"
     )
 
 
