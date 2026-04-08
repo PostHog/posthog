@@ -28,9 +28,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Entry page' AS dimension_type,
@@ -61,9 +61,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Referrer' AS dimension_type,
@@ -94,9 +94,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Device' AS dimension_type,
@@ -126,9 +126,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Browser' AS dimension_type,
@@ -158,9 +158,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Country' AS dimension_type,
@@ -190,9 +190,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Channel' AS dimension_type,
@@ -223,9 +223,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'UTM source' AS dimension_type,
@@ -256,9 +256,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -300,9 +300,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Entry page' AS dimension_type,
@@ -333,9 +333,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Referrer' AS dimension_type,
@@ -366,9 +366,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Device' AS dimension_type,
@@ -398,9 +398,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Browser' AS dimension_type,
@@ -430,9 +430,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Country' AS dimension_type,
@@ -462,9 +462,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Channel' AS dimension_type,
@@ -495,9 +495,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'UTM source' AS dimension_type,
@@ -528,9 +528,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -572,9 +572,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Entry page' AS dimension_type,
@@ -605,9 +605,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_pathname`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Referrer' AS dimension_type,
@@ -638,9 +638,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_referring_domain`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Device' AS dimension_type,
@@ -670,9 +670,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Browser' AS dimension_type,
@@ -702,9 +702,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Country' AS dimension_type,
@@ -734,9 +734,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_country_code'), ''), 'null'), '^"|"$', ''), ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'Channel' AS dimension_type,
@@ -767,9 +767,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$channel_type`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100
   UNION ALL
   SELECT 'UTM source' AS dimension_type,
@@ -800,9 +800,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-22 23:59:59', 'UTC'))))), 1))
      GROUP BY events__session.session_id,
-              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))
-  GROUP BY dimension_value
-  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value, ''), 1))
+              nullIf(nullIf(events__session.`$entry_utm_source`, ''), 'null'))  GROUP BY dimension_value
+  HAVING and(isNotNull(dimension_value), ifNull(notEquals(dimension_value,
+                                                          ''), 1))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
