@@ -163,6 +163,27 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state_test', kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -1107,6 +1128,55 @@
       
   '''
 # ---
+# name: test_create_table_query[error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'raw_error_tracking_fingerprint_issue_state')
+  
+  '''
+# ---
+# name: test_create_table_query[error_tracking_fingerprint_issue_state_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_fingerprint_issue_state_mv 
+  TO writable_error_tracking_fingerprint_issue_state
+  AS SELECT
+  team_id,
+  fingerprint,
+  issue_id,
+  issue_name,
+  issue_description,
+  issue_status,
+  assigned_user_id,
+  assigned_role_id,
+  first_seen,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_error_tracking_fingerprint_issue_state
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -1717,6 +1787,27 @@
       timestamp DateTime64(6, 'UTC')
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state_test', kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -3351,6 +3442,37 @@
   WHERE
       type != 'QueryStart'
   
+      
+  '''
+# ---
+# name: test_create_table_query[raw_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
       
   '''
 # ---
@@ -5487,6 +5609,31 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'raw_error_tracking_fingerprint_issue_state')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -7017,6 +7164,37 @@
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
   PRIMARY KEY (team_id, event_date, event_time, query_id)
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[raw_error_tracking_fingerprint_issue_state]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_error_tracking_fingerprint_issue_state 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      issue_name Nullable(VARCHAR),
+      issue_description Nullable(VARCHAR),
+      issue_status VARCHAR,
+      assigned_user_id Nullable(Int64),
+      assigned_role_id Nullable(UUID),
+      first_seen DateTime64(3, 'UTC'),
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
       
   '''
 # ---

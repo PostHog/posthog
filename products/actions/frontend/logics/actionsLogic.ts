@@ -26,7 +26,7 @@ export const actionsLogic = kea<actionsLogicType>([
     path(['products', 'actions', 'actionsLogic']),
     connect(() => ({
         values: [
-            actionsModel({ params: 'include_count=1' }),
+            actionsModel({ params: 'include_count=1&include_reference_count=1' }),
             ['actions', 'actionsLoading'],
             userLogic,
             ['user'],

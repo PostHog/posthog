@@ -236,8 +236,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=2),
-                    maximum_attempts=3,
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=5,
                 ),
             )
 
