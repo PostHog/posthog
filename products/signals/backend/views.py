@@ -54,6 +54,10 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalSourceConfig,
 )
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_login_to_user_map,
+    get_org_member_github_logins_by_user_uuid,
+)
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportSerializer,
@@ -311,25 +315,87 @@ class SignalReportViewSet(
     }
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
+        qs = queryset
+        qs = self._scope_signal_report_queryset(qs)
+        qs = self._exclude_deleted_signal_reports(qs)
+        qs = self._apply_signal_report_status_filter(qs)
+        qs = self._apply_signal_report_search_filter(qs)
+        qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._annotate_signal_report_status_rank(qs)
+        qs = self._annotate_signal_report_priority(qs)
+        qs = self._prefetch_signal_report_priority_artefacts(qs)
+        qs = self._annotate_is_suggested_reviewer(qs)
+        return qs
+
+    def _scope_signal_report_queryset(self, queryset):
+        return queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
+
+    def _exclude_deleted_signal_reports(self, queryset):
         # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
-        qs = qs.exclude(status=SignalReport.Status.DELETED)
+        return queryset.exclude(status=SignalReport.Status.DELETED)
+
+    def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
-            qs = qs.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
-        else:
-            qs = qs.exclude(status=SignalReport.Status.SUPPRESSED)
+            return queryset.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+
+    def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
-        if search:
-            qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        if not search:
+            return queryset
+        return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+
+    def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
-        if source_product_filter:
-            source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
-            if source_products:
-                report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
-                qs = qs.filter(id__in=report_ids_with_source)
+        if not source_product_filter:
+            return queryset
+
+        source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
+        if not source_products:
+            return queryset
+
+        report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
+        return queryset.filter(id__in=report_ids_with_source)
+
+    def _apply_signal_report_suggested_reviewer_filter(self, queryset):
+        suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
+        if not suggested_reviewer_filter:
+            return queryset
+
+        reviewer_user_uuids = [s.strip() for s in suggested_reviewer_filter.split(",") if s.strip()]
+        try:
+            reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
+        except (ValueError, AttributeError) as e:
+            raise serializers.ValidationError({"suggested_reviewers": f"Invalid user UUID: {e}"})
+
+        reviewer_github_logins = list(
+            get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
+        )
+        if not reviewer_github_logins:
+            return queryset.none()
+
+        reviewer_json_filters = [
+            json.dumps([{"github_login": github_login}]) for github_login in reviewer_github_logins
+        ]
+        reviewer_where = " OR ".join(["content::jsonb @> %s::jsonb"] * len(reviewer_json_filters))
+        return queryset.filter(
+            Exists(
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"),
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                ).extra(
+                    where=[reviewer_where],
+                    params=reviewer_json_filters,
+                )
+            )
+        )
+
+    def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
-        qs = qs.annotate(
+        return queryset.annotate(
             pipeline_status_rank=Case(
                 When(status=SignalReport.Status.READY, then=Value(0)),
                 When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
@@ -343,6 +409,8 @@ class SignalReportViewSet(
                 output_field=IntegerField(),
             )
         )
+
+    def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
         # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
         # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
@@ -364,41 +432,49 @@ class SignalReportViewSet(
             .values("_priority_val")[:1],
             output_field=CharField(),
         )
-        qs = qs.annotate(
+        return queryset.annotate(
             priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
         )
-        qs = qs.prefetch_related(
+
+    def _prefetch_signal_report_priority_artefacts(self, queryset):
+        return queryset.prefetch_related(
             Prefetch(
                 "artefacts",
                 queryset=SignalReportArtefact.objects.filter(
                     type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_priority_artefacts",
-            )
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_actionability_artefacts",
+            ),
         )
 
+    def _annotate_is_suggested_reviewer(self, queryset):
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         github_login = self._get_github_login(self.request.user)
-        if github_login:
-            # github_login comes from our own UserSocialAuth DB, not user input.
-            qs = qs.annotate(
-                is_suggested_reviewer=Exists(
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                    SignalReportArtefact.objects.filter(
-                        report_id=OuterRef("id"),
-                        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                    ).extra(
-                        where=["content::jsonb @> %s::jsonb"],
-                        params=[json.dumps([{"github_login": github_login}])],
-                    )
+        if not github_login:
+            return queryset.annotate(is_suggested_reviewer=Value(False))
+
+        # github_login comes from our own UserSocialAuth DB, not user input.
+        return queryset.annotate(
+            is_suggested_reviewer=Exists(
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"),
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                ).extra(
+                    where=["content::jsonb @> %s::jsonb"],
+                    params=[json.dumps([{"github_login": github_login}])],
                 )
             )
-        else:
-            qs = qs.annotate(is_suggested_reviewer=Value(False))
-
-        return qs
+        )
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
@@ -449,6 +525,40 @@ class SignalReportViewSet(
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
+
+    @extend_schema(exclude=True)
+    @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
+    def available_reviewers(self, request, **kwargs):
+        login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
+        query = (request.query_params.get("query") or "").strip().lower()
+
+        users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
+
+        filtered_users = [
+            (user_uuid, user)
+            for user_uuid, user in users_by_uuid.items()
+            if not query
+            or query in f"{user.first_name} {user.last_name}".strip().lower()
+            or query in (user.email or "").lower()
+        ]
+
+        reviewers = {
+            user_uuid: {
+                "name": f"{user.first_name} {user.last_name}".strip(),
+                "email": user.email or "",
+            }
+            for user_uuid, user in sorted(
+                filtered_users,
+                key=lambda item: (
+                    (item[1].first_name or "").lower(),
+                    (item[1].last_name or "").lower(),
+                    (item[1].email or "").lower(),
+                    item[0],
+                ),
+            )[:100]
+        }
+
+        return Response(reviewers)
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
