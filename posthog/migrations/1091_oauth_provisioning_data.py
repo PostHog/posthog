@@ -14,60 +14,52 @@ def create_provisioning_partners(apps, schema_editor):
     stripe_callback = getattr(settings, "STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
 
     if stripe_client_id:
-        try:
-            stripe_app = OAuthApplication.objects.get(client_id=stripe_client_id)
-            if not stripe_app.provisioning_auth_method:
-                if stripe_callback:
-                    stripe_app.redirect_uris = stripe_callback
-                stripe_app.provisioning_auth_method = "hmac"
-                stripe_app.provisioning_signing_secret = stripe_secret
-                stripe_app.provisioning_partner_type = "stripe"
-                stripe_app.provisioning_can_create_accounts = True
-                stripe_app.provisioning_can_provision_resources = True
-                stripe_app.save(
-                    update_fields=[
-                        "redirect_uris",
-                        "provisioning_auth_method",
-                        "provisioning_signing_secret",
-                        "provisioning_partner_type",
-                        "provisioning_can_create_accounts",
-                        "provisioning_can_provision_resources",
-                    ]
-                )
-        except OAuthApplication.DoesNotExist:
-            pass
-
-    # --- Wizard ---
-    wizard_app, created = OAuthApplication.objects.get_or_create(
-        client_id=WIZARD_CLIENT_ID,
-        defaults={
-            "name": "PostHog Wizard",
-            "client_secret": "",
-            "client_type": "confidential",
-            "authorization_grant_type": "authorization-code",
-            "redirect_uris": "http://localhost:8239/callback",
-            "algorithm": "RS256",
-            "is_first_party": True,
-            "provisioning_auth_method": "pkce",
-            "provisioning_partner_type": "wizard",
+        update_fields = {
+            "provisioning_auth_method": "hmac",
+            "provisioning_signing_secret": stripe_secret,
+            "provisioning_partner_type": "stripe",
             "provisioning_can_create_accounts": True,
             "provisioning_can_provision_resources": True,
-        },
-    )
-    if not created and not wizard_app.provisioning_auth_method:
-        wizard_app.provisioning_auth_method = "pkce"
-        wizard_app.provisioning_partner_type = "wizard"
-        wizard_app.provisioning_can_create_accounts = True
-        wizard_app.provisioning_can_provision_resources = True
-        wizard_app.is_first_party = True
-        wizard_app.save(
-            update_fields=[
-                "provisioning_auth_method",
-                "provisioning_partner_type",
-                "provisioning_can_create_accounts",
-                "provisioning_can_provision_resources",
-                "is_first_party",
+        }
+        if stripe_callback:
+            update_fields["redirect_uris"] = stripe_callback
+        OAuthApplication.objects.filter(
+            client_id=stripe_client_id,
+            provisioning_auth_method="",
+        ).update(**update_fields)
+
+    # --- Wizard ---
+    if not OAuthApplication.objects.filter(client_id=WIZARD_CLIENT_ID).exists():
+        from oauthlib.common import generate_token
+
+        OAuthApplication.objects.bulk_create(
+            [
+                OAuthApplication(
+                    client_id=WIZARD_CLIENT_ID,
+                    name="PostHog Wizard",
+                    client_secret=generate_token(),
+                    client_type="confidential",
+                    authorization_grant_type="authorization-code",
+                    redirect_uris="http://localhost:8239/callback",
+                    algorithm="RS256",
+                    is_first_party=True,
+                    provisioning_auth_method="pkce",
+                    provisioning_partner_type="wizard",
+                    provisioning_can_create_accounts=True,
+                    provisioning_can_provision_resources=True,
+                )
             ]
+        )
+    else:
+        OAuthApplication.objects.filter(
+            client_id=WIZARD_CLIENT_ID,
+            provisioning_auth_method="",
+        ).update(
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            is_first_party=True,
         )
 
 
