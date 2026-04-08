@@ -5,10 +5,40 @@ pub mod sink;
 pub mod types;
 
 use std::str::FromStr;
+use std::time::Duration;
 
 pub use event::Event;
+pub use kafka::KafkaSink;
 pub use sink::Sink;
 pub use types::{Destination, Outcome, SinkResult};
+
+// ---------------------------------------------------------------------------
+// Config (per-sink composite)
+// ---------------------------------------------------------------------------
+
+/// Composite per-sink configuration. Contains the transport-agnostic
+/// produce timeout alongside transport-specific config (Kafka today,
+/// S3/etc. in the future).
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub produce_timeout: Duration,
+    pub kafka: kafka::config::Config,
+}
+
+impl Config {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let msg_timeout = Duration::from_millis(self.kafka.message_timeout_ms as u64);
+        anyhow::ensure!(
+            self.produce_timeout >= msg_timeout,
+            "produce_timeout ({:?}) must be >= message_timeout_ms ({:?}) \
+             to avoid ghost deliveries after application-level timeout",
+            self.produce_timeout,
+            msg_timeout,
+        );
+        self.kafka.validate()?;
+        Ok(())
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SinkName
