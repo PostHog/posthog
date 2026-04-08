@@ -24,6 +24,7 @@ jobs:
         name: Build and publish
         runs-on: ubuntu-24.04
         timeout-minutes: 15
+        environment: Release
         permissions:
             contents: read
             id-token: write
@@ -69,3 +70,22 @@ jobs:
               env:
                   NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
+
+            - name: Get published versions
+              id: versions
+              run: |
+                  TOKENS_VERSION=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
+                  PRIMITIVES_VERSION=$(node -p "require('./packages/quill/packages/primitives/package.json').version")
+                  COMPONENTS_VERSION=$(node -p "require('./packages/quill/packages/components/package.json').version")
+                  BLOCKS_VERSION=$(node -p "require('./packages/quill/packages/blocks/package.json').version")
+                  echo "summary=@posthog/quill-tokens@$TOKENS_VERSION, @posthog/quill-primitives@$PRIMITIVES_VERSION, @posthog/quill-components@$COMPONENTS_VERSION, @posthog/quill-blocks@$BLOCKS_VERSION" >> $GITHUB_OUTPUT
+
+            - name: Notify Slack
+              if: ${{ !cancelled() }}
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}"
+                      text: "${{ job.status == 'success' && ':white_check_mark:' || ':red_circle:' }} Quill npm publish (${{ inputs.tag }}): ${{ job.status }}\n${{ steps.versions.outputs.summary }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
