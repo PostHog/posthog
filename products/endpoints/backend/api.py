@@ -43,7 +43,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.utils import print_prepared_ast
@@ -1748,12 +1748,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         properties: list[dict] = []
         for prop_name, prop_type in breakdown_infos or []:
-            if prop_name in variables:
-                value = variables[prop_name]
-                # Empty string means "null/unset" — match events where the property is missing.
-                # This keeps inline execution consistent with the materialized path,
-                # where null breakdown values are stored as '' in S3.
+            if prop_name not in variables:
+                continue
+            value = variables[prop_name]
+            # Any failure to build a filter for a breakdown variable must error the
+            # request — silently skipping would return unfiltered data, which is a
+            # data-leak (same principle that gates materialized endpoints on having
+            # all variables present).
+            try:
+                if prop_type == "hogql":
+                    # HogQLPropertyFilter.key is a full HogQL predicate and doesn't accept
+                    # `operator` (HogQLPropertyFilter has extra="forbid"), so build a
+                    # `<expr> = <value>` (or `isNull(<expr>)`) predicate to filter with.
+                    key_expr = parse_expr(prop_name)
+                    predicate_expr: ast.Expr
+                    if value == "":
+                        predicate_expr = ast.Call(name="isNull", args=[key_expr])
+                    else:
+                        predicate_expr = ast.CompareOperation(
+                            left=key_expr,
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value=value),
+                        )
+                    properties.append({"key": predicate_expr.to_hogql(), "type": "hogql"})
+                    continue
                 if value == "":
+                    # Empty string means "null/unset" — match events where the property is missing.
+                    # This keeps inline execution consistent with the materialized path,
+                    # where null breakdown values are stored as '' in S3.
                     properties.append(
                         {
                             "key": prop_name,
@@ -1770,6 +1792,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             "operator": PropertyOperator.EXACT,
                         }
                     )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": self.kwargs.get("name"),
+                        "prop_name": prop_name,
+                        "prop_type": prop_type,
+                    },
+                )
+                raise ValidationError(
+                    {"variables": f"Could not apply filter for breakdown variable '{prop_name}'"}
+                ) from e
 
         if not date_from and not date_to and not properties:
             return None
