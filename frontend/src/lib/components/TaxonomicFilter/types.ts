@@ -273,6 +273,8 @@ export interface LoaderOptions {
 
 export type ListFuse = Fuse<{
     name: string
+    posthogName: string | undefined
+    recentLabel: string | undefined
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
