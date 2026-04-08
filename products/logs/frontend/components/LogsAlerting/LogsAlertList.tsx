@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
@@ -37,6 +38,16 @@ export function LogsAlertList(): JSX.Element {
         {
             title: 'Threshold',
             render: (_, alert) => <span className="text-muted text-xs">{formatThreshold(alert)}</span>,
+        },
+        {
+            title: 'Last checked',
+            dataIndex: 'last_checked_at',
+            render: (_, alert) =>
+                alert.last_checked_at ? (
+                    <TZLabel time={alert.last_checked_at} />
+                ) : (
+                    <span className="text-muted text-xs">Never</span>
+                ),
         },
         {
             title: 'Enabled',
@@ -84,7 +95,7 @@ export function LogsAlertList(): JSX.Element {
         },
     ]
 
-    if (alertsLoading) {
+    if (alertsLoading && alerts.length === 0) {
         return <SpinnerOverlay />
     }
 
@@ -99,6 +110,7 @@ export function LogsAlertList(): JSX.Element {
                 columns={columns}
                 dataSource={alerts}
                 rowKey="id"
+                loading={alertsLoading}
                 emptyState="No alerts configured yet."
                 size="small"
             />

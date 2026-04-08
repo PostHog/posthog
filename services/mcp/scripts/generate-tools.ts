@@ -559,7 +559,7 @@ function generateToolCode(
     }
 
     const composition = composeToolSchema(config, resolved, spec)
-    let responseType = resolveResponseType(resolved.operation, knownTypes)
+    let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
@@ -715,7 +715,7 @@ function generateCustomSchemaToolCode(
     const pathExpr = buildPathExpr(resolved.path, pathParamNames)
 
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
@@ -728,16 +728,18 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
+    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
         if (useBody) {
-            handlerBody += `        const { ${destructured}...body } = params\n`
+            handlerBody += `        const { ${destructured}...body } = parsedParams\n`
         } else {
-            handlerBody += `        const { ${destructured}...query } = params\n`
+            handlerBody += `        const { ${destructured}...query } = parsedParams\n`
         }
     }
 
-    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (pathParamNames.length > 0) {
@@ -747,9 +749,9 @@ function generateCustomSchemaToolCode(
             handlerBody += `            query,\n`
         }
     } else if (useBody) {
-        handlerBody += `            body: params,\n`
+        handlerBody += `            body: parsedParams,\n`
     } else {
-        handlerBody += `            query: params,\n`
+        handlerBody += `            query: parsedParams,\n`
     }
     handlerBody += `        })\n`
 
@@ -763,7 +765,7 @@ function generateCustomSchemaToolCode(
     const code = `
 const ${schemaName} = ${config.input_schema}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {

@@ -132,7 +132,7 @@ export function InfiniteSelectResults({
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { totalListCount } = useValues(logic)
+    const { totalListCount, isLocalDataLoading } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -159,7 +159,12 @@ export function InfiniteSelectResults({
         </>
     )
 
-    const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
+    const showDataWarehouseLoadingState =
+        openTab === TaxonomicFilterGroupType.DataWarehouse && totalListCount === 0 && isLocalDataLoading
+    const showEmptyState =
+        !showDataWarehouseLoadingState &&
+        totalListCount === 0 &&
+        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
         <div className="flex flex-row h-full">
@@ -197,9 +202,15 @@ export function InfiniteSelectResults({
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                             >
-                                {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
-                                {!showEmptyState && listComponent}
-                                {!showEmptyState &&
+                                {(showDataWarehouseLoadingState || showEmptyState) && (
+                                    <TaxonomicFilterEmptyState
+                                        groupType={groupType}
+                                        isLoading={showDataWarehouseLoadingState}
+                                    />
+                                )}
+                                {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
+                                {!showDataWarehouseLoadingState &&
+                                    !showEmptyState &&
                                     (() => {
                                         const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
                                         return (

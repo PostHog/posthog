@@ -37,7 +37,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors } from 'lib/utils'
+import { hasFormErrors, shortTimeZone } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -63,6 +64,30 @@ import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
+
+/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
+function ScheduleTimezoneHint(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    if (!currentTeam) {
+        return null
+    }
+    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
+    return (
+        <Tooltip
+            title={
+                <>
+                    Times are in the{' '}
+                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
+                        project's timezone
+                    </Link>{' '}
+                    ({currentTeam.timezone})
+                </>
+            }
+        >
+            <span className="text-muted font-normal">({tz})</span>
+        </Tooltip>
+    )
+}
 
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
@@ -491,7 +516,9 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                             <span>Next run</span>
                                         </Tooltip>
                                     ) : (
-                                        'Date and time'
+                                        <>
+                                            Date and time <ScheduleTimezoneHint />
+                                        </>
                                     )}
                                 </label>
                                 <LemonCalendarSelectInput
@@ -998,7 +1025,13 @@ function FeatureFlagScheduleV2(): JSX.Element {
 
                     <div className="flex flex-col gap-1">
                         <label className="text-xs font-medium text-muted">
-                            {editRepeatsValue === 'cron' ? 'Next run' : 'Date and time'}
+                            {editRepeatsValue === 'cron' ? (
+                                'Next run'
+                            ) : (
+                                <>
+                                    Date and time <ScheduleTimezoneHint />
+                                </>
+                            )}
                         </label>
                         <LemonCalendarSelectInput
                             value={editScheduledAt}
@@ -1352,7 +1385,9 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                             />
                         </div>
                         <div className="w-50">
-                            <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
+                            <div className="font-semibold leading-6 h-6 mb-1">
+                                Date and time <ScheduleTimezoneHint />
+                            </div>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
                                 onChange={(value) => setScheduleDateMarker(value)}

@@ -3,7 +3,7 @@ import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-h
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
-    capture_timeout?: number // max virtual-time seconds before aborting capture (default: unlimited)
+    max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_timestamp?: number // ms since epoch
     end_timestamp?: number // ms since epoch
@@ -43,7 +43,7 @@ export interface RasterizeRecordingOutput {
     video_duration_s: number // actual playback duration of the output video
     playback_speed: number
     show_metadata_footer: boolean
-    truncated: boolean // true when capture_timeout stopped the recording early
+    truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
     timings: ActivityTimings
@@ -55,7 +55,7 @@ export interface CaptureConfig {
     playbackSpeed: number
     trim?: number // max output seconds
     trimFrameLimit: number // trim * outputFps — for early loop stop
-    captureTimeoutMs: number // virtual-time timeout for the capture loop
+    maxVirtualTimeMs: number // max virtual time before stopping capture (default: unlimited)
     ffmpegOutputOpts: string[]
     ffmpegVideoFilters: string[]
     screenshotFormat: 'jpeg' | 'png'
@@ -68,7 +68,7 @@ export interface RecordingResult {
     playback_speed: number
     capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
     frame_count: number // total frames captured
-    truncated: boolean // true when capture_timeout stopped the recording early
+    truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     custom_fps: number
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
