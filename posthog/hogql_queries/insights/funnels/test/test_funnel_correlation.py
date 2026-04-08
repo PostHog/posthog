@@ -438,7 +438,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Now exclude all groups in positive
-        query_with_exludes = query.model_copy(
+        query_with_excludes = query.model_copy(
             update={
                 "properties": [
                     GroupPropertyFilter(
@@ -450,7 +450,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        result, _ = self._get_events_for_query(query_with_exludes)
+        result, _ = self._get_events_for_query(query_with_excludes)
 
         odds_ratio = result[0].pop("odds_ratio")
         expected_odds_ratio = 1
