@@ -218,7 +218,8 @@
                                                           'middle_session',
                                                           'old_session')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.2
@@ -827,7 +828,8 @@
          AND "ee_single_session_summary"."session_id" IN ('session2',
                                                           'session1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.2
@@ -1432,7 +1434,8 @@
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('session_with_duration')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.2
@@ -2037,7 +2040,8 @@
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('session_many_ids')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.2
@@ -2646,7 +2650,8 @@
          AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
                                                           'at_base_time')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
@@ -3255,7 +3260,8 @@
          AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
                                                           'at_base_time')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.2
@@ -3864,7 +3870,8 @@
          AND "ee_single_session_summary"."session_id" IN ('at_base_time',
                                                           'at_base_time_plus_20')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.2
@@ -4372,7 +4379,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.101
@@ -5025,7 +5033,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.116
@@ -5779,7 +5788,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.131
@@ -6448,7 +6458,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.146
@@ -7165,7 +7176,8 @@
                                                           '10',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.17
@@ -7549,7 +7561,8 @@
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.26
@@ -8236,7 +8249,8 @@
          AND "ee_single_session_summary"."session_id" IN ('2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.41
@@ -8879,7 +8893,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.56
@@ -9605,7 +9620,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.71
@@ -10246,7 +10262,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC, "ee_single_session_summary"."created_at" DESC
+  ORDER BY "ee_single_session_summary"."session_id" ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.86
