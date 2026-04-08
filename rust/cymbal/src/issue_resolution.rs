@@ -6,7 +6,7 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
@@ -24,11 +24,6 @@ pub struct IssueFingerprintOverride {
     pub issue_id: Uuid,
     pub fingerprint: String,
     pub version: i64,
-}
-
-#[derive(FromRow)]
-struct FingerprintFirstSeenRow {
-    first_seen: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,16 +63,13 @@ impl Issue {
         executor: E,
         team_id: i32,
         fingerprint: &str,
-    ) -> Result<Option<Self>, UnhandledError>
+    ) -> Result<Option<(Self, Option<DateTime<Utc>>)>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let res = sqlx::query_as!(
-            Issue,
+        let row = sqlx::query!(
             r#"
-            -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
-            -- generally a risky override of sqlx's normal type checking
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at
+            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -88,29 +80,19 @@ impl Issue {
         .fetch_optional(executor)
         .await?;
 
-        Ok(res)
-    }
-
-    pub async fn load_fingerprint_first_seen<'c, E>(
-        executor: E,
-        team_id: i32,
-        fingerprint: &str,
-    ) -> Result<Option<DateTime<Utc>>, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        let row = sqlx::query_as::<_, FingerprintFirstSeenRow>(
-            r#"
-            SELECT first_seen FROM posthog_errortrackingissuefingerprintv2
-            WHERE team_id = $1 AND fingerprint = $2
-            "#,
-        )
-        .bind(team_id)
-        .bind(fingerprint)
-        .fetch_optional(executor)
-        .await?;
-
-        Ok(row.and_then(|r| r.first_seen))
+        Ok(row.map(|r| {
+            (
+                Issue {
+                    id: r.id,
+                    team_id: r.team_id,
+                    status: IssueStatus::from(r.status),
+                    name: r.name,
+                    description: r.description,
+                    created_at: r.created_at,
+                },
+                r.first_seen,
+            )
+        }))
     }
 
     pub async fn load<'c, E>(

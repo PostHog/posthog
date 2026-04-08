@@ -105,12 +105,9 @@ async fn resolve_issue(
     let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
-    if let Some(mut issue) = existing_issue {
+    if let Some((mut issue, fingerprint_first_seen)) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state =
-                Issue::load_fingerprint_first_seen(&mut *conn, team_id, &fingerprint)
-                    .await?
-                    .unwrap_or(issue.created_at);
+            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
@@ -165,16 +162,18 @@ async fn resolve_issue(
     if !was_created {
         txn.rollback().await?;
         // Replace the attempt issue with the existing one
-        issue = Issue::load(&mut *conn, team_id, issue_override.issue_id)
-            .await?
-            .unwrap_or(issue);
+        let fingerprint_first_seen = if let Some((existing, first_seen)) =
+            Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?
+        {
+            issue = existing;
+            first_seen
+        } else {
+            None
+        };
 
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state =
-                Issue::load_fingerprint_first_seen(&mut *conn, team_id, &fingerprint)
-                    .await?
-                    .unwrap_or(issue.created_at);
+            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
                 process_assignment(&mut conn, &context.team_manager, &issue, &event_properties)
                     .await?;
