@@ -86,6 +86,10 @@ class InternalServerError(aiohttp.ClientResponseError):
     pass
 
 
+class ServiceUnavailable(aiohttp.ClientResponseError):
+    pass
+
+
 class ClientResponseErrorGroup(ExceptionGroup[aiohttp.ClientResponseError]):
     """Base class for grouped HTTP errors."""
 
@@ -141,7 +145,7 @@ class WorkflowsConsumer(Consumer):
     async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
             self.post,
-            retryable_exceptions=(InternalServerError, TooManyRequests),
+            retryable_exceptions=(InternalServerError, ServiceUnavailable, TooManyRequests),
             # Retry forever on retryable errors
             max_attempts=None,
         )
@@ -171,6 +175,8 @@ class WorkflowsConsumer(Consumer):
                             raise _make_exception(TooManyRequests, err)
                         case n if n >= 400 and n < 500:
                             raise _make_exception(BadRequest, err)
+                        case 503:
+                            raise _make_exception(ServiceUnavailable, err)
                         case n if n >= 500:
                             raise _make_exception(InternalServerError, err)
 

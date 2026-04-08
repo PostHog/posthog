@@ -197,7 +197,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
     assert error_request not in handler.data  # And it wasn't retried
 
 
-@pytest.mark.parametrize("error", [429, 500], indirect=True)
+@pytest.mark.parametrize("error", [429, 500, 503], indirect=True)
 async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
     clickhouse_client,
     activity_environment,
