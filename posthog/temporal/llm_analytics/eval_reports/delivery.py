@@ -12,6 +12,12 @@ logger = structlog.get_logger(__name__)
 
 UUID_LINK_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`")
 
+# Matches a leading markdown heading line at the very start of a section's content.
+# The renderer (email/Slack/UI) already emits its own section title, so if the agent
+# also started the section with its own `## Executive summary` heading we strip it
+# to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
+_LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
+
 SECTION_TITLES = {
     "executive_summary": "Executive Summary",
     "statistics": "Statistics",
@@ -62,9 +68,26 @@ def _linkify_uuids(text: str, project_id: int) -> str:
     return UUID_LINK_PATTERN.sub(replace_with_md_link, text)
 
 
+def _strip_redundant_leading_heading(content: str, section_title: str) -> str:
+    """Strip a leading markdown heading line if it matches the section title.
+
+    The agent sometimes prefixes each section's content with its own heading
+    (e.g. `## Executive summary`), which duplicates the heading the renderer
+    emits separately. Match on canonical-title prefix so near-matches like
+    "Trend analysis (hourly)" are also stripped.
+    """
+    match = _LEADING_HEADING_RE.match(content)
+    if not match:
+        return content
+    if match.group(1).strip().lower().startswith(section_title.lower()):
+        return content[match.end() :].lstrip()
+    return content
+
+
 def _render_section_html(section_name: str, content: str, project_id: int) -> str:
     """Render a report section as HTML with clickable generation ID links."""
     title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+    content = _strip_redundant_leading_heading(content, title)
     # Convert UUIDs to markdown links before rendering so they become <a> tags
     content_with_links = _linkify_uuids(content, project_id)
     html_content = _md.render(content_with_links)
@@ -75,6 +98,7 @@ def _render_section_html(section_name: str, content: str, project_id: int) -> st
 def _render_section_mrkdwn(section_name: str, content: str) -> str:
     """Render a report section as Slack mrkdwn."""
     title = SECTION_TITLES.get(section_name, section_name.replace("_", " ").title())
+    content = _strip_redundant_leading_heading(content, title)
     mrkdwn_content = _slack_converter.convert(content)
     return f"*{title}*\n{mrkdwn_content}"
 

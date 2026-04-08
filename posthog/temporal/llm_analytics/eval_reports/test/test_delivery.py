@@ -8,6 +8,7 @@ from posthog.temporal.llm_analytics.eval_reports.delivery import (
     _linkify_uuids,
     _render_section_html,
     _render_section_mrkdwn,
+    _strip_redundant_leading_heading,
     deliver_report,
 )
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import EvalReportContent, ReportSection
@@ -77,6 +78,60 @@ class TestRenderSectionHtml(SimpleTestCase):
     def test_renders_italic(self):
         html = _render_section_html("statistics", "*emphasis*", project_id=1)
         self.assertIn("<em>emphasis</em>", html)
+
+
+class TestStripRedundantLeadingHeading(SimpleTestCase):
+    def test_strips_exact_match(self):
+        content = "## Executive Summary\n\nPass rate is 94%."
+        result = _strip_redundant_leading_heading(content, "Executive Summary")
+        self.assertEqual(result, "Pass rate is 94%.")
+
+    def test_strips_case_insensitive(self):
+        content = "## executive summary\n\nBody text."
+        result = _strip_redundant_leading_heading(content, "Executive Summary")
+        self.assertEqual(result, "Body text.")
+
+    def test_strips_with_suffix(self):
+        # The agent sometimes emits "Trend analysis (hourly)" as the heading
+        content = "## Trend analysis (hourly)\n\n- 13:00 bucket: 96%"
+        result = _strip_redundant_leading_heading(content, "Trend Analysis")
+        self.assertEqual(result, "- 13:00 bucket: 96%")
+
+    def test_strips_h1_through_h6(self):
+        for prefix in ("#", "##", "###", "####", "#####", "######"):
+            content = f"{prefix} Statistics\n\nBody"
+            result = _strip_redundant_leading_heading(content, "Statistics")
+            self.assertEqual(result, "Body", f"failed for prefix {prefix!r}")
+
+    def test_leaves_content_alone_when_no_heading(self):
+        content = "Pass rate is 94%."
+        result = _strip_redundant_leading_heading(content, "Executive Summary")
+        self.assertEqual(result, content)
+
+    def test_leaves_content_alone_when_heading_does_not_match(self):
+        content = "## Something Else\n\nBody"
+        result = _strip_redundant_leading_heading(content, "Executive Summary")
+        self.assertEqual(result, content)
+
+    def test_does_not_strip_non_leading_headings(self):
+        content = "Intro paragraph.\n\n## Executive Summary\n\nBody"
+        result = _strip_redundant_leading_heading(content, "Executive Summary")
+        self.assertEqual(result, content)
+
+    def test_render_section_html_does_not_duplicate_heading(self):
+        content = "## Executive Summary\n\nPass rate is 94%."
+        html = _render_section_html("executive_summary", content, project_id=1)
+        # Title should appear exactly once, as the <h2> wrapper
+        self.assertEqual(html.count("Executive Summary"), 1)
+        self.assertIn("<h2>Executive Summary</h2>", html)
+        self.assertIn("Pass rate is 94%", html)
+
+    def test_render_section_mrkdwn_does_not_duplicate_heading(self):
+        content = "## Executive Summary\n\nPass rate is 94%."
+        result = _render_section_mrkdwn("executive_summary", content)
+        # Title should appear exactly once, as the *bold* wrapper
+        self.assertEqual(result.count("Executive Summary"), 1)
+        self.assertTrue(result.startswith("*Executive Summary*"))
 
 
 class TestInlineEmailStyles(SimpleTestCase):

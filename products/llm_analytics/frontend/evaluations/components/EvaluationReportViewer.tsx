@@ -1,4 +1,6 @@
-import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { useMemo, useState } from 'react'
+
+import { LemonBadge, LemonButton, LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
@@ -38,20 +40,30 @@ function linkifyUuids(content: string): string {
     })
 }
 
-function ReportSectionView({
-    sectionKey,
-    section,
-}: {
-    sectionKey: string
-    section: EvaluationReportSection
-}): JSX.Element {
+// The agent typically emits each section starting with its own `#`/`##` heading
+// matching (or closely matching) the section title. The viewer already renders
+// a `<h3>` for the canonical title, so that heading is redundant. Strip any
+// leading heading line whose text starts with the canonical section title
+// (case-insensitive), to keep the rendering clean without touching the stored
+// report content.
+function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
+    const match = content.match(/^\s*(#{1,6})\s+(.+?)\s*(?:\r?\n|$)/)
+    if (!match) {
+        return content
+    }
+    const headingText = match[2].trim().toLowerCase()
+    if (headingText.startsWith(sectionTitle.toLowerCase())) {
+        return content.slice(match[0].length).replace(/^\s+/, '')
+    }
+    return content
+}
+
+function ReportSectionContent({ section, title }: { section: EvaluationReportSection; title: string }): JSX.Element {
+    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, title))
     return (
-        <div className="mb-4">
-            <h3 className="font-semibold text-sm mb-1">{SECTION_TITLES[sectionKey] || sectionKey}</h3>
-            <LemonMarkdown lowKeyHeadings className="text-sm">
-                {linkifyUuids(section.content)}
-            </LemonMarkdown>
-        </div>
+        <LemonMarkdown lowKeyHeadings className="text-sm">
+            {markdown}
+        </LemonMarkdown>
     )
 }
 
@@ -78,6 +90,25 @@ export function EvaluationReportViewer({
 }): JSX.Element {
     const content = reportRun.content as EvaluationReportRunContent
 
+    // Build the list of sections that actually have content, in canonical order.
+    // Memoized so identity is stable and expand/collapse all buttons don't thrash.
+    const availableSectionKeys = useMemo(
+        () =>
+            SECTION_ORDER.filter(
+                (key) => content[key as keyof EvaluationReportRunContent] != null
+            ) as (keyof EvaluationReportRunContent)[],
+        [content]
+    )
+
+    // Default to just the executive summary expanded — that's the TL;DR and keeps
+    // the list scannable. Users can Expand all for full view.
+    const [expandedKeys, setExpandedKeys] = useState<string[]>(
+        availableSectionKeys.includes('executive_summary') ? ['executive_summary'] : []
+    )
+
+    const allExpanded = expandedKeys.length === availableSectionKeys.length
+    const allCollapsed = expandedKeys.length === 0
+
     return (
         <div>
             {!compact && (
@@ -102,13 +133,40 @@ export function EvaluationReportViewer({
                 </>
             )}
 
-            {SECTION_ORDER.map((key) => {
-                const section = content[key as keyof EvaluationReportRunContent]
-                if (!section) {
-                    return null
-                }
-                return <ReportSectionView key={key} sectionKey={key} section={section} />
-            })}
+            <div className="flex justify-end gap-2 mb-2">
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => setExpandedKeys(availableSectionKeys as string[])}
+                    disabledReason={allExpanded ? 'All sections already expanded' : undefined}
+                >
+                    Expand all
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => setExpandedKeys([])}
+                    disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
+                >
+                    Collapse all
+                </LemonButton>
+            </div>
+
+            <LemonCollapse
+                multiple
+                size="small"
+                activeKeys={expandedKeys}
+                onChange={(keys) => setExpandedKeys(keys as string[])}
+                panels={availableSectionKeys.map((key) => {
+                    const section = content[key]!
+                    const title = SECTION_TITLES[key] || key
+                    return {
+                        key,
+                        header: title,
+                        content: <ReportSectionContent section={section} title={title} />,
+                    }
+                })}
+            />
 
             {reportRun.delivery_errors.length > 0 && (
                 <div className="mt-4 p-2 bg-danger-highlight rounded">

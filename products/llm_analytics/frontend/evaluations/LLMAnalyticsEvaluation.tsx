@@ -39,7 +39,6 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationType } from './types'
 
@@ -61,11 +60,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
-    // Pull reportRuns so we can hide the Reports tab when there's nothing to show yet.
-    // evaluationReportLogic auto-loads reports + reportRuns on mount for existing evaluations.
-    const { reportRuns } = useValues(
-        evaluationReportLogic({ evaluationId: evaluation?.id ?? 'new' } as { evaluationId: string })
-    )
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -305,13 +299,17 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </div>
                         ),
                     },
-                    !isNewEvaluation &&
-                        reportRuns.length > 0 && {
-                            key: 'reports',
-                            label: 'Reports',
-                            'data-attr': 'llma-evaluation-reports-tab',
-                            content: <EvaluationReportsTab evaluationId={evaluation.id} />,
-                        },
+                    !isNewEvaluation && {
+                        key: 'reports',
+                        label: 'Reports',
+                        'data-attr': 'llma-evaluation-reports-tab',
+                        content: (
+                            <EvaluationReportsTab
+                                evaluationId={evaluation.id}
+                                onConfigureClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
