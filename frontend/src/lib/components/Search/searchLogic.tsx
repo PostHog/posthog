@@ -60,6 +60,39 @@ const SEARCH_LIMIT = 5
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
+/**
+ * Naïve singularization: strip common English plural suffixes so that
+ * "events" matches "event", "properties" matches "property", etc.
+ * Only used for search matching – not for display.
+ */
+const simplifyStem = (word: string): string => {
+    if (word.endsWith('ies') && word.length > 4) {
+        return word.slice(0, -3) + 'y' // "properties" → "property"
+    }
+    if (word.endsWith('ses') || word.endsWith('xes') || word.endsWith('zes') || word.endsWith('ches') || word.endsWith('shes')) {
+        return word.slice(0, -2) // "processes" → "process"
+    }
+    if (word.endsWith('s') && !word.endsWith('ss') && word.length > 2) {
+        return word.slice(0, -1) // "events" → "event"
+    }
+    return word
+}
+
+/** Check if `text` contains `query` (or vice-versa), also considering singular/plural variations. */
+export const fuzzyIncludes = (text: string, query: string): boolean => {
+    if (text.includes(query) || query.includes(text)) {
+        return true
+    }
+    const stemmedQuery = simplifyStem(query)
+    const stemmedText = text.split(/[\s_-]+/).map(simplifyStem).join(' ')
+    return (
+        stemmedText.includes(query) ||
+        stemmedText.includes(stemmedQuery) ||
+        query.includes(stemmedText) ||
+        stemmedQuery.includes(stemmedText)
+    )
+}
+
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
@@ -871,19 +904,19 @@ export const searchLogic = kea<searchLogicType>([
                     return items.filter((item) => {
                         const name = item.name.toLowerCase()
                         const category = item.category.toLowerCase()
-                        if (name.includes(searchLower) || category.includes(searchLower)) {
+                        if (fuzzyIncludes(name, searchLower) || fuzzyIncludes(category, searchLower)) {
                             return true
                         }
-                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
+                        if (item.searchKeywords?.some((kw) => fuzzyIncludes(kw.toLowerCase(), searchLower))) {
                             return true
                         }
                         // Chunk matching: every word in the query must match somewhere
                         const searchChunks = searchLower.split(' ').filter((s) => s)
                         return searchChunks.every(
                             (chunk) =>
-                                name.includes(chunk) ||
-                                category.includes(chunk) ||
-                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
+                                fuzzyIncludes(name, chunk) ||
+                                fuzzyIncludes(category, chunk) ||
+                                (item.searchKeywords?.some((kw) => fuzzyIncludes(kw.toLowerCase(), chunk)) ?? false)
                         )
                     })
                 }

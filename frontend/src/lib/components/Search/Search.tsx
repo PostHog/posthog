@@ -24,6 +24,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { fuzzyIncludes } from 'lib/components/Search/searchLogic'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -304,13 +305,11 @@ function SearchRoot({
                 // Filter recents and apps by name (client-side filtering)
                 if (['recents', 'apps', 'starred'].includes(item.category)) {
                     const name = (item.displayName || item.name || '').toLowerCase()
-                    if (name.includes(searchLower)) {
+                    if (fuzzyIncludes(name, searchLower)) {
                         return true
                     }
                     return (
-                        item.searchKeywords?.some(
-                            (kw) => kw.toLowerCase().includes(searchLower) || searchLower.includes(kw.toLowerCase())
-                        ) ?? false
+                        item.searchKeywords?.some((kw) => fuzzyIncludes(kw.toLowerCase(), searchLower)) ?? false
                     )
                 }
                 // Other categories come from server search, keep all
