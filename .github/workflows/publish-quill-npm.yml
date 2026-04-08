@@ -47,26 +47,12 @@ jobs:
             - name: Build quill packages
               run: pnpm quill:build
 
-            - name: Publish @posthog/quill-tokens
-              run: pnpm --filter @posthog/quill-tokens publish --tag ${{ inputs.tag }} --no-git-checks --access public
-              env:
-                  NODE_AUTH_TOKEN: ''
-                  NPM_CONFIG_PROVENANCE: true
-
-            - name: Publish @posthog/quill-primitives
-              run: pnpm --filter @posthog/quill-primitives publish --tag ${{ inputs.tag }} --no-git-checks --access public
-              env:
-                  NODE_AUTH_TOKEN: ''
-                  NPM_CONFIG_PROVENANCE: true
-
-            - name: Publish @posthog/quill-components
-              run: pnpm --filter @posthog/quill-components publish --tag ${{ inputs.tag }} --no-git-checks --access public
-              env:
-                  NODE_AUTH_TOKEN: ''
-                  NPM_CONFIG_PROVENANCE: true
-
-            - name: Publish @posthog/quill-blocks
-              run: pnpm --filter @posthog/quill-blocks publish --tag ${{ inputs.tag }} --no-git-checks --access public
+            - name: Publish quill packages
+              run: |
+                  for pkg in quill-tokens quill-primitives quill-components quill-blocks; do
+                    echo "Publishing @posthog/$pkg"
+                    pnpm --filter "@posthog/$pkg" publish --tag ${{ inputs.tag }} --no-git-checks --access public
+                  done
               env:
                   NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
@@ -74,11 +60,12 @@ jobs:
             - name: Get published versions
               id: versions
               run: |
-                  TOKENS_VERSION=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
-                  PRIMITIVES_VERSION=$(node -p "require('./packages/quill/packages/primitives/package.json').version")
-                  COMPONENTS_VERSION=$(node -p "require('./packages/quill/packages/components/package.json').version")
-                  BLOCKS_VERSION=$(node -p "require('./packages/quill/packages/blocks/package.json').version")
-                  echo "summary=@posthog/quill-tokens@$TOKENS_VERSION, @posthog/quill-primitives@$PRIMITIVES_VERSION, @posthog/quill-components@$COMPONENTS_VERSION, @posthog/quill-blocks@$BLOCKS_VERSION" >> $GITHUB_OUTPUT
+                  SUMMARY=""
+                  for pkg in quill-tokens quill-primitives quill-components quill-blocks; do
+                    VERSION=$(node -p "require('./packages/quill/packages/${pkg#quill-}/package.json').version")
+                    SUMMARY="$SUMMARY@posthog/$pkg@$VERSION, "
+                  done
+                  echo "summary=${SUMMARY%, }" >> $GITHUB_OUTPUT
 
             - name: Notify Slack
               if: ${{ !cancelled() }}
