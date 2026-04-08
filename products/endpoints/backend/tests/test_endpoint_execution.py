@@ -1404,6 +1404,81 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "OS breakdown property filter should be applied",
             )
 
+    @parameterized.expand(
+        [
+            (
+                "non_empty_value",
+                {
+                    "properties.$browser": "Chrome",
+                    "date_from": "2026-01-05",
+                    "date_to": "2026-01-08",
+                },
+            ),
+            ("empty_value", {"properties.$browser": ""}),
+        ]
+    )
+    def test_non_materialized_insight_endpoint_accepts_hogql_breakdown_variable(self, _name, variables):
+        from posthog.schema import BreakdownFilter, BreakdownType
+
+        # Legacy single-breakdown format with a HogQL expression.
+        endpoint = create_endpoint_with_version(
+            name=f"trends_hogql_breakdown_{_name}",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="properties.$browser",
+                    breakdown_type=BreakdownType.HOGQL,
+                ),
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": variables},
+            format="json",
+        )
+
+        # Before the fix this returned 500 because _variables_to_filters built a
+        # HogQLPropertyFilter dict with `operator` set, which fails pydantic's
+        # extra="forbid" on DashboardFilter.properties.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def test_non_materialized_insight_endpoint_rejects_unbuildable_hogql_breakdown_variable(self):
+        from posthog.schema import BreakdownFilter, BreakdownType
+
+        # An unparseable HogQL expression stored as the breakdown — parse_expr
+        # will raise when _variables_to_filters tries to build a predicate for it.
+        # We must reject with 400 rather than silently skipping the filter, which
+        # would return unfiltered data (same principle that gates materialized
+        # endpoints on having all variables present).
+        endpoint = create_endpoint_with_version(
+            name="trends_hogql_breakdown_unparseable",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdown=")garbage(",
+                    breakdown_type=BreakdownType.HOGQL,
+                ),
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {")garbage(": "Chrome"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("breakdown variable", response.json().get("detail", ""))
+
     # =========================================================================
     # OFFSET-BASED PAGINATION
     # =========================================================================

@@ -4,8 +4,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Params } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
@@ -43,40 +41,34 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setActiveTab: (activeTab: ErrorTrackingSceneActiveTab) => ({ activeTab }),
     }),
 
-    connect(() => {
-        const { featureFlags } = featureFlagLogic.values
-        const hasSettingsSplit = !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SETTINGS_SPLIT]
-        const settingId = hasSettingsSplit ? 'error-tracking-alerting' : 'error-tracking-exception-autocapture'
-
-        return {
-            values: [
-                issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
-                issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV2', 'forceQueryV2'],
-                settingsLogic({
-                    logicKey: ERROR_TRACKING_LOGIC_KEY,
-                    sectionId: 'environment-error-tracking-configuration',
-                    settingId,
-                }),
-                ['selectedSettingId'],
-            ],
-            actions: [
-                issueActionsLogic,
-                ['mutationSuccess', 'mutationFailure'],
-                bulkSelectLogic,
-                ['setSelectedIssueIds'],
-                issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
-                settingsLogic({
-                    logicKey: ERROR_TRACKING_LOGIC_KEY,
-                    sectionId: 'environment-error-tracking-configuration',
-                    settingId,
-                }),
-                ['selectSetting'],
-            ],
-        }
-    }),
+    connect(() => ({
+        values: [
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
+            issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV2', 'forceQueryV2'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectedSettingId'],
+        ],
+        actions: [
+            issueActionsLogic,
+            ['mutationSuccess', 'mutationFailure'],
+            bulkSelectLogic,
+            ['setSelectedIssueIds'],
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectSetting'],
+        ],
+    })),
 
     reducers({
         activeTab: [

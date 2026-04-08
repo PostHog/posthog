@@ -374,7 +374,14 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_priority_artefacts",
-            )
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_actionability_artefacts",
+            ),
         )
 
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
