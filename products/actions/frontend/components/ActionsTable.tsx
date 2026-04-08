@@ -189,12 +189,10 @@ export function ActionsTable(): JSX.Element {
                 if (count === undefined) {
                     return <LemonSkeleton className="w-12 h-4" />
                 }
-                return count > 0 ? (
-                    <span>
-                        {count} {count === 1 ? 'reference' : 'references'}
+                return (
+                    <span className="text-secondary">
+                        {count > 0 ? `${count} ${count === 1 ? 'reference' : 'references'}` : 'None'}
                     </span>
-                ) : (
-                    <span className="text-secondary">None</span>
                 )
             },
         } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
