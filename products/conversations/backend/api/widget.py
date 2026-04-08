@@ -146,9 +146,6 @@ class WidgetMessageView(APIView):
                     allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
                     if ticket.distinct_id not in allowed_ids:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-                    # Migrate old tickets to the deterministic widget_session_id
-                    if ticket.widget_session_id != widget_session_id:
-                        ticket.widget_session_id = widget_session_id
                 else:
                     # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
                     if ticket.widget_session_id != widget_session_id:
@@ -173,7 +170,6 @@ class WidgetMessageView(APIView):
                 ticket.save(
                     update_fields=[
                         "distinct_id",
-                        "widget_session_id",
                         "anonymous_traits",
                         "session_id",
                         "session_context",

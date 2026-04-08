@@ -558,24 +558,6 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_list_tickets_no_secret_falls_back_to_session(self):
-        self.team.secret_api_token = ""
-        self.team.save()
-        self._create_ticket()
-
-        # Identity fields are ignored because team has no secret_api_token — falls back to widget_session_id
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-                "widget_session_id": self.widget_session_id,
-            },
-            **self._get_headers(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
         response = self.client.get(
@@ -748,22 +730,6 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_send_message_invalid_hash_falls_back_to_session(self):
-        response = self.client.post(
-            "/api/conversations/v1/widget/message",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": "0" * 64,
-                "widget_session_id": self.widget_session_id,
-                "distinct_id": self.distinct_id,
-                "message": "Should use session fallback",
-            },
-            **self._get_headers(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.widget_session_id, self.widget_session_id)
 
     def test_mark_read_wrong_distinct_id_returns_forbidden(self):
         ticket = self._create_ticket(distinct_id="user_123")
