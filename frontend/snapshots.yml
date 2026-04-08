@@ -36,6 +36,10 @@ snapshots:
         hash: v1.k794b7964.6fac5ece2256942fb6397b58bb384190bc33e3e5f0e36480f569a1e6aab0648e.O6M9DluToAlp9XQYbdSrjTMRoVNJOCIlsglFtwlM-BE
     components-activitylog--without-audit-logs-feaure--light:
         hash: v1.k794b7964.8347360d6450aa7571bb9c779894a2d2da1c4809cd2f13b82d5ab212c2433dfa.Qo3llSLNi5UV65rFMiM3u4YkniDlhPsDmvKpdLa_PhU
+    components-alerts-quiet-hours-fields--default--dark:
+        hash: v1.k794b7964.b1d9dcf611e6103856c1e579471fcc8d15e5ede8d778f58119af30defd021088.yuhFcITo9oT9yqz-ilwd1uzRK-Q9jRg3C9olYPw_hu4
+    components-alerts-quiet-hours-fields--default--light:
+        hash: v1.k794b7964.a2293bde4bb0b7ca27dfd7ee41226407780d9848000a22b9ccd5903674163749.AY5DM6ohNxpR3I4WEpxtTkkrtEij5AAL_VJOYjJXkko
     components-cards-button-tile-card--template--dark:
         hash: v1.k794b7964.ea8f8f9e593a467027450a8ba4241c3b3160387a41dcbd2a7fa6fc3e3299fffa.AE40xjOLMiJfje4e2EC8Mpc00oXcDCL9gVW8xqGnblQ
     components-cards-button-tile-card--template--light:
@@ -5633,9 +5637,9 @@ snapshots:
     scenes-app-settings-user--settings-user-danger-zone--light:
         hash: v1.k794b7964.2347256537bc7fff7fde4351a45a440a326692d3c9db97698d9079d3550b0c25.eDl_Ih9TlsKZi_o7I6fHSXJNE26JqGdSsY60Y846QEQ
     scenes-app-settings-user--settings-user-notifications--dark:
-        hash: v1.k794b7964.0d228a03cc286af111f998e99c60c49d13e1977b80aaa81bb58fc561c0910546.QvLRZG0os5ebp6HMUAuVQojlSf9XeHakkI7tIag4Q6w
+        hash: v1.k794b7964.b32d7f0fb23373c4ef7e91f8a5490be42bbfc243ea6fab03b4b5057cb9c99377.rkdK-WHbSs5A2mVh_n2tTvU96VD2QwACCQjTYdbDmjc
     scenes-app-settings-user--settings-user-notifications--light:
-        hash: v1.k794b7964.9a6d7ebb77474185fa7c947174dc011f23bc61bb2d6016425d455319d9397001.jCzjAxkCpvX0gGkJTVEQILaeDq1mskSKaeKNyg0xGaA
+        hash: v1.k794b7964.01f5dbc1c40ee3cdcf7a7a17872cc165ceac89597886598620e56cae8f643fa2.OQqMoEgfYKTxAnChEaue1TnR_XnT83qB3u_lgxKYDtM
     scenes-app-settings-user--settings-user-profile--dark:
         hash: v1.k794b7964.3a3874d1b09b3cfda9a6b2c31614c33c6b9dfd8ecb83ba501a5ed3f372a56ea9.XxF7t-2d8ZqMpP1ijBiz8uXefxN_Itz7o2Om6oBC6vg
     scenes-app-settings-user--settings-user-profile--light:

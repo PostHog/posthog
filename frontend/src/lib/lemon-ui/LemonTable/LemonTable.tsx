@@ -600,11 +600,10 @@ export function LemonTable<T extends Record<string, any>>({
                         </tbody>
                     </table>
                     {footer && <div className="LemonTable__footer">{footer}</div>}
-
-                    <PaginationControl {...paginationState} nouns={nouns} />
-                    <div className="LemonTable__overlay" />
                 </div>
             </ScrollableShadows>
+            <PaginationControl {...paginationState} nouns={nouns} />
+            <div className="LemonTable__overlay" />
         </div>
     )
 }

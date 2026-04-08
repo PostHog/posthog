@@ -396,6 +396,34 @@
             "enum": ["absolute_value", "relative_increase", "relative_decrease"],
             "type": "string"
         },
+        "AlertScheduleRestriction": {
+            "additionalProperties": false,
+            "description": "Quiet hours: local time windows when the alert must not run. At most five windows after API normalization.",
+            "properties": {
+                "blocked_windows": {
+                    "items": {
+                        "$ref": "#/definitions/AlertScheduleRestrictionWindow"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocked_windows"],
+            "type": "object"
+        },
+        "AlertScheduleRestrictionWindow": {
+            "additionalProperties": false,
+            "description": "One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end).",
+            "properties": {
+                "end": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end"],
+            "type": "object"
+        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"

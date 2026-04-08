@@ -955,13 +955,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
                 <div>
-                    <LemonLabel className="mb-2" id="match-by-label">
+                    <LemonLabel
+                        className="mb-2"
+                        id="match-by-label"
+                        info="Changing match criteria may remove existing variants or payloads."
+                    >
                         Match by
                     </LemonLabel>
                     <div
                         role="radiogroup"
                         aria-labelledby="match-by-label"
-                        className="flex flex-wrap gap-3"
+                        className="flex flex-wrap gap-2"
                         data-attr="feature-flag-aggregation-filter"
                         onKeyDown={(e) => {
                             // Handle arrow key navigation for radio group
@@ -993,7 +997,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         {[
                             {
                                 value: 'user',
-                                icon: <IconPerson className="text-lg" />,
+                                icon: <IconPerson className="text-base shrink-0" />,
                                 label: 'User',
                                 description: 'Stable assignment for logged-in users based on their distinct ID.',
                             },
@@ -1001,7 +1005,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 ? [
                                       {
                                           value: 'device',
-                                          icon: <IconLaptop className="text-lg" />,
+                                          icon: <IconLaptop className="text-base shrink-0" />,
                                           label: 'Device',
                                           description:
                                               'Stable assignment per device. Good fit for experiments on anonymous users.',
@@ -1014,7 +1018,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 ? [
                                       {
                                           value: 'group',
-                                          icon: <IconPeople className="text-lg" />,
+                                          icon: <IconPeople className="text-base shrink-0" />,
                                           label: 'Group',
                                           description:
                                               'Stable assignment for everyone in an organization, company, or other custom group type.',
@@ -1025,7 +1029,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 ? [
                                       {
                                           value: 'mixed',
-                                          icon: <IconBalance className="text-lg" />,
+                                          icon: <IconBalance className="text-base shrink-0" />,
                                           label: 'User & Group',
                                           description:
                                               'Mix user and group targeting across condition sets. Each condition set picks its own targeting type.',
@@ -1059,16 +1063,18 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     }}
                                     data-attr={`feature-flag-aggregation-${option.value}`}
                                 >
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-1">
+                                        <div className="flex items-center gap-1.5">
                                             {option.icon}
-                                            <span className="font-medium flex-1">{option.label}</span>
+                                            <span className="text-sm font-medium flex-1 truncate" title={option.label}>
+                                                {option.label}
+                                            </span>
                                             {option.badge && (
                                                 <LemonTag type={option.badge.type} size="small">
                                                     {option.badge.text}
                                                 </LemonTag>
                                             )}
-                                            {isSelected && <IconCheckCircle className="text-accent text-base" />}
+                                            {isSelected && <IconCheckCircle className="text-accent text-sm shrink-0" />}
                                         </div>
                                         <div className="text-xs text-muted">
                                             {option.description}
