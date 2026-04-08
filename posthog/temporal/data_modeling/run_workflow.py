@@ -13,6 +13,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -1382,6 +1383,35 @@ class CleanupRunningJobsActivityInputs:
     team_id: int
 
 
+@database_sync_to_async
+def _preempt_running_jobs(team_id: int) -> list[DataModelingJob]:
+    """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    The SELECT and UPDATE run inside a single transaction with row-level locks
+    so concurrent cleanups cannot process the same jobs twice.
+    """
+    with transaction.atomic():
+        orphaned_jobs = list(
+            DataModelingJob.objects.select_for_update().filter(
+                team_id=team_id,
+                status=DataModelingJob.Status.RUNNING,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+            )
+        )
+
+        if not orphaned_jobs:
+            return []
+
+        DataModelingJob.objects.filter(id__in=[job.id for job in orphaned_jobs]).update(
+            status=DataModelingJob.Status.FAILED,
+            rows_materialized=0,
+            error="Preempted: This job did not complete before the next scheduled job was triggered.",
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+
+        return orphaned_jobs
+
+
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
     """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
@@ -1391,23 +1421,19 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            status=DataModelingJob.Status.RUNNING,
-            engine=DataModelingJob.Engine.CLICKHOUSE,
-        ).update
-    )(
-        status=DataModelingJob.Status.FAILED,
-        rows_materialized=0,
-        error="Preempted: This job did not complete before the next scheduled job was triggered.",
-        updated_at=dt.datetime.now(dt.UTC),
-    )
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id)
 
-    if orphaned_count > 0:
-        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
-    else:
+    if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
+        return
+
+    await logger.ainfo(
+        f"Cleaned up {len(orphaned_jobs)} orphaned jobs",
+        orphaned_count=len(orphaned_jobs),
+        orphaned_job_ids=[str(job.id) for job in orphaned_jobs],
+        orphaned_saved_query_ids=[str(job.saved_query_id) for job in orphaned_jobs if job.saved_query_id is not None],
+        orphaned_workflow_ids=[job.workflow_id for job in orphaned_jobs if job.workflow_id],
+    )
 
 
 @temporalio.activity.defn

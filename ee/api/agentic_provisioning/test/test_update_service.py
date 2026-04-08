@@ -7,27 +7,55 @@ from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisionin
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class TestProvisioningUpdateService(StripeProvisioningTestBase):
-    def test_update_service_with_spt_calls_billing(self):
-        token = self._get_bearer_token()
-        with patch("ee.api.agentic_provisioning.views.requests.post") as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.raise_for_status.return_value = None
-            mock_post.return_value = mock_resp
+    @patch("ee.api.agentic_provisioning.views.requests.post")
+    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
+    @patch("posthog.cloud_utils.get_cached_instance_license")
+    def test_update_service_with_spt_calls_billing(self, mock_license, mock_build_token, mock_post):
+        mock_license.return_value = MagicMock()
+        mock_post.return_value = MagicMock(status_code=200)
 
-            res = self._post_signed_with_bearer(
-                f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
-                data={
-                    "service_id": "pay_as_you_go",
-                    "payment_credentials": {"stripe_payment_token": "spt_test_123"},
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            data={
+                "service_id": "pay_as_you_go",
+                "payment_credentials": {
+                    "type": "stripe_payment_token",
+                    "stripe_payment_token": "spt_test_123",
                 },
-                token=token,
-            )
-            assert res.status_code == 200
-            assert res.json()["status"] == "complete"
-            assert res.json()["service_id"] == "pay_as_you_go"
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args
-            assert "stripe_payment_token" in call_kwargs.kwargs.get("json", call_kwargs[1].get("json", {}))
+            },
+            token=token,
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "complete"
+        assert res.json()["service_id"] == "pay_as_you_go"
+
+        mock_post.assert_called_once()
+        call_args, call_kwargs = mock_post.call_args
+        assert "/api/activate/authorize" in call_args[0]
+        assert call_kwargs["json"] == {"shared_payment_token": "spt_test_123"}
+
+    @patch("ee.api.agentic_provisioning.views.requests.post")
+    @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
+    @patch("posthog.cloud_utils.get_cached_instance_license")
+    def test_update_service_returns_error_if_billing_fails(self, mock_license, mock_build_token, mock_post):
+        mock_license.return_value = MagicMock()
+        mock_post.return_value = MagicMock(status_code=500)
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            data={
+                "service_id": "pay_as_you_go",
+                "payment_credentials": {
+                    "type": "stripe_payment_token",
+                    "stripe_payment_token": "spt_test_123",
+                },
+            },
+            token=token,
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "billing_activation_failed"
 
     def test_update_service_without_spt(self):
         token = self._get_bearer_token()
