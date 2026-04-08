@@ -173,6 +173,7 @@ class WidgetMessageView(APIView):
                 ticket.save(
                     update_fields=[
                         "distinct_id",
+                        "widget_session_id",
                         "anonymous_traits",
                         "session_id",
                         "session_context",
