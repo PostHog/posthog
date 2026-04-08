@@ -62,13 +62,10 @@ export function SidebarQuestionInput({
     // Show form area directly when there's a pending form/approval (even if showInput is false)
     if (activeMultiQuestionForm || hasApprovalToShow) {
         return (
-            <div className="w-full max-w-180 self-center px-3 mx-auto pb-1 bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
+            <div className="w-full max-w-180 self-center px-3 mx-auto bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
                 <div className="border border-primary rounded-lg bg-surface-primary">
                     <InputFormArea />
                 </div>
-                <p className="w-full flex text-xs text-muted mt-1">
-                    <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
-                </p>
             </div>
         )
     }
@@ -77,7 +74,7 @@ export function SidebarQuestionInput({
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName={cn('w-full px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50', sidePanel && 'px-0')}
+            containerClassName={cn('w-full px-3 mx-auto self-center backdrop-blur-sm z-50', sidePanel && 'px-0')}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />
