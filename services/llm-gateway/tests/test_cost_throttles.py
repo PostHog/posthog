@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
@@ -1034,7 +1036,7 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPlanAwareThrottling:
     @pytest.fixture(autouse=True)
-    def enable_plan_throttling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def enable_plan_throttling(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setenv("LLM_GATEWAY_PLAN_AWARE_THROTTLING_ENABLED", "true")
         get_settings.cache_clear()
         yield
