@@ -79,10 +79,10 @@ export function BillingSection(): JSX.Element {
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
             {section === 'seats' && featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
-                    <div className="flex flex-col gap-8 max-w-300 mt-4">
-                        <CodeSeatsSection />
-                    </div>
-                )}
+                <div className="flex flex-col gap-8 max-w-300 mt-4">
+                    <CodeSeatsSection />
+                </div>
+            )}
         </div>
     )
 }

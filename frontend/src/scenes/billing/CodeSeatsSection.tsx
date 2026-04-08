@@ -189,8 +189,7 @@ export function CodeSeatsSection(): JSX.Element {
                                                             primaryButton: {
                                                                 children: 'Cancel seat',
                                                                 status: 'danger',
-                                                                onClick: () =>
-                                                                    adminCancelSeat(seat.user_distinct_id),
+                                                                onClick: () => adminCancelSeat(seat.user_distinct_id),
                                                             },
                                                             secondaryButton: { children: 'Keep seat' },
                                                         })
