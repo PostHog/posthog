@@ -45,6 +45,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     SidePanelTab.AccessControl,
                     SidePanelTab.Activity,
                     SidePanelTab.Notebooks,
+                    SidePanelTab.Support,
                 ]
                     .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
                     .map((tab) => {

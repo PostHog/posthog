@@ -12,10 +12,17 @@ interface QuestionFieldProps {
     question: MultiQuestionFormQuestion
     value: string | string[] | undefined
     onAnswer: (value: string | string[]) => void
+    onSkip?: () => void
     submitLabel?: string
 }
 
-export function QuestionField({ question, value, onAnswer, submitLabel = 'Next' }: QuestionFieldProps): JSX.Element {
+export function QuestionField({
+    question,
+    value,
+    onAnswer,
+    onSkip,
+    submitLabel = 'Next',
+}: QuestionFieldProps): JSX.Element {
     const fieldType = question.type ?? 'select'
 
     switch (fieldType) {
@@ -25,6 +32,7 @@ export function QuestionField({ question, value, onAnswer, submitLabel = 'Next' 
                     question={question}
                     value={value as string[] | undefined}
                     onAnswer={onAnswer}
+                    onSkip={onSkip}
                     submitLabel={submitLabel}
                 />
             )
@@ -35,6 +43,7 @@ export function QuestionField({ question, value, onAnswer, submitLabel = 'Next' 
                     question={question}
                     value={value as string | undefined}
                     onAnswer={onAnswer}
+                    onSkip={onSkip}
                     submitLabel={submitLabel}
                 />
             )
@@ -45,11 +54,13 @@ function SelectField({
     question,
     value,
     onAnswer,
+    onSkip,
     submitLabel,
 }: {
     question: MultiQuestionFormQuestion
     value: string | undefined
     onAnswer: (value: string) => void
+    onSkip?: () => void
     submitLabel: string
 }): JSX.Element {
     const options: Option[] = (question.options ?? []).map((option) => ({
@@ -61,15 +72,22 @@ function SelectField({
     const allowCustomAnswer = question.allow_custom_answer !== false
 
     return (
-        <OptionSelector
-            options={options}
-            onSelect={onAnswer}
-            allowCustom={allowCustomAnswer}
-            customPlaceholder="Type your answer..."
-            onCustomSubmit={onAnswer}
-            selectedValue={value}
-            submitLabel={submitLabel}
-        />
+        <div className="flex flex-col gap-2">
+            <OptionSelector
+                options={options}
+                onSelect={onAnswer}
+                allowCustom={allowCustomAnswer}
+                customPlaceholder="Type your answer..."
+                onCustomSubmit={onAnswer}
+                selectedValue={value}
+                submitLabel={submitLabel}
+            />
+            {onSkip && (
+                <LemonButton type="secondary" size="small" onClick={onSkip} className="self-start">
+                    Skip question
+                </LemonButton>
+            )}
+        </div>
     )
 }
 
@@ -77,11 +95,13 @@ function MultiSelectField({
     question,
     value,
     onAnswer,
+    onSkip,
     submitLabel,
 }: {
     question: MultiQuestionFormQuestion
     value: string[] | undefined
     onAnswer: (value: string[]) => void
+    onSkip?: () => void
     submitLabel: string
 }): JSX.Element {
     const [selected, setSelected] = useState<string[]>(value ?? [])
@@ -121,9 +141,16 @@ function MultiSelectField({
                 />
             ))}
             {showError && <p className="text-danger text-xs m-0">Select at least one option</p>}
-            <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-start">
-                {submitLabel}
-            </LemonButton>
+            <div className="flex items-center justify-between gap-2">
+                {onSkip && (
+                    <LemonButton type="secondary" size="small" onClick={onSkip}>
+                        Skip question
+                    </LemonButton>
+                )}
+                <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-start ml-auto">
+                    {submitLabel}
+                </LemonButton>
+            </div>
         </div>
     )
 }
@@ -145,6 +172,7 @@ interface MultiFieldQuestionProps {
     answers: Record<string, string | string[]>
     onFieldChange: (fieldId: string, value: string | string[]) => void
     onSubmit: () => void
+    onSkip?: () => void
     submitLabel?: string
 }
 
@@ -153,6 +181,7 @@ export function MultiFieldQuestion({
     answers,
     onFieldChange,
     onSubmit,
+    onSkip,
     submitLabel = 'Next',
 }: MultiFieldQuestionProps): JSX.Element {
     const fields = question.fields ?? []
@@ -187,9 +216,16 @@ export function MultiFieldQuestion({
                     </div>
                 )
             })}
-            <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-end">
-                {submitLabel}
-            </LemonButton>
+            <div className="flex items-center justify-between gap-2">
+                {onSkip && (
+                    <LemonButton type="secondary" size="small" onClick={onSkip}>
+                        Skip question
+                    </LemonButton>
+                )}
+                <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-end ml-auto">
+                    {submitLabel}
+                </LemonButton>
+            </div>
         </div>
     )
 }

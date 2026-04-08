@@ -1,7 +1,8 @@
 import dns from 'dns/promises'
 import { range } from 'lodash'
 
-import { SecureRequestError, fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
+import { parseJSON } from './json-parse'
+import { SecureRequestError, fetch, internalFetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
 
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
@@ -257,5 +258,64 @@ describe('legacyFetch', () => {
             expect(totalTime).toBeGreaterThan(firstTime - 100)
             expect(totalTime).toBeLessThan(firstTime + 100)
         })
+    })
+})
+
+describe('_fetch response body handling', () => {
+    // Use internalFetch to skip SSRF DNS checks which fail in CI
+
+    it('should return response body via text()', async () => {
+        const response = await internalFetch('http://example.com')
+        const text = await response.text()
+        expect(typeof text).toBe('string')
+        expect(text.length).toBeGreaterThan(0)
+        expect(response.status).toBe(200)
+    })
+
+    it('should parse response via json() when valid JSON', async () => {
+        const response = await internalFetch('https://httpbin.org/get')
+        const json = await response.json()
+        expect(json).toHaveProperty('url')
+    })
+
+    it('should return the same result on multiple text() calls', async () => {
+        const response = await internalFetch('http://example.com')
+        const first = await response.text()
+        const second = await response.text()
+        expect(first).toBe(second)
+        expect(first.length).toBeGreaterThan(0)
+    })
+
+    it('should return the same result for concurrent text() calls', async () => {
+        const response = await internalFetch('http://example.com')
+        const [a, b] = await Promise.all([response.text(), response.text()])
+        expect(a).toBe(b)
+        expect(a.length).toBeGreaterThan(0)
+    })
+
+    it('should return empty string after dump() is called', async () => {
+        const response = await internalFetch('http://example.com')
+        await response.dump()
+        expect(await response.text()).toBe('')
+    })
+
+    it('should return correct status code for error responses', async () => {
+        const response = await internalFetch('https://httpbin.org/status/404')
+        expect(response.status).toBe(404)
+    })
+
+    it('should parse headers', async () => {
+        const response = await internalFetch('http://example.com')
+        expect(response.headers['content-type']).toBeDefined()
+    })
+
+    it('should fully read streamed/chunked response bodies', async () => {
+        const response = await internalFetch('https://httpbin.org/stream/50')
+        const text = await response.text()
+        const lines = text.trim().split('\n')
+        expect(lines.length).toBe(50)
+        for (const line of lines) {
+            expect(() => parseJSON(line)).not.toThrow()
+        }
     })
 })

@@ -91,8 +91,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             )
             const result = (await tool.handler(context, {
                 retentionFilter: {
-                    targetEntity: { id: '$pageview', type: 'events' },
-                    returningEntity: { id: '$pageview', type: 'events' },
+                    targetEntity: { name: '$pageview', type: 'events' },
+                    returningEntity: { name: '$pageview', type: 'events' },
                     period: 'Day',
                     totalIntervals: 7,
                 },
@@ -219,11 +219,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
-    describe('query-traces-list', () => {
+    describe('query-llm-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(
                 GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-traces-list'
+                'query-llm-traces-list'
             )
             const result = (await tool.handler(context, {
                 dateRange: { date_from: '-7d' },

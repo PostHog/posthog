@@ -5,11 +5,9 @@ import { useFeatureFlagVariantKey } from 'posthog-js/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,7 +19,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -187,6 +185,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
                                             filters={{
+                                                ...DEFAULT_RECORDING_FILTERS,
                                                 duration: [
                                                     {
                                                         type: PropertyFilterType.Recording,
@@ -195,42 +194,21 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                                         operator: PropertyOperator.GreaterThan,
                                                     },
                                                 ],
-                                                filter_group: {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            type: FilterLogicalOperator.And,
-                                                            values: [
-                                                                {
-                                                                    type: 'events',
-                                                                    name: 'All events',
-                                                                    properties: [
-                                                                        {
-                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                            type: 'hogql',
-                                                                        },
-                                                                    ],
-                                                                } as ActionFilter,
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
                                             }}
-                                            onFiltersChange={(filters) => {
-                                                const eventFilters =
-                                                    filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
-
-                                                const stillHasGroupFilter = eventFilters?.some((event) => {
-                                                    return event.properties?.some(
-                                                        (prop: Record<string, any>) =>
-                                                            prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
-                                                    )
-                                                })
-                                                if (!stillHasGroupFilter) {
-                                                    lemonToast.warning(
-                                                        'Group filter removed. Please add it back to see recordings for this group.'
-                                                    )
-                                                }
+                                            pinnedFilters={{
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        type: 'events',
+                                                        name: 'All events',
+                                                        properties: [
+                                                            {
+                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                type: 'hogql',
+                                                            },
+                                                        ],
+                                                    } as ActionFilter,
+                                                ],
                                             }}
                                         />
                                     </div>

@@ -2102,6 +2102,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tool calls made by the LLM in this generation.",
             "examples": ["2"],
         },
+        "$ai_is_error": {
+            "label": "AI Is Error (LLM)",
+            "description": "Whether this AI event resulted in an error.",
+            "examples": ["true", "false"],
+        },
+        "$ai_error": {
+            "label": "AI Error (LLM)",
+            "description": "The error message from a failed AI event.",
+            "examples": ["Rate limit exceeded", "Invalid API key"],
+        },
+        "$ai_error_type": {
+            "label": "AI Error Type (LLM)",
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": ["RateLimitError", "AuthenticationError"],
+        },
+        "$ai_error_normalized": {
+            "label": "AI Error Normalized (LLM)",
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": ["rate_limit_exceeded", "invalid_api_key"],
+        },
+        "$ai_trace_name": {
+            "label": "AI Trace Name (LLM)",
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": ["summarize_text", "chat_completion"],
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",
@@ -2190,8 +2215,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_traffic_category": {
             "label": "Traffic category",
-            "description": "Detailed traffic category: llm_crawler, search_crawler, seo_crawler, etc.",
-            "examples": ["llm_crawler", "search_crawler", "regular"],
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,
         },
@@ -2624,3 +2649,9 @@ IGNORED_EVENT_NAMES: list[str] = [
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if defn.get("system") or defn.get("ignored_in_assistant")
 ]
+
+WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if name not in IGNORED_EVENT_NAMES and name != "All events"
+)

@@ -272,6 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                allowContentScroll && 'h-full min-h-0 overflow-hidden',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -280,8 +281,7 @@ export function LemonTable<T extends Record<string, any>>({
         >
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
-                direction="horizontal"
-                constrainToDirection={!allowContentScroll}
+                direction={allowContentScroll ? undefined : 'horizontal'}
                 scrollRef={scrollRef}
             >
                 <div className="LemonTable__content">
@@ -600,11 +600,10 @@ export function LemonTable<T extends Record<string, any>>({
                         </tbody>
                     </table>
                     {footer && <div className="LemonTable__footer">{footer}</div>}
-
-                    <PaginationControl {...paginationState} nouns={nouns} />
-                    <div className="LemonTable__overlay" />
                 </div>
             </ScrollableShadows>
+            <PaginationControl {...paginationState} nouns={nouns} />
+            <div className="LemonTable__overlay" />
         </div>
     )
 }

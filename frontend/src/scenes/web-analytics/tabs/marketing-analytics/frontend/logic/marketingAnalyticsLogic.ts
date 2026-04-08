@@ -45,6 +45,11 @@ import {
     validColumnsForTiles,
 } from './utils'
 
+export enum MarketingAnalyticsTab {
+    DASHBOARD = 'dashboard',
+    INTEGRATION_HEALTH = 'integration-health',
+}
+
 export enum MarketingSourceStatus {
     Warning = 'Warning',
     Error = 'Error',
@@ -203,6 +208,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     })),
     actions({
+        setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
@@ -244,6 +251,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setInitialized: true,
     }),
     reducers({
+        activeTab: [
+            MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         initialized: [
             false,
             {
@@ -746,6 +759,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const buildUrl = (): [string, string] => {
             const searchParams = new URLSearchParams()
 
+            // Tab
+            if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
+                searchParams.set('tab', values.activeTab)
+            }
+
             // Date filters
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
@@ -789,6 +807,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            setActiveTab: buildUrl,
             setDates: buildUrl,
             setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
@@ -903,6 +922,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         // Read URL params on initial mount (one-time sync from URL)
         const searchParams = new URLSearchParams(window.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
+
+        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
+        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
+            actions.setActiveTab(tab)
+        }
 
         const dateFrom = searchParams.get('date_from')
         if (dateFrom) {
