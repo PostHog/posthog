@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -175,7 +176,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         return person1, person2
 
-    def test_first_step(self):
+    @parameterized.expand(
+        [
+            ("first_step", 1, 35),
+            ("last_step", 3, 5),
+            ("second_step_dropoff", -2, 20),
+            ("last_step_dropoff", -3, 10),
+        ]
+    )
+    def test_step_actors(self, _name: str, funnel_step: int, expected_count: int) -> None:
         self._create_sample_data_multiple_dropoffs()
         query = FunnelsQuery(
             series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
@@ -184,48 +193,9 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
         )
 
-        results = get_actors(query, self.team, funnel_step=1)
+        results = get_actors(query, self.team, funnel_step=funnel_step)
 
-        self.assertEqual(35, len(results))
-
-    def test_last_step(self):
-        self._create_sample_data_multiple_dropoffs()
-        query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
-            interval="day",
-            dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
-            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
-        )
-
-        results = get_actors(query, self.team, funnel_step=3)
-
-        self.assertEqual(5, len(results))
-
-    def test_second_step_dropoff(self):
-        self._create_sample_data_multiple_dropoffs()
-        query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
-            interval="day",
-            dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
-            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
-        )
-
-        results = get_actors(query, self.team, funnel_step=-2)
-
-        self.assertEqual(20, len(results))
-
-    def test_last_step_dropoff(self):
-        self._create_sample_data_multiple_dropoffs()
-        query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
-            interval="day",
-            dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
-            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
-        )
-
-        results = get_actors(query, self.team, funnel_step=-3)
-
-        self.assertEqual(10, len(results))
+        self.assertEqual(expected_count, len(results))
 
     def _create_sample_data(self):
         for i in range(110):
