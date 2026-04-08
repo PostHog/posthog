@@ -718,7 +718,6 @@ posthog/test/activity_logging/test_organization_activity_logging.py:0: error: It
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
-posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/activity_logging/test_organization_activity_logging.py:0: error: Value of type "Any | None" is not indexable  [index]

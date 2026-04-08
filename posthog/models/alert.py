@@ -115,6 +115,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 

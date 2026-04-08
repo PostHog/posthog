@@ -456,7 +456,7 @@ class ExperimentQueryRunner(QueryRunner):
             kind="FunnelsQuery",
             series=self.metric.series,
             dateRange=self.date_range,
-            filterTestAccounts=self.experiment.exposure_criteria.filterTestAccounts
+            filterTestAccounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
             if self.experiment.exposure_criteria
             else False,
             funnelsFilter=FunnelsFilter(
