@@ -204,6 +204,7 @@ export const mockSubscription: SubscriptionType = {
     byweekday: ['wednesday'],
     bysetpos: 1,
     summary: 'sent every month on the first wednesday',
+    next_delivery_date: '2024-01-01T00:00:00Z',
     created_at: '2022-01-01T00:09:00',
     updated_at: '2022-01-01T00:09:00',
 }

@@ -6299,6 +6299,45 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_with_explicit_null"
         assert response["results"][0]["status"] == "STALE"
 
+    @parameterized.expand(
+        [
+            (
+                "json_null_variant",
+                {
+                    "groups": [{"rollout_percentage": 100, "properties": [], "variant": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                    },
+                },
+                False,  # JSON null variant is not a real override, should not be stale
+            ),
+            (
+                "empty_multivariate_object",
+                {
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "multivariate": {},
+                },
+                True,  # empty multivariate {} should be treated like no multivariate
+            ),
+        ]
+    )
+    def test_get_flags_with_stale_filter_jsonb_edge_cases(self, flag_key, flag_filters, expect_stale):
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=flag_key,
+                active=True,
+                filters=flag_filters,
+            )
+
+        response = self.client.get("/api/projects/@current/feature_flags?active=STALE").json()
+        is_in_results = any(f["key"] == flag_key for f in response["results"])
+        assert is_in_results == expect_stale
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(
@@ -8391,7 +8430,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(18):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -8449,7 +8488,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -8539,7 +8578,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(14):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -8668,7 +8707,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(32):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(31):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
