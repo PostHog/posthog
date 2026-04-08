@@ -303,13 +303,22 @@ describe('dataTableLogic', () => {
         })
     })
 
-    it('groups date headers by project timezone, not device timezone', async () => {
-        // Set project timezone to US/Pacific (UTC-8).
-        // Events at 2022-12-24T05:00:00Z and 2022-12-24T10:00:00Z are both Dec 24 in UTC,
-        // but in US/Pacific the first one is Dec 23 (9pm PST) and the second is Dec 24 (2am PST).
-        // The date header should appear between them when using project timezone.
+    it.each([
+        {
+            timezone: 'US/Pacific',
+            // 2022-12-24T05:00Z = Dec 23 21:00 PST; 2022-12-24T10:00Z = Dec 24 02:00 PST
+            timestamps: ['2022-12-24T10:00:00.000000Z', '2022-12-24T05:00:00.000000Z'],
+            expectedLabel: 'December 23, 2022',
+        },
+        {
+            timezone: 'Asia/Tokyo',
+            // 2022-12-24T15:00Z = Dec 25 00:00 JST; 2022-12-24T14:00Z = Dec 24 23:00 JST
+            timestamps: ['2022-12-24T15:00:00.000000Z', '2022-12-24T14:00:00.000000Z'],
+            expectedLabel: 'December 24, 2022',
+        },
+    ])('groups date headers by project timezone ($timezone)', async ({ timezone, timestamps, expectedLabel }) => {
         teamLogic.mount()
-        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone: 'US/Pacific' } as any)
+        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone } as any)
 
         const commonResult = {
             uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
@@ -318,18 +327,7 @@ describe('dataTableLogic', () => {
             team_id: 1,
             distinct_id: '123',
         }
-        const results = [
-            [
-                { ...commonResult, timestamp: '2022-12-24T10:00:00.000000Z' },
-                'test event',
-                '2022-12-24T10:00:00.000000Z', // Dec 24, 2am PST
-            ],
-            [
-                { ...commonResult, timestamp: '2022-12-24T05:00:00.000000Z' },
-                'test event',
-                '2022-12-24T05:00:00.000000Z', // Dec 23, 9pm PST
-            ],
-        ]
+        const results = timestamps.map((ts) => [{ ...commonResult, timestamp: ts }, 'test event', ts])
         ;(performQuery as any).mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             types: [
@@ -359,11 +357,7 @@ describe('dataTableLogic', () => {
             .toMatchValues({ responseLoading: false })
 
         await expectLogic(logic).toMatchValues({
-            dataTableRows: [
-                { result: results[0] }, // Dec 24 in PST
-                { label: 'December 23, 2022' }, // Date header in project timezone (PST)
-                { result: results[1] }, // Dec 23 in PST
-            ],
+            dataTableRows: [{ result: results[0] }, { label: expectedLabel }, { result: results[1] }],
         })
     })
 
