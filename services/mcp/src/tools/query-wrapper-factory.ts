@@ -49,7 +49,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const posthogUrl = config.urlPrefix
                 ? `${baseUrl}${config.urlPrefix}`
-                : `${baseUrl}/insights/new?q=${encodeURIComponent(JSON.stringify(query))}`
+                : `${baseUrl}/insights/new#q=${encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))}`
             return {
                 results: result.formatted_results ?? result.results,
                 _posthogUrl: posthogUrl,

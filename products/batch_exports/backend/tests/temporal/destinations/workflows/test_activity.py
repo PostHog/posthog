@@ -3,12 +3,8 @@ import urllib.parse
 
 import pytest
 
-import aiohttp
-
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
-    BadRequest,
-    NotFound,
     WorkflowsInsertInputs,
     insert_into_workflows_activity_from_stage,
     workflows_default_fields,
@@ -157,30 +153,51 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
     model = BatchExportModel(name="events", schema=None)
 
     if error == 404:
-        expected: type[aiohttp.ClientResponseError] = NotFound
+        expected = "NotFoundErrorGroup"
     else:
-        expected = BadRequest
+        expected = "BadRequestErrorGroup"
 
-    with pytest.raises(expected):
-        await _run_activity(
-            activity_environment,
-            server=server,
-            handler=handler,
-            hog_function_id=hog_function_id,
-            clickhouse_client=clickhouse_client,
-            team=ateam,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            exclude_events=exclude_events,
-            batch_export_model=model,
-            sort_key="event",
-        )
+    batch_export_id = str(uuid.uuid4())
+    batch_export_inputs = BatchExportInsertInputs(
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        batch_export_id=batch_export_id,
+    )
+    workflows_inputs = WorkflowsInsertInputs(
+        batch_export=batch_export_inputs,
+        url=urllib.parse.urlunsplit((server.scheme, f"{server.host}:{server.port}", "/", "", "")),
+        hog_function_id=hog_function_id,
+    )
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=workflows_inputs.batch_export.team_id,
+            batch_export_id=batch_export_id,
+            data_interval_start=workflows_inputs.batch_export.data_interval_start,
+            data_interval_end=workflows_inputs.batch_export.data_interval_end,
+            exclude_events=workflows_inputs.batch_export.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            num_partitions=1,
+            is_workflows=True,
+            batch_export_model=workflows_inputs.batch_export.batch_export_model,
+            batch_export_schema=workflows_inputs.batch_export.batch_export_schema,
+            destination_default_fields=workflows_default_fields(batch_export_id),
+        ),
+    )
+    result = await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)
+    assert result.error is not None
+    assert result.error.type == expected
 
     assert len(handler.error_data) == 1  # First request failed...
-    assert not len(handler.data)  # And it wasn't retried
+    error_request = handler.error_data.pop()
+    assert error_request not in handler.data  # And it wasn't retried
 
 
-@pytest.mark.parametrize("error", [429, 500], indirect=True)
+@pytest.mark.parametrize("error", [429, 500, 503], indirect=True)
 async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
     clickhouse_client,
     activity_environment,
