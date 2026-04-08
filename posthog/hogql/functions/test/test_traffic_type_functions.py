@@ -103,6 +103,8 @@ class TestTrafficTypeFunctions:
         label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
         assert "ai_crawler" in label_values
+        assert "ai_search" in label_values
+        assert "ai_assistant" in label_values
         assert "search_crawler" in label_values
         assert "http_client" in label_values
         assert "no_user_agent" in label_values  # For empty UA
@@ -361,8 +363,12 @@ class TestBotDefinitionsDataStructure:
             # AI Crawlers
             ("GPTBot", "GPTBot", "ai_crawler", "AI Agent"),
             ("Google-CloudVertexBot", "Google Cloud Vertex", "ai_crawler", "AI Agent"),
+            ("GoogleOther", "GoogleOther", "ai_crawler", "AI Agent"),
             ("ClaudeBot", "Claude", "ai_crawler", "AI Agent"),
             ("Claude-Web", "Claude Web", "ai_crawler", "AI Agent"),
+            ("TikTokSpider", "TikTok AI", "ai_crawler", "AI Agent"),
+            ("PetalBot", "Petal", "ai_crawler", "AI Agent"),
+            ("Brightbot", "Brightbot", "ai_crawler", "AI Agent"),
             ("Diffbot", "Diffbot", "ai_crawler", "AI Agent"),
             ("Timpibot", "Timpi", "ai_crawler", "AI Agent"),
             ("omgili", "Webz.io", "ai_crawler", "AI Agent"),
@@ -373,7 +379,7 @@ class TestBotDefinitionsDataStructure:
             ("Claude-SearchBot", "Claude Search", "ai_search", "AI Agent"),
             ("PerplexityBot", "Perplexity", "ai_search", "AI Agent"),
             ("Applebot-Extended", "Apple AI", "ai_search", "AI Agent"),
-            ("Applebot", "Applebot", "ai_search", "AI Agent"),
+            ("Applebot/", "Applebot", "ai_search", "AI Agent"),
             # AI Assistants
             ("ChatGPT-User", "ChatGPT", "ai_assistant", "AI Agent"),
             ("Claude-User", "Claude User", "ai_assistant", "AI Agent"),
@@ -383,6 +389,7 @@ class TestBotDefinitionsDataStructure:
             ("MistralAI-User", "Mistral AI", "ai_assistant", "AI Agent"),
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
+            ("bingbot", "Bingbot", "search_crawler", "Bot"),
             # SEO Tools
             ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
             # Social Crawlers

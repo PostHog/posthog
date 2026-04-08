@@ -65,7 +65,7 @@ class TestBotClassificationRealUA:
     def test_all_bot_definitions_have_matching_ua_fixture(self):
         # Patterns that are substrings of other patterns can't have standalone UA fixtures
         # because multiMatchAnyIndex may match the shorter pattern first
-        KNOWN_SUBSTRING_PATTERNS = {"Applebot-Extended"}
+        KNOWN_SUBSTRING_PATTERNS: set[str] = set()
 
         all_bot_uas = []
         for category, ua_list in BOT_USER_AGENTS.items():
