@@ -539,3 +539,6 @@ tools:
     dashboards-generate-metadata-create:
         operation: dashboards_generate_metadata_create
         enabled: false
+    subscriptions-test-delivery-create:
+        operation: subscriptions_test_delivery_create
+        enabled: false

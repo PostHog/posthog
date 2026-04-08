@@ -1959,6 +1959,22 @@
             "readOnlyHint": true
         }
     },
+    "llm-analytics-evaluation-summary-create": {
+        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Summarize evaluation results",
+        "title": "Summarize evaluation results",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true
+    },
     "llm-analytics-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
         "category": "LLM analytics",

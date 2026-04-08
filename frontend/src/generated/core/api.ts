@@ -1872,6 +1872,21 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     })
 }
 
+export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
+}
+
+export const subscriptionsTestDeliveryCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getUsersListUrl = (params?: UsersListParams) => {
     const normalizedParams = new URLSearchParams()
 

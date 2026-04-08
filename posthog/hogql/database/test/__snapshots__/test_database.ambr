@@ -2935,6 +2935,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "schedule_restriction": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "schedule_restriction",
+                  "id": null,
+                  "name": "schedule_restriction",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
               }
           },
           "id": "system.alerts",
@@ -8121,6 +8131,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "schedule_restriction": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "schedule_restriction",
+                  "id": null,
+                  "name": "schedule_restriction",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
               }
           },
           "id": "system.alerts",
