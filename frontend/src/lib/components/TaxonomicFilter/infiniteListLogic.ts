@@ -461,6 +461,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         isLocalDataLoading: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
+                    if (props.listGroupType === TaxonomicFilterGroupType.DataWarehouseProperties) {
+                        return props.schemaColumnsLoading ?? false
+                    }
+
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
