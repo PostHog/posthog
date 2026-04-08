@@ -301,6 +301,7 @@ describe('rrule-helpers', () => {
             ['every 2 weeks on Friday', 'weekly', 2, [4]],
             ['every month on the 1st', 'monthly', 1, []],
             ['every month on the last', 'monthly', 1, []],
+            ['every year', 'yearly', 1, []],
         ])('parses "%s"', (text, expectedFreq, expectedInterval, expectedWeekdays) => {
             const result = parseNaturalLanguage(text)
             expect(result).not.toBeNull()
@@ -327,13 +328,18 @@ describe('rrule-helpers', () => {
 
     describe('scheduleToText', () => {
         it.each([
-            [{ ...DEFAULT_STATE, frequency: 'daily' as const }, 'every day'],
-            [{ ...DEFAULT_STATE, frequency: 'weekly' as const, weekdays: [0, 2] }, 'every week on Monday, Wednesday'],
+            ['every day', { ...DEFAULT_STATE, frequency: 'daily' as const }, 'every day'],
             [
+                'every week on Monday, Wednesday',
+                { ...DEFAULT_STATE, frequency: 'weekly' as const, weekdays: [0, 2] },
+                'every week on Monday, Wednesday',
+            ],
+            [
+                'every day for 10 times',
                 { ...DEFAULT_STATE, frequency: 'daily' as const, endType: 'after_count' as const, endCount: 10 },
                 'every day for 10 times',
             ],
-        ])('converts state to text', (state, expected) => {
+        ])('converts state to "%s"', (_label, state, expected) => {
             expect(scheduleToText(state, null)).toBe(expected)
         })
     })
