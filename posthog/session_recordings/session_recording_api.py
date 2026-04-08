@@ -389,6 +389,108 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
         ]
 
 
+class SessionRecordingListQueryParamsSerializer(serializers.Serializer):
+    """Query parameters for the session recording list endpoint.
+
+    Complex filter types (properties, events, console_log_filters, etc.) are passed as
+    JSON-encoded strings in query parameters. The endpoint parses them into a RecordingsQuery.
+    """
+
+    session_ids = serializers.CharField(
+        required=False,
+        help_text='JSON array of session IDs to filter by. Example: \'["session-abc","session-def"]\'',
+    )
+    person_uuid = serializers.CharField(
+        required=False,
+        help_text="Filter recordings by a specific person UUID.",
+    )
+    distinct_ids = serializers.CharField(
+        required=False,
+        help_text="JSON array of distinct IDs. Example: '[\"user@example.com\"]'",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Start date for the search range. Relative: '-3d', '-7d', '-24h'. Absolute: '2024-01-01'. Defaults to '-3d'.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End date for the search range. Null means 'now'. Absolute: '2024-01-15'.",
+    )
+    properties = serializers.CharField(
+        required=False,
+        help_text=(
+            "JSON array of property filters for person, session, event, recording, or cohort properties. "
+            'Example: \'[{"key":"$browser","type":"person","value":["Chrome"],"operator":"exact"}]\'. '
+            "Supported types: person, session, event, recording, cohort, group, hogql."
+        ),
+    )
+    events = serializers.CharField(
+        required=False,
+        help_text=(
+            "JSON array of event filters. Matches recordings containing at least one matching event. "
+            'Example: \'[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"/pricing","operator":"icontains"}]}]\''
+        ),
+    )
+    actions = serializers.CharField(
+        required=False,
+        help_text="JSON array of action filters. Similar to events but references saved actions by ID.",
+    )
+    console_log_filters = serializers.CharField(
+        required=False,
+        help_text=(
+            "JSON array of console log entry filters. "
+            'Example: \'[{"key":"level","type":"log_entry","value":["error"],"operator":"exact"}]\''
+        ),
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        help_text="Exclude internal/test users. Defaults to false.",
+    )
+    operand = serializers.ChoiceField(
+        required=False,
+        choices=["AND", "OR"],
+        help_text="Logical operator to combine property filters. Defaults to 'AND'.",
+    )
+    order = serializers.ChoiceField(
+        required=False,
+        choices=[
+            "start_time",
+            "duration",
+            "recording_duration",
+            "console_error_count",
+            "active_seconds",
+            "inactive_seconds",
+            "click_count",
+            "keypress_count",
+            "mouse_activity_count",
+            "activity_score",
+            "recording_ttl",
+        ],
+        help_text="Field to order recordings by. Defaults to 'start_time'.",
+    )
+    order_direction = serializers.ChoiceField(
+        required=False,
+        choices=["ASC", "DESC"],
+        help_text="Sort direction. Defaults to 'DESC'.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        help_text="Maximum number of recordings to return per page.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        help_text="Number of recordings to skip for pagination.",
+    )
+
+
+class SessionRecordingListResponseSerializer(serializers.Serializer):
+    """Response serializer for the session recording list endpoint."""
+
+    results = SessionRecordingSerializer(many=True)
+    has_next = serializers.BooleanField()
+    version = serializers.IntegerField()
+
+
 class SessionRecordingSharedSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
@@ -715,6 +817,7 @@ class SessionRecordingViewSet(
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
+    pagination_class = None
     # We don't use this
     queryset = SessionRecording.objects.none()
 
@@ -734,6 +837,15 @@ class SessionRecordingViewSet(
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(
+        parameters=[SessionRecordingListQueryParamsSerializer],
+        responses={200: SessionRecordingListResponseSerializer},
+        description=(
+            "List and search session recordings. Filter by session IDs, person UUID, distinct IDs, "
+            "date range, person/session/event properties, console log levels, and more. "
+            "Returns recording metadata including duration, activity counts, start URL, and person info."
+        ),
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
