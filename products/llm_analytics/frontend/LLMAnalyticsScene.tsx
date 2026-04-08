@@ -163,7 +163,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
                     <div className="text-center p-8">
-                        <Spinner />
+                        <Spinner captureTime />
                     </div>
                 ) : (
                     <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
