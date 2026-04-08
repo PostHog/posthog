@@ -122,8 +122,8 @@ export function onChartClick(
         // rather than its top edge. Adjacent stacked bars share edges, so
         // using the top causes off-by-one selection when clicking below a
         // bar's center.
-        const aEl = a.element as any
-        const bEl = b.element as any
+        const aEl = a.element as unknown as { y: number; base?: number }
+        const bEl = b.element as unknown as { y: number; base?: number }
         const aY = aEl.base != null ? (aEl.y + aEl.base) / 2 : aEl.y
         const bY = bEl.base != null ? (bEl.y + bEl.base) / 2 : bEl.y
         return Math.abs(aY - eventY) - Math.abs(bY - eventY)
@@ -156,10 +156,21 @@ export function onChartClick(
 
     const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-    // Take first point when clicking a specific point.
-    const referencePoint: GraphPoint = clickedPointNotLine
-        ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
-        : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+    // Prefer the tooltip's active data point as the reference, since it
+    // matches what the user sees. The tooltip uses 'nearest' mode which
+    // can pick a different bar segment than the click handler's 'point'
+    // mode, causing the modal to open for the wrong breakdown.
+    const tooltipDataPoint = chart.tooltip?.dataPoints?.[0]
+    const referencePoint: GraphPoint = tooltipDataPoint
+        ? {
+              datasetIndex: tooltipDataPoint.datasetIndex,
+              index: tooltipDataPoint.dataIndex,
+              element: tooltipDataPoint.element,
+              dataset: datasets[tooltipDataPoint.datasetIndex],
+          }
+        : clickedPointNotLine
+          ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+          : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
 
     const crossDataset = datasets
         .filter((_dt) => !_dt.dotted)

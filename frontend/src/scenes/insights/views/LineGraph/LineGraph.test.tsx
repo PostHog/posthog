@@ -182,7 +182,10 @@ describe('LineGraph', () => {
             }))
         }
 
-        function makeMockChart(pointHits: InteractionItem[] = []): any {
+        function makeMockChart(
+            pointHits: InteractionItem[] = [],
+            tooltipDataPoints?: { datasetIndex: number; dataIndex: number }[]
+        ): any {
             return {
                 getElementsAtEventForMode: (_event: Event, mode: string) => {
                     if (mode === 'point') {
@@ -190,6 +193,7 @@ describe('LineGraph', () => {
                     }
                     return makeIndexElements()
                 },
+                tooltip: tooltipDataPoints ? { dataPoints: tooltipDataPoints } : undefined,
             }
         }
 
@@ -242,6 +246,30 @@ describe('LineGraph', () => {
             expect(payload).toBeTruthy()
             expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
             expect(payload!.points.clickedPointNotLine).toBe(true)
+        })
+
+        it('uses tooltip reference point over click detection to match what user sees', () => {
+            // The tooltip shows Flutter (dataset 1) via 'nearest' mode, but
+            // click detection via 'point' mode hits Email (dataset 2).
+            // The tooltip should win since that's what the user sees.
+            const directHit: InteractionItem[] = [{ element: barElements[2] as any, datasetIndex: 2, index: 0 }]
+            const tooltipDataPoints = [{ datasetIndex: 1, dataIndex: 0 }]
+            const chart = makeMockChart(directHit, tooltipDataPoints)
+            const payload = clickAndCapture(chart, makeEvent(200))
+
+            expect(payload).toBeTruthy()
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
+            expect(payload!.points.referencePoint.datasetIndex).toBe(1)
+        })
+
+        it('falls back to click detection when no tooltip is active', () => {
+            // No tooltip data — should use existing click detection logic
+            const chart = makeMockChart([], undefined)
+            const payload = clickAndCapture(chart, makeEvent(200))
+
+            expect(payload).toBeTruthy()
+            // Falls back to pointsIntersectingLine sorted by center distance
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
         })
 
         it('works correctly for line charts where elements have no base property', () => {
