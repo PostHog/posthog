@@ -37,6 +37,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "enabled",
             "deleted",
             "last_delivered_at",
+            "report_prompt_guidance",
             "created_by",
             "created_at",
         ]

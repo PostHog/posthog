@@ -97,17 +97,25 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         render: (_, run: EvaluationReportRun) => formatPeriod(run),
                     },
                     {
+                        title: 'Title',
+                        key: 'title',
+                        render: (_, run: EvaluationReportRun) => (
+                            <span className="font-medium">{run.content?.title || '–'}</span>
+                        ),
+                    },
+                    {
                         title: 'Pass rate',
                         key: 'pass_rate',
                         render: (_, run: EvaluationReportRun) => {
-                            const pct = run.metadata?.pass_rate
+                            const pct = run.content?.metrics?.pass_rate ?? run.metadata?.pass_rate
                             return typeof pct === 'number' ? `${pct.toFixed(1)}%` : '–'
                         },
                     },
                     {
                         title: 'Runs',
                         key: 'total_runs',
-                        render: (_, run: EvaluationReportRun) => run.metadata?.total_runs ?? '–',
+                        render: (_, run: EvaluationReportRun) =>
+                            run.content?.metrics?.total_runs ?? run.metadata?.total_runs ?? '–',
                     },
                     {
                         title: 'Delivery',

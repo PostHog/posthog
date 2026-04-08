@@ -103,40 +103,52 @@ export interface EvaluationReport {
     enabled: boolean
     deleted: boolean
     last_delivered_at: string | null
+    /** Optional per-report custom guidance appended to the agent's system prompt. */
+    report_prompt_guidance: string
     created_by: number | null
     created_at: string
 }
 
+/** A titled markdown section of the report (v2: agent-chosen title). */
 export interface EvaluationReportSection {
+    title: string
     content: string
-    referenced_generation_ids: string[]
 }
 
-export interface EvaluationReportRunContent {
-    executive_summary?: EvaluationReportSection
-    statistics?: EvaluationReportSection
-    trend_analysis?: EvaluationReportSection
-    failure_patterns?: EvaluationReportSection
-    pass_patterns?: EvaluationReportSection
-    notable_changes?: EvaluationReportSection
-    recommendations?: EvaluationReportSection
-    risk_assessment?: EvaluationReportSection
+/** A trace reference cited by the agent to ground a specific finding. */
+export interface EvaluationReportCitation {
+    generation_id: string
+    trace_id: string
+    reason: string
 }
 
-export interface EvaluationReportRunMetadata {
+/** Structured metrics computed mechanically from ClickHouse (agent cannot fabricate). */
+export interface EvaluationReportMetrics {
     total_runs: number
     pass_count: number
     fail_count: number
     na_count: number
     pass_rate: number
+    period_start: string
+    period_end: string
+    previous_total_runs: number | null
     previous_pass_rate: number | null
+}
+
+/** Top-level report content stored in EvaluationReportRun.content. */
+export interface EvaluationReportRunContent {
+    title: string
+    sections: EvaluationReportSection[]
+    citations: EvaluationReportCitation[]
+    metrics: EvaluationReportMetrics
 }
 
 export interface EvaluationReportRun {
     id: string
     report: string
     content: EvaluationReportRunContent
-    metadata: EvaluationReportRunMetadata
+    /** Legacy mirror of content.metrics — populated by the store activity for backwards compat. */
+    metadata: EvaluationReportMetrics
     period_start: string
     period_end: string
     delivery_status: 'pending' | 'delivered' | 'partial_failure' | 'failed'

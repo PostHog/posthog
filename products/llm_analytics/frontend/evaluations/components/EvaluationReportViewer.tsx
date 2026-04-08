@@ -5,29 +5,12 @@ import { LemonBadge, LemonButton, LemonCollapse, LemonDivider } from '@posthog/l
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type { EvaluationReportRun, EvaluationReportRunContent, EvaluationReportSection } from '../types'
-
-const SECTION_TITLES: Record<string, string> = {
-    executive_summary: 'Executive summary',
-    statistics: 'Statistics',
-    trend_analysis: 'Trend analysis',
-    failure_patterns: 'Failure patterns',
-    pass_patterns: 'Pass patterns',
-    notable_changes: 'Notable changes',
-    recommendations: 'Recommendations',
-    risk_assessment: 'Risk assessment',
-}
-
-const SECTION_ORDER = [
-    'executive_summary',
-    'statistics',
-    'trend_analysis',
-    'failure_patterns',
-    'pass_patterns',
-    'notable_changes',
-    'recommendations',
-    'risk_assessment',
-]
+import type {
+    EvaluationReportMetrics,
+    EvaluationReportRun,
+    EvaluationReportRunContent,
+    EvaluationReportSection,
+} from '../types'
 
 const UUID_REGEX = /`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`/g
 
@@ -40,12 +23,9 @@ function linkifyUuids(content: string): string {
     })
 }
 
-// The agent typically emits each section starting with its own `#`/`##` heading
-// matching (or closely matching) the section title. The viewer already renders
-// a `<h3>` for the canonical title, so that heading is redundant. Strip any
-// leading heading line whose text starts with the canonical section title
-// (case-insensitive), to keep the rendering clean without touching the stored
-// report content.
+// Strip a leading markdown heading line if it matches the section title.
+// The agent sometimes prefixes each section's content with its own heading,
+// which duplicates the heading the renderer emits separately.
 function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
     const match = content.match(/^\s*(#{1,6})\s+(.+?)\s*(?:\r?\n|$)/)
     if (!match) {
@@ -58,12 +38,70 @@ function stripRedundantLeadingHeading(content: string, sectionTitle: string): st
     return content
 }
 
-function ReportSectionContent({ section, title }: { section: EvaluationReportSection; title: string }): JSX.Element {
-    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, title))
+function ReportSectionContent({ section }: { section: EvaluationReportSection }): JSX.Element {
+    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, section.title))
     return (
         <LemonMarkdown lowKeyHeadings className="text-sm">
             {markdown}
         </LemonMarkdown>
+    )
+}
+
+function formatPassRate(rate: number | null | undefined): string {
+    if (rate == null) {
+        return '—'
+    }
+    return `${rate.toFixed(2)}%`
+}
+
+function MetricsCard({ metrics }: { metrics: EvaluationReportMetrics }): JSX.Element {
+    // Period-over-period delta (if we have a previous pass rate to compare)
+    let deltaEl: JSX.Element | null = null
+    if (metrics.previous_pass_rate != null) {
+        const diff = metrics.pass_rate - metrics.previous_pass_rate
+        const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '—'
+        const color = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted'
+        deltaEl = (
+            <span className={`text-xs ml-1 ${color}`}>
+                {arrow} {Math.abs(diff).toFixed(2)}pp vs previous
+            </span>
+        )
+    }
+
+    return (
+        <div className="bg-bg-light border rounded p-3 mb-3">
+            <div className="flex items-center gap-6 flex-wrap text-sm">
+                <div>
+                    <div className="text-muted text-xs">Pass rate</div>
+                    <div className="font-semibold">
+                        {formatPassRate(metrics.pass_rate)}
+                        {deltaEl}
+                    </div>
+                </div>
+                <div>
+                    <div className="text-muted text-xs">Total runs</div>
+                    <div className="font-semibold">{metrics.total_runs}</div>
+                </div>
+                <div>
+                    <div className="text-muted text-xs">Pass</div>
+                    <div className="font-semibold text-success">{metrics.pass_count}</div>
+                </div>
+                <div>
+                    <div className="text-muted text-xs">Fail</div>
+                    <div className="font-semibold text-danger">{metrics.fail_count}</div>
+                </div>
+                <div>
+                    <div className="text-muted text-xs">N/A</div>
+                    <div className="font-semibold">{metrics.na_count}</div>
+                </div>
+                {metrics.previous_total_runs != null && (
+                    <div>
+                        <div className="text-muted text-xs">Previous runs</div>
+                        <div className="font-semibold text-muted">{metrics.previous_total_runs}</div>
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -89,24 +127,15 @@ export function EvaluationReportViewer({
     compact?: boolean
 }): JSX.Element {
     const content = reportRun.content as EvaluationReportRunContent
+    const sections = content.sections ?? []
+    const metrics = content.metrics
 
-    // Build the list of sections that actually have content, in canonical order.
-    // Memoized so identity is stable and expand/collapse all buttons don't thrash.
-    const availableSectionKeys = useMemo(
-        () =>
-            SECTION_ORDER.filter(
-                (key) => content[key as keyof EvaluationReportRunContent] != null
-            ) as (keyof EvaluationReportRunContent)[],
-        [content]
-    )
+    // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
+    // buttons can set the list deterministically.
+    const sectionKeys = useMemo(() => sections.map((_, i) => i.toString()), [sections])
+    const [expandedKeys, setExpandedKeys] = useState<string[]>(sections.length > 0 ? ['0'] : [])
 
-    // Default to just the executive summary expanded — that's the TL;DR and keeps
-    // the list scannable. Users can Expand all for full view.
-    const [expandedKeys, setExpandedKeys] = useState<string[]>(
-        availableSectionKeys.includes('executive_summary') ? ['executive_summary'] : []
-    )
-
-    const allExpanded = expandedKeys.length === availableSectionKeys.length
+    const allExpanded = expandedKeys.length === sectionKeys.length && sectionKeys.length > 0
     const allCollapsed = expandedKeys.length === 0
 
     return (
@@ -115,7 +144,7 @@ export function EvaluationReportViewer({
                 <>
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                            <h2 className="font-bold text-base mb-0">Report</h2>
+                            <h2 className="font-bold text-base mb-0">{content.title || 'Report'}</h2>
                             <DeliveryStatusBadge status={reportRun.delivery_status} />
                         </div>
                         {onClose && (
@@ -133,40 +162,44 @@ export function EvaluationReportViewer({
                 </>
             )}
 
-            <div className="flex justify-end gap-2 mb-2">
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={() => setExpandedKeys(availableSectionKeys as string[])}
-                    disabledReason={allExpanded ? 'All sections already expanded' : undefined}
-                >
-                    Expand all
-                </LemonButton>
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={() => setExpandedKeys([])}
-                    disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
-                >
-                    Collapse all
-                </LemonButton>
-            </div>
+            {compact && content.title && <h3 className="font-semibold text-sm mb-2">{content.title}</h3>}
 
-            <LemonCollapse
-                multiple
-                size="small"
-                activeKeys={expandedKeys}
-                onChange={(keys) => setExpandedKeys(keys as string[])}
-                panels={availableSectionKeys.map((key) => {
-                    const section = content[key]!
-                    const title = SECTION_TITLES[key] || key
-                    return {
-                        key,
-                        header: title,
-                        content: <ReportSectionContent section={section} title={title} />,
-                    }
-                })}
-            />
+            {metrics && <MetricsCard metrics={metrics} />}
+
+            {sections.length > 0 && (
+                <>
+                    <div className="flex justify-end gap-2 mb-2">
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => setExpandedKeys(sectionKeys)}
+                            disabledReason={allExpanded ? 'All sections already expanded' : undefined}
+                        >
+                            Expand all
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => setExpandedKeys([])}
+                            disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
+                        >
+                            Collapse all
+                        </LemonButton>
+                    </div>
+
+                    <LemonCollapse
+                        multiple
+                        size="small"
+                        activeKeys={expandedKeys}
+                        onChange={(keys) => setExpandedKeys(keys as string[])}
+                        panels={sections.map((section, idx) => ({
+                            key: idx.toString(),
+                            header: section.title,
+                            content: <ReportSectionContent section={section} />,
+                        }))}
+                    />
+                </>
+            )}
 
             {reportRun.delivery_errors.length > 0 && (
                 <div className="mt-4 p-2 bg-danger-highlight rounded">

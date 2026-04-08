@@ -14428,6 +14428,7 @@ export namespace Schemas {
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      report_prompt_guidance?: string;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -23754,6 +23755,7 @@ export namespace Schemas {
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
+      report_prompt_guidance?: string;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;

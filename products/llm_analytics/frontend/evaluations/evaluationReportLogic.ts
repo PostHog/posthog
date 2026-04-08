@@ -23,6 +23,7 @@ export interface PendingReportConfig {
     emailValue: string
     slackIntegrationId: number | null
     slackChannelValue: string
+    reportPromptGuidance: string
 }
 
 const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
@@ -31,6 +32,7 @@ const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
     emailValue: '',
     slackIntegrationId: null,
     slackChannelValue: '',
+    reportPromptGuidance: '',
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
@@ -48,6 +50,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         setPendingEmailValue: (emailValue: string) => ({ emailValue }),
         setPendingSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setPendingSlackChannelValue: (channelValue: string) => ({ channelValue }),
+        setPendingReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
         createPendingReport: (evaluationId: string) => ({ evaluationId }),
 
         // Existing report actions
@@ -69,6 +72,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 setPendingSlackChannelValue: (state, { channelValue }) => ({
                     ...state,
                     slackChannelValue: channelValue,
+                }),
+                setPendingReportPromptGuidance: (state, { reportPromptGuidance }) => ({
+                    ...state,
+                    reportPromptGuidance,
                 }),
             },
         ],
@@ -97,6 +104,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     evaluationId: string
                     frequency: EvaluationReportFrequency
                     delivery_targets: EvaluationReportDeliveryTarget[]
+                    report_prompt_guidance?: string
                 }) => {
                     const report = await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
@@ -105,6 +113,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                             frequency: params.frequency,
                             start_date: new Date().toISOString(),
                             delivery_targets: params.delivery_targets,
+                            report_prompt_guidance: params.report_prompt_guidance ?? '',
                             enabled: true,
                         }
                     )
@@ -204,6 +213,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 evaluationId,
                 frequency: pendingConfig.frequency,
                 delivery_targets: targets,
+                report_prompt_guidance: pendingConfig.reportPromptGuidance,
             })
         },
     })),

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -9,6 +9,9 @@ import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/S
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportDeliveryTarget, EvaluationReportFrequency } from '../types'
+
+const GUIDANCE_PLACEHOLDER =
+    "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
 
 const FREQUENCY_OPTIONS = [
     { value: 'hourly' as const, label: 'Hourly' },
@@ -85,6 +88,7 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
         setPendingEmailValue,
         setPendingSlackIntegrationId,
         setPendingSlackChannelValue,
+        setPendingReportPromptGuidance,
     } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
@@ -123,6 +127,18 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
                         slackChannelValue={pendingConfig.slackChannelValue}
                         onSlackChannelChange={setPendingSlackChannelValue}
                     />
+                    <div>
+                        <label className="font-semibold text-sm">Report agent guidance (optional)</label>
+                        <LemonTextArea
+                            value={pendingConfig.reportPromptGuidance}
+                            onChange={setPendingReportPromptGuidance}
+                            placeholder={GUIDANCE_PLACEHOLDER}
+                            rows={3}
+                        />
+                        <p className="text-xs text-muted mt-1">
+                            Steers the agent's focus, section choices, or scope. Appended to the base prompt.
+                        </p>
+                    </div>
                 </div>
             )}
         </div>
@@ -141,6 +157,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     const [emailValue, setEmailValue] = useState('')
     const [slackIntegrationId, setSlackIntegrationId] = useState<number | null>(null)
     const [slackChannelValue, setSlackChannelValue] = useState('')
+    const [guidance, setGuidance] = useState('')
 
     // Seed the delivery-target form state from the active report so the user can edit
     // email/Slack targets without having to disable + recreate the schedule.
@@ -153,6 +170,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
         setEmailValue(emailTarget?.value ?? '')
         setSlackIntegrationId(slackTarget?.integration_id ?? null)
         setSlackChannelValue(slackTarget?.channel ?? '')
+        setGuidance(activeReport.report_prompt_guidance ?? '')
     }, [activeReport])
 
     const isEnabled = !!activeReport || formEnabled
@@ -187,7 +205,12 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
         if (hasSlack) {
             targets.push({ type: 'slack', integration_id: slackIntegrationId!, channel: slackChannelValue })
         }
-        createReport({ evaluationId, frequency, delivery_targets: targets })
+        createReport({
+            evaluationId,
+            frequency,
+            delivery_targets: targets,
+            report_prompt_guidance: guidance,
+        })
         setFormEnabled(false)
     }
 
@@ -232,15 +255,31 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                         onSlackChannelChange={setSlackChannelValue}
                     />
 
+                    <div>
+                        <label className="font-semibold text-sm">Report agent guidance (optional)</label>
+                        <LemonTextArea
+                            value={guidance}
+                            onChange={setGuidance}
+                            placeholder={GUIDANCE_PLACEHOLDER}
+                            rows={3}
+                        />
+                        <p className="text-xs text-muted mt-1">
+                            Steers the agent's focus, section choices, or scope. Appended to the base prompt.
+                        </p>
+                    </div>
+
                     {(() => {
                         const currentEmail = activeReport.delivery_targets.find((t) => t.type === 'email')?.value ?? ''
                         const currentSlack = activeReport.delivery_targets.find((t) => t.type === 'slack')
                         const currentSlackIntegrationId: number | null = currentSlack?.integration_id ?? null
                         const currentSlackChannel = currentSlack?.channel ?? ''
+                        const currentGuidance = activeReport.report_prompt_guidance ?? ''
                         const targetsDirty =
                             emailValue.trim() !== currentEmail ||
                             slackIntegrationId !== currentSlackIntegrationId ||
                             slackChannelValue !== currentSlackChannel
+                        const guidanceDirty = guidance !== currentGuidance
+                        const isDirty = targetsDirty || guidanceDirty
                         const hasAnyTarget = hasEmail || hasSlack
                         return (
                             <div className="flex justify-end">
@@ -249,7 +288,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                                     size="small"
                                     loading={reportsLoading}
                                     disabledReason={
-                                        !targetsDirty
+                                        !isDirty
                                             ? 'No changes to save'
                                             : !hasAnyTarget
                                               ? 'Add at least one delivery target'
@@ -269,11 +308,14 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                                         }
                                         updateReport({
                                             reportId: activeReport.id,
-                                            data: { delivery_targets: targets },
+                                            data: {
+                                                delivery_targets: targets,
+                                                report_prompt_guidance: guidance,
+                                            },
                                         })
                                     }}
                                 >
-                                    Save delivery targets
+                                    Save changes
                                 </LemonButton>
                             </div>
                         )
@@ -307,6 +349,18 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                             slackChannelValue={slackChannelValue}
                             onSlackChannelChange={setSlackChannelValue}
                         />
+                        <div>
+                            <label className="font-semibold text-sm">Report agent guidance (optional)</label>
+                            <LemonTextArea
+                                value={guidance}
+                                onChange={setGuidance}
+                                placeholder={GUIDANCE_PLACEHOLDER}
+                                rows={3}
+                            />
+                            <p className="text-xs text-muted mt-1">
+                                Steers the agent's focus, section choices, or scope. Appended to the base prompt.
+                            </p>
+                        </div>
                         <div className="flex justify-end">
                             <LemonButton
                                 type="primary"

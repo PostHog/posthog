@@ -65,6 +65,10 @@ class EvaluationReport(UUIDTModel):
     deleted = models.BooleanField(default=False)
     last_delivered_at = models.DateTimeField(null=True, blank=True)
 
+    # Optional per-report custom guidance appended to the agent's system prompt.
+    # Lets users steer focus/scope/section choices without touching the base prompt.
+    report_prompt_guidance = models.TextField(blank=True, default="")
+
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
