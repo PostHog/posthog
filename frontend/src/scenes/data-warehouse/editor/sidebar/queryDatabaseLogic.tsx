@@ -1,4 +1,4 @@
-import Fuse from 'fuse.js'
+import Fuse, { IFuseOptions } from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -97,7 +97,7 @@ const getSavedQuerySchemaTable = (
     return undefined
 }
 
-const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
+const FUSE_OPTIONS: IFuseOptions<any> = {
     keys: [{ name: 'name', weight: 2 }],
     threshold: 0.3,
     ignoreLocation: true,

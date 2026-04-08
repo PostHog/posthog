@@ -37,8 +37,8 @@ catalogs:
       specifier: ^3.1.3
       version: 3.1.3
     fuse.js:
-      specifier: ^6.6.2
-      version: 6.6.2
+      specifier: ^7.1.0
+      version: 7.3.0
     husky:
       specifier: ^7.0.4
       version: 7.0.4
@@ -124,7 +124,7 @@ importers:
         version: 5.3.0
       fuse.js:
         specifier: 'catalog:'
-        version: 6.6.2
+        version: 7.3.0
       husky:
         specifier: 'catalog:'
         version: 7.0.4
@@ -948,7 +948,7 @@ importers:
         version: 0.3.0(react@18.3.1)(typescript@5.7.3)
       fuse.js:
         specifier: 'catalog:'
-        version: 6.6.2
+        version: 7.3.0
       hast-util-to-html:
         specifier: ^9.0.5
         version: 9.0.5
@@ -2596,7 +2596,7 @@ importers:
         version: 1.2.1
       fuse.js:
         specifier: 'catalog:'
-        version: 6.6.2
+        version: 7.3.0
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -15630,6 +15630,10 @@ packages:
 
   fuse.js@6.6.2:
     resolution: {integrity: sha512-cJaJkxCCxC8qIIcPBF9yGxY0W/tVZS3uEISDxhYIdtk8OL93pe+6Zj7LjCqVV4dzbqcriOZ+kQ/NE4RXZHsIGA==}
+    engines: {node: '>=10'}
+
+  fuse.js@7.3.0:
+    resolution: {integrity: sha512-plz8RVjfcDedTGfVngWH1jmJvBvAwi1v2jecfDerbEnMcmOYUEEwKFTHbNoCiYyzaK2Ws8lABkTCcRSqCY1q4w==}
     engines: {node: '>=10'}
 
   fuzzysort@3.1.0:
@@ -40661,6 +40665,8 @@ snapshots:
   functions-have-names@1.2.3: {}
 
   fuse.js@6.6.2: {}
+
+  fuse.js@7.3.0: {}
 
   fuzzysort@3.1.0: {}
 
