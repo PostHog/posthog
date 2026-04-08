@@ -2656,6 +2656,7 @@ class TestExperimentService(APIBaseTest):
                 },
             ],
         )
+        assert experiment.metrics is not None
         assert len(experiment.metrics) == 2
         uuid_0 = experiment.metrics[0].get("uuid")
         uuid_1 = experiment.metrics[1].get("uuid")
@@ -2680,6 +2681,7 @@ class TestExperimentService(APIBaseTest):
                 },
             ],
         )
+        assert experiment.metrics is not None
         assert len(experiment.metrics) == 1
         uuid = experiment.metrics[0].get("uuid")
         assert uuid is not None
@@ -2707,9 +2709,12 @@ class TestExperimentService(APIBaseTest):
                 },
             ],
         )
+        assert experiment.metrics is not None
         assert len(experiment.metrics) == 2
         uuid_0 = experiment.metrics[0].get("uuid")
         uuid_1 = experiment.metrics[1].get("uuid")
+        assert uuid_0 is not None
+        assert uuid_1 is not None
         UUID(uuid_0)  # raises ValueError if not a valid UUID
         UUID(uuid_1)
         assert uuid_0 != uuid_1
@@ -2795,4 +2800,5 @@ class TestExperimentService(APIBaseTest):
                 feature_flag_key=f"stats-{method}-flag",
                 stats_config={"method": method},
             )
+            assert experiment.stats_config is not None
             assert experiment.stats_config["method"] == method
