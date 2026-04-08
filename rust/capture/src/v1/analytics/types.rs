@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -95,29 +95,65 @@ impl SinkEvent for WrappedEvent {
         &self.destination
     }
 
-    fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
+        // v0 compat: downstream consumers key on "force_disable_person_processing".
+        // v1 decouples overflow routing from person-processing skip (unlike v0 where
+        // overflow ForceLimited unconditionally sets this); operators configure
+        // SkipPersonProcessing alongside ForceOverflow when needed.
+        let force_disable_person_processing = if self.skip_person_processing {
+            Some(true)
+        } else {
+            None
+        };
+
+        // historical_migration header follows legacy CapturedEvent::to_headers()
+        // convention: emitted only when enabled for the batch.
+        let historical_migration = if ctx.historical_migration {
+            Some(true)
+        } else {
+            None
+        };
+
+        let (dlq_reason, dlq_step, dlq_timestamp) = if self.destination == Destination::Dlq {
+            (
+                Some("event_restriction".to_string()),
+                Some("capture".to_string()),
+                Some(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)),
+            )
+        } else {
+            (None, None, None)
+        };
+
         CapturedEventHeaders {
-            token: None,
-            distinct_id: None,
-            session_id: None,
-            timestamp: None,
-            event: None,
-            uuid: None,
-            now: None,
-            force_disable_person_processing: if self.skip_person_processing {
-                Some(true)
-            } else {
-                None
-            },
-            historical_migration: None,
-            dlq_reason: None,
-            dlq_step: None,
-            dlq_timestamp: None,
+            token: Some(ctx.api_token.clone()),
+            distinct_id: Some(self.event.distinct_id.clone()),
+            session_id: self.event.session_id.clone(),
+            timestamp: self
+                .adjusted_timestamp
+                .map(|ts| ts.timestamp_millis().to_string()),
+            event: Some(self.event.event.clone()),
+            uuid: Some(self.event.uuid().to_owned()),
+            now: Some(
+                ctx.server_received_at
+                    .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+            ),
+            force_disable_person_processing,
+            historical_migration,
+            dlq_reason,
+            dlq_step,
+            dlq_timestamp,
         }
     }
 
     fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
+        if self.skip_person_processing {
+            // buffer remains empty as sentinel for "no partition key set"
+            // this signals Kafka producer to supply no key, causing
+            // round-robin or random partition production depending on
+            // the producer's configuration.
+            return;
+        }
         if self.event.options.cookieless_mode == Some(true) {
             let ip = if ctx.capture_internal {
                 "127.0.0.1"
@@ -541,47 +577,148 @@ mod tests {
     }
 
     #[test]
-    fn headers_empty_when_no_skip_person() {
+    fn headers_base_fields_always_present() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
         let h = ev.headers(&ctx);
-        // No skip → the only field this WIP impl writes to stays None, and
-        // every other field remains None as well (nothing populated yet at
-        // this PR tip).
+        assert_eq!(h.distinct_id.as_deref(), Some("user-1"));
+        assert_eq!(h.event.as_deref(), Some("$pageview"));
+        assert!(h.uuid.is_some());
+        assert!(h.timestamp.is_some());
         assert!(h.force_disable_person_processing.is_none());
-        assert!(h.token.is_none());
-        assert!(h.distinct_id.is_none());
         assert!(h.session_id.is_none());
+        assert!(h.dlq_reason.is_none());
+    }
+
+    #[test]
+    fn headers_timestamp_is_millis_epoch() {
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-1");
+        let h = ev.headers(&ctx);
+        let ts_str = h.timestamp.expect("timestamp should be set");
+        let ts_millis: i64 = ts_str.parse().expect("timestamp should be numeric millis");
+        assert_eq!(ts_millis, ev.adjusted_timestamp.unwrap().timestamp_millis());
+    }
+
+    #[test]
+    fn headers_omit_timestamp_when_none() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.adjusted_timestamp = None;
+        let h = ev.headers(&ctx);
         assert!(h.timestamp.is_none());
-        assert!(h.event.is_none());
-        assert!(h.uuid.is_none());
-        assert!(h.now.is_none());
-        assert!(h.historical_migration.is_none());
+    }
+
+    #[test]
+    fn headers_include_session_id_when_present() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.event.session_id = Some("sess-abc".to_string());
+        let h = ev.headers(&ctx);
+        assert_eq!(h.session_id.as_deref(), Some("sess-abc"));
+    }
+
+    #[test]
+    fn headers_omit_session_id_when_none() {
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert!(ev.event.session_id.is_none());
+        let h = ev.headers(&ctx);
+        assert!(h.session_id.is_none());
+    }
+
+    #[test]
+    fn headers_include_force_disable_person_processing() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.skip_person_processing = true;
+        let h = ev.headers(&ctx);
+        assert_eq!(h.force_disable_person_processing, Some(true));
+    }
+
+    #[test]
+    fn headers_omit_force_disable_person_processing_when_false() {
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert!(!ev.skip_person_processing);
+        let h = ev.headers(&ctx);
+        assert!(h.force_disable_person_processing.is_none());
+    }
+
+    #[test]
+    fn headers_include_dlq_headers_when_destination_dlq() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = Destination::Dlq;
+        let h = ev.headers(&ctx);
+        assert_eq!(h.dlq_reason.as_deref(), Some("event_restriction"));
+        assert_eq!(h.dlq_step.as_deref(), Some("capture"));
+        let dlq_ts = h.dlq_timestamp.expect("dlq_timestamp should be set");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&dlq_ts).is_ok(),
+            "dlq_timestamp should be valid RFC3339: {dlq_ts}"
+        );
+    }
+
+    #[test]
+    fn headers_omit_dlq_headers_when_not_dlq() {
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-1");
+        assert_ne!(ev.destination, Destination::Dlq);
+        let h = ev.headers(&ctx);
         assert!(h.dlq_reason.is_none());
         assert!(h.dlq_step.is_none());
         assert!(h.dlq_timestamp.is_none());
     }
 
     #[test]
-    fn headers_include_skip_person_processing() {
+    fn headers_include_token_from_ctx() {
+        // Absorbs coverage from the removed build_context_headers token test:
+        // the api_token on the batch context must flow verbatim onto every
+        // event's typed headers.
         let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.skip_person_processing = true;
+        let ev = ok_wrapped("$pageview", "user-1");
         let h = ev.headers(&ctx);
-        assert_eq!(h.force_disable_person_processing, Some(true));
-        // WIP impl populates only this one field; every other field stays
-        // None. PR-5a will extend the impl and this assertion set.
-        assert!(h.token.is_none());
-        assert!(h.distinct_id.is_none());
-        assert!(h.session_id.is_none());
-        assert!(h.timestamp.is_none());
-        assert!(h.event.is_none());
-        assert!(h.uuid.is_none());
-        assert!(h.now.is_none());
+        assert_eq!(h.token, Some(ctx.api_token.clone()));
+    }
+
+    #[test]
+    fn headers_now_uses_server_received_at_autosi_rfc3339() {
+        // Absorbs coverage from the removed build_context_headers now test,
+        // and asserts the legacy-aligned format upgrade (SecondsFormat::AutoSi,
+        // matches IngestionEvent.now and legacy CapturedEvent::to_headers()).
+        let ctx = test_utils::test_context();
+        let ev = ok_wrapped("$pageview", "user-1");
+        let h = ev.headers(&ctx);
+        let now = h.now.expect("now should be set from ctx.server_received_at");
+        assert_eq!(
+            now,
+            ctx.server_received_at
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+        );
+        // Double-check the value is a valid RFC3339 timestamp regardless of
+        // how the format is spelled out.
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&now).is_ok(),
+            "now should be valid RFC3339: {now}"
+        );
+    }
+
+    #[test]
+    fn headers_historical_migration_from_ctx() {
+        // Absorbs coverage from the removed build_context_headers
+        // historical_migration tests (set → Some(true); unset → None),
+        // matching legacy CapturedEvent::to_headers() convention.
+        let ev = ok_wrapped("$pageview", "user-1");
+
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
+        let h = ev.headers(&ctx);
+        assert_eq!(h.historical_migration, Some(true));
+
+        ctx.historical_migration = false;
+        let h = ev.headers(&ctx);
         assert!(h.historical_migration.is_none());
-        assert!(h.dlq_reason.is_none());
-        assert!(h.dlq_step.is_none());
-        assert!(h.dlq_timestamp.is_none());
     }
 
     fn partition_key(ev: &WrappedEvent, ctx: &Context) -> String {
