@@ -46,7 +46,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_events_for_filters(
+    def _get_events_for_query(
         self,
         funnels_query,
         funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
@@ -148,7 +148,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result, _ = self._get_events_for_filters(query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_query(query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [11, 1 / 11]
@@ -188,7 +188,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_actors_for_event(query, "negatively_related")), 0)
 
         # Now exclude positively_related
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             query,
             funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
             funnelCorrelationExcludeEventNames=["positively_related"],
@@ -277,7 +277,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
         )
 
-        result, _ = self._get_events_for_filters(query)
+        result, _ = self._get_events_for_query(query)
 
         #  missing user signed up and paid from result set, as expected
         self.assertEqual(
@@ -397,7 +397,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             aggregation_group_type_index=0,
         )
 
-        result, _ = self._get_events_for_filters(query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_query(query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [12 / 7, 1 / 11]
@@ -449,7 +449,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        result, _ = self._get_events_for_filters(query_with_exludes)
+        result, _ = self._get_events_for_query(query_with_exludes)
 
         odds_ratio = result[0].pop("odds_ratio")
         expected_odds_ratio = 1
@@ -565,7 +565,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$browser"]
         )
 
@@ -766,7 +766,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["industry"]
         )
 
@@ -834,7 +834,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
-        new_result, _ = self._get_events_for_filters(
+        new_result, _ = self._get_events_for_query(
             filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$all"]
         )
 
@@ -971,7 +971,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            result, _ = self._get_events_for_filters(
+            result, _ = self._get_events_for_query(
                 filters,
                 funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
                 funnelCorrelationNames=["industry"],
@@ -1037,7 +1037,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
             # test with `$all` as property
             # _run property correlation with filter on all properties
-            new_result, _ = self._get_events_for_filters(
+            new_result, _ = self._get_events_for_query(
                 filters,
                 funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
                 funnelCorrelationNames=["$all"],
@@ -1108,7 +1108,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result, skewed_totals = self._get_events_for_filters(filters)
+        result, skewed_totals = self._get_events_for_query(filters)
 
         self.assertFalse(skewed_totals)
 
@@ -1175,14 +1175,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with self.assertRaises(ValidationError):
-            self._get_events_for_filters(
+            self._get_events_for_query(
                 filters,
                 funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
                 # funnelCorrelationNames=["$browser"] -- missing
             )
 
         with self.assertRaises(ValidationError):
-            self._get_events_for_filters(
+            self._get_events_for_query(
                 filters,
                 funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
                 # "funnelCorrelationEventNames": ["rick"] -- missing
@@ -1289,7 +1289,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationNames=["$browser", "$nice"],
@@ -1361,7 +1361,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result, expected_result)
 
         # _run property correlation with filter on all properties
-        new_result, _ = self._get_events_for_filters(
+        new_result, _ = self._get_events_for_query(
             filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$all"]
         )
 
@@ -1379,7 +1379,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(new_result, new_expected_result)
 
         # search for $all but exclude $browser
-        new_result, _ = self._get_events_for_filters(
+        new_result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationNames=["$all"],
@@ -1491,7 +1491,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Discard both due to %
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.11
         FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
-        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_query(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         self.assertEqual(len(result), 2)
 
@@ -1542,7 +1542,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:15:00Z",  # event happened outside conversion window
         )
 
-        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_query(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [4]
@@ -1620,7 +1620,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 )
                 # source: shazam occurs only once, so would be discarded from result set
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
             funnelCorrelationEventNames=[
@@ -1788,7 +1788,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 1,
         }
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
             funnelCorrelationEventNames=[
@@ -1873,7 +1873,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:00:00Z",
         )
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
             funnelCorrelationEventNames=["positively_related"],
@@ -1981,7 +1981,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:00:00Z",
         )
 
-        result, _ = self._get_events_for_filters(
+        result, _ = self._get_events_for_query(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
             funnelCorrelationEventNames=["$autocapture"],
