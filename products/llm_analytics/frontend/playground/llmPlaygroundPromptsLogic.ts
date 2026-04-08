@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -67,6 +67,8 @@ export interface PlaygroundSetupPayload {
     sourceEvaluationId?: string
     input?: unknown
     tools?: Record<string, unknown>[]
+    /** Skip the final router.push inside the listener — set when the caller has already navigated. */
+    skipNavigation?: boolean
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
@@ -803,7 +805,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 actions.setMessages(conversationMessages, promptId)
                 actions.setActivePromptId(promptId)
-                router.actions.push(urls.llmAnalyticsPlayground())
+                if (!payload.skipNavigation) {
+                    router.actions.push(urls.llmAnalyticsPlayground())
+                }
             } finally {
                 actions.setSourceSetupLoading(false)
             }
@@ -1010,11 +1014,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             // External callers (trace scene, conversation display) queue a setup payload
             // before navigating here. Consume it and run setupPlaygroundFromEvent on this
             // tab-keyed instance so all state (model, messages, pendingTargetModel, etc.)
-            // is initialised correctly.
+            // is initialised correctly. skipNavigation prevents the listener from pushing
+            // the playground URL a second time, which would abort the in-progress scene load.
             if (props.tabId) {
                 const pending = consumePendingPlaygroundSetup()
                 if (pending) {
-                    actions.setupPlaygroundFromEvent(pending)
+                    actions.setupPlaygroundFromEvent({ ...pending, skipNavigation: true })
                     return
                 }
             }
@@ -1055,4 +1060,17 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
     })),
+
+    // afterMount runs synchronously during logic.mount(), before sceneLogic updates
+    // activeTabId. This ensures the pending payload is consumed even when urlToAction
+    // fires too early (before the active-tab check would pass).
+    afterMount(({ actions, props }) => {
+        if (!props.tabId) {
+            return
+        }
+        const pending = consumePendingPlaygroundSetup()
+        if (pending) {
+            actions.setupPlaygroundFromEvent({ ...pending, skipNavigation: true })
+        }
+    }),
 ])
