@@ -619,6 +619,7 @@ def _get_primary_keys(
         logger.warning(
             f"Found inconsistent child partition primary keys for {table_name}: {child_pks}. Could not infer a stable key for parent."
         )
+        return None
 
     logger.warning(
         f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
