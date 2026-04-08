@@ -14,9 +14,9 @@ from posthog.settings import EE_AVAILABLE
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
-import products.tasks.backend.seat_api as seats
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
+import products.tasks.backend.seat_api as seats
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.surveys.backend.api.survey as survey

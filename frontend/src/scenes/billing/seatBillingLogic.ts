@@ -55,7 +55,7 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 loadOrgSeats: async (): Promise<SeatData[]> => {
                     try {
                         const response = await api.get(`api/seats/?product_key=${CODE_PRODUCT_KEY}`)
-                        return Array.isArray(response) ? response : response?.seats ?? []
+                        return Array.isArray(response) ? response : (response?.seats ?? [])
                     } catch {
                         return []
                     }

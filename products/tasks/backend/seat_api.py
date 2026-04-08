@@ -70,9 +70,7 @@ class SeatViewSet(viewsets.ViewSet):
             return str(request.user.distinct_id)
         return pk
 
-    def _forward_response(
-        self, billing_response: requests.Response | None, extract_seat: bool = True
-    ) -> Response:
+    def _forward_response(self, billing_response: requests.Response | None, extract_seat: bool = True) -> Response:
         """Convert a billing service response to a DRF Response.
 
         For successful responses that contain a ``seat`` key the seat
