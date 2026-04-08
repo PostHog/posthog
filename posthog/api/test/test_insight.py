@@ -106,7 +106,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json()["detail"], "Creating or updating insights with legacy filters is not available for this user."
+            response.json()["detail"],
+            "Creating or updating insights with legacy filters is not available for this user.",
         )
         legacy_filter_calls = [
             c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"

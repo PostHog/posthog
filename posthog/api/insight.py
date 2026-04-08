@@ -486,8 +486,11 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and "query" not in attrs
-        if using_legacy_filters and is_legacy_insight_filters_blocked(self.context["request"].user, self.context["get_team"]()):
+        query = attrs.get("query") if "query" in attrs else None
+        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
+        if using_legacy_filters and is_legacy_insight_filters_blocked(
+            self.context["request"].user, self.context["get_team"]()
+        ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
         return super().validate(attrs)
 
