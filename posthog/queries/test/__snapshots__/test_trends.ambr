@@ -48,7 +48,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
+                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -59,7 +59,7 @@
                         FROM cohortpeople
                         WHERE team_id = 99999
                           AND cohort_id = 99999
-                          AND version = 2 ))))
+                          AND version = 2))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
         GROUP BY date)
@@ -176,7 +176,7 @@
                         FROM cohortpeople
                         WHERE team_id = 99999
                           AND cohort_id = 99999
-                          AND version = 2 ))))
+                          AND version = 2))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
@@ -338,7 +338,7 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-       AND notEmpty(e.person_id) )
+       AND notEmpty(e.person_id))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -643,7 +643,7 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 99999
-                         AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+                         AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
                   GROUP BY id
                   HAVING max(is_deleted) = 0
                   AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -728,7 +728,7 @@
                                      (SELECT id
                                       FROM person
                                       WHERE team_id = 99999
-                                        AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+                                        AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
                                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -741,7 +741,7 @@
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ))
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -1115,7 +1115,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -1340,7 +1340,7 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
             AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
-       AND notEmpty(e.person_id) )
+       AND notEmpty(e.person_id))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -1406,7 +1406,7 @@
          (SELECT id
           FROM person
           WHERE team_id = 99999
-            AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
+            AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
@@ -1482,7 +1482,7 @@
                         (SELECT id
                          FROM person
                          WHERE team_id = 99999
-                           AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
+                           AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))))
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -1499,7 +1499,7 @@
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ))
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -1602,7 +1602,7 @@
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ))
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -1660,7 +1660,7 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 99999
-                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
                   GROUP BY id
                   HAVING max(is_deleted) = 0
                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -1722,7 +1722,7 @@
                                (SELECT id
                                 FROM person
                                 WHERE team_id = 99999
-                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
                            GROUP BY id
                            HAVING max(is_deleted) = 0
                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -1759,7 +1759,7 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 99999
-                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
                   GROUP BY id
                   HAVING max(is_deleted) = 0
                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -1823,7 +1823,7 @@
                                (SELECT id
                                 FROM person
                                 WHERE team_id = 99999
-                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
                            GROUP BY id
                            HAVING max(is_deleted) = 0
                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
@@ -1877,7 +1877,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -1929,7 +1929,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -2008,7 +2008,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['person1'], "pmat_name")) )
+                  AND (has(['person1'], "pmat_name")))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -2087,7 +2087,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['person1'], "pmat_name")) )
+                  AND (has(['person1'], "pmat_name")))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -2416,7 +2416,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -2632,7 +2632,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix') )
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -2848,7 +2848,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') )
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -3015,7 +3015,7 @@
      WHERE team_id = 99999
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-05 07:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'UTC') )
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'UTC'))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3117,7 +3117,7 @@
      WHERE team_id = 99999
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2020-01-05 07:00:00', 'America/Phoenix')
-       AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 08:00:00', 'America/Phoenix') )
+       AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 08:00:00', 'America/Phoenix'))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3219,7 +3219,7 @@
      WHERE team_id = 99999
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2020-01-05 07:00:00', 'Asia/Tokyo')
-       AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 08:00:00', 'Asia/Tokyo') )
+       AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 08:00:00', 'Asia/Tokyo'))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3479,7 +3479,7 @@
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id) )
+       AND notEmpty(e.person_id))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3516,7 +3516,7 @@
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id) )
+       AND notEmpty(e.person_id))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3553,7 +3553,7 @@
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id) )
+       AND notEmpty(e.person_id))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -3584,7 +3584,7 @@
           FROM person
           WHERE team_id = 99999
             AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
-                  OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))) )
+                  OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
@@ -3649,7 +3649,7 @@
                    FROM person
                    WHERE team_id = 99999
                      AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
-                           OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))) )
+                           OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
@@ -3694,7 +3694,7 @@
           WHERE team_id = 99999
             AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
                    AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))))
-                 AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
+                 AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
@@ -3760,7 +3760,7 @@
                    WHERE team_id = 99999
                      AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
                             AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))))
-                          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
+                          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
@@ -3846,7 +3846,7 @@
                (SELECT id
                 FROM person
                 WHERE team_id = 99999
-                  AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))) )
+                  AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -3985,7 +3985,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -4027,7 +4027,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -4208,7 +4208,7 @@
                  WHERE e.team_id = 99999
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -4294,7 +4294,7 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND notEmpty(e.person_id)
-                   AND notEmpty(e.person_id) )
+                   AND notEmpty(e.person_id))
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -4357,7 +4357,7 @@
         WHERE e.team_id = 99999
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -4414,7 +4414,7 @@
         WHERE e.team_id = 99999
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -4884,7 +4884,7 @@
         WHERE e.team_id = 99999
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -5116,7 +5116,7 @@
                  WHERE e.team_id = 99999
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)
@@ -5207,7 +5207,7 @@
                  WHERE e.team_id = 99999
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)
@@ -5347,7 +5347,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5403,7 +5403,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix') )
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5459,7 +5459,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo') )
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5512,7 +5512,7 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 99999
-                        AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+                        AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))
                  GROUP BY id
                  HAVING max(is_deleted) = 0
                  AND (has(['person-1', 'person-2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -5527,7 +5527,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5580,7 +5580,7 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 99999
-                        AND (has(['person-1', 'person-2'], "pmat_name")) )
+                        AND (has(['person-1', 'person-2'], "pmat_name")))
                  GROUP BY id
                  HAVING max(is_deleted) = 0
                  AND (has(['person-1', 'person-2'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -5595,7 +5595,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5651,7 +5651,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5707,7 +5707,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5763,7 +5763,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix') )
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5819,7 +5819,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo') )
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5875,7 +5875,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5931,7 +5931,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'), 0), 'America/Phoenix')
-          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix') )
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix'))
      GROUP BY day_start
      ORDER BY day_start)
   '''
@@ -5987,7 +5987,7 @@
            ORDER BY d.timestamp)
         WHERE 1 = 1
           AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'), 0), 'Asia/Tokyo')
-          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo') )
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo'))
      GROUP BY day_start
      ORDER BY day_start)
   '''

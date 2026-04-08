@@ -146,9 +146,6 @@ export function ActionFilterRow({
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
-    // DWH events are not supported in inline events yet
-    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
-
     const {
         setNodeRef,
         attributes: { 'aria-disabled': _, ...attributes },
@@ -248,10 +245,13 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
 
-    const initialGroupType =
-        filter.type === EntityTypes.DATA_WAREHOUSE
-            ? TaxonomicFilterGroupType.DataWarehouse
-            : TaxonomicFilterGroupType.SuggestedFilters
+    const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    const initialGroupType = isDataWarehouseFilter
+        ? TaxonomicFilterGroupType.DataWarehouse
+        : TaxonomicFilterGroupType.SuggestedFilters
+
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
 
     const filterElement = (
         <TaxonomicPopover
@@ -563,15 +563,29 @@ export function ActionFilterRow({
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
                                                 <PropertyValueMathSelector
-                                                    mathPropertyType={mathPropertyType}
+                                                    mathPropertyType={
+                                                        mathPropertyType ||
+                                                        (isDataWarehouseFilter
+                                                            ? TaxonomicFilterGroupType.DataWarehouseProperties
+                                                            : TaxonomicFilterGroupType.NumericalEventProperties)
+                                                    }
+                                                    mathPropertyTypes={
+                                                        isDataWarehouseFilter
+                                                            ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                                            : [
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                    }
                                                     mathProperty={mathProperty}
                                                     mathName={name}
                                                     index={index}
                                                     onMathPropertySelect={onMathPropertySelect}
                                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                                     schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
+                                                        isDataWarehouseFilter && filter.name
                                                             ? Object.values(
                                                                   dataWarehouseTablesMap[filter.name]?.fields ?? []
                                                               )
@@ -645,7 +659,7 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? {
                                       kind: NodeKind.HogQLQuery,
                                       query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
@@ -653,7 +667,7 @@ export function ActionFilterRow({
                                 : undefined
                         }
                         taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? [
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
@@ -668,15 +682,11 @@ export function ActionFilterRow({
                                   : []
                         }
                         schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                            isDataWarehouseFilter && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
-                        dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? (filter.name ?? undefined)
-                                : undefined
-                        }
+                        dataWarehouseTableName={isDataWarehouseFilter ? (filter.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}

@@ -4536,6 +4536,26 @@ snapshots:
         hash: v1.k794b7964.7ee0ef748b5643aac79c625aacb89713549f3ead83e8da8bf6abece3efd9ac77.jOdhNBiL3ssgDkBE2enKQnF5BEVweFPCxw4n9xDJsSA
     scenes-app-insights-sqllinechart--sql-line-chart-breakdown--light:
         hash: v1.k794b7964.58b501be7e7b8e627b36e3bff0bc2d9f9ac2978be574fec9643bc0090a8d20d6.vpZd8yrpZXcVtvWDE9T_O68BjvZLB-jBkzVWKpdGbYM
+    scenes-app-insights-stickiness--stickiness--dark:
+        hash: v1.k794b7964.74927b58e134908e183b012278b5834998da2c0c876756ff142ad3d5218bbb04.u3HAYYxpBdCsMSLP-c5rMKW9N2kNkedWxmMhH_KivzE
+    scenes-app-insights-stickiness--stickiness--light:
+        hash: v1.k794b7964.459592f50ab88c3a53b27765f7d148989cd04cee5ccc7e17a4574919df1e0f9b.IM5GH6O9NhljD4GASNczLwZsQij_zKOL3WpcICsYNXg
+    scenes-app-insights-stickiness--stickiness-edit--dark:
+        hash: v1.k794b7964.2cb1c1c95b098a2047e844d25dcf10632bd801ca27a390b2ece0a06ba7f6e4cf.rK1IIscDBHme8UO0difenAENWT4rPPib2U1Rmx0ktn0
+    scenes-app-insights-stickiness--stickiness-edit--light:
+        hash: v1.k794b7964.81240ca1d67925dfbdb32083254e6c8f07d79a6b996e90ec42643d11e665b523.UHMy5gN6H9_373KPPCaW3Y-AerqUcEYB49wfdLy9cC0
+    scenes-app-insights-stickiness--stickiness-edit-viewports--medium--dark:
+        hash: v1.k794b7964.d815663281f1b1f8af54abce668dfcd2e8506d89820abf24952f791ec9cd83dd.OiHscidF_QntZjv7uvQcqxSXc9ttBLvGPq_vRpZN0XQ
+    scenes-app-insights-stickiness--stickiness-edit-viewports--medium--light:
+        hash: v1.k794b7964.c73fb5e50f117d12d735b8f1fa6652920aa07d5941eab5e05f3b461cb568d0c6.sQKEfqrHN14qLZ5DMxgBTQy771uRMq60UsNCi2Yes_8
+    scenes-app-insights-stickiness--stickiness-edit-viewports--superwide--dark:
+        hash: v1.k794b7964.7bf4e4cd1dbb4e8b2ef41c57eb8b51c23113afcfe996bf38e199e7dd922d9c23.aUb46M1SBt4XT19Aw623pal3dU91WuHyd3RCEV_vgb8
+    scenes-app-insights-stickiness--stickiness-edit-viewports--superwide--light:
+        hash: v1.k794b7964.5a4bcc4eb4a1ba3946ae413aa413708d79f8e08f4106383b0a079f808edca1d1.Sj7ck31gHrdtpi9Smw4Vbv6QZIkq-UsCNHwg5KgqsCQ
+    scenes-app-insights-stickiness--stickiness-edit-viewports--wide--dark:
+        hash: v1.k794b7964.2cb1c1c95b098a2047e844d25dcf10632bd801ca27a390b2ece0a06ba7f6e4cf.GYozNRBjQaUCRYLVFzvV39bn3rdESNCzNzmFdnOXvu0
+    scenes-app-insights-stickiness--stickiness-edit-viewports--wide--light:
+        hash: v1.k794b7964.81240ca1d67925dfbdb32083254e6c8f07d79a6b996e90ec42643d11e665b523.WRinoqsyCognieG7fXiYXs56ztoX-e7ioQ0wYCtJADY
     scenes-app-insights-trendsboxplot--trends-box-plot--dark:
         hash: v1.k794b7964.29a891da82f7d439ffb90e1968a1688235ee4e062068373d07d13c66ac970c4c.wdqJILYMF7TM5nJaLtm96NGR_azikNuvHkP3m_5ZnDM
     scenes-app-insights-trendsboxplot--trends-box-plot--light:
