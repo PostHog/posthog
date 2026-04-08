@@ -140,7 +140,10 @@ class WorkflowsConsumer(Consumer):
 
     async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
-            self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
+            self.post,
+            retryable_exceptions=(InternalServerError, TooManyRequests),
+            # Retry forever on retryable errors
+            max_attempts=None,
         )
         self.request_task_group.create_task(post(data))
 
