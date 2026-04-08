@@ -1545,12 +1545,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
                     } else if (searchParams.t) {
-                        // Landing exactly on durationMs fires endReached in seekToTimestamp,
-                        // which blocks auto-init of the rrweb replayer — keep strictly below.
                         const desiredStartTime = Number(searchParams.t) * 1000
-                        const durationMs = values.sessionPlayerData?.durationMs ?? 0
-                        const maxTime = Math.max(0, durationMs - 1)
-                        actions.seekToTime(clamp(desiredStartTime, 0, maxTime))
+                        actions.seekToTime(desiredStartTime)
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
@@ -1596,14 +1592,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
-            } else if (values.currentSegment?.kind === 'buffer') {
-                // initializePlayerFromStart can capture a synthetic buffer segment
-                // before snapshots load; refresh it now that real segments exist
-                // so tryInitReplayer can find a valid windowId.
-                const refreshedSegment = values.segmentForTimestamp(values.currentTimestamp)
-                if (refreshedSegment && refreshedSegment.windowId !== undefined) {
-                    actions.setCurrentSegment(refreshedSegment)
-                }
             }
             actions.checkBufferingCompleted()
 
@@ -1734,7 +1722,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // findSegmentForTimestamp can safely return a real segment for
             // past-end timestamps (needed for the image exporter to boot the
             // rrweb replayer). See #49364 and #53550.
-            const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+            //
+            // Strictly > (not >=): landing exactly on `end` is a valid
+            // "show the last frame" seek (e.g. from a stale ?t= URL that
+            // got clamped by seekToTime). Firing endReached here would
+            // pause the player before tryInitReplayer has created the
+            // rrweb wrapper. Natural playback progression still triggers
+            // endReached via updateAnimation.
+            const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
             if (isPastEnd) {
                 actions.setEndReached(true)
             } else if (segment && !objectsEqual(segment, values.currentSegment)) {
