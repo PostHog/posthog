@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -124,6 +125,7 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     const openTab = activeTab || taxonomicGroups[0].type
     const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
@@ -153,7 +155,7 @@ export function InfiniteSelectResults({
                 </div>
             )}
             <InfiniteList
-                popupAnchorElement={popupAnchorElement}
+                popupAnchorElement={popupAnchorElement ?? wrapperRef.current}
                 definitionPopoverRenderer={definitionPopoverRenderer}
             />
         </>
@@ -167,7 +169,7 @@ export function InfiniteSelectResults({
         taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <div className="flex flex-row h-full">
+        <div ref={wrapperRef} className="flex flex-row h-full">
             {hasMultipleGroups && (
                 <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
                     <div className="taxonomic-group-title">Categories</div>

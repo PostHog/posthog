@@ -120,6 +120,20 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
+    # These override the base defaults, so keep the standard DRF actions too.
+    scope_object_read_actions = ["list", "retrieve", "values"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "merge",
+        "split",
+        "assign",
+        "cohort",
+        "bulk",
+    ]
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueFullSerializer
 
