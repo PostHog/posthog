@@ -21067,6 +21067,11 @@ export namespace Schemas {
       results: SessionRecordingExternalReference[];
     }
 
+    /**
+     * @nullable
+     */
+    export type SessionRecordingSummaryOutcome = {[key: string]: unknown} | null | null;
+
     export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
 
     export interface SessionRecording {
@@ -21111,6 +21116,8 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score: number | null;
       readonly has_summary: boolean;
+      /** @nullable */
+      readonly summary_outcome: SessionRecordingSummaryOutcome;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -24920,6 +24927,11 @@ export namespace Schemas {
       readonly team?: number;
     }
 
+    /**
+     * @nullable
+     */
+    export type PatchedSessionRecordingSummaryOutcome = {[key: string]: unknown} | null | null;
+
     export type PatchedSessionRecordingExternalReferencesItem = {[key: string]: unknown};
 
     export interface PatchedSessionRecording {
@@ -24964,6 +24976,8 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score?: number | null;
       readonly has_summary?: boolean;
+      /** @nullable */
+      readonly summary_outcome?: PatchedSessionRecordingSummaryOutcome;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }

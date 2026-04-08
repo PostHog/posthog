@@ -168,6 +168,11 @@ export interface MinimalPersonApi {
     readonly last_seen_at: string | null
 }
 
+/**
+ * @nullable
+ */
+export type SessionRecordingApiSummaryOutcome = { [key: string]: unknown } | null | null
+
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
 
 export interface SessionRecordingApi {
@@ -212,6 +217,8 @@ export interface SessionRecordingApi {
     /** @nullable */
     readonly activity_score: number | null
     readonly has_summary: boolean
+    /** @nullable */
+    readonly summary_outcome: SessionRecordingApiSummaryOutcome
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
@@ -224,6 +231,11 @@ export interface PaginatedSessionRecordingListApi {
     previous?: string | null
     results: SessionRecordingApi[]
 }
+
+/**
+ * @nullable
+ */
+export type PatchedSessionRecordingApiSummaryOutcome = { [key: string]: unknown } | null | null
 
 export type PatchedSessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
 
@@ -269,6 +281,8 @@ export interface PatchedSessionRecordingApi {
     /** @nullable */
     readonly activity_score?: number | null
     readonly has_summary?: boolean
+    /** @nullable */
+    readonly summary_outcome?: PatchedSessionRecordingApiSummaryOutcome
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }
