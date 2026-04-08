@@ -1,15 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
-import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { billingLogic } from './billingLogic'
-import { CODE_PLAN_PRO, CODE_PRODUCT_KEY } from './constants'
-import { isProPlanKey, seatBillingLogic } from './seatBillingLogic'
+import { CODE_PLAN_PRO } from './constants'
+import { isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
 import type { SeatData } from './types'
 
 function planLabel(planKey: string): string {
@@ -55,7 +53,7 @@ const STATUS_PRIORITY: Record<string, number> = {
 
 export function CodeSeatsSection(): JSX.Element {
     const { orgSeats, orgSeatsLoading, isAdmin, members } = useValues(seatBillingLogic)
-    const { loadOrgSeats } = useActions(seatBillingLogic)
+    const { adminCancelSeat, adminUpgradeSeat, adminReactivateSeat } = useActions(seatBillingLogic)
     const { billing } = useValues(billingLogic)
 
     const displaySeats = Object.values(
@@ -70,8 +68,9 @@ export function CodeSeatsSection(): JSX.Element {
 
     const activeCount = displaySeats.filter((s) => s.status === 'active').length
     const cancelingCount = displaySeats.filter((s) => s.status === 'canceling').length
-    const proCount = displaySeats.filter((s) => isProPlanKey(s.plan_key) && s.status === 'active').length
-    const monthlyTotal = proCount * 200
+    const monthlyTotal = displaySeats
+        .filter((s) => s.status === 'active')
+        .reduce((sum, s) => sum + seatPriceFromPlanKey(s.plan_key), 0)
 
     function getUserInfo(seat: SeatData): { name: string; email: string } | null {
         if (!members) {
@@ -82,41 +81,6 @@ export function CodeSeatsSection(): JSX.Element {
             return null
         }
         return { name: member.user.first_name, email: member.user.email }
-    }
-
-    async function handleAdminCancel(seat: SeatData): Promise<void> {
-        try {
-            await api.delete(`api/seats/${seat.user_distinct_id}/?product_key=${CODE_PRODUCT_KEY}`)
-            lemonToast.success('Seat canceled')
-            loadOrgSeats()
-        } catch {
-            lemonToast.error('Failed to cancel seat')
-        }
-    }
-
-    async function handleAdminUpgrade(seat: SeatData): Promise<void> {
-        try {
-            await api.update(`api/seats/${seat.user_distinct_id}/`, {
-                product_key: CODE_PRODUCT_KEY,
-                plan_key: CODE_PLAN_PRO,
-            })
-            lemonToast.success('Seat upgraded')
-            loadOrgSeats()
-        } catch {
-            lemonToast.error('Failed to upgrade seat')
-        }
-    }
-
-    async function handleAdminReactivate(seat: SeatData): Promise<void> {
-        try {
-            await api.create(`api/seats/${seat.user_distinct_id}/reactivate/`, {
-                product_key: CODE_PRODUCT_KEY,
-            })
-            lemonToast.success('Seat reactivated')
-            loadOrgSeats()
-        } catch {
-            lemonToast.error('Failed to reactivate seat')
-        }
     }
 
     return (
@@ -197,12 +161,20 @@ export function CodeSeatsSection(): JSX.Element {
                                     overlay={
                                         <>
                                             {canUpgrade && (
-                                                <LemonButton fullWidth onClick={() => handleAdminUpgrade(seat)}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={() =>
+                                                        adminUpgradeSeat(seat.user_distinct_id, CODE_PLAN_PRO)
+                                                    }
+                                                >
                                                     Upgrade to Pro
                                                 </LemonButton>
                                             )}
                                             {canReactivate && (
-                                                <LemonButton fullWidth onClick={() => handleAdminReactivate(seat)}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={() => adminReactivateSeat(seat.user_distinct_id)}
+                                                >
                                                     Reactivate
                                                 </LemonButton>
                                             )}
@@ -217,7 +189,8 @@ export function CodeSeatsSection(): JSX.Element {
                                                             primaryButton: {
                                                                 children: 'Cancel seat',
                                                                 status: 'danger',
-                                                                onClick: () => handleAdminCancel(seat),
+                                                                onClick: () =>
+                                                                    adminCancelSeat(seat.user_distinct_id),
                                                             },
                                                             secondaryButton: { children: 'Keep seat' },
                                                         })

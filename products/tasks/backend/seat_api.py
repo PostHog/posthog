@@ -64,6 +64,9 @@ class SeatViewSet(viewsets.ViewSet):
         except NotAuthenticated:
             logger.warning("User not a member of their current organization", user_id=user.id)
             return None
+        except Exception:
+            logger.exception("Failed to build billing token", user_id=user.id)
+            return None
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     @staticmethod

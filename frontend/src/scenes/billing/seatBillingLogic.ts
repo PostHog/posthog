@@ -21,6 +21,14 @@ export function isFreePlanKey(planKey: string | null | undefined): boolean {
     return !!planKey && planKey.startsWith(CODE_FREE_PLAN_PREFIX)
 }
 
+export function seatPriceFromPlanKey(planKey: string): number {
+    if (isFreePlanKey(planKey)) {
+        return 0
+    }
+    const match = planKey.match(/posthog-code-(\d+)/)
+    return match ? parseInt(match[1], 10) : 0
+}
+
 export const seatBillingLogic = kea<seatBillingLogicType>([
     path(['scenes', 'billing', 'seatBillingLogic']),
     connect(() => ({
@@ -32,6 +40,9 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         cancelSeat: true,
         reactivateSeat: true,
         createSeat: (planKey: string) => ({ planKey }),
+        adminCancelSeat: (userDistinctId: string) => ({ userDistinctId }),
+        adminUpgradeSeat: (userDistinctId: string, planKey: string) => ({ userDistinctId, planKey }),
+        adminReactivateSeat: (userDistinctId: string) => ({ userDistinctId }),
     }),
     loaders(() => ({
         mySeat: [
@@ -57,6 +68,7 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                         const response = await api.get(`api/seats/?product_key=${CODE_PRODUCT_KEY}`)
                         return Array.isArray(response) ? response : (response?.seats ?? [])
                     } catch {
+                        lemonToast.error('Failed to load organization seats')
                         return []
                     }
                 },
@@ -132,6 +144,38 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 }
             } catch {
                 lemonToast.error('Failed to create seat')
+            }
+        },
+        adminCancelSeat: async ({ userDistinctId }) => {
+            try {
+                await api.delete(`api/seats/${userDistinctId}/?product_key=${CODE_PRODUCT_KEY}`)
+                lemonToast.success('Seat canceled')
+                actions.loadOrgSeats()
+            } catch {
+                lemonToast.error('Failed to cancel seat')
+            }
+        },
+        adminUpgradeSeat: async ({ userDistinctId, planKey }) => {
+            try {
+                await api.update(`api/seats/${userDistinctId}/`, {
+                    product_key: CODE_PRODUCT_KEY,
+                    plan_key: planKey,
+                })
+                lemonToast.success('Seat upgraded')
+                actions.loadOrgSeats()
+            } catch {
+                lemonToast.error('Failed to upgrade seat')
+            }
+        },
+        adminReactivateSeat: async ({ userDistinctId }) => {
+            try {
+                await api.create(`api/seats/${userDistinctId}/reactivate/`, {
+                    product_key: CODE_PRODUCT_KEY,
+                })
+                lemonToast.success('Seat reactivated')
+                actions.loadOrgSeats()
+            } catch {
+                lemonToast.error('Failed to reactivate seat')
             }
         },
     })),

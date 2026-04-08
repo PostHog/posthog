@@ -12,9 +12,9 @@ import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
-import { BillingSeats } from './BillingSeats'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
+import { CodeSeatsSection } from './CodeSeatsSection'
 import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {
@@ -78,7 +78,11 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
-            {section === 'seats' && featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && <BillingSeats />}
+            {section === 'seats' && featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
+                    <div className="flex flex-col gap-8 max-w-300 mt-4">
+                        <CodeSeatsSection />
+                    </div>
+                )}
         </div>
     )
 }
