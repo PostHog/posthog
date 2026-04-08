@@ -113,7 +113,13 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     priority = serializers.SerializerMethodField(
-        help_text="P0–P4 from the latest actionability judgment artefact (when present).",
+        help_text="P0–P4 from the latest priority judgment artefact (when present).",
+    )
+    actionability = serializers.SerializerMethodField(
+        help_text="Actionability choice from the latest actionability judgment artefact (when present).",
+    )
+    already_addressed = serializers.SerializerMethodField(
+        help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
 
@@ -131,9 +137,29 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "priority",
+            "actionability",
+            "already_addressed",
             "is_suggested_reviewer",
         ]
         read_only_fields = fields
+
+    def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
@@ -155,6 +181,21 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         p = data.get("priority")
         return p if isinstance(p, str) else None
+
+    def get_actionability(self, obj: SignalReport) -> str | None:
+        data = self._get_actionability_artefact_data(obj)
+        if data is None:
+            return None
+        # Support both agentic ("actionability") and legacy ("choice") field names
+        value = data.get("actionability") or data.get("choice")
+        return value if isinstance(value, str) else None
+
+    def get_already_addressed(self, obj: SignalReport) -> bool | None:
+        data = self._get_actionability_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("already_addressed")
+        return value if isinstance(value, bool) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
