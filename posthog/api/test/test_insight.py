@@ -97,6 +97,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(legacy_calls), 1)
 
+    def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "Creating or updating insights with legacy filters is not available for this user.",
+        )
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 1)
+
+    def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {
+                    "name": "Query insight",
+                    "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 0)
+
     def test_get_insight_items(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

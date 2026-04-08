@@ -51,6 +51,10 @@ async def create_data_modeling_job_activity(inputs: CreateDataModelingJobInputs)
     workflow_id = activity.info().workflow_id
     workflow_run_id = activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     job_id = await _create_data_modeling_job(inputs, workflow_id, workflow_run_id)
     await logger.ainfo(f"Created DataModelingJob {job_id} for node {inputs.node_id}")
     return job_id

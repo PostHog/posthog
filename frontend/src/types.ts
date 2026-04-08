@@ -4920,6 +4920,7 @@ export interface SubscriptionType {
     until_date?: string
     title: string
     summary: string
+    next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
