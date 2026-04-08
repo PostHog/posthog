@@ -50,17 +50,11 @@ def _build_outcome_assets(
     successful_asset_ids: list[int] = []
     for asset_id, result in zip(asset_ids, export_results):
         if isinstance(result, BaseException):
-            err = extract_error_details(result)
             outcome_assets.append(
                 ExportAssetResult(
                     exported_asset_id=asset_id,
                     success=False,
-                    error=ExportError(
-                        exception_class=err.exception_class or "",
-                        error_trace=err.error_trace or "",
-                    )
-                    if err.exception_class
-                    else None,
+                    error=extract_error_details(result),
                 )
             )
         else:
