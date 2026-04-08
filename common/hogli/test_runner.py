@@ -33,9 +33,52 @@ def _is_test_file(path: str) -> bool:
         return True
     if path.endswith("_test.go"):
         return True
-    if path.endswith("_test.rs") or ("/tests/" in path and path.endswith(".rs")):
-        return True
+    if path.endswith(".rs"):
+        if path.endswith("_test.rs") or "/tests/" in path:
+            return True
+        try:
+            return b"#[cfg(test)]" in (REPO_ROOT / path).read_bytes()
+        except OSError:
+            return False
     return False
+
+
+def _find_test_files_for_source(path: str) -> list[str]:
+    """Given a non-test source file, find corresponding test files using naming conventions.
+
+    Returns repo-relative paths to test files that exist on disk.
+    """
+    p = PurePosixPath(path)
+    stem = p.stem
+    suffix = p.suffix
+    parent = str(p.parent)
+
+    candidates: list[str] = []
+
+    if suffix == ".py":
+        test_name = f"test_{stem}.py"
+        candidates.append(str(PurePosixPath(parent) / test_name))
+        candidates.append(str(PurePosixPath(parent) / "test" / test_name))
+        candidates.append(str(PurePosixPath(parent) / "tests" / test_name))
+
+    elif suffix in (".ts", ".tsx"):
+        candidates.append(str(PurePosixPath(parent) / f"{stem}.test{suffix}"))
+        if suffix == ".ts":
+            candidates.append(str(PurePosixPath(parent) / f"{stem}.test.tsx"))
+
+    elif suffix == ".go":
+        candidates.append(str(PurePosixPath(parent) / f"{stem}_test.go"))
+
+    elif suffix == ".rs":
+        candidates.append(str(PurePosixPath(parent) / f"{stem}_test.rs"))
+        parts = PurePosixPath(parent).parts
+        if "src" in parts:
+            src_idx = len(parts) - 1 - list(reversed(parts)).index("src")
+            tests_parent = PurePosixPath(*parts[:src_idx]) / "tests"
+            candidates.append(str(tests_parent / f"{stem}.rs"))
+            candidates.append(str(tests_parent / f"{stem}_test.rs"))
+
+    return [c for c in candidates if (REPO_ROOT / c).is_file() and _is_test_file(c)]
 
 
 def _find_test_files(dir_path: str) -> list[str]:
@@ -62,6 +105,10 @@ class TestRunConfig:
     description: str
     env: dict[str, str] = field(default_factory=dict)
     cwd: Path | None = None
+
+    @property
+    def env_or_none(self) -> dict[str, str] | None:
+        return self.env or None
 
 
 def _python_env() -> dict[str, str]:
@@ -149,40 +196,86 @@ def _parse_package_json_name(package_json: Path) -> str | None:
         return None
 
 
-def _detect_rust_test(file_only: str) -> TestRunConfig:
+def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = None) -> str | None:
+    """Derive a cargo test module filter from a .rs file or directory path.
+
+    For ``crate/src/utils/throttler.rs``, returns ``utils::throttler``.
+    For ``crate/src/utils/``, returns ``utils``.
+    For ``crate/src/utils/throttler.rs`` with node_id ``test_foo``, returns
+    ``utils::throttler::test_foo``.
+    Returns None for paths where a filter doesn't apply (e.g. lib.rs, main.rs, crate root).
+    """
+    abs_path = REPO_ROOT / file_only
+    src_dir = crate_toml.parent / "src"
+
+    try:
+        rel = abs_path.relative_to(src_dir)
+    except ValueError:
+        return None
+
+    parts = list(rel.parts)
+
+    # For files: strip .rs extension and skip crate-root entry points
+    if not abs_path.is_dir():
+        parts[-1] = PurePosixPath(parts[-1]).stem
+        if parts[-1] in ("mod", "lib", "main"):
+            parts.pop()
+
+    if not parts:
+        return None
+
+    if node_id:
+        parts.append(node_id)
+
+    return "::".join(parts)
+
+
+def _find_workspace_toml(crate_toml: Path) -> Path | None:
+    """Walk up from a crate's Cargo.toml to find the workspace root Cargo.toml."""
+    parent = crate_toml.parent.parent
+    while parent == REPO_ROOT or REPO_ROOT in parent.parents:
+        candidate = parent / "Cargo.toml"
+        if candidate.exists() and "[workspace]" in candidate.read_text():
+            return candidate
+        if parent == parent.parent:
+            break
+        parent = parent.parent
+    return None
+
+
+def _detect_rust_test(file_only: str, node_id: str | None = None) -> TestRunConfig:
     """Detect Rust test configuration by finding the nearest Cargo.toml.
 
     If the nearest Cargo.toml is a crate inside a workspace, uses the workspace
     root manifest with ``-p <package>`` to target the specific crate.
+    Accepts an optional node_id (test function name) to filter to a single test.
     """
     crate_toml = _find_nearest(file_only, "Cargo.toml")
     if not crate_toml:
         raise click.UsageError(f"No Cargo.toml found for: {file_only}")
 
     package_name = _parse_cargo_package_name(crate_toml)
+    workspace_toml = _find_workspace_toml(crate_toml)
 
-    # Check if there's a parent workspace Cargo.toml above this one
-    workspace_toml = None
-    parent = crate_toml.parent.parent
-    while parent == REPO_ROOT or REPO_ROOT in parent.parents:
-        candidate = parent / "Cargo.toml"
-        if candidate.exists() and "[workspace]" in candidate.read_text():
-            workspace_toml = candidate
-            break
-        if parent == parent.parent:
-            break
-        parent = parent.parent
+    manifest = workspace_toml or crate_toml
+    manifest_path = str(manifest.relative_to(REPO_ROOT))
+    command = ["cargo", "test", f"--manifest-path={manifest_path}"]
 
-    if workspace_toml:
-        manifest_path = str(workspace_toml.relative_to(REPO_ROOT))
-        command = ["cargo", "test", f"--manifest-path={manifest_path}"]
-        if package_name:
-            command.extend(["-p", package_name])
-        desc = f"Rust test (cargo test -p {package_name})" if package_name else "Rust test (cargo test)"
-    else:
-        manifest_path = str(crate_toml.relative_to(REPO_ROOT))
-        command = ["cargo", "test", f"--manifest-path={manifest_path}"]
-        desc = "Rust test (cargo test)"
+    if workspace_toml and package_name:
+        command.extend(["-p", package_name])
+
+    mod_filter = _rust_module_filter(file_only, crate_toml, node_id)
+    if mod_filter:
+        command.extend(["--", mod_filter])
+
+    # Build description
+    parts = ["Rust test (cargo test"]
+    if workspace_toml and package_name:
+        parts.append(f" -p {package_name}")
+    parts.append(")")
+    if mod_filter:
+        parts.append(f" ({mod_filter})")
+    desc = "".join(parts)
 
     return TestRunConfig(test_type="rust", command=command, description=desc)
 
@@ -301,18 +394,23 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     Accepts files, directories, and pytest node IDs (path::Class::method).
     Rules are evaluated in priority order; first match wins.
     """
-    file_only = file_path.split("::")[0] if "::" in file_path else file_path
+    # Split node ID (path::selector) — used by Python (pytest) and Rust (cargo test)
+    if "::" in file_path:
+        file_only, node_id = file_path.split("::", 1)
+    else:
+        file_only, node_id = file_path, None
+
     abs_path = REPO_ROOT / file_only
 
     # Directory: detect type from context
     if abs_path.is_dir():
         return _detect_directory(file_only)
 
-    parts = PurePosixPath(file_only).parts
-    ext = PurePosixPath(file_only).suffix
+    p = PurePosixPath(file_only)
+    ext = p.suffix
 
     # 1. Playwright E2E tests
-    if len(parts) > 0 and parts[0] == "playwright" and file_only.endswith(".spec.ts"):
+    if p.parts[0] == "playwright" and file_only.endswith(".spec.ts"):
         return TestRunConfig(
             test_type="playwright",
             command=["pnpm", "exec", "playwright", "test", file_path],
@@ -341,9 +439,9 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     if file_only.endswith((".test.ts", ".test.tsx")):
         return _detect_jest_test(file_only, file_path)
 
-    # 5. Rust tests — finds nearest Cargo.toml
+    # 5. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
     if ext == ".rs":
-        return _detect_rust_test(file_only)
+        return _detect_rust_test(file_only, node_id)
 
     # 6. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
     if ext == ".go" or PurePosixPath(file_only).name == "go.mod":
@@ -354,7 +452,8 @@ def detect_test_type(file_path: str) -> TestRunConfig:
         "Supported patterns:\n"
         "  Files:       *.py, *.test.ts(x), *.spec.ts, *.rs, *.go, go.mod\n"
         "  Directories: any directory under a supported test root\n"
-        "  Node IDs:    path/to/test.py::TestClass::test_method"
+        "  Node IDs:    path/to/test.py::TestClass::test_method\n"
+        "               path/to/file.rs::test_function_name"
     )
 
 
@@ -419,26 +518,25 @@ def _get_changed_files() -> list[str]:
 
 def _run_grouped(test_files: list[str], extra_args: list[str]) -> None:
     """Group test files by type and run each group with its appropriate runner."""
-    groups: dict[str, list[str]] = {}
+    groups: dict[str, list[tuple[str, TestRunConfig]]] = {}
     for f in test_files:
         try:
             config = detect_test_type(f)
-            groups.setdefault(config.test_type, []).append(f)
+            groups.setdefault(config.test_type, []).append((f, config))
         except click.UsageError:
             click.secho(f"  Skipping (unknown type): {f}", fg="yellow")
 
-    for test_type, files in groups.items():
+    for test_type, entries in groups.items():
         if test_type in ("python", "python-eval"):
             # pytest can take multiple files at once
-            config = detect_test_type(files[0])
-            command = config.command[:-1] + files  # replace last arg (single file) with all files
-            click.secho(f"Running {len(files)} Python test file(s)...", fg="cyan")
-            _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
+            cfg = entries[0][1]
+            command = cfg.command[:-1] + [f for f, _ in entries]
+            click.secho(f"Running {len(entries)} Python test file(s)...", fg="cyan")
+            _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
         elif test_type == "jest":
             # Sub-group by package so each pnpm --filter is correct
             by_package: dict[str, tuple[TestRunConfig, list[str]]] = {}
-            for f in files:
-                cfg = detect_test_type(f)
+            for f, cfg in entries:
                 pkg = cfg.command[1]  # e.g. "--filter=@posthog/frontend"
                 if pkg not in by_package:
                     by_package[pkg] = (cfg, [])
@@ -446,30 +544,43 @@ def _run_grouped(test_files: list[str], extra_args: list[str]) -> None:
             for pkg, (cfg, pkg_files) in by_package.items():
                 command = cfg.command[:-1] + pkg_files
                 click.secho(f"Running {len(pkg_files)} Jest test file(s) ({pkg})...", fg="cyan")
-                _run(command + extra_args, env=cfg.env if cfg.env else None, cwd=cfg.cwd)
+                _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
         else:
-            # Other types: run individually
-            for f in files:
-                config = detect_test_type(f)
+            for f, cfg in entries:
                 click.secho(f"Running: {f}", fg="cyan")
-                _run(config.command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
+                _run(cfg.command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
 
 
 def _run_changed(extra_args: list[str]) -> None:
-    """Find changed test files, group by type, and run each group."""
+    """Find changed test files and tests for changed source files, then run them."""
     changed = _get_changed_files()
-    test_files = [f for f in changed if _is_test_file(f)]
 
-    if not test_files:
-        click.secho("No changed test files found on this branch.", fg="yellow")
+    directly_changed = {f for f in changed if _is_test_file(f)}
+
+    discovered: set[str] = set()
+    for f in changed:
+        if not _is_test_file(f):
+            discovered.update(_find_test_files_for_source(f))
+
+    all_test_files = sorted(directly_changed | discovered)
+
+    if not all_test_files:
+        click.secho("No test files found for changes on this branch.", fg="yellow")
         raise SystemExit(0)
 
-    click.secho(f"Found {len(test_files)} changed test file(s):", fg="cyan")
-    for f in test_files:
-        click.echo(f"  {f}")
-    click.echo()
+    if directly_changed:
+        click.secho(f"Found {len(directly_changed)} changed test file(s):", fg="cyan")
+        for f in sorted(directly_changed):
+            click.echo(f"  {f}")
 
-    _run_grouped(test_files, extra_args)
+    newly_discovered = discovered - directly_changed
+    if newly_discovered:
+        click.secho(f"Found {len(newly_discovered)} test file(s) for changed source files:", fg="cyan")
+        for f in sorted(newly_discovered):
+            click.echo(f"  {f}")
+
+    click.echo()
+    _run_grouped(all_test_files, extra_args)
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +614,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     elif config.test_type == "jest":
         # Jest has built-in --watch
         click.secho(f"Watching: {config.description}", fg="cyan")
-        _run([*config.command, "--watch", *extra_args], env=config.env if config.env else None, cwd=config.cwd)
+        _run([*config.command, "--watch", *extra_args], env=config.env_or_none, cwd=config.cwd)
 
     else:
         raise click.UsageError(
@@ -538,7 +649,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("file_path", required=False, type=click.Path())
-@click.option("--changed", is_flag=True, help="Run tests for files changed on the current branch")
+@click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
 def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
@@ -583,4 +694,4 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     config = detect_test_type(resolved)
     click.secho(f"Detected: {config.description}", fg="cyan")
-    _run(config.command + list(ctx.args), env=config.env if config.env else None, cwd=config.cwd)
+    _run(config.command + list(ctx.args), env=config.env_or_none, cwd=config.cwd)

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import click
 from hogli.test_runner import (
+    _find_test_files_for_source,
     _is_test_file,
     _parse_porcelain_path,
     _resolve_to_repo_relative,
@@ -103,11 +104,31 @@ class TestDetectTestType:
         config = detect_test_type("cli/src/main.rs")
         assert config.test_type == "rust"
         assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert "--" not in config.command  # main.rs has no module filter
 
     def test_rust_standalone_funnel_udf(self) -> None:
         config = detect_test_type("funnel-udf/src/lib.rs")
         assert config.test_type == "rust"
         assert "--manifest-path=funnel-udf/Cargo.toml" in config.command
+        assert "--" not in config.command  # lib.rs has no module filter
+
+    def test_rust_single_file_filters_to_module(self) -> None:
+        config = detect_test_type("cli/src/utils/throttler.rs")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils::throttler"]
+
+    def test_rust_directory_filters_to_module(self) -> None:
+        config = detect_test_type("cli/src/utils")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils"]
+
+    def test_rust_node_id_filters_to_test(self) -> None:
+        config = detect_test_type("cli/src/utils/throttler.rs::test_new_creates_empty_throttler")
+        assert config.test_type == "rust"
+        assert "--manifest-path=cli/Cargo.toml" in config.command
+        assert config.command[-2:] == ["--", "utils::throttler::test_new_creates_empty_throttler"]
 
     def test_rust_no_cargo_toml_raises(self) -> None:
         with pytest.raises(click.UsageError, match="No Cargo.toml found"):
@@ -253,8 +274,9 @@ class TestIsTestFile:
             ("playwright/e2e/dashboards.spec.ts", True),
             ("playwright/e2e/helpers.ts", False),
             ("rust/capture/tests/events.rs", True),
-            ("rust/capture/src/api.rs", False),
+            ("rust/capture/src/api.rs", True),  # has #[cfg(test)] inline
             ("rust/capture/src/api_test.rs", True),
+            ("rust/capture/src/v1/util.rs", True),  # has #[cfg(test)] inline
             ("livestream/main_test.go", True),
             ("livestream/main.go", False),
         ]
@@ -277,6 +299,29 @@ class TestParsePorcelainPath:
     )
     def test_parse_porcelain_path(self, line: str, expected: str) -> None:
         assert _parse_porcelain_path(line) == expected
+
+
+class TestFindTestFilesForSource:
+    @parameterized.expand(
+        [
+            ("posthog/api/comments.py", "posthog/api/test/test_comments.py"),
+            ("common/hogli/test_runner.py", "common/hogli/tests/test_test_runner.py"),
+            (
+                "frontend/src/scenes/dashboard/DashboardHeader.tsx",
+                "frontend/src/scenes/dashboard/DashboardHeader.test.tsx",
+            ),
+            ("livestream/events/filter.go", "livestream/events/filter_test.go"),
+        ]
+    )
+    def test_finds_test_for_source(self, source: str, expected_test: str) -> None:
+        results = _find_test_files_for_source(source)
+        assert expected_test in results
+
+    def test_non_source_file_returns_empty(self) -> None:
+        assert _find_test_files_for_source("README.md") == []
+
+    def test_nonexistent_file_returns_empty(self) -> None:
+        assert _find_test_files_for_source("posthog/api/nonexistent_module.py") == []
 
 
 class TestRunChanged:
@@ -315,6 +360,29 @@ class TestRunChanged:
         assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in frontend_cmd
         assert "frontend/src/lib/utils.test.ts" in frontend_cmd
         assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
+
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_discovers_tests_for_changed_source_files(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = ["posthog/api/comments.py"]
+        _run_changed([])
+
+        mock_run.assert_called_once()
+        command = mock_run.call_args[0][0]
+        assert "posthog/api/test/test_comments.py" in command
+
+    @patch("hogli.test_runner._run")
+    @patch("hogli.test_runner._get_changed_files")
+    def test_deduplicates_direct_and_discovered_tests(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = [
+            "posthog/api/comments.py",
+            "posthog/api/test/test_comments.py",
+        ]
+        _run_changed([])
+
+        mock_run.assert_called_once()
+        command = mock_run.call_args[0][0]
+        assert command.count("posthog/api/test/test_comments.py") == 1
 
     @patch("hogli.test_runner._get_changed_files")
     def test_no_changed_files_exits(self, mock_changed) -> None:
