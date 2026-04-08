@@ -477,7 +477,7 @@ export class MCP extends McpAgent<Env> {
         }
 
         const initDurationMs = this.requestProperties.requestStartTime
-            ? performance.now() - this.requestProperties.requestStartTime
+            ? Date.now() - this.requestProperties.requestStartTime
             : undefined
 
         this.ctx.waitUntil(
