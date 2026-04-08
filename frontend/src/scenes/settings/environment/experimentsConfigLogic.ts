@@ -33,8 +33,11 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
     }),
     listeners(({ actions }) => ({
         updateExperimentsConfig: async ({ payload }) => {
-            await api.update('api/environments/@current/experiments_config/', payload)
-            actions.loadExperimentsConfig()
+            try {
+                await api.update('api/environments/@current/experiments_config/', payload)
+            } finally {
+                actions.loadExperimentsConfig()
+            }
         },
     })),
     afterMount(({ actions }) => {
