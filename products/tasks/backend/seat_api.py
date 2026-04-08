@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import requests
 import structlog
@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
@@ -53,21 +54,24 @@ class SeatViewSet(viewsets.ViewSet):
     # ------------------------------------------------------------------
 
     def _get_billing_headers(self, request: Request) -> dict[str, str] | None:
+        user = cast(User, request.user)
         license = get_cached_instance_license()
-        org = request.user.organization
+        org = user.organization
         if not org or not license:
             return None
         try:
-            token = build_billing_token(license, org, request.user)
+            token = build_billing_token(license, org, user)
         except NotAuthenticated:
-            logger.warning("User not a member of their current organization", user_id=request.user.id)
+            logger.warning("User not a member of their current organization", user_id=user.id)
             return None
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     @staticmethod
-    def _resolve_distinct_id(pk: str, request: Request) -> str:
+    def _resolve_distinct_id(pk: str | None, request: Request) -> str:
+        if pk is None:
+            raise ValueError("pk is required")
         if pk == "me":
-            return str(request.user.distinct_id)
+            return str(cast(User, request.user).distinct_id)
         return pk
 
     def _forward_response(self, billing_response: requests.Response | None, extract_seat: bool = True) -> Response:
@@ -142,7 +146,7 @@ class SeatViewSet(viewsets.ViewSet):
     def create(self, request: Request) -> Response:
         """POST /api/seats/ -> POST /api/v2/seats/"""
         body_distinct_id = request.data.get("user_distinct_id")
-        if body_distinct_id and str(body_distinct_id) != str(request.user.distinct_id):
+        if body_distinct_id and str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
 
         headers = self._get_billing_headers(request)
