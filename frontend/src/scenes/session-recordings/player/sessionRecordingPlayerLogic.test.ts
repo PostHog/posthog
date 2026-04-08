@@ -385,14 +385,16 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentSegment?.windowId).not.toBeUndefined()
         })
 
-        // The mock recording is 11 seconds long.
-        // We test loading with `?t=999` (999 seconds, ~16x the recording length).
-        // The player should recover gracefully — leave the player in a state
-        // where tryInitReplayer can succeed (valid currentSegment with windowId,
-        // and not stuck in endReached) so the rrweb wrapper can render.
-        it('handles out-of-range t parameter without leaving player in endReached state', async () => {
+        // The mock recording is 11 seconds long. We cover both boundary cases:
+        // `t=11` (exactly at recording end — triggers endReached via `>= end`)
+        // and `t=999` (far past end — stale shared URL). The player should
+        // recover gracefully in both cases so the rrweb wrapper can render.
+        it.each([
+            { t: '11', label: 'exactly at recording end' },
+            { t: '999', label: 'far past recording end' },
+        ])('handles out-of-range t=$t ($label) without leaving player in endReached state', async ({ t }) => {
             logic.unmount()
-            router.actions.push('/replay/2', { t: '999' })
+            router.actions.push('/replay/2', { t })
 
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '2',

@@ -1548,7 +1548,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         // Landing exactly on durationMs fires endReached in seekToTimestamp,
                         // which blocks auto-init of the rrweb replayer — keep strictly below.
                         const desiredStartTime = Number(searchParams.t) * 1000
-                        const maxTime = (values.sessionPlayerData?.durationMs ?? Infinity) - 1
+                        const durationMs = values.sessionPlayerData?.durationMs ?? 0
+                        const maxTime = Math.max(0, durationMs - 1)
                         actions.seekToTime(clamp(desiredStartTime, 0, maxTime))
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
