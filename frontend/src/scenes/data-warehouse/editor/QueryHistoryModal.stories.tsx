@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -8,13 +8,24 @@ import { ActivityScope } from '~/types'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
+const STORY_TAB_ID = 'story-query-history'
+
 // Opens the modal immediately so the story renders it in the open state
 function OpenQueryHistoryModal(): JSX.Element {
-    const { openHistoryModal } = useActions(sqlEditorLogic)
+    const { openHistoryModal, updateTab } = useActions(sqlEditorLogic({ tabId: STORY_TAB_ID }))
     useEffect(() => {
+        updateTab({
+            uri: { toString: () => 'story-uri' } as any,
+            name: 'revenue_by_day',
+            view: { id: 'view-1' } as any,
+        })
         openHistoryModal()
-    }, [openHistoryModal])
-    return <QueryHistoryModal />
+    }, [openHistoryModal, updateTab])
+    return (
+        <BindLogic logic={sqlEditorLogic} props={{ tabId: STORY_TAB_ID }}>
+            <QueryHistoryModal />
+        </BindLogic>
+    )
 }
 
 const mockActivityItem = {
@@ -55,7 +66,7 @@ const meta: Meta<typeof QueryHistoryModal> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/warehouse/saved_queries/:id/activity': () => [
+                '/api/environments/:team_id/warehouse_saved_queries/:id/activity': () => [
                     200,
                     { results: [mockActivityItem], count: 1 },
                 ],
@@ -73,7 +84,7 @@ export const Empty: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/warehouse/saved_queries/:id/activity': () => [
+                '/api/environments/:team_id/warehouse_saved_queries/:id/activity': () => [
                     200,
                     { results: [], count: 0 },
                 ],
