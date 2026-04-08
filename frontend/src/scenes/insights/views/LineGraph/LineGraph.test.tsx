@@ -215,10 +215,7 @@ describe('LineGraph', () => {
         }
 
         it('selects the correct series in a stacked bar chart when clicking below center', () => {
-            // Click at y=220, inside Flutter bar (150-250) but below its center (200)
-            // Bug: sortPoints compares to element.y (top=150) vs Webapp's top (250).
-            //   distance to Flutter top: |220-150| = 70
-            //   distance to Webapp top: |220-250| = 30  ← Webapp wins (WRONG!)
+            // y=220 is inside Flutter (150-250) but below its center (200)
             const chart = makeMockChart()
             const payload = clickAndCapture(chart, makeEvent(220))
 
@@ -228,7 +225,6 @@ describe('LineGraph', () => {
         })
 
         it('selects the correct series in a stacked bar chart when clicking above center', () => {
-            // Click at y=180, inside Flutter bar (150-250) but above its center (200)
             const chart = makeMockChart()
             const payload = clickAndCapture(chart, makeEvent(180))
 
@@ -238,7 +234,6 @@ describe('LineGraph', () => {
         })
 
         it('selects the correct series when pointsIntersectingClick has a direct hit', () => {
-            // When Chart.js 'point' mode returns the correct bar, it should be used
             const directHit: InteractionItem[] = [{ element: barElements[1] as any, datasetIndex: 1, index: 0 }]
             const chart = makeMockChart(directHit)
             const payload = clickAndCapture(chart, makeEvent(200))
@@ -249,9 +244,7 @@ describe('LineGraph', () => {
         })
 
         it('uses tooltip reference point over click detection to match what user sees', () => {
-            // The tooltip shows Flutter (dataset 1) via 'nearest' mode, but
-            // click detection via 'point' mode hits Email (dataset 2).
-            // The tooltip should win since that's what the user sees.
+            // Tooltip says Flutter but click detection hits Email — tooltip should win
             const directHit: InteractionItem[] = [{ element: barElements[2] as any, datasetIndex: 2, index: 0 }]
             const tooltipDataPoints = [{ datasetIndex: 1, dataIndex: 0 }]
             const chart = makeMockChart(directHit, tooltipDataPoints)
@@ -263,12 +256,10 @@ describe('LineGraph', () => {
         })
 
         it('falls back to click detection when no tooltip is active', () => {
-            // No tooltip data — should use existing click detection logic
             const chart = makeMockChart([], undefined)
             const payload = clickAndCapture(chart, makeEvent(200))
 
             expect(payload).toBeTruthy()
-            // Falls back to pointsIntersectingLine sorted by center distance
             expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
         })
 

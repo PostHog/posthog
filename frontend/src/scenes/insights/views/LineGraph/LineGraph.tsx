@@ -118,10 +118,7 @@ export function onChartClick(
     // Get all points along line
     const sortPoints = (a: InteractionItem, b: InteractionItem): number => {
         const eventY = event.y ?? 0
-        // For bar elements, compare distance to the bar's vertical center
-        // rather than its top edge. Adjacent stacked bars share edges, so
-        // using the top causes off-by-one selection when clicking below a
-        // bar's center.
+        // Compare distance to bar center, not top edge (stacked bars share edges)
         const aEl = a.element as unknown as { y: number; base?: number }
         const bEl = b.element as unknown as { y: number; base?: number }
         const aY = aEl.base != null ? (aEl.y + aEl.base) / 2 : aEl.y
@@ -156,10 +153,7 @@ export function onChartClick(
 
     const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-    // Prefer the tooltip's active data point as the reference, since it
-    // matches what the user sees. The tooltip uses 'nearest' mode which
-    // can pick a different bar segment than the click handler's 'point'
-    // mode, causing the modal to open for the wrong breakdown.
+    // Use the tooltip's active data point so the modal matches what the user sees
     const tooltipDataPoint = chart.tooltip?.dataPoints?.[0]
     const referencePoint: GraphPoint = tooltipDataPoint
         ? {
