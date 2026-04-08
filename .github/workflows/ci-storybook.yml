@@ -586,7 +586,7 @@ jobs:
     handle-snapshots:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 15
         needs: [visual-regression, changes]
         if: always() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
