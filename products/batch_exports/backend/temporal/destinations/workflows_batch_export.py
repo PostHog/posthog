@@ -236,7 +236,10 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         # the consumer are not raised in the TaskGroup context.
         # TODO: The consumer should be refactored.
         tg = asyncio.TaskGroup()
-        async with aiohttp.ClientSession(trust_env=True) as session:
+        async with aiohttp.ClientSession(
+            trust_env=True,
+            connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+        ) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
