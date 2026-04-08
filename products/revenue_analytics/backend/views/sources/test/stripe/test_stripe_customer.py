@@ -1,3 +1,13 @@
+import json
+
+from freezegun import freeze_time
+
+from posthog.schema import CurrencyCode
+
+from posthog.hogql.database.schema.test.base import RevenueAnalyticsTestBase
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
@@ -138,3 +148,61 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         # Check that source_label contains the expected prefix
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
         self.assertIn(f"'{expected_prefix}'", query_sql)
+
+
+class TestCustomerStripeMetadataResolution(RevenueAnalyticsTestBase):
+    """Integration tests that assert the metadata coalescing values produced by the customer view builder"""
+
+    def setUp(self):
+        super().setUp()
+        self.create_sources()
+        self.create_source_table("subscription")
+        self.create_source_table("charge")
+        self.team.base_currency = CurrencyCode.GBP.value
+        self.team.save()
+        self.view_name = f"stripe.posthog_test.{CUSTOMER_SCHEMA.source_suffix}"
+
+    def _query_metadata(self) -> dict[str, dict]:
+        with freeze_time(self.QUERY_TIMESTAMP):
+            response = execute_hogql_query(
+                parse_select(f"SELECT id, metadata FROM {self.view_name} ORDER BY id"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+        return {row[0]: json.loads(row[1]) for row in response.results}
+
+    def test_metadata_resolution_from_customer(self):
+        """cus_1 has posthog_person_distinct_id set directly on the customer object."""
+        results = self._query_metadata()
+
+        self.assertEqual("person_cus_1", results["cus_1"]["posthog_person_distinct_id"])
+        self.assertEqual("customer", results["cus_1"]["posthog_person_distinct_id_source"])
+
+    def test_metadata_resolution_from_subscription(self):
+        """cus_2 has no distinct_id on the customer, but sub_2 has it in metadata."""
+        results = self._query_metadata()
+
+        self.assertEqual("person_cus_2", results["cus_2"]["posthog_person_distinct_id"])
+        self.assertEqual("subscription::sub_2", results["cus_2"]["posthog_person_distinct_id_source"])
+
+    def test_metadata_resolution_from_charge(self):
+        """cus_3 has no distinct_id on the customer, but ch_3 has it in metadata."""
+        results = self._query_metadata()
+
+        self.assertEqual("person_cus_3", results["cus_3"]["posthog_person_distinct_id"])
+        self.assertEqual("charge::ch_3", results["cus_3"]["posthog_person_distinct_id_source"])
+
+    def test_no_metadata_when_absent_everywhere(self):
+        """cus_4 has no distinct_id on customer, subscriptions, or charges."""
+        results = self._query_metadata()
+
+        self.assertNotIn("posthog_person_distinct_id", results["cus_4"])
+        self.assertNotIn("posthog_person_distinct_id_source", results["cus_4"])
+
+    def test_freshest_child_wins_across_types(self):
+        """cus_5 has distinct_id on both sub_5 (Feb 2025) and ch_15 (Mar 2025).
+        The charge is newer, so it should win."""
+        results = self._query_metadata()
+
+        self.assertEqual("person_cus_5_from_charge", results["cus_5"]["posthog_person_distinct_id"])
+        self.assertEqual("charge::ch_15", results["cus_5"]["posthog_person_distinct_id_source"])

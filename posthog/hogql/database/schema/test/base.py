@@ -48,6 +48,7 @@ _TEST_DATA_DIR = (
     / "data"
 )
 
+
 class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
