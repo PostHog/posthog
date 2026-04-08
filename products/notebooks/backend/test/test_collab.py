@@ -38,7 +38,7 @@ class TestNotebookCollab(BaseTest):
         assert result.accepted is False
         assert result.version == 1
         assert result.steps_since == [
-            StepEntry(step={"stepType": "replace", "from": 0, "to": 0}, client_id="client1"),
+            StepEntry(step={"stepType": "replace", "from": 0, "to": 0}, client_id="client1", v=1),
         ]
 
     def test_submit_multiple_steps_as_batch(self):

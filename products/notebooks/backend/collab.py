@@ -13,7 +13,7 @@ STEPS_KEY = "notebook:collab:{id}:steps"
 
 # Atomic operation: append steps only if the last_seen_version matches the current version in Redis.
 # Each step is stored individually in a sorted set (score=version), for example:
-#   score=3  {"step": {"stepType": "replace", "from": 0, "to": 0}, "client_id": "uuid1"}
+#   score=3  {"step": {"stepType": "replace", "from": 0, "to": 0}, "client_id": "uuid1", "v": 3}
 # Returns {-1, 0} if not initialized, {0, current} if mismatch, {1, new} if accepted.
 _APPEND_STEPS_LUA = """
 local version_key, steps_key = KEYS[1], KEYS[2]
@@ -42,6 +42,7 @@ return {1, next_version}
 class StepEntry:
     step: dict
     client_id: str
+    v: int  # ensures ZADD doesn't dedup identical steps across versions
 
 
 @dataclass
@@ -72,7 +73,10 @@ def submit_steps(
     version_key = VERSION_KEY.format(id=notebook_id)
     steps_key = STEPS_KEY.format(id=notebook_id)
 
-    step_entries = [json.dumps({"step": s, "client_id": client_id}) for s in steps_json]
+    step_entries = [
+        json.dumps({"step": s, "client_id": client_id, "v": last_seen_version + i + 1})
+        for i, s in enumerate(steps_json)
+    ]
 
     accepted, version = client.eval(
         _APPEND_STEPS_LUA,
