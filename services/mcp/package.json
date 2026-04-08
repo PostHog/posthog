@@ -71,6 +71,6 @@
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
         "wrangler": "^4.59.0",
-        "yaml": "^2.8.2"
+        "yaml": "^2.8.3"
     }
 }
