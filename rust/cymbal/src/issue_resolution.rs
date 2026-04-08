@@ -281,7 +281,8 @@ pub async fn send_fingerprint_issue_state(
     )
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>, KafkaProduceError>>()
+    .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
 }
 

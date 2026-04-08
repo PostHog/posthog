@@ -812,6 +812,27 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         assert len(rows) == 1
         assert rows[0][4] == self.user.id  # assigned_user_id
 
+    def test_clear_assignment_syncs(self):
+        issue = self._create_issue(fingerprints=["fp_1"])
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "user"}},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert rows[0][4] == self.user.id  # assigned_user_id
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 1
+        assert rows[0][4] is None  # assigned_user_id cleared
+        assert rows[0][5] is None  # assigned_role_id cleared
+
     def test_assign_role_syncs(self):
         issue = self._create_issue(fingerprints=["fp_1"])
         role = Role.objects.create(name="Eng role", organization=self.organization)
