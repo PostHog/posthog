@@ -55,12 +55,22 @@ services:
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
+            - keeper-logs
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
+        ports:
+            - '9181:9181'
+
+    keeper-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: keeper-logs
+        ports:
+            - '9182:9181'
 
     kafka:
         extends:
@@ -68,8 +78,6 @@ services:
             service: kafka
         ports:
             - '9092:9092'
-        depends_on:
-            - zookeeper
 
     objectstorage:
         extends:

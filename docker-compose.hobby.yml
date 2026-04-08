@@ -44,7 +44,8 @@ services:
         logging: *default-logging
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
+            - keeper-logs
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -55,22 +56,20 @@ services:
             - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
-        logging: *default-logging
-        volumes:
-            - zookeeper-datalog:/datalog
-            - zookeeper-data:/data
-            - zookeeper-logs:/logs
+            service: keeper
+
+    keeper-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: keeper-logs
+
     kafka:
         extends:
             file: docker-compose.base.yml
             service: kafka
-        logging: *default-logging
-        depends_on:
-            - zookeeper
         environment:
             KAFKA_LOG_RETENTION_MS: 3600000
             KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
@@ -533,9 +532,6 @@ services:
                 condition: service_healthy
 
 volumes:
-    zookeeper-data:
-    zookeeper-datalog:
-    zookeeper-logs:
     objectstorage:
     seaweedfs:
     postgres-data:

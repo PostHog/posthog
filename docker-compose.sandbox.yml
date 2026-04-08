@@ -222,12 +222,20 @@ services:
             - ${SANDBOX_CODE:-.}/posthog/user_scripts:/var/lib/clickhouse/user_scripts:ro
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
+            - keeper-logs
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
+        # No host ports — avoid conflicts between sandboxes
+
+    keeper-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: keeper-logs
+        # No host ports — avoid conflicts between sandboxes
 
     kafka:
         extends:
