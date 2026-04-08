@@ -46,8 +46,8 @@ ops:
       backfill_period_days: 90
       dry_run: false
       properties:
-      - $browser_language_prefix
-      - $app_namespace
+        - $browser_language_prefix
+        - $app_namespace
       table: events
       table_column: properties
 ```
