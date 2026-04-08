@@ -33314,6 +33314,26 @@
                 "summary": {
                     "type": "string"
                 },
+                "summary_outcome": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "description": {
+                                    "type": "string"
+                                },
+                                "success": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["success", "description"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
