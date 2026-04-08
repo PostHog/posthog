@@ -445,6 +445,65 @@ class TestGetPrimaryKeys:
             assert "org_id" in result
             assert "user_id" in result
 
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk (
+                    id INTEGER,
+                    created_at DATE,
+                    name TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk_2026
+                PARTITION OF test_partitioned_parent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
+            """)
+
+            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_parent_pk", logger)
+            assert result is not None
+            assert result == ["id", "created_at"]
+
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_when_only_children_have_pk(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk (
+                    order_id INTEGER NOT NULL,
+                    created_at DATE NOT NULL,
+                    updated_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q1
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q2
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q1
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q1_pkey PRIMARY KEY (order_id)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q2
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q2_pkey PRIMARY KEY (order_id)
+            """)
+
+            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_parent_no_pk", logger)
+            assert result is not None
+            assert result == ["order_id"]
+
 
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
