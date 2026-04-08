@@ -220,9 +220,7 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
             and settings.plan_aware_throttling_enabled
             and not is_pro_plan(context.plan_key)
         ):
-            period = get_billing_period_number(
-                context.seat_created_at, settings.free_plan_trial_period_days
-            )
+            period = get_billing_period_number(context.seat_created_at, settings.free_plan_trial_period_days)
             return f"{base_key}:period:{period}"
         return base_key
 

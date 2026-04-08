@@ -80,9 +80,7 @@ async def get_usage(
             sustained_status = await _get_cost_status(throttle, context)
 
     if burst_status is None:
-        burst_status = CostLimitStatus(
-            used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False
-        )
+        burst_status = CostLimitStatus(used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False)
     if sustained_status is None:
         sustained_status = CostLimitStatus(
             used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False
