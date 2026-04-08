@@ -11,14 +11,16 @@ export function deserializeKafkaMessage(serialized: SerializedKafkaMessage): Mes
         [key]: Buffer.from(value, 'utf-8'),
     }))
 
+    const valueBuffer = serialized.value ? Buffer.from(serialized.value, 'utf-8') : null
+
     return {
         topic: serialized.topic,
         partition: serialized.partition,
         offset: serialized.offset,
         timestamp: serialized.timestamp,
-        size: serialized.value?.length ?? 0,
+        size: valueBuffer?.byteLength ?? 0,
         key: serialized.key ? Buffer.from(serialized.key, 'utf-8') : undefined,
-        value: serialized.value ? Buffer.from(serialized.value, 'utf-8') : null,
+        value: valueBuffer,
         headers: headers.length > 0 ? headers : undefined,
     }
 }

@@ -30,7 +30,7 @@ describe('deserializeKafkaMessage', () => {
             { token: Buffer.from('my-token') },
             { distinct_id: Buffer.from('my-distinct-id') },
         ])
-        expect(message.size).toBe(serialized.value!.length)
+        expect(message.size).toBe(Buffer.byteLength(serialized.value!, 'utf-8'))
     })
 
     it('handles null key and value', () => {
@@ -82,5 +82,7 @@ describe('deserializeKafkaMessage', () => {
         const message = deserializeKafkaMessage(serialized)
 
         expect(message.value!.toString('utf-8')).toBe('{"name":"José 日本語 🎉"}')
+        // size should reflect byte length, not JS string length (multi-byte chars)
+        expect(message.size).toBe(Buffer.byteLength('{"name":"José 日本語 🎉"}', 'utf-8'))
     })
 })

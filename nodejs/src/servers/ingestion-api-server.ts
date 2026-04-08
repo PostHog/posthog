@@ -388,6 +388,9 @@ export class IngestionApiServer implements NodeServer {
 
             // Wait for all side effects — the HTTP response is the ACK to the
             // Rust consumer, so all work must finish before responding.
+            // Note: the joined pipeline has a hardcoded concurrency of 1, so
+            // feed() will reject if a batch is already being processed. This
+            // is fine for now since we process each request sequentially.
             await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
 
             batchesProcessed.inc()
