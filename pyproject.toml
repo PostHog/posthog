@@ -117,7 +117,7 @@ dependencies = [
     "python3-saml==1.16.0",
     "pytz==2023.3",
     "redis==5.3.1",
-    "requests~=2.32.3",
+    "requests~=2.33.0",
     "retry==0.9.2",
     "s3fs==2025.9.0",
     "scikit-learn~=1.5.0",
@@ -129,7 +129,7 @@ dependencies = [
     "social-auth-app-django~=5.4.3",
     "social-auth-core~=4.8.3",
     "django-scim2==0.19.0",
-    "sqlparse==0.5.0",
+    "sqlparse==0.5.4",
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
@@ -264,7 +264,7 @@ dev = [
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
-    "torch~=2.7.0",
+    "torch~=2.8.0",
 ]
 
 [tool.uv]
