@@ -733,6 +733,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
+    @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True)
     def collab_save(self, request: Request, **kwargs):
         serializer = NotebookCollabSaveSerializer(data=request.data)

@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -184,14 +185,14 @@ export const getNotebooksCollabSaveCreateUrl = (projectId: string, shortId: stri
 export const notebooksCollabSaveCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookCollabSaveApi: NotebookCollabSaveApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksCollabSaveCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
+        body: JSON.stringify(notebookCollabSaveApi),
     })
 }
 
