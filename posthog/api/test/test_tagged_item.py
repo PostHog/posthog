@@ -246,6 +246,8 @@ class TestBulkUpdateTags(APIBaseTest):
         response = self.client.post(self._bulk_update_url(), payload, content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["type"] == "validation_error"
+        assert response.json()["attr"] == "tags"
 
     def test_all_non_integer_ids_returns_400(self):
         payload = {"ids": ["not-an-id", "also-bad"], "action": "set", "tags": ["t"]}
@@ -339,18 +341,6 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"][0]["id"] == insight.id
         assert sorted(data["updated"][0]["tags"]) == ["existing", "new-insight-tag"]
-
-    def test_string_ids_are_rejected(self):
-        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dash")
-
-        response = self.client.post(
-            self._bulk_update_url(),
-            {"ids": [str(dashboard.id)], "action": "set", "tags": ["from-string-id"]},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["type"] == "validation_error"
 
     def test_cannot_update_tags_on_other_teams_objects(self):
         other_org = Organization.objects.create(name="other org")

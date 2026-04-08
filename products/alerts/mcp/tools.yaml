@@ -140,6 +140,9 @@ tools:
     alerts-simulate-create:
         operation: alerts_simulate_create
         enabled: false
+    logs-alerts-simulate-create:
+        operation: logs_alerts_simulate_create
+        enabled: false
     logs-alerts-destinations-create:
         operation: logs_alerts_destinations_create
         enabled: false
