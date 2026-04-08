@@ -69,9 +69,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     performed_rollback = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    usage_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
-        "Dashboard",
+        "dashboards.Dashboard",
         through="FeatureFlagDashboards",
         related_name="analytics_dashboards",
         related_query_name="analytics_dashboard",
@@ -690,7 +690,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
 
 class FeatureFlagDashboards(models.Model):
     feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
 

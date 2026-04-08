@@ -909,15 +909,6 @@ export interface DashboardTemplateApi {
     is_featured?: boolean
 }
 
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
-}
-
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
@@ -1092,122 +1083,47 @@ export interface SharingConfigurationApi {
     readonly share_passwords: readonly SharePasswordApi[]
 }
 
-/**
- * * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `google-cloud-service-account` - Google Cloud Service Account
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- * `pinterest-ads` - Pinterest Ads
- */
-export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
-
-export const Kind8d6EnumApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    Snapchat: 'snapchat',
-    LinkedinAds: 'linkedin-ads',
-    RedditAds: 'reddit-ads',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Intercom: 'intercom',
-    Email: 'email',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Twilio: 'twilio',
-    Clickup: 'clickup',
-    Vercel: 'vercel',
-    Databricks: 'databricks',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-} as const
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationApi {
-    readonly id: number
-    kind: Kind8d6EnumApi
-    config?: unknown
+export interface ProjectSecretAPIKeyApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    readonly value: string
+    /** @nullable */
+    readonly mask_value: string | null
     readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly errors: string
-    readonly display_name: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly last_used_at: string | null
+    /** @nullable */
+    readonly last_rolled_at: string | null
+    scopes: string[]
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedProjectSecretAPIKeyListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: ProjectSecretAPIKeyApi[]
 }
 
-/**
- * Standard Integration serializer.
- */
-export interface PatchedIntegrationApi {
-    readonly id?: number
-    kind?: Kind8d6EnumApi
-    config?: unknown
+export interface PatchedProjectSecretAPIKeyApi {
+    readonly id?: string
+    /** @maxLength 40 */
+    label?: string
+    readonly value?: string
+    /** @nullable */
+    readonly mask_value?: string | null
     readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-}
-
-export interface GitHubBranchesResponseApi {
-    /** List of branch names */
-    branches: string[]
-    /**
-     * The default branch of the repository
-     * @nullable
-     */
-    default_branch?: string | null
-}
-
-export interface GitHubRepoApi {
-    id: number
-    name: string
-    full_name: string
-}
-
-export interface GitHubReposResponseApi {
-    repositories: GitHubRepoApi[]
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly last_used_at?: string | null
+    /** @nullable */
+    readonly last_rolled_at?: string | null
+    scopes?: string[]
 }
 
 /**
@@ -1280,91 +1196,6 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-}
-
-/**
- * * `FeatureFlag` - feature flag
- */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
-
-export const ModelNameEnumApi = {
-    FeatureFlag: 'FeatureFlag',
-} as const
-
-/**
- * * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
- * `yearly` - yearly
- */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
-
-export const RecurrenceIntervalEnumApi = {
-    Daily: 'daily',
-    Weekly: 'weekly',
-    Monthly: 'monthly',
-    Yearly: 'yearly',
-} as const
-
-export interface ScheduledChangeApi {
-    readonly id: number
-    readonly team_id: number
-    /** @maxLength 200 */
-    record_id: string
-    model_name: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly updated_at: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
-export interface PaginatedScheduledChangeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScheduledChangeApi[]
-}
-
-export interface PatchedScheduledChangeApi {
-    readonly id?: number
-    readonly team_id?: number
-    /** @maxLength 200 */
-    record_id?: string
-    model_name?: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at?: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly updated_at?: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at?: string | null
-    /** @nullable */
-    end_date?: string | null
 }
 
 /**
@@ -1620,7 +1451,8 @@ export interface OrganizationApi {
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
-    is_member_join_email_enabled?: boolean
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled: boolean
     readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
@@ -1930,17 +1762,6 @@ export type CommentsListParams = {
     cursor?: string
 }
 
-export type DashboardTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -1984,7 +1805,7 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
-export type IntegrationsList2Params = {
+export type ProjectSecretApiKeysListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1993,14 +1814,6 @@ export type IntegrationsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type IntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
 }
 
 export type PropertyDefinitionsListParams = {
@@ -2068,6 +1881,11 @@ export type PropertyDefinitionsListParams = {
  * @minLength 1
  */
     type?: PropertyDefinitionsListType
+    /**
+     * Filter by verified status. True returns only verified, false returns only unverified.
+     * @nullable
+     */
+    verified?: boolean | null
 }
 
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
@@ -2078,17 +1896,6 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
-
-export type ScheduledChangesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
 
 export type SubscriptionsListParams = {
     /**

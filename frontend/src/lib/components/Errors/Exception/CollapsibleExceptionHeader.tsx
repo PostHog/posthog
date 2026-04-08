@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -29,16 +29,22 @@ export function CollapsibleExceptionHeader({
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception
 
-    const formattedValue = useMemo(() => {
-        if (!value) {
-            return null
+    const [expanded, setExpanded] = useState(false)
+    const [isClamped, setIsClamped] = useState(false)
+    const valueRef = useRef<HTMLDivElement | null>(null)
+
+    // line-clamp-3 constrains clientHeight to the visible area;
+    // if scrollHeight exceeds it, the content is truncated and we show a toggle.
+    // Only re-check when value changes (not on expand, since unclamped scrollHeight === clientHeight).
+    useEffect(() => {
+        if (valueRef.current) {
+            setIsClamped(valueRef.current.scrollHeight > valueRef.current.clientHeight)
         }
-        return value.split('\n').map((line, index) => (
-            <span key={index}>
-                {index > 0 && <br />}
-                {line}
-            </span>
-        ))
+    }, [value])
+
+    // Reset collapsed state when viewing a different exception
+    useEffect(() => {
+        setExpanded(false)
     }, [value])
 
     return (
@@ -57,12 +63,26 @@ export function CollapsibleExceptionHeader({
                 )}
             </div>
             {(loading || value) && (
-                <div
-                    className={cn('text-[var(--gray-8)] leading-6', {
-                        'line-clamp-1': truncate,
-                    })}
-                >
-                    {loading ? <LemonSkeleton className="w-[50%] h-2" /> : formattedValue}
+                <div>
+                    <div
+                        ref={valueRef}
+                        className={cn('text-[var(--gray-8)] leading-6 whitespace-pre-wrap', {
+                            'line-clamp-1': truncate,
+                            'line-clamp-3': !truncate && !expanded,
+                        })}
+                    >
+                        {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
+                    </div>
+                    {!truncate && isClamped && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => setExpanded(!expanded)}
+                            className="mt-0.5 underline"
+                        >
+                            {expanded ? 'Show less' : 'Show more'}
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>

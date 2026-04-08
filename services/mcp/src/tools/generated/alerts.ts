@@ -12,11 +12,12 @@ import {
     AlertsRetrieveQueryParams,
     AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertsListSchema = AlertsListQueryParams
 
-const alertsList = (): ToolBase<typeof AlertsListSchema, Schemas.PaginatedAlertList & { _posthogUrl: string }> => ({
+const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.PaginatedAlertList>> => ({
     name: 'alerts-list',
     schema: AlertsListSchema,
     handler: async (context: Context, params: z.infer<typeof AlertsListSchema>) => {
@@ -29,10 +30,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, Schemas.PaginatedAlertL
                 offset: params.offset,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/insights`,
-        }
+        return await withPostHogUrl(context, result, '/insights?tab=alerts')
     },
 })
 
@@ -97,6 +95,9 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
             path: `/api/projects/${projectId}/alerts/`,
@@ -146,6 +147,9 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.skip_weekend !== undefined) {
             body['skip_weekend'] = params.skip_weekend
+        }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
         }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',

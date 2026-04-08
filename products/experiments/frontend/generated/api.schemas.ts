@@ -320,6 +320,7 @@ export interface ExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -385,6 +386,7 @@ export interface PatchedExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -400,10 +402,9 @@ export interface PatchedExperimentApi {
  * `stopped_early` - stopped_early
  * `invalid` - invalid
  */
-export type EndExperimentConclusionEnumApi =
-    (typeof EndExperimentConclusionEnumApi)[keyof typeof EndExperimentConclusionEnumApi]
+export type ConclusionF33EnumApi = (typeof ConclusionF33EnumApi)[keyof typeof ConclusionF33EnumApi]
 
-export const EndExperimentConclusionEnumApi = {
+export const ConclusionF33EnumApi = {
     Won: 'won',
     Lost: 'lost',
     Inconclusive: 'inconclusive',
@@ -419,12 +420,30 @@ export interface EndExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: EndExperimentConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable
      */
     conclusion_comment?: string | null
+}
+
+export interface ShipVariantApi {
+    /** The conclusion of the experiment.
+
+* `won` - won
+* `lost` - lost
+* `inconclusive` - inconclusive
+* `stopped_early` - stopped_early
+* `invalid` - invalid */
+    conclusion?: ConclusionF33EnumApi | NullEnumApi | null
+    /**
+     * Optional comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    /** The key of the variant to ship to 100% of users. */
+    variant_key: string
 }
 
 export type ExperimentHoldoutsListParams = {

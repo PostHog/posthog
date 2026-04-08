@@ -57,7 +57,15 @@ import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOv
 import { playerSettingsLogic } from './playerSettingsLogic'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { BuiltLogging, makeLogger, makeNoOpLogger } from './utils/player-logging'
+import {
+    addAssetError,
+    DoctorDiagnostics,
+    emptyGroupedAssetErrors,
+    formatGroupedAssetErrors,
+    GroupedAssetErrors,
+    ResourceErrorDetails,
+} from './utils/asset-error-grouping'
+import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
 import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
@@ -68,12 +76,7 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
 
-export interface ResourceErrorDetails {
-    resourceType: string
-    resourceUrl: string
-    message: string
-    error?: any
-}
+export type { ResourceErrorDetails, GroupedAssetErrors, DoctorDiagnostics } from './utils/asset-error-grouping'
 
 export interface PlayerTimeTracking {
     state: 'buffering' | 'playing' | 'paused' | 'errored' | 'ended' | 'unknown'
@@ -230,10 +233,16 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
                 return segment
             }
         }
-        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Timestamp falls outside all segments (e.g. timezone mismatch, stale link).
         // Pick the nearest segment that has a windowId so the player can still boot.
         if (timestamp < segments[0].startTimestamp) {
             const nearest = segments.find((s) => s.windowId !== undefined)
+            if (nearest) {
+                return nearest
+            }
+        }
+        if (timestamp > segments[segments.length - 1].endTimestamp) {
+            const nearest = [...segments].reverse().find((s) => s.windowId !== undefined)
             if (nearest) {
                 return nearest
             }
@@ -423,6 +432,30 @@ function registerErrorListeners({
     }
 }
 
+function scheduleDiagnosticsFlush(
+    cache: Record<string, any>,
+    actions: { flushDoctorDiagnostics: (d: DoctorDiagnostics) => void }
+): void {
+    if (!cache.diagnosticsFlushTimer) {
+        cache.diagnosticsFlushTimer = setTimeout(() => {
+            cache.diagnosticsFlushTimer = null
+            const grouped = cache.groupedAssetErrors as GroupedAssetErrors | null
+            actions.flushDoctorDiagnostics({
+                assetErrors: grouped ? formatGroupedAssetErrors(grouped) : {},
+                assetErrorTotal: grouped?.total ?? 0,
+                assetErrorTypeNames: grouped
+                    ? Object.keys(grouped.byType)
+                          .map((t) => (t === 'csp' ? 'CSP violations' : `${t} errors`))
+                          .join(', ')
+                          .toLowerCase()
+                    : '',
+                rrwebWarningCount: cache.rrwebWarningCount || 0,
+                rrwebWarningSummary: cache.rrwebWarningSummary ? { ...cache.rrwebWarningSummary } : {},
+            })
+        }, 2000)
+    }
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -512,8 +545,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
-        incrementWarningCount: (count: number = 1) => ({ count }),
         caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
+        flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
         deleteRecording: true,
@@ -731,7 +764,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
-        warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
+        doctorDiagnostics: [
+            null as DoctorDiagnostics | null,
+            {
+                flushDoctorDiagnostics: (_: any, { diagnostics }: { diagnostics: DoctorDiagnostics }) => diagnostics,
+                initializePlayerFromStart: () => null,
+            },
+        ],
         endReached: [
             false,
             {
@@ -1117,8 +1156,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
-            // eslint-disable-next-line no-console
-            console.log('caughtAssetErrorFromIframe', errorDetails)
+            if (!cache.groupedAssetErrors) {
+                cache.groupedAssetErrors = emptyGroupedAssetErrors()
+            }
+            addAssetError(cache.groupedAssetErrors, errorDetails)
+            scheduleDiagnosticsFlush(cache, actions)
         },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             const mode = props.mode ?? SessionRecordingPlayerMode.Standard
@@ -1232,17 +1274,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // outside of standard mode, we swallow the logs completely
             const logging =
                 props.mode === SessionRecordingPlayerMode.Standard
-                    ? makeLogger(actions.incrementWarningCount)
+                    ? makeLogger((category) => {
+                          cache.rrwebWarningCount = (cache.rrwebWarningCount || 0) + 1
+                          if (!cache.rrwebWarningSummary) {
+                              cache.rrwebWarningSummary = {}
+                          }
+                          cache.rrwebWarningSummary[category] = (cache.rrwebWarningSummary[category] || 0) + 1
+                          scheduleDiagnosticsFlush(cache, actions)
+                      })
                     : makeNoOpLogger()
 
             cache.disposables.add(
                 () => {
                     return () => {
-                        Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                            if (timer) {
-                                clearTimeout(timer)
-                            }
-                        })
                         ;(window as any)[`__posthog_player_logs`] = undefined
                         ;(window as any)[`__posthog_player_warnings`] = undefined
                     }
@@ -1480,6 +1524,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         initializePlayerFromStart: () => {
+            cache.groupedAssetErrors = null
+            cache.rrwebWarningSummary = null
+            cache.rrwebWarningCount = 0
+            if (cache.diagnosticsFlushTimer) {
+                clearTimeout(cache.diagnosticsFlushTimer)
+                cache.diagnosticsFlushTimer = null
+            }
+
             const initialSegment = values.sessionPlayerData?.segments[0]
             if (initialSegment) {
                 // Check for the "t" search param in the url on first load
@@ -1632,6 +1684,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setEndReached: ({ reached }) => {
             if (reached) {
+                actions.endBuffer()
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
@@ -1665,23 +1718,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
-            if (segment && !objectsEqual(segment, values.currentSegment)) {
+            // End-of-recording detection — independent of segment type so that
+            // findSegmentForTimestamp can safely return a real segment for
+            // past-end timestamps (needed for the image exporter to boot the
+            // rrweb replayer). See #49364 and #53550.
+            const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+            if (isPastEnd) {
+                actions.setEndReached(true)
+            } else if (segment && !objectsEqual(segment, values.currentSegment)) {
                 actions.setCurrentSegment(segment)
             }
 
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
-                const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
-                if (isPastEnd) {
-                    actions.setEndReached(true)
-                } else {
-                    values.player?.replayer?.pause()
-                    actions.startBuffer()
-                    actions.clearPlayerError()
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+                actions.clearPlayerError()
 
-                    // if we're buffering, then be careful to ensure we're loading data
-                    actions.loadNextSnapshotSource()
-                }
+                // if we're buffering, then be careful to ensure we're loading data
+                actions.loadNextSnapshotSource()
             }
 
             // If not forced to play and if last playing state was pause, pause
@@ -2237,7 +2292,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? Math.floor(now().diff(values.sessionPlayerData.start, 'millisecond') ?? 0)
                     : undefined,
             recording_retention_period_days: values.sessionPlayerData.sessionRetentionPeriodDays ?? undefined,
-            rrweb_warning_count: values.warningCount,
+            rrweb_warning_count: cache.rrwebWarningCount || 0,
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
             avg_fps:

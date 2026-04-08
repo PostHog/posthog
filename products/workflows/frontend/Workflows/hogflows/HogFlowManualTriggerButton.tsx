@@ -32,11 +32,11 @@ const TriggerPopover = ({
     )
 
     const blastRadiusExceeded =
-        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.users_affected > BLAST_RADIUS_LIMIT
+        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.affected > BLAST_RADIUS_LIMIT
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
         }
         return ''
     }
@@ -139,7 +139,7 @@ const TriggerPopover = ({
 
 export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, workflowChanged } = useValues(workflowLogic(props))
+    const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
 
@@ -152,7 +152,7 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
             disabledReason={
                 workflow?.status !== 'active'
                     ? 'Must enable workflow to use trigger'
-                    : workflowChanged
+                    : hasUnsavedChanges
                       ? 'Save changes first'
                       : undefined
             }

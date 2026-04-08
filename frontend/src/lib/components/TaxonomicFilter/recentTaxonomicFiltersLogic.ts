@@ -7,19 +7,10 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { AnyPropertyFilter } from '~/types'
 
 import type { recentTaxonomicFiltersLogicType } from './recentTaxonomicFiltersLogicType'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
+import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
 
 export const MAX_RECENT_FILTERS = 20
 export const RECENT_FILTER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.SuggestedFilters,
-    TaxonomicFilterGroupType.RecentFilters,
-    TaxonomicFilterGroupType.Empty,
-    TaxonomicFilterGroupType.Wildcards,
-    TaxonomicFilterGroupType.MaxAIContext,
-])
 
 export interface RecentTaxonomicFilter {
     groupType: TaxonomicFilterGroupType
@@ -84,6 +75,8 @@ function isDuplicateRecentFilter(
     return true
 }
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'recentTaxonomicFiltersLogic']),
     actions({
@@ -107,11 +100,11 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
     reducers({
         recentFilters: [
             [] as RecentTaxonomicFilter[],
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 clearRecentFilters: () => [],
                 recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {
-                    if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
+                    if (META_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
 

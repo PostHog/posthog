@@ -140,6 +140,7 @@ export interface AlertCheckApi {
     readonly triggered_dates: unknown | null
     /** @nullable */
     readonly interval: string | null
+    readonly triggered_metadata: unknown | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -551,6 +552,18 @@ export const CalculationIntervalEnumApi = {
     Monthly: 'monthly',
 } as const
 
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -586,17 +599,19 @@ export interface AlertApi {
 * `daily` - daily
 * `weekly` - weekly
 * `monthly` - monthly */
-    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
+    calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
      */
     snoozed_until?: string | null
     /**
-     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
      * @nullable
      */
     skip_weekend?: boolean | null
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * The last calculated value from the most recent alert check.
      * @nullable
@@ -648,17 +663,19 @@ export interface PatchedAlertApi {
 * `daily` - daily
 * `weekly` - weekly
 * `monthly` - monthly */
-    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
+    calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
      */
     snoozed_until?: string | null
     /**
-     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
      * @nullable
      */
     skip_weekend?: boolean | null
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * The last calculated value from the most recent alert check.
      * @nullable
@@ -682,6 +699,29 @@ export interface AlertSimulateApi {
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
 
+export type BreakdownSimulationResultApiSubDetectorScoresItem = { [key: string]: unknown }
+
+export interface BreakdownSimulationResultApi {
+    /** Breakdown value label. */
+    label: string
+    /** Data values for each point. */
+    data: number[]
+    /** Date labels for each point. */
+    dates: string[]
+    /** Anomaly score for each point. */
+    scores: (number | null)[]
+    /** Indices of points flagged as anomalies. */
+    triggered_indices: number[]
+    /** Dates of points flagged as anomalies. */
+    triggered_dates: string[]
+    /** Total number of data points analyzed. */
+    total_points: number
+    /** Number of anomalies detected. */
+    anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. */
+    sub_detector_scores?: BreakdownSimulationResultApiSubDetectorScoresItem[]
+}
+
 export interface AlertSimulateResponseApi {
     /** Data values for each point. */
     data: number[]
@@ -704,6 +744,8 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
+    breakdown_results?: BreakdownSimulationResultApi[]
 }
 
 export type AlertsListParams = {

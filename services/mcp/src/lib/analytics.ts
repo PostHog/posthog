@@ -10,6 +10,7 @@ const DEV_POSTHOG_HOST: string | undefined = env.POSTHOG_ANALYTICS_HOST ?? POSTH
 let _client: PostHog | undefined
 
 export enum AnalyticsEvent {
+    MCP_INIT = 'mcp init',
     MCP_TOOL_CALL = 'mcp tool call',
     MCP_TOOL_RESPONSE = 'mcp tool response',
     AI_TRACE = '$ai_trace',
@@ -32,4 +33,18 @@ export const getPostHogClient = (devMode?: boolean): PostHog => {
     }
 
     return _client
+}
+
+export async function isFeatureFlagEnabled(
+    flagKey: string,
+    distinctId: string,
+    devMode?: boolean
+): Promise<boolean> {
+    try {
+        const client = getPostHogClient(devMode)
+        const result = await client.isFeatureEnabled(flagKey, distinctId)
+        return result === true
+    } catch {
+        return false
+    }
 }

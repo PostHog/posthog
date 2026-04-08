@@ -77,6 +77,10 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     /** Show hint about holding shift to highlight individual bars in stacked charts */
     showShiftKeyHint?: boolean
     formatCompareLabel?: (label: string, dateLabel?: string) => string
+    /** Callback to close/unpin the tooltip. When provided, a close button is rendered. */
+    onClose?: () => void
+    /** Callback when a series row is clicked (e.g. to open the actors modal from a pinned tooltip). */
+    onRowClick?: (datum: SeriesDatum) => void
 }
 
 export interface FormattedDateOptions {
@@ -85,9 +89,6 @@ export interface FormattedDateOptions {
     timezone?: string
     weekStartDay?: number // 0 for Sunday, 1 for Monday, etc.
 }
-
-export const COL_CUTOFF = 4
-export const ROW_CUTOFF = 8
 
 export function getTooltipTitle(
     seriesData: SeriesDatum[],
@@ -193,7 +194,7 @@ function getPillValues(
     return pillValues
 }
 
-function getDatumTitle(
+export function getDatumTitle(
     s: SeriesDatum,
     breakdownFilter: BreakdownFilter | null | undefined,
     formatCompareLabel?: (label: string, dateLabel?: string) => string

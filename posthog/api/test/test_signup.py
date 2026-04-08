@@ -12,6 +12,7 @@ from unittest.mock import ANY, patch
 from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
@@ -20,12 +21,14 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1269,6 +1272,137 @@ class TestSignupAPI(APIBaseTest):
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
 
 
+class TestSignupChallengeAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        TEST_clear_instance_license_cache()
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:abc123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:abc123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_challenge_resubmit_with_valid_token_succeeds(
+        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "challenge@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+                "turnstile_token": "valid_token",
+                "challenge_nonce": "challenge:abc123:uuid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="challenge@posthog.com")
+        self.assertEqual(user.first_name, "John")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_social_signup_skips_radar_evaluation(self, mock_capture, mock_call_api):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_call_api.assert_not_called()
+
+
+class TestInviteSignupChallengeAPI(APIBaseTest):
+    CONFIG_EMAIL = None
+
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:invite123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_invite_signup_challenge_returns_428_with_nonce_and_site_key(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="invite+challenge@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Jane",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+
+        self.assertEqual(response.status_code, 428)
+        data = response.json()
+        self.assertEqual(data["code"], "challenge_required")
+        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
+        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+
 class TestPasskeySignupAPI(APIBaseTest):
     """
     Tests passkey signup flow, specifically that the temporary UUID generated during
@@ -1844,22 +1978,26 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
+        # Verify invite signup still sends verification email to the new user.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -1887,31 +2025,33 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
-        self.organization.is_member_join_email_enabled = False
-        self.organization.save()
-
-        User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user.partial_notification_settings = {
+            "organization_member_join_email_disabled": {str(self.organization.id): True}
+        }
+        initial_user.save()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
 
     @patch("posthoganalytics.capture")
     @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
@@ -2346,6 +2486,39 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @patch("posthoganalytics.capture")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_invite_signup_challenge_resubmit_with_turnstile_token_succeeds(
+        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        from posthog.workos_radar import RadarVerdict
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="challenge+test@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Challenged",
+                "password": VALID_TEST_PASSWORD,
+                "turnstile_token": "valid_token_from_cf",
+                "challenge_nonce": "challenge:abc123:uuid",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="challenge+test@posthog.com")
+        self.assertEqual(user.first_name, "Challenged")
+        mock_validate_nonce.assert_called_once()
+        mock_verify_token.assert_called_once()
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
         nonexistent_id = str(uuid.uuid4())

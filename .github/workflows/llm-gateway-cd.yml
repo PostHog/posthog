@@ -26,22 +26,22 @@ jobs:
             - name: Check out llm-gateway code
               uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'services/llm-gateway/'
+                  sparse-checkout: |
+                      services/llm-gateway/
+                      .github/actions/docker-meta/
                   sparse-checkout-cone-mode: false
 
-            - name: Log in to the Container registry
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Extract metadata (tags, labels) for Docker
-              id: meta
-              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-              with:
-                  images: ghcr.io/posthog/posthog/llm-gateway
+                  image-name: llm-gateway
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
+                  legacy-images: ghcr.io/posthog/posthog/llm-gateway
 
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
@@ -55,8 +55,8 @@ jobs:
                   file: services/llm-gateway/Dockerfile
                   push: true
                   platforms: linux/amd64,linux/arm64
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   project: 90mkjhdrjz # llm-gateway depot project
 
     deploy:

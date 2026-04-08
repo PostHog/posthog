@@ -26,19 +26,28 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     ENDPOINTS = "endpoints"
+    ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
+    GROUP_ANALYTICS = "group_analytics"
     LLM_ANALYTICS = "llm_analytics"
+    LOGS = "logs"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    MOBILE_REPLAY = "mobile_replay"
+    PIPELINE_DESTINATIONS = "pipeline_destinations"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SIGNALS = "signals"
+    SURVEYS = "surveys"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
+    BILLING = "billing"
     INTERNAL = "internal"  # for internal use only
 
 
@@ -46,7 +55,8 @@ class Feature(StrEnum):
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"  # user-facing queries only
+    QUERY = "query"  # customer-facing queries only
+    DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
@@ -55,8 +65,11 @@ class Feature(StrEnum):
     IMPORT_PIPELINE = "import_pipeline"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
+    ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
     USAGE_REPORT = "usage_report"
+    BILLING_ETL = "billing_etl"
+    QUOTA_LIMITING = "quota_limiting"
 
 
 class TemporalTags(BaseModel):
@@ -131,6 +144,7 @@ class QueryTags(BaseModel):
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
+    endpoint_version: Optional[int] = None  # Endpoints, the product
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
@@ -156,6 +170,9 @@ class QueryTags(BaseModel):
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None
     experiment_is_data_warehouse_query: Optional[bool] = None
+    experiment_metric_uuid: Optional[str] = None
+    experiment_metric_name: Optional[str] = None
+    experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
 
     feature: Optional[Feature] = None
     filter: Optional[object] = None
@@ -349,6 +366,8 @@ _SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
     os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
     _THIS_FILE,
     os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql_queries", "insights", "paginators.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "queries", "insight.py"),
     os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
 )
 

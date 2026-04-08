@@ -26,7 +26,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team",)
     raw_id_fields = ("table", "source")
-    readonly_fields = ("table", "source")
+    readonly_fields = ("table", "source", "created_by")
     ordering = ("-created_at",)
 
     change_form_template = "admin/data_warehouse/externaldataschema/change_form.html"
