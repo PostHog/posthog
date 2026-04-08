@@ -51,6 +51,8 @@ def get_billing_period_number(seat_created_at: str | None, period_days: int = 30
         return 0
     try:
         created = datetime.fromisoformat(seat_created_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
         elapsed = datetime.now(tz=UTC) - created
         return max(0, elapsed.days // period_days)
     except (ValueError, TypeError):
@@ -62,6 +64,8 @@ def _is_in_trial(seat_created_at: str | None) -> bool:
         return True
     try:
         created = datetime.fromisoformat(seat_created_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
         trial_days = get_settings().free_plan_trial_period_days
         return datetime.now(tz=UTC) - created < timedelta(days=trial_days)
     except (ValueError, TypeError):

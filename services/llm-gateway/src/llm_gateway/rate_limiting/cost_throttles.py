@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -106,6 +107,32 @@ class CostThrottle(Throttle):
             ttl_seconds=ttl,
             remaining=limit - new_total,
         )
+
+    async def get_status(self, context: ThrottleContext) -> CostStatus:
+        limiter = self._get_limiter(context)
+        key = self._get_cache_key(context)
+        limit, _ = self._get_limit_and_window(context)
+
+        current = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        remaining = max(0.0, limit - current)
+
+        return CostStatus(
+            used_usd=current,
+            limit_usd=limit,
+            remaining_usd=remaining,
+            resets_in_seconds=ttl,
+            exceeded=current >= limit,
+        )
+
+
+@dataclass
+class CostStatus:
+    used_usd: float
+    limit_usd: float
+    remaining_usd: float
+    resets_in_seconds: int
+    exceeded: bool
 
 
 class ProductCostThrottle(CostThrottle):

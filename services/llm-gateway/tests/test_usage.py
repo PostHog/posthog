@@ -129,8 +129,8 @@ class TestUsageEndpoint:
             end_user_id="42",
         )
 
-        burst_throttle = next(t for t in runner._throttles if isinstance(t, UserCostBurstThrottle))
-        sustained_throttle = next(t for t in runner._throttles if isinstance(t, UserCostSustainedThrottle))
+        burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
+        sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
         import asyncio
 
@@ -162,7 +162,7 @@ class TestUsageEndpoint:
             end_user_id="42",
         )
 
-        burst_throttle = next(t for t in runner._throttles if isinstance(t, UserCostBurstThrottle))
+        burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
 
         import asyncio
 

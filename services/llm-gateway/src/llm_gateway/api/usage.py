@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import get_authenticated_user
-from llm_gateway.rate_limiting.cost_throttles import CostThrottle, UserCostBurstThrottle, UserCostSustainedThrottle
+from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.services.plan_resolver import PlanResolver, resolve_plan_info
@@ -31,24 +31,13 @@ class UsageResponse(BaseModel):
     is_rate_limited: bool
 
 
-async def _get_cost_status(
-    throttle: CostThrottle,
-    context: ThrottleContext,
-) -> CostLimitStatus:
-    limiter = throttle._get_limiter(context)
-    key = throttle._get_cache_key(context)
-    limit, _ = throttle._get_limit_and_window(context)
-
-    current = await limiter.get_current(key)
-    ttl = await limiter.get_ttl(key)
-    remaining = max(0.0, limit - current)
-
+def _to_cost_limit_status(status: CostStatus) -> CostLimitStatus:
     return CostLimitStatus(
-        used_usd=round(current, 6),
-        limit_usd=round(limit, 2),
-        remaining_usd=round(remaining, 6),
-        resets_in_seconds=ttl,
-        exceeded=current >= limit,
+        used_usd=round(status.used_usd, 6),
+        limit_usd=round(status.limit_usd, 2),
+        remaining_usd=round(status.remaining_usd, 6),
+        resets_in_seconds=status.resets_in_seconds,
+        exceeded=status.exceeded,
     )
 
 
@@ -73,11 +62,11 @@ async def get_usage(
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
 
-    for throttle in runner._throttles:
+    for throttle in runner.throttles:
         if isinstance(throttle, UserCostBurstThrottle):
-            burst_status = await _get_cost_status(throttle, context)
+            burst_status = _to_cost_limit_status(await throttle.get_status(context))
         elif isinstance(throttle, UserCostSustainedThrottle):
-            sustained_status = await _get_cost_status(throttle, context)
+            sustained_status = _to_cost_limit_status(await throttle.get_status(context))
 
     if burst_status is None:
         burst_status = CostLimitStatus(used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False)
