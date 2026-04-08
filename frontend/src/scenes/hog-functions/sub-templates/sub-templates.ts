@@ -54,13 +54,18 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
-            events: [{ id: '$activity_log_entry_created', type: 'events' }],
-            properties: [
+            events: [
                 {
-                    key: 'scope',
-                    type: PropertyFilterType.Event,
-                    value: ['FeatureFlag'],
-                    operator: PropertyOperator.Exact,
+                    id: '$activity_log_entry_created',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: 'scope',
+                            type: PropertyFilterType.Event,
+                            value: ['FeatureFlag'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
                 },
             ],
         },
