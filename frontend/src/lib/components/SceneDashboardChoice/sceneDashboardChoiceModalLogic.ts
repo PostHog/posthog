@@ -68,7 +68,6 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
                 }
                 return createFuse(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
                 })
                     .search(searchTerm)
                     .map((result) => result.item)

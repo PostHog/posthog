@@ -102,7 +102,6 @@ export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSugg
             (allOptions): Fuse => {
                 return createFuse(allOptions, {
                     keys: ['description', 'example'],
-                    threshold: 0.3,
                 })
             },
         ],

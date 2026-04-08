@@ -412,7 +412,6 @@ export const productToursLogic = kea<productToursLogicType>([
                     const fuse = createFuse(filtered, {
                         keys: ['name', 'description'],
                         ignoreLocation: true,
-                        threshold: 0.3,
                     })
                     filtered = fuse.search(searchTerm).map((result) => result.item)
                 }

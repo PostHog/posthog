@@ -45,7 +45,6 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     const fuse = useMemo(() => {
         return createFuse(meFirstMembers, {
             keys: ['id', 'user.email', 'user.first_name', 'user.last_name'],
-            threshold: 0.3,
         })
     }, [meFirstMembers])
 

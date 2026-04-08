@@ -647,7 +647,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 return createFuse(haystack, {
                     keys: ['name', 'posthogName', 'recentLabel'],
-                    threshold: 0.3,
                     ignoreLocation: true,
                 })
             },

@@ -172,7 +172,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (hogFunctions): Fuse => {
                 return createFuse(hogFunctions || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],

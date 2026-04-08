@@ -221,7 +221,6 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             (searchTerm, userFlagsWithOverrideInfo) => {
                 return searchTerm
                     ? createFuse(userFlagsWithOverrideInfo, {
-                          threshold: 0.3,
                           keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)

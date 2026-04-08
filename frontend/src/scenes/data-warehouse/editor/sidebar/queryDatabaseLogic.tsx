@@ -99,7 +99,6 @@ const getSavedQuerySchemaTable = (
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
     keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
 }

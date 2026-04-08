@@ -59,7 +59,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (allExperiments, searchTerm) => {
                 const filteredExperiments = searchTerm
                     ? createFuse(allExperiments, {
-                          threshold: 0.3,
                           keys: ['name'],
                       })
                           .search(searchTerm)

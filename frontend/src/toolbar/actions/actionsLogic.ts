@@ -59,7 +59,6 @@ export const actionsLogic = kea<actionsLogicType>([
             (allActions, searchTerm) => {
                 const filteredActions = searchTerm
                     ? createFuse(allActions, {
-                          threshold: 0.3,
                           keys: ['name'],
                       })
                           .search(searchTerm)

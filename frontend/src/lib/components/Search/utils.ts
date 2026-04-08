@@ -16,7 +16,6 @@ const FUSE_OPTIONS = {
         { name: 'category', weight: 0.5 },
         { name: 'searchKeywords', weight: 1.5 },
     ],
-    threshold: 0.3,
     ignoreLocation: true,
     useExtendedSearch: true,
 }

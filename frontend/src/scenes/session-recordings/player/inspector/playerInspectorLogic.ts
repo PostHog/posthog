@@ -1335,7 +1335,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.filteredItems],
             (filteredItems): Fuse =>
                 createFuse<InspectorListItem>(filteredItems, {
-                    threshold: 0.3,
                     keys: ['search'],
                     findAllMatches: true,
                     ignoreLocation: true,

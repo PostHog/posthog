@@ -514,7 +514,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const fuse = useMemo(() => {
         return createFuse(allCommmands, {
             keys: ['title', 'search'],
-            threshold: 0.3,
         })
         // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])

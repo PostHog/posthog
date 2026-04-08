@@ -146,7 +146,6 @@ export const membersLogic = kea<membersLogicType>([
             (members): MembersFuse =>
                 createFuse<OrganizationMemberType>(members ?? [], {
                     keys: ['user.first_name', 'user.last_name', 'user.email'],
-                    threshold: 0.3,
                 }),
         ],
         filteredMembers: [

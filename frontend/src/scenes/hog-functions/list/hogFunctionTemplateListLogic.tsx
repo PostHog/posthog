@@ -170,7 +170,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (templates): Fuse => {
                 return createFuse(templates || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],
