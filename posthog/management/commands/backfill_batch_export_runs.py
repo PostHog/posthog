@@ -292,6 +292,12 @@ class Command(BaseCommand):
             help="Skip the 2-second delay between backfill requests",
         )
         parser.add_argument(
+            "--no-confirm",
+            action="store_true",
+            default=False,
+            help="Skip the confirmation prompt before starting backfills",
+        )
+        parser.add_argument(
             "--overlap-policy",
             type=str,
             choices=["buffer_all", "allow_all"],
@@ -361,7 +367,7 @@ class Command(BaseCommand):
         total_missing = sum(len(m) for _, m in missing_by_export)
         logger.info(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s)")
 
-        if not options["dry_run"]:
+        if not options["dry_run"] and not options["no_confirm"]:
             confirm = input(f"Proceed with backfilling {total_missing} interval(s)? [y/N] ")
             if confirm.lower() != "y":
                 logger.info("Aborted")
