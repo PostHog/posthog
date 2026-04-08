@@ -6666,6 +6666,7 @@ dependencies = [
  "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
+ "rustls 0.23.37",
  "serde_json",
  "tokio",
  "tokio-stream",
