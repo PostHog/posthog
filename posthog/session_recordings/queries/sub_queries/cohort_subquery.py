@@ -104,10 +104,20 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
         # Check if we have any NOT_IN filters and are in PoE mode
         has_not_in_filter = any(is_negated for _, is_negated, _, _ in cohort_filters)
-        feature_flag_enabled = posthoganalytics.feature_enabled(
-            "anonymous-user-session-replay-filtering-fix",
-            str(self._team.pk),
-        )
+
+        # Check feature flag - default to False if there's any issue
+        feature_flag_enabled = False
+        try:
+            feature_flag_enabled = (
+                posthoganalytics.feature_enabled(
+                    "anonymous-user-session-replay-filtering-fix",
+                    str(self._team.pk),
+                )
+                or False
+            )
+        except Exception:
+            feature_flag_enabled = False
+
         use_poe_mode_fix = poe_is_active(self._team) and has_not_in_filter and feature_flag_enabled
 
         if use_poe_mode_fix:
