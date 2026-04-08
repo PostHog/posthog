@@ -60,7 +60,8 @@ def send_email_subscription_report(
         raise NotImplementedError("This type of subscription resource is not supported")
 
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
-    # Include subscription id so shared recipients on many subscriptions still get one email per subscription;
+    # Subscription id scopes MessagingRecord dedupe per subscription; without it, shared recipients only get
+    # one send per (resource kind, next_delivery_date) because campaign_key collided across subscriptions.
     campaign_key = (
         f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_"
         f"{subscription.next_delivery_date.isoformat()}"
