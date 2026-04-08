@@ -55,10 +55,10 @@ import type {
     ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
+    EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -2331,7 +2331,7 @@ export interface EndpointType extends WithAccessControl {
     name: string
     description: string
     derived_from_insight?: string | null
-    query: HogQLQuery | InsightQueryNode
+    query: HogQLQuery | EndpointQueryNode
     is_active: boolean
     endpoint_path: string
     created_at: string

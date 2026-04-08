@@ -1253,7 +1253,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None, None, False
 
-    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+    # Query types that support user-configurable breakdown filtering
+    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
     def _get_allowed_variables(self, query: dict, is_materialized: bool) -> set[str]:
         """Get the set of allowed variable names for this endpoint."""
@@ -1328,23 +1329,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> ast.Expr | None:
         """Build the appropriate WHERE condition for breakdown filtering based on query type.
 
+        Different insight types store breakdowns in different columns:
+        - TrendsQuery, RetentionQuery: `breakdown_value` Array column
+        - LifecycleQuery: No breakdown support
+
         array_index controls how to access the breakdown column:
         - 0: single breakdown — use has() on the full array
         - 1+: multiple breakdowns — use equality on breakdown_value[N]
         """
-        if query_kind in ("LifecycleQuery", "StickinessQuery", "PathsQuery"):
+        if query_kind not in ("TrendsQuery", "RetentionQuery"):
             logger.warning(
                 "Query type does not support breakdown filtering",
                 query_kind=query_kind,
             )
             return None
 
-        column_name = "final_prop" if query_kind == "FunnelsQuery" else "breakdown_value"
-
         if array_index > 0:
             return ast.CompareOperation(
                 left=ast.ArrayAccess(
-                    array=ast.Field(chain=[column_name]),
+                    array=ast.Field(chain=["breakdown_value"]),
                     property=ast.Constant(value=array_index),
                 ),
                 op=ast.CompareOperationOp.Eq,
@@ -1353,7 +1356,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return ast.Call(
             name="has",
-            args=[ast.Field(chain=[column_name]), ast.Constant(value=value)],
+            args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value=value)],
         )
 
     def _execute_query_and_respond(
