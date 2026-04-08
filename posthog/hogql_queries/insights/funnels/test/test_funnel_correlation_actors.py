@@ -43,11 +43,7 @@ def get_actors(
     funnelCorrelationPropertyValues=None,
     includeRecordings: Optional[bool] = True,
 ):
-    # FunnelCorrelationQueryRunner mutates query.properties for property actor lookups,
-    # so use a fresh query model per call to avoid leaking filters between assertions.
-    funnel_actors_query = FunnelsActorsQuery(
-        source=funnels_query.model_copy(deep=True), includeRecordings=includeRecordings
-    )
+    funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
     correlation_query = FunnelCorrelationQuery(
         source=funnel_actors_query,
         funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.EVENTS),
