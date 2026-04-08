@@ -404,6 +404,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
+                "^/?external_surveys/[^/]+/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/(environments|projects)/@current/property_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/event_definitions/?$",

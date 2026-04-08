@@ -162,7 +162,9 @@ class TestTrafficCategoryField:
         labels_array = array_access.array
         assert isinstance(labels_array, ast.Array)
         labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "llm_crawler" in labels
+        assert "ai_crawler" in labels
+        assert "ai_search" in labels
+        assert "ai_assistant" in labels
         assert "search_crawler" in labels
         assert "seo_crawler" in labels
         assert "social_crawler" in labels

@@ -1363,6 +1363,10 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     if len(inputs.select) != 0:
         label = inputs.select[0].label
         saved_query = await get_saved_query(team, label)

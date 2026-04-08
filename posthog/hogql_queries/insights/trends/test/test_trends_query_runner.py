@@ -6438,7 +6438,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        # Test 1: Without explicitDate, filtering last 7 days with monthly interval includes entire month
+        # Test 1: Without explicitDate, filtering last 7 days with monthly interval only includes events within range
         with freeze_time("2020-01-31 23:59:59"):
             response_default = TrendsQueryRunner(
                 query=TrendsQuery(
@@ -6451,9 +6451,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, len(response_default.results))
         self.assertEqual(
-            31,
+            8,
             response_default.results[0]["count"],
-            "Without explicitDate, includes entire month due to interval boundary adjustment",
+            "Without explicitDate, only includes events within the date range, not the entire month",
         )
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)
