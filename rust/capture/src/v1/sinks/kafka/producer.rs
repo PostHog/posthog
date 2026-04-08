@@ -145,7 +145,17 @@ impl KafkaProducer {
                 "metadata.max.age.ms",
                 config.metadata_max_age_ms.to_string(),
             )
-            .set("socket.timeout.ms", config.socket_timeout_ms.to_string());
+            .set("socket.timeout.ms", config.socket_timeout_ms.to_string())
+            .set("partitioner", &config.partitioner)
+            .set("message.send.max.retries", config.max_retries.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.max_in_flight_requests.to_string(),
+            )
+            .set(
+                "sticky.partitioning.linger.ms",
+                config.sticky_partitioning_linger_ms.to_string(),
+            );
 
         if !config.client_id.is_empty() {
             client_config.set("client.id", &config.client_id);

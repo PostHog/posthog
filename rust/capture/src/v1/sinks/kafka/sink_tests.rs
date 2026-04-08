@@ -77,6 +77,11 @@ impl FakeEvent {
         self.payload = p;
         self
     }
+
+    fn with_partition_key(mut self, k: &str) -> Self {
+        self.partition_key = k.to_string();
+        self
+    }
 }
 
 impl Event for FakeEvent {
@@ -114,20 +119,6 @@ impl Event for FakeEvent {
 // ---------------------------------------------------------------------------
 // TestHarness
 // ---------------------------------------------------------------------------
-
-fn test_kafka_config() -> super::config::Config {
-    let env: HashMap<String, String> = [
-        ("HOSTS", "localhost:9092"),
-        ("TOPIC_MAIN", "events_main"),
-        ("TOPIC_HISTORICAL", "events_hist"),
-        ("TOPIC_OVERFLOW", "events_overflow"),
-        ("TOPIC_DLQ", "events_dlq"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
-    envconfig::Envconfig::init_from_hashmap(&env).unwrap()
-}
 
 struct TestHarness {
     sink: KafkaSink<MockProducer>,
@@ -254,7 +245,7 @@ impl HarnessBuilder {
 
         let producer = Arc::new(mock);
 
-        let mut kafka_config = test_kafka_config();
+        let mut kafka_config = crate::v1::test_utils::test_kafka_config();
         if let Some(n) = self.enqueue_retry_max {
             kafka_config.enqueue_retry_max = n;
         }
@@ -879,4 +870,41 @@ async fn health_refreshed_on_partial_success() {
         h.handle.is_healthy(),
         "handle should stay healthy when at least one event succeeded"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Empty partition key propagates as None (not Some(""))
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn empty_partition_key_propagates_as_none() {
+    let h = TestHarness::new();
+    let event = FakeEvent::ok("evt-1").with_partition_key("");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(
+            records[0].key, None,
+            "empty partition key must become None, not Some(\"\")"
+        );
+    });
+}
+
+#[tokio::test]
+async fn nonempty_partition_key_propagates_as_some() {
+    let h = TestHarness::new();
+    let event = FakeEvent::ok("evt-1").with_partition_key("phc_test:user-1");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].key.as_deref(), Some("phc_test:user-1"));
+    });
 }

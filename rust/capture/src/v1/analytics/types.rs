@@ -149,11 +149,20 @@ impl SinkEvent for WrappedEvent {
 
     fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
-        if self.force_disable_person_processing {
-            // buffer remains empty as sentinel for "no partition key set"
-            // this signals Kafka producer to supply no key, causing
-            // round-robin or random partition production depending on
-            // the producer's configuration.
+        // v0 parity: only drop partition key for main/overflow analytics.
+        // DLQ, Historical, and Custom destinations always retain their key
+        // even when person processing is disabled via event restrictions.
+        //
+        // TODO: when v1 adds overflow limiting, a separate signal
+        // (e.g. `drop_partition_key: bool`) is needed for the
+        // `Limited + !preserve_locality` case that drops key WITHOUT
+        // setting the person processing header.
+        if self.force_disable_person_processing
+            && matches!(
+                self.destination,
+                Destination::AnalyticsMain | Destination::Overflow
+            )
+        {
             return;
         }
         if self.event.options.cookieless_mode == Some(true) {
@@ -872,6 +881,75 @@ mod tests {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.destination = Destination::Overflow;
         assert_eq!(*ev.destination(), Destination::Overflow);
+    }
+
+    // --- partition key + force_disable_person_processing × destination ---
+
+    #[test]
+    fn partition_key_force_disable_analytics_main() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::AnalyticsMain;
+        assert_eq!(partition_key(&ev, &ctx), "");
+    }
+
+    #[test]
+    fn partition_key_force_disable_overflow() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::Overflow;
+        assert_eq!(partition_key(&ev, &ctx), "");
+    }
+
+    #[test]
+    fn partition_key_force_disable_dlq() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::Dlq;
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:user-42", ctx.api_token)
+        );
+    }
+
+    #[test]
+    fn partition_key_force_disable_historical() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::AnalyticsHistorical;
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:user-42", ctx.api_token)
+        );
+    }
+
+    #[test]
+    fn partition_key_force_disable_custom() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::Custom("my_topic".into());
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:user-42", ctx.api_token)
+        );
+    }
+
+    #[test]
+    fn partition_key_force_disable_cookieless_dlq() {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-42");
+        ev.force_disable_person_processing = true;
+        ev.destination = Destination::Dlq;
+        ev.event.options.cookieless_mode = Some(true);
+        assert_eq!(
+            partition_key(&ev, &ctx),
+            format!("{}:{}", ctx.api_token, ctx.client_ip)
+        );
     }
 
     // --- HasEventName impl for WrappedEvent ---

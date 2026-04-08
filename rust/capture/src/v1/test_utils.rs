@@ -145,3 +145,17 @@ pub fn find_by_did<'a>(
         .find(|e| e.event.distinct_id == distinct_id)
         .unwrap()
 }
+
+pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
+    let env: std::collections::HashMap<String, String> = [
+        ("HOSTS", "localhost:9092"),
+        ("TOPIC_MAIN", "events_main"),
+        ("TOPIC_HISTORICAL", "events_hist"),
+        ("TOPIC_OVERFLOW", "events_overflow"),
+        ("TOPIC_DLQ", "events_dlq"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    envconfig::Envconfig::init_from_hashmap(&env).unwrap()
+}

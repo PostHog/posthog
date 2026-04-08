@@ -186,25 +186,11 @@ mod tests {
         }
     }
 
-    fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
-        let env: HashMap<String, String> = [
-            ("HOSTS", "localhost:9092"),
-            ("TOPIC_MAIN", "events_main"),
-            ("TOPIC_HISTORICAL", "events_hist"),
-            ("TOPIC_OVERFLOW", "events_overflow"),
-            ("TOPIC_DLQ", "events_dlq"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        envconfig::Envconfig::init_from_hashmap(&env).unwrap()
-    }
-
     fn build_sink(name: SinkName, handle: lifecycle::Handle) -> Box<dyn Sink> {
         let producer = Arc::new(MockProducer::new(name, handle.clone()));
         let config = Config {
             produce_timeout: Duration::from_secs(30),
-            kafka: test_kafka_config(),
+            kafka: crate::v1::test_utils::test_kafka_config(),
         };
         Box::new(KafkaSink::new(
             name,
