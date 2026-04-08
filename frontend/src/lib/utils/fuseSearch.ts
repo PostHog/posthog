@@ -3,13 +3,13 @@ import FuseClass, { IFuseOptions } from 'fuse.js'
 export type Fuse<T> = FuseClass<T>
 export type { IFuseOptions }
 
-const FUSE_DEFAULTS: IFuseOptions<never> = {
+const FUSE_DEFAULTS = {
     threshold: 0.3,
     useTokenSearch: true,
 }
 
 export function createFuse<T>(items: T[], options: IFuseOptions<T>): FuseClass<T> {
-    return new FuseClass<T>(items, { ...FUSE_DEFAULTS, ...options })
+    return new FuseClass<T>(items, { ...FUSE_DEFAULTS, ...options } as IFuseOptions<T>)
 }
 
 export type FuseSearch<T> = (items: T[], term: string) => T[]
