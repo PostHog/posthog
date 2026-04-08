@@ -132,24 +132,27 @@ function UpcomingOccurrences(): JSX.Element | null {
     }
 
     return (
-        <div className="border rounded-lg p-3 bg-bg-light max-w-xl">
-            {summary && (
-                <div className="flex items-center gap-2 mb-3">
-                    <IconClock className="text-muted shrink-0" />
-                    <span className="text-sm">{summary}</span>
+        <div>
+            <SectionHeading>Upcoming</SectionHeading>
+            <div className="border rounded-lg p-3 bg-bg-light max-w-xl">
+                {summary && (
+                    <div className="flex items-center gap-2 mb-3">
+                        <IconClock className="text-muted shrink-0" />
+                        <span className="text-sm">{summary}</span>
+                    </div>
+                )}
+                <div className="text-xs text-muted mb-2">
+                    <span className="font-semibold uppercase tracking-wide">Next occurrences</span>
+                    {timezone ? ` in ${timezone}` : ''}
                 </div>
-            )}
-            <div className="text-xs text-muted mb-2">
-                <span className="font-semibold uppercase tracking-wide">Next occurrences</span>
-                {timezone ? ` in ${timezone}` : ''}
-            </div>
-            <div className="space-y-1.5">
-                <OccurrencesList
-                    occurrences={occurrences}
-                    isFinite={scheduleState?.endType !== 'never'}
-                    timezone={timezone}
-                    showRelativeTime
-                />
+                <div className="space-y-1.5">
+                    <OccurrencesList
+                        occurrences={occurrences}
+                        isFinite={scheduleState?.endType !== 'never'}
+                        timezone={timezone}
+                        showRelativeTime
+                    />
+                </div>
             </div>
         </div>
     )
@@ -201,12 +204,7 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {hasSchedule && (
-                <div>
-                    <SectionHeading>Upcoming</SectionHeading>
-                    <UpcomingOccurrences />
-                </div>
-            )}
+            <UpcomingOccurrences />
             <div>
                 {hasSchedule && <SectionHeading>Past invocations</SectionHeading>}
                 {pastJobsSection}
