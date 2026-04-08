@@ -3,15 +3,7 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import (
-    DateRange,
-    EventsNode,
-    FunnelConversionWindowTimeUnit,
-    FunnelsFilter,
-    FunnelsQuery,
-    FunnelVizType,
-    IntervalType,
-)
+from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, FunnelVizType, IntervalType
 
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
