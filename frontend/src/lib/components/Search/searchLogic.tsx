@@ -11,6 +11,7 @@ import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -22,6 +23,7 @@ import { SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
+import { filterSearchItems } from './utils'
 
 // Types for command search results
 export interface SearchItem {
@@ -76,7 +78,7 @@ export const searchLogic = kea<searchLogicType>([
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
-            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
+            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
         ],
     })),
     actions({
@@ -316,41 +318,23 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-                items.push(
-                    {
-                        id: 'app-activity',
-                        name: 'Activity',
-                        displayName: 'Activity',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.activity(ActivityTab.ExploreEvents),
-                        icon: <IconClock />,
-                        itemType: null,
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                        record: {
-                            type: 'activity',
-                            iconType: undefined,
-                            iconColor: undefined,
-                        },
+                items.push({
+                    id: 'app-activity',
+                    name: 'Activity',
+                    displayName: 'Activity',
+                    category: 'apps',
+                    productCategory: null,
+                    href: urls.activity(ActivityTab.ExploreEvents),
+                    icon: <IconClock />,
+                    itemType: null,
+                    tags: undefined,
+                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                    record: {
+                        type: 'activity',
+                        iconType: undefined,
+                        iconColor: undefined,
                     },
-                    {
-                        id: 'app-cohorts',
-                        name: 'Cohorts',
-                        displayName: 'Cohorts',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.cohorts(),
-                        itemType: 'cohort',
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Cohorts'] ?? null,
-                        record: {
-                            type: 'cohort',
-                            iconType: 'cohort',
-                            iconColor: undefined,
-                        },
-                    }
-                )
+                })
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -465,6 +449,28 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+            },
+        ],
+        peopleItems: [
+            (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
+            (treeGroupItems, sceneLogViewsByRef): SearchItem[] => {
+                const combined = [...getDefaultTreePersons(), ...treeGroupItems]
+                return combined.map((item) => ({
+                    id: `people-${item.path}`,
+                    name: item.path,
+                    displayName: item.path,
+                    category: 'people',
+                    productCategory: item.category || null,
+                    href: item.href || '#',
+                    itemType: item.iconType || item.type || null,
+                    tags: item.tags,
+                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    record: {
+                        type: item.type || item.iconType,
+                        iconType: item.iconType,
+                        iconColor: item.iconColor,
+                    },
+                }))
             },
         ],
         groupItems: [
@@ -803,6 +809,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.starredItems,
                 s.appsItems,
                 s.dataManagementItems,
+                s.peopleItems,
                 s.healthItems,
                 s.miscItems,
                 s.settingsItems,
@@ -819,6 +826,7 @@ export const searchLogic = kea<searchLogicType>([
                 starredItems: SearchItem[],
                 appsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
+                peopleItems: SearchItem[],
                 healthItems: SearchItem[],
                 miscItems: SearchItem[],
                 settingsItems: SearchItem[],
@@ -855,30 +863,12 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Filter items by search term
+                // Filter items by search term using Fuse.js fuzzy search
                 const filterBySearch = (items: SearchItem[]): SearchItem[] => {
                     if (!hasSearch) {
                         return items
                     }
-                    const searchLower = search.toLowerCase()
-                    return items.filter((item) => {
-                        const name = item.name.toLowerCase()
-                        const category = item.category.toLowerCase()
-                        if (name.includes(searchLower) || category.includes(searchLower)) {
-                            return true
-                        }
-                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
-                            return true
-                        }
-                        // Chunk matching: every word in the query must match somewhere
-                        const searchChunks = searchLower.split(' ').filter((s) => s)
-                        return searchChunks.every(
-                            (chunk) =>
-                                name.includes(chunk) ||
-                                category.includes(chunk) ||
-                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
-                        )
-                    })
+                    return filterSearchItems(items, search)
                 }
 
                 // Always show recents first - show loading skeleton until first load completes
@@ -915,6 +905,16 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'data-management',
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
+                    })
+                }
+
+                // Show people items (persons, cohorts, group types) if searching with matching results
+                const filteredPeople = filterBySearch(peopleItems)
+                if (hasSearch && filteredPeople.length > 0) {
+                    categories.push({
+                        key: 'people',
+                        items: filteredPeople,
+                        isLoading: false,
                     })
                 }
 

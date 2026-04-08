@@ -664,6 +664,75 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+        const queryWithSeries = (series: FunnelsQuery['series']): FunnelsQuery => ({
+            kind: NodeKind.FunnelsQuery,
+            series,
+        })
+
+        it('returns false for non-funnels and complete funnel steps', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.DataWarehouseNode,
+                            id: 'warehouse_orders',
+                            name: 'Orders',
+                            table_name: 'warehouse_orders',
+                            timestamp_field: 'created_at',
+                            id_field: 'order_id',
+                            distinct_id_field: 'customer_id',
+                        },
+                    ],
+                } as TrendsQuery)
+            }).toMatchValues({ isFunnelWithIncompleteDataWarehouseStep: false })
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(
+                    queryWithSeries([
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.FunnelsDataWarehouseNode,
+                            id: 'warehouse_orders',
+                            name: 'Orders',
+                            table_name: 'warehouse_orders',
+                            timestamp_field: 'created_at',
+                            id_field: 'order_id',
+                            aggregation_target_field: 'customer_id',
+                        },
+                    ])
+                )
+            }).toMatchValues({ isFunnelWithIncompleteDataWarehouseStep: false })
+        })
+
+        it('returns true when any funnel data warehouse step is missing a required field', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(
+                    queryWithSeries([
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.FunnelsDataWarehouseNode,
+                            id: 'warehouse_orders',
+                            name: 'Orders',
+                            table_name: 'warehouse_orders',
+                            timestamp_field: 'created_at',
+                            id_field: 'order_id',
+                        } as FunnelsQuery['series'][number],
+                    ])
+                )
+            }).toMatchValues({ isFunnelWithIncompleteDataWarehouseStep: true })
+        })
+    })
+
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {

@@ -23,7 +23,6 @@ export function SlackSection(): JSX.Element {
                     </Link>
                 </>
             }
-            className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                 <SlackChannelSection />

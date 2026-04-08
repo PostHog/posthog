@@ -393,6 +393,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
+    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True)."""
+        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+        return not bool(disabled.get(str(organization_id), False))
+
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:

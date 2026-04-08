@@ -2292,9 +2292,11 @@
             "virtual": true
         },
         "$virt_traffic_category": {
-            "description": "Detailed traffic category: llm_crawler, search_crawler, seo_crawler, etc.",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
             "examples": [
-                "llm_crawler",
+                "ai_crawler",
+                "ai_search",
+                "ai_assistant",
                 "search_crawler",
                 "regular"
             ],

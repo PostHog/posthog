@@ -4,15 +4,16 @@ exports[`generateToolCode with input_schema > applies enrich_url with input_sche
 "
 const ThingsCreateSchema = ThingCreateSchema
 
-const thingsCreate = (): ToolBase<typeof ThingsCreateSchema> => ({
+const thingsCreate = (): ToolBase<typeof ThingsCreateSchema, unknown> => ({
     name: 'things-create',
     schema: ThingsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ThingsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const parsedParams = ThingsCreateSchema.parse(params)
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: \`/api/projects/\${projectId}/things/\`,
-            body: params,
+            body: parsedParams,
         })
         return await withPostHogUrl(context, result, \`/things/\${result.id}\`)
     },
@@ -24,15 +25,16 @@ exports[`generateToolCode with input_schema > applies list enrichment with input
 "
 const ThingsListSchema = ThingListSchema
 
-const thingsList = (): ToolBase<typeof ThingsListSchema> => ({
+const thingsList = (): ToolBase<typeof ThingsListSchema, unknown> => ({
     name: 'things-list',
     schema: ThingsListSchema,
     handler: async (context: Context, params: z.infer<typeof ThingsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const parsedParams = ThingsListSchema.parse(params)
+        const result = await context.api.request<unknown>({
             method: 'GET',
             path: \`/api/projects/\${projectId}/things/\`,
-            query: params,
+            query: parsedParams,
         })
         return await withPostHogUrl(context, {
             ...result,
@@ -47,15 +49,16 @@ exports[`generateToolCode with input_schema > uses custom schema import when inp
 "
 const ThingsCreateSchema = ThingCreateSchema
 
-const thingsCreate = (): ToolBase<typeof ThingsCreateSchema> => ({
+const thingsCreate = (): ToolBase<typeof ThingsCreateSchema, unknown> => ({
     name: 'things-create',
     schema: ThingsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ThingsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const parsedParams = ThingsCreateSchema.parse(params)
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: \`/api/projects/\${projectId}/things/\`,
-            body: params,
+            body: parsedParams,
         })
         return result
     },

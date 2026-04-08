@@ -466,7 +466,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (isDataWarehouse && dataWarehousePopoverFields.length > 0) {
         const _definition = definition as DataWarehouseTableForInsight
-        const columnOptions = Object.values(_definition.fields).map((column) => ({
+        const columnOptions = Object.values(_definition.fields ?? {}).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
             type: column.type,
@@ -708,7 +708,9 @@ export function ControlledDefinitionPopover({
     const icon = group.getIcon?.(definition || item)
 
     // Supports all types specified in selectedItemHasPopover
-    const value = group.getValue?.(item)
+    // Pinned items store minimal data ({ name }) so the source group's getValue may not
+    // work (e.g. EventMetadata uses option.id). Fall back to item.name for pinned items.
+    const value = group.getValue?.(item) ?? ('name' in item ? item.name : null)
 
     // Hydrate popover card with the newest item. Compare by value identity (not reference)
     // to avoid cascading re-renders when taxonomicGroups re-evaluates and creates new item

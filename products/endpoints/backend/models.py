@@ -88,7 +88,7 @@ def validate_endpoint_name(value: str) -> None:
         )
 
 
-class EndpointVersion(models.Model):
+class EndpointVersion(UpdatedMetaFields, models.Model):
     """Immutable snapshot of an endpoint's query at a specific version.
 
     Each time an endpoint's query is modified, a new version is created.
@@ -175,7 +175,7 @@ class EndpointVersion(models.Model):
             self.refresh_from_db(fields=["columns"])
             if self.columns is None:
                 self.columns = columns
-                self.save(update_fields=["columns"])
+                self.save(update_fields=["columns", "updated_at"])
             if exc is not None:
                 capture_exception(exc)
         return self.columns
@@ -187,7 +187,7 @@ class EndpointVersion(models.Model):
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
-        self.save(update_fields=["saved_query"])
+        self.save(update_fields=["saved_query", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
@@ -301,7 +301,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(

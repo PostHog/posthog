@@ -463,34 +463,71 @@ function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPre
 }
 
 // ------------------------------------------------------------------
+// Response filtering templates
+// ------------------------------------------------------------------
+
+function buildResponseFilter(config: ToolConfig): {
+    code: string
+    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+} {
+    if (config.response?.include?.length) {
+        const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        if (config.list) {
+            return {
+                code: `        const filtered = { ...result, results: result.results.map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
+                helperImport: 'pickResponseFields',
+            }
+        }
+        return {
+            code: `        const filtered = pickResponseFields(result, [${paths}]) as typeof result\n`,
+            helperImport: 'pickResponseFields',
+        }
+    }
+    if (config.response?.exclude?.length) {
+        const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
+        if (config.list) {
+            return {
+                code: `        const filtered = { ...result, results: result.results.map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
+                helperImport: 'omitResponseFields',
+            }
+        }
+        return {
+            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
+            helperImport: 'omitResponseFields',
+        }
+    }
+    return { code: '', helperImport: null }
+}
+
+// ------------------------------------------------------------------
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
+function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
     const baseUrl = category.url_prefix
 
     if (config.list && config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
         return [
             `        return await withPostHogUrl(context, {`,
-            `            ...result,`,
-            `            results: await Promise.all(result.results.map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            ...${resultVar},`,
+            `            results: await Promise.all(${resultVar}.results.map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
     }
 
     if (config.list) {
-        return `        return await withPostHogUrl(context, result, '${baseUrl}')\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, '${baseUrl}')\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
 
-        return `        return await withPostHogUrl(context, result, \`${baseUrl}/${prefix}\${result.${field}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${resultVar}.${field}}\`)\n`
     }
 
-    return `        return result\n`
+    return `        return ${resultVar}\n`
 }
 
 // ------------------------------------------------------------------
@@ -511,6 +548,7 @@ function generateToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -521,7 +559,7 @@ function generateToolCode(
     }
 
     const composition = composeToolSchema(config, resolved, spec)
-    let responseType = resolveResponseType(resolved.operation, knownTypes)
+    let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
@@ -585,8 +623,27 @@ function generateToolCode(
     }
     handlerBody += `        })\n`
 
+    // Response filtering — pick/omit fields before enrichment
+    const responseFilter = buildResponseFilter(config)
+    if (responseFilter.code) {
+        // Warn if filtering might break enrich_url
+        if (config.enrich_url) {
+            const { field } = parseEnrichUrl(config.enrich_url)
+            if (config.response?.exclude?.includes(field)) {
+                console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
+            }
+            if (config.response?.include?.length && !config.response?.include.includes(field)) {
+                console.warn(
+                    `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
+                )
+            }
+        }
+    }
+    handlerBody += responseFilter.code
+
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    handlerBody += buildEnrichment(config, category)
+    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
+    handlerBody += buildEnrichment(config, category, enrichmentVar)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
@@ -610,9 +667,11 @@ function generateToolCode(
     const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
+
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 }`
@@ -632,6 +691,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         responseType,
         needsWithPostHogUrl,
         hasEnrichment,
+        responseFilterImport: responseFilter.helperImport,
     }
 }
 
@@ -650,13 +710,14 @@ function generateCustomSchemaToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
     const pathExpr = buildPathExpr(resolved.path, pathParamNames)
 
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
@@ -669,16 +730,18 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
+    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
         if (useBody) {
-            handlerBody += `        const { ${destructured}...body } = params\n`
+            handlerBody += `        const { ${destructured}...body } = parsedParams\n`
         } else {
-            handlerBody += `        const { ${destructured}...query } = params\n`
+            handlerBody += `        const { ${destructured}...query } = parsedParams\n`
         }
     }
 
-    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (pathParamNames.length > 0) {
@@ -688,20 +751,27 @@ function generateCustomSchemaToolCode(
             handlerBody += `            query,\n`
         }
     } else if (useBody) {
-        handlerBody += `            body: params,\n`
+        handlerBody += `            body: parsedParams,\n`
     } else {
-        handlerBody += `            query: params,\n`
+        handlerBody += `            query: parsedParams,\n`
     }
     handlerBody += `        })\n`
 
-    handlerBody += buildEnrichment(config, category)
+    // Response filtering — pick/omit fields before enrichment
+    const responseFilter = buildResponseFilter(config)
+    handlerBody += responseFilter.code
+
+    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
+    handlerBody += buildEnrichment(config, category, enrichmentVar)
+
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
 
     const code = `
 const ${schemaName} = ${config.input_schema}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 })
@@ -714,6 +784,7 @@ ${handlerBody}    },
         responseType,
         needsWithPostHogUrl: false,
         hasEnrichment: false,
+        responseFilterImport: responseFilter.helperImport,
     }
 }
 
@@ -791,6 +862,8 @@ function generateCategoryFile(
 
     let hasEnrichment = false
 
+    const responseFilterImports = new Set<string>()
+
     for (const [name, config, resolved] of enabledTools) {
         const result = generateToolCode(name, config, resolved, category, spec, knownTypes)
         toolCodes.push(result.code)
@@ -808,6 +881,9 @@ function generateCategoryFile(
         }
         if (result.hasEnrichment) {
             hasEnrichment = true
+        }
+        if (result.responseFilterImport) {
+            responseFilterImports.add(result.responseFilterImport)
         }
     }
 
@@ -891,6 +967,9 @@ function generateCategoryFile(
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
+                if (wrapperConfig.mcp_version !== undefined) {
+                    configParts.push(`mcpVersion: ${wrapperConfig.mcp_version}`)
+                }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
             .join('\n')
@@ -922,6 +1001,9 @@ function generateCategoryFile(
     }
     if (hasEnrichment) {
         toolUtilsValueImports.push('withPostHogUrl')
+    }
+    for (const imp of responseFilterImports) {
+        toolUtilsValueImports.push(imp)
     }
     let toolUtilsImportLine = ''
     if (toolUtilsValueImports.length > 0 && toolUtilsTypeImports.length > 0) {
@@ -1121,6 +1203,9 @@ function generateQueryWrapperFile(
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            if (toolConfig.mcp_version !== undefined) {
+                configParts.push(`mcpVersion: ${toolConfig.mcp_version}`)
             }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })
@@ -1327,6 +1412,7 @@ ${spreads}
 
 // Export for testing
 export {
+    buildResponseFilter,
     composeToolSchema,
     extractPathParams,
     generateCategoryFile,

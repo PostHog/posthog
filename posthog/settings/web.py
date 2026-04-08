@@ -66,6 +66,7 @@ PRODUCTS_APPS = [
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
+    "products.platform_features.backend.apps.PlatformFeaturesConfig",
 ]
 
 INSTALLED_APPS = [
@@ -403,6 +404,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
+                "^/?external_surveys/[^/]+/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/(environments|projects)/@current/property_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/event_definitions/?$",
