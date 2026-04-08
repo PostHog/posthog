@@ -19,7 +19,7 @@ import {
     PersonRepository,
 } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '../../worker/ingestion/persons/repositories/person-repository-transaction'
-import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeams } from './client'
+import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeamItems } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
 
 export class PersonHogPersonRepository implements PersonRepository {
@@ -75,11 +75,7 @@ export class PersonHogPersonRepository implements PersonRepository {
         // Default matches PostgresPersonRepository (useReadReplica=true)
         if (
             useReadReplica === false ||
-            !shouldUseGrpcForTeams(
-                this.rolloutTeamIds,
-                teamPersons.map((tp) => tp.teamId),
-                this.grpcPercentage
-            )
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
         ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
@@ -108,11 +104,7 @@ export class PersonHogPersonRepository implements PersonRepository {
         // Default matches PostgresPersonRepository (useReadReplica=true)
         if (
             useReadReplica === false ||
-            !shouldUseGrpcForTeams(
-                this.rolloutTeamIds,
-                teamPersons.map((tp) => tp.teamId),
-                this.grpcPercentage
-            )
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
         ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)

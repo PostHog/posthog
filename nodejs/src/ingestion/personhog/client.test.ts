@@ -20,7 +20,13 @@ import type {
     GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
 } from '../../generated/personhog/personhog/types/v1/person_pb'
-import { PersonHogClient, parseRolloutTeamIds, shouldUseGrpcForTeam, shouldUseGrpcForTeams } from './client'
+import {
+    PersonHogClient,
+    parseRolloutTeamIds,
+    shouldUseGrpcForTeam,
+    shouldUseGrpcForTeamItems,
+    shouldUseGrpcForTeams,
+} from './client'
 
 const textEncoder = new TextEncoder()
 
@@ -189,6 +195,24 @@ describe('shouldUseGrpcForTeams', () => {
 
     it('returns false for empty team IDs array when rollout set is non-empty', () => {
         expect(shouldUseGrpcForTeams(new Set([1]), [], 100)).toBe(false)
+    })
+})
+
+describe('shouldUseGrpcForTeamItems', () => {
+    it('returns true when all items have team IDs in rollout set', () => {
+        expect(shouldUseGrpcForTeamItems(new Set([1, 5]), [{ teamId: 1 }, { teamId: 5 }, { teamId: 1 }], 0)).toBe(true)
+    })
+
+    it('returns false when any item has a team ID not in rollout set', () => {
+        expect(shouldUseGrpcForTeamItems(new Set([1]), [{ teamId: 1 }, { teamId: 99 }], 100)).toBe(false)
+    })
+
+    it('returns false for empty items when rollout set is non-empty', () => {
+        expect(shouldUseGrpcForTeamItems(new Set([1]), [], 100)).toBe(false)
+    })
+
+    it('falls back to percentage when rollout set is empty', () => {
+        expect(shouldUseGrpcForTeamItems(new Set(), [{ teamId: 1 }], 100)).toBe(true)
     })
 })
 

@@ -41,6 +41,7 @@ export function shouldUseGrpcForTeam(rolloutTeamIds: ReadonlySet<number>, teamId
 /**
  * Batch variant: returns true only if ALL provided team IDs are in the rollout set.
  * When rolloutTeamIds is empty, falls back to percentage-based sampling.
+ * Zero-allocation: iterates the array directly with O(1) Set lookups.
  */
 export function shouldUseGrpcForTeams(
     rolloutTeamIds: ReadonlySet<number>,
@@ -48,7 +49,38 @@ export function shouldUseGrpcForTeams(
     percentage: number
 ): boolean {
     if (rolloutTeamIds.size > 0) {
-        return teamIds.length > 0 && teamIds.every((id) => rolloutTeamIds.has(id))
+        if (teamIds.length === 0) {
+            return false
+        }
+        for (const id of teamIds) {
+            if (!rolloutTeamIds.has(id)) {
+                return false
+            }
+        }
+        return true
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/**
+ * Like shouldUseGrpcForTeams but accepts an array of objects with a teamId field,
+ * avoiding the intermediate .map() allocation.
+ */
+export function shouldUseGrpcForTeamItems<T extends { teamId: number }>(
+    rolloutTeamIds: ReadonlySet<number>,
+    items: T[],
+    percentage: number
+): boolean {
+    if (rolloutTeamIds.size > 0) {
+        if (items.length === 0) {
+            return false
+        }
+        for (const item of items) {
+            if (!rolloutTeamIds.has(item.teamId)) {
+                return false
+            }
+        }
+        return true
     }
     return shouldUseGrpc(percentage)
 }
