@@ -1,22 +1,25 @@
-import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import AsyncMock, MagicMock
 
+from django.core.management import call_command
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
+from temporalio.service import RPCError
+
+from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.management.commands.backfill_batch_export_runs import (
-    backfill_export,
-    find_missing_intervals,
-    get_backfill_bounds,
-    get_batch_exports,
-)
+from posthog.management.commands.backfill_batch_export_runs import find_missing_intervals, get_batch_exports
 from posthog.models import Organization, Team
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.tests.utils.models import create_batch_export
+
+from products.batch_exports.backend.tests.temporal.backfills.conftest import wait_for_workflows
 
 
 @pytest.fixture
@@ -55,36 +58,6 @@ def lookback(hours: int):
     """Return (start, end) for a lookback window ending at now."""
     now = timezone.now()
     return now - timedelta(hours=hours), now
-
-
-class TestGetBackfillBounds:
-    @pytest.mark.parametrize(
-        "interval,expected_padding",
-        [
-            ("hour", timedelta(minutes=30)),
-            ("day", timedelta(hours=2)),
-            ("week", timedelta(hours=6)),
-            ("every 5 minutes", timedelta(minutes=2)),
-            ("every 15 minutes", timedelta(minutes=2)),
-        ],
-    )
-    def test_single_interval_returns_correct_window(self, interval, expected_padding):
-        first_end = timezone.now()
-        start_at, end_at = get_backfill_bounds(interval, first_end, first_end)
-        assert start_at == first_end
-        assert end_at == first_end + expected_padding
-
-    def test_range_spans_first_to_last_plus_padding(self):
-        first_end = timezone.now()
-        last_end = first_end + timedelta(hours=3)
-        start_at, end_at = get_backfill_bounds("hour", first_end, last_end)
-        assert start_at == first_end
-        assert end_at == last_end + timedelta(minutes=30)
-
-    def test_unsupported_interval_raises(self):
-        now = timezone.now()
-        with pytest.raises(ValueError):
-            get_backfill_bounds("month", now, now)
 
 
 class TestGetBatchExports:
@@ -269,6 +242,17 @@ class TestFindMissingIntervals:
         assert len(missing) == 1
         assert missing[0] == (start, end)
 
+    def test_interval_with_failed_and_completed_run_is_covered(self, team):
+        export = create_export(team, interval="hour")
+        now = timezone.now()
+        start = now - timedelta(hours=1)
+        end = now
+        create_run(export, start, end, status=BatchExportRun.Status.FAILED)
+        create_run(export, start, end, status=BatchExportRun.Status.COMPLETED)
+
+        results = find_missing_intervals([export], start, end)
+        assert results == []
+
     def test_interval_offset_and_timezone_are_respected_for_daily(self, team):
         """Test that the interval offset and timezone are respected when looking for missing intervals."""
         # Offset of 2 hours means daily runs at 02:00 local time.
@@ -359,44 +343,173 @@ class TestFindMissingIntervals:
         assert missing == [(mar8, mar9)]
 
 
+def create_noop_export_with_schedule(team, interval="hour", offset_hour=None, offset_day=None, tz=None):
+    """Create a NoOp batch export with a real Temporal schedule."""
+    return create_batch_export(
+        team_id=team.pk,
+        interval=interval,
+        name=f"Test Export {uuid4()}",
+        destination_data={"type": "NoOp", "config": {}},
+        paused=False,
+        timezone=tz,
+        offset_hour=offset_hour,
+        offset_day=offset_day,
+    )
+
+
+@async_to_sync
+async def delete_temporal_schedule(client, schedule_id: str):
+    handle = client.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+sync_wait_for_workflows = async_to_sync(wait_for_workflows)
+
+
+@async_to_sync
+async def list_schedule_workflows(client, schedule_id: str):
+    """Return all workflows triggered by a schedule (no polling)."""
+    query = f'TemporalScheduledById="{schedule_id}"'
+    return [w async for w in client.list_workflows(query=query)]
+
+
+REFERENCE_TIME = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
+
+
+def hour_window(hours_back: int) -> tuple[datetime, datetime]:
+    """Return a fixed (start, end) window of the given size, aligned to hour boundaries."""
+    return REFERENCE_TIME - timedelta(hours=hours_back), REFERENCE_TIME
+
+
+def run_backfill_command(*args):
+    """Run the backfill_batch_export_runs management command with --no-delay and --no-confirm."""
+    call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm")
+
+
 @pytest.mark.django_db
-class TestBackfillExport:
-    @pytest.fixture
-    def batch_export(self, team):
-        return create_export(team, interval="hour")
+class TestBackfillCommand:
+    """End-to-end tests that run the full management command against real Temporal.
+
+    Uses NoOp destination so workflows complete quickly, and polls Temporal
+    to verify the correct number of workflow executions were triggered.
+    """
+
+    @pytest.fixture(scope="class")
+    def temporal_client(self):
+        return sync_connect()
+
+    @pytest.fixture(scope="class")
+    def temporal_test_worker(self, temporal_client):
+        with start_test_worker(temporal_client):
+            yield temporal_client
 
     @pytest.fixture
-    def temporal_mocks(self):
-        handle = AsyncMock()
-        handle.describe = AsyncMock()
-        handle.backfill = AsyncMock()
-        client = MagicMock()
-        client.get_schedule_handle.return_value = handle
-        return client, handle
+    def temporal(self, temporal_test_worker, temporal_client):
+        yield temporal_client
+        for export in BatchExport.objects.all():
+            try:
+                delete_temporal_schedule(temporal_client, str(export.id))
+            except RPCError:
+                logging.warning("Schedule %s already deleted", export.id)
 
-    @staticmethod
-    def _make_missing_intervals(count=2):
-        now = timezone.now()
-        return [(now - timedelta(hours=i + 1), now - timedelta(hours=i)) for i in range(count, 0, -1)]
+    @pytest.mark.parametrize(
+        "window_hours, covered_hour_offsets, expected_interval_end_offsets",
+        [
+            pytest.param(2, [(0, 1)], [2], id="single_missing_interval"),
+            pytest.param(6, [(0, 1), (5, 6)], [2, 3, 4, 5], id="merged_missing_intervals"),
+            pytest.param(4, [(1, 2), (3, 4)], [1, 3], id="non_continuous_gaps"),
+            pytest.param(3, [(0, 1), (1, 2), (2, 3)], [], id="fully_covered"),
+        ],
+    )
+    def test_backfill_triggers_expected_workflows(
+        self, team, temporal, window_hours, covered_hour_offsets, expected_interval_end_offsets
+    ):
+        export = create_noop_export_with_schedule(team, interval="hour")
+        start, end = hour_window(window_hours)
 
-    def test_dry_run_does_not_call_backfill(self, batch_export, temporal_mocks):
-        client, handle = temporal_mocks
-        intervals = self._make_missing_intervals(2)
-        count = asyncio.run(backfill_export(client, batch_export, intervals, dry_run=True))
-        assert count == 2
-        handle.backfill.assert_not_called()
+        for offset_start, offset_end in covered_hour_offsets:
+            create_run(export, start + timedelta(hours=offset_start), start + timedelta(hours=offset_end))
 
-    def test_backfill_calls_temporal(self, batch_export, temporal_mocks):
-        client, handle = temporal_mocks
-        intervals = self._make_missing_intervals(2)
-        count = asyncio.run(backfill_export(client, batch_export, intervals, dry_run=False))
-        assert count == 2
-        assert handle.backfill.call_count == 2
+        run_backfill_command(
+            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}"
+        )
 
-    def test_schedule_not_found_returns_zero(self, batch_export, temporal_mocks):
-        client, handle = temporal_mocks
-        handle.describe = AsyncMock(side_effect=Exception("Schedule not found"))
-        intervals = self._make_missing_intervals(2)
-        count = asyncio.run(backfill_export(client, batch_export, intervals, dry_run=False))
-        assert count == 0
-        handle.backfill.assert_not_called()
+        if expected_interval_end_offsets:
+            workflows = sync_wait_for_workflows(
+                temporal, str(export.id), expected_count=len(expected_interval_end_offsets)
+            )
+            expected_ids = sorted(
+                f"{export.id}-{start + timedelta(hours=h):%Y-%m-%dT%H:%M:%SZ}" for h in expected_interval_end_offsets
+            )
+            assert sorted(w.id for w in workflows) == expected_ids
+        else:
+            workflows = list_schedule_workflows(temporal, str(export.id))
+            assert len(workflows) == 0
+
+    def test_daily_backfill_with_offset_and_timezone(self, team, temporal):
+        # Daily at 02:00 US/Pacific (PDT = UTC-7 during DST), so 02:00 PDT = 09:00 UTC
+        export = create_noop_export_with_schedule(team, interval="day", offset_hour=2, tz="US/Pacific")
+
+        # 02:00 PDT = 09:00 UTC (well after DST spring-forward on Mar 8)
+        day0 = datetime(2026, 3, 29, 9, 0, tzinfo=UTC)  # Sun
+        day1 = datetime(2026, 3, 30, 9, 0, tzinfo=UTC)  # Mon
+        day2 = datetime(2026, 3, 31, 9, 0, tzinfo=UTC)  # Tue
+
+        # Cover first day, leave second missing
+        create_run(export, day0, day1)
+
+        run_backfill_command(
+            f"--batch-export-id={export.id}",
+            f"--start={day0.isoformat()}",
+            f"--end={day2.isoformat()}",
+        )
+
+        workflows = sync_wait_for_workflows(temporal, str(export.id), expected_count=1)
+        assert workflows[0].id == f"{export.id}-{day2:%Y-%m-%dT%H:%M:%SZ}"
+
+    def test_weekly_backfill_with_offset_and_timezone(self, team, temporal):
+        # Weekly on Monday at 02:00 Europe/Berlin
+        export = create_noop_export_with_schedule(
+            team, interval="week", offset_day=1, offset_hour=2, tz="Europe/Berlin"
+        )
+
+        # Crosses DST boundary: Europe/Berlin spring-forward is Mar 29, 2026.
+        # Mon 02:00 CET = 01:00 UTC (before DST), Mon 02:00 CEST = 00:00 UTC (after DST)
+        week0 = datetime(2026, 3, 16, 1, 0, tzinfo=UTC)  # Mon, CET
+        week1 = datetime(2026, 3, 23, 1, 0, tzinfo=UTC)  # Mon, CET
+        week2 = datetime(2026, 3, 30, 0, 0, tzinfo=UTC)  # Mon, CEST
+
+        # Cover first week, leave second missing
+        create_run(export, week0, week1)
+
+        run_backfill_command(
+            f"--batch-export-id={export.id}",
+            f"--start={week0.isoformat()}",
+            f"--end={week2.isoformat()}",
+        )
+
+        workflows = sync_wait_for_workflows(temporal, str(export.id), expected_count=1)
+        assert workflows[0].id == f"{export.id}-{week2:%Y-%m-%dT%H:%M:%SZ}"
+
+    def test_dry_run_does_not_trigger_workflows(self, team, temporal):
+        export = create_noop_export_with_schedule(team, interval="hour")
+        start, end = hour_window(2)
+
+        run_backfill_command(
+            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}", "--dry-run"
+        )
+
+        workflows = list_schedule_workflows(temporal, str(export.id))
+        assert len(workflows) == 0
+
+    def test_schedule_not_found_does_not_raise(self, team, temporal, caplog):
+        export = create_noop_export_with_schedule(team, interval="hour")
+        start, end = hour_window(2)
+
+        delete_temporal_schedule(temporal, str(export.id))
+
+        run_backfill_command(
+            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}"
+        )
+
+        assert any(f"Schedule {export.id} not found" in msg for msg in caplog.messages)
