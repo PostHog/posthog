@@ -32,14 +32,15 @@ import {
     FilterLogicalOperator,
 } from '~/types'
 
-import { actionsLogic, getActionsModelParams } from '../logics/actionsLogic'
+import { actionsLogic } from '../logics/actionsLogic'
 import { deleteActionWithWarning } from '../utils/deleteAction'
 import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { actionsLoading } = useValues(actionsModel({ params: getActionsModelParams() }))
+    // actionsModel is a singleton; params are set on first mount by actionsLogic's connect
+    const { actionsLoading } = useValues(actionsModel)
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
@@ -193,7 +194,11 @@ export function ActionsTable(): JSX.Element {
                       render: function RenderReferenceCount(_, action: ActionType) {
                           const count = action.reference_count
                           if (count === undefined) {
-                              return <LemonSkeleton className="w-12 h-4" />
+                              return actionsLoading ? (
+                                  <LemonSkeleton className="w-12 h-4" />
+                              ) : (
+                                  <span className="text-secondary">—</span>
+                              )
                           }
                           return (
                               <span className="text-secondary">

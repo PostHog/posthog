@@ -23,6 +23,9 @@ export const actionsFuse = new Fuse<ActionType>([], {
     includeMatches: true,
 })
 
+// Called from actionsLogic's connect() — before dependencies are mounted. We read the flag via
+// findMounted() because featureFlagLogic is mounted at app bootstrap, long before the actions scene.
+// If it's somehow not mounted yet, we safely fall back to the non-reference-count path.
 export const getActionsModelParams = (): string => {
     const referenceCountEnabled =
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
