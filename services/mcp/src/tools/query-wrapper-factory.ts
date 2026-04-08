@@ -11,12 +11,15 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     responseFormat?: 'json'
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
     urlPrefix?: string
+    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
+    mcpVersion?: number
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
     return () => ({
         name: config.name,
         schema: config.schema,
+        ...(config.mcpVersion !== undefined ? { mcpVersion: config.mcpVersion } : {}),
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
