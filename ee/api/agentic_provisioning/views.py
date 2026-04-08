@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import time
 import uuid
+import base64
+import hashlib
 import secrets
 from datetime import timedelta
 from typing import Any, cast
@@ -28,7 +30,13 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
-from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthRefreshToken,
+    find_oauth_access_token,
+    find_oauth_refresh_token,
+)
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -43,6 +51,7 @@ from posthog.utils import get_instance_region
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from .authentication import ProvisioningAuthentication
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
@@ -62,7 +71,7 @@ _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 STRIPE_APP_NAME = "PostHog Stripe App"
 STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 
-ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
+ACCESS_TOKEN_EXPIRY_SECONDS = 3600  # 1 hour; refresh token rotation handles longer sessions
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +253,20 @@ def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    # --- Identify partner ---
+    auth = ProvisioningAuthentication()
+    partner = None
+    try:
+        result = auth.authenticate(request)
+        if result:
+            _, partner = result
+    except AuthenticationFailed:
+        return Response(
+            {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
+            status=401,
+        )
+
+    # --- Parse request ---
     data = request.data
     request_id = data.get("id", "")
     email = data.get("email")
@@ -270,9 +293,23 @@ def account_requests(request: Request) -> Response:
                 status=400,
             )
 
-    stripe_info = orchestrator.get("stripe") or {}
-    stripe_account_id = stripe_info.get("account", "") if orchestrator.get("type") == "stripe" else ""
-    if not stripe_account_id:
+    # Partner account ID: generic field, with Stripe backward compat
+    orchestrator_type = orchestrator.get("type", "")
+    if orchestrator_type == "stripe":
+        stripe_info = orchestrator.get("stripe") or {}
+        partner_account_id = stripe_info.get("account", "")
+    else:
+        partner_account_id = orchestrator.get("account", "")
+
+    # If no partner identified, require Stripe Projects HMAC auth
+    if not partner and not request.META.get("HTTP_STRIPE_SIGNATURE"):
+        return Response(
+            {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
+            status=401,
+        )
+
+    # Stripe Projects: require stripe account if no provisioning partner identified
+    if not partner and not partner_account_id:
         _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
         return Response(
             {
@@ -282,14 +319,49 @@ def account_requests(request: Request) -> Response:
             status=400,
         )
 
+    # Check permission
+    if partner and not partner.provisioning_can_create_accounts:
+        _capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "forbidden", "message": "Account creation is not enabled for this partner"},
+            },
+            status=403,
+        )
+
+    # PKCE: capture code_challenge for later verification
+    code_challenge = data.get("code_challenge", "")
+    code_challenge_method = data.get("code_challenge_method", "S256")
+    if code_challenge and code_challenge_method != "S256":
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "Only S256 code_challenge_method is supported"},
+            },
+            status=400,
+        )
+
     region = (configuration.get("region") or "US").upper()
 
     existing_user = User.objects.filter(email=email).first()
 
     if existing_user:
-        return _handle_existing_user(request_id, existing_user, confirmation_secret, scopes, stripe_account_id, region)
+        return _handle_existing_user(
+            request_id,
+            existing_user,
+            confirmation_secret,
+            scopes,
+            partner_account_id,
+            region,
+            partner,
+            code_challenge,
+            code_challenge_method,
+        )
 
-    return _handle_new_user(request_id, data, email, scopes, stripe_account_id, region)
+    return _handle_new_user(
+        request_id, data, email, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+    )
 
 
 def _handle_existing_user(
@@ -297,16 +369,22 @@ def _handle_existing_user(
     user: User,
     confirmation_secret: str,
     scopes: list[str],
-    stripe_account_id: str = "",
+    partner_account_id: str = "",
     region: str = "US",
+    partner: OAuthApplication | None = None,
+    code_challenge: str = "",
+    code_challenge_method: str = "S256",
 ) -> Response:
     cache.set(
         f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
         {
             "email": user.email,
             "scopes": scopes,
-            "stripe_account_id": stripe_account_id,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id) if partner else "",
             "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
         },
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
@@ -331,15 +409,22 @@ def _handle_new_user(
     data: dict,
     email: str,
     scopes: list[str],
-    stripe_account_id: str,
+    partner_account_id: str,
     region: str,
+    partner: OAuthApplication | None = None,
+    code_challenge: str = "",
+    code_challenge_method: str = "S256",
 ) -> Response:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
+    partner_label = (
+        partner.provisioning_partner_type.capitalize() if partner and partner.provisioning_partner_type else "Stripe"
+    )
+
     try:
         organization, team, user = User.objects.bootstrap(
-            organization_name=f"Stripe ({email})",
+            organization_name=f"{partner_label} ({email})",
             email=email,
             password=None,
             first_name=first_name,
@@ -349,7 +434,15 @@ def _handle_new_user(
         if existing:
             _capture_provisioning_event("account_request", "race_condition_existing_user", region=region)
             return _handle_existing_user(
-                request_id, existing, data.get("confirmation_secret", ""), scopes, stripe_account_id, region
+                request_id,
+                existing,
+                data.get("confirmation_secret", ""),
+                scopes,
+                partner_account_id,
+                region,
+                partner,
+                code_challenge,
+                code_challenge_method,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
@@ -371,9 +464,12 @@ def _handle_new_user(
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
-            "stripe_account_id": stripe_account_id,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id) if partner else "",
             "scopes": scopes,
             "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
@@ -443,15 +539,18 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 "org_id": str(organization.id),
                 "team_id": team.id,
                 "stripe_account_id": pending.get("stripe_account_id", ""),
+                "partner_id": pending.get("partner_id", ""),
                 "scopes": pending.get("scopes", []),
                 "region": pending.get("region", "US"),
+                "code_challenge": pending.get("code_challenge", ""),
+                "code_challenge_method": pending.get("code_challenge_method", "S256"),
             },
             timeout=AUTH_CODE_TTL_SECONDS,
         )
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
-        callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+        callback_url = _get_callback_url(pending.get("partner_id", ""))
         sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
         params = urlencode({"code": code, "state": sanitized_state})
         return HttpResponseRedirect(f"{callback_url}?{params}")
@@ -506,13 +605,16 @@ def agentic_authorize_confirm(request: Request) -> Response:
             "org_id": str(team.organization_id),
             "team_id": team.id,
             "stripe_account_id": pending.get("stripe_account_id", ""),
+            "partner_id": pending.get("partner_id", ""),
             "scopes": pending.get("scopes", []),
             "region": pending.get("region", "US"),
+            "code_challenge": pending.get("code_challenge", ""),
+            "code_challenge_method": pending.get("code_challenge_method", "S256"),
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
 
-    callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+    callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
@@ -532,6 +634,12 @@ def agentic_authorize_confirm(request: Request) -> Response:
 @permission_classes([])
 @stripe_region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
+    # Non-PKCE requests require HMAC. PKCE requests include code_verifier.
+    has_hmac = bool(request.META.get("HTTP_STRIPE_SIGNATURE"))
+    has_pkce = bool(request.data.get("code_verifier"))
+    if not has_hmac and not has_pkce:
+        return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
+
     grant_type = request.data.get("grant_type", "")
 
     if grant_type == "authorization_code":
@@ -562,6 +670,27 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     cache.delete(cache_key)
 
+    # --- PKCE verification ---
+    stored_challenge = code_data.get("code_challenge", "")
+    if stored_challenge:
+        code_verifier = request.data.get("code_verifier", "")
+        if not code_verifier:
+            _capture_provisioning_event("token_exchange", "missing_code_verifier", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=400
+            )
+
+        computed = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        if computed != stored_challenge:
+            _capture_provisioning_event("token_exchange", "pkce_mismatch", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_grant", "error_description": "PKCE code_verifier does not match"}, status=400
+            )
+
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
     scopes = code_data.get("scopes", [])
@@ -572,7 +701,8 @@ def _exchange_authorization_code(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "user_not_found", grant_type="authorization_code")
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
-    oauth_app = _get_stripe_oauth_app()
+    # Use partner's OAuth app if available, fall back to Stripe
+    oauth_app = _get_oauth_app_for_code(code_data)
     scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
 
     access_token_value = generate_random_oauth_access_token(None)
@@ -720,7 +850,7 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
 
 
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
-    """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
+    """Create a Personal API Key for a provisioned user and return the raw key value."""
     try:
         api_key_value = generate_random_token_personal()
         label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
@@ -752,8 +882,7 @@ def provisioning_resources_create(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
-    if error:
+    if error := _verify_hmac_if_present(request):
         return error
     if error := verify_api_version(request):
         return error
@@ -842,8 +971,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
-    if error:
+    if error := _verify_hmac_if_present(request):
         return error
     if error := verify_api_version(request):
         return error
@@ -978,8 +1106,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
-    if error:
+    if error := _verify_hmac_if_present(request):
         return error
     if error := verify_api_version(request):
         return error
@@ -1048,8 +1175,7 @@ def deep_links(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
-    if error:
+    if error := _verify_hmac_if_present(request):
         return error
     if error := verify_api_version(request):
         return error
@@ -1107,28 +1233,67 @@ def deep_links(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _verify_hmac_if_present(request: Request) -> Response | None:
+    """Verify HMAC signature only if the Stripe-Signature header is present.
+
+    For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
+    For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
+    """
+    if request.META.get("HTTP_STRIPE_SIGNATURE"):
+        return verify_stripe_signature(request)
+    return None
+
+
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
     logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 
 def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
-    """Authenticate via Bearer token. Returns (error_response, user, access_token)."""
-    from .authentication import StripeProvisioningBearerAuthentication
+    """Authenticate via Bearer token. Returns (error_response, user, access_token).
 
-    auth = StripeProvisioningBearerAuthentication()
-    try:
-        result = auth.authenticate(request)
-    except AuthenticationFailed:
-        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
-    if result is None:
+    Tries generic ProvisioningAuthentication first (any partner's token),
+    then falls back to Stripe Projects HMAC auth.
+    """
+
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not auth_header.startswith("Bearer "):
         return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
-    return None, result[0], result[1]
+
+    token_value = auth_header[len("Bearer ") :].strip()
+    if not token_value:
+        return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
+
+    access_token = find_oauth_access_token(token_value)
+    if access_token is None:
+        return (_error_response("unauthorized", "Invalid access token", status=401), None, None)
+
+    if access_token.expires and access_token.expires < timezone.now():
+        return (_error_response("unauthorized", "Access token expired", status=401), None, None)
+
+    # Check if token belongs to any active provisioning partner's app
+    app = access_token.application
+    if app and app.is_provisioning_partner:
+        if not app.provisioning_active:
+            return (_error_response("unauthorized", "Partner is deactivated", status=401), None, None)
+        if not app.provisioning_can_provision_resources:
+            return (
+                _error_response("forbidden", "Resource provisioning not enabled for this partner", status=403),
+                None,
+                None,
+            )
+        return None, access_token.user, access_token
+
+    # Fall back to Stripe Projects HMAC check
+    from .authentication import _is_stripe_oauth_app
+
+    if not _is_stripe_oauth_app(access_token.application):
+        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
+
+    return None, access_token.user, access_token
 
 
 def _get_stripe_oauth_app():
-    from posthog.models.oauth import OAuthApplication
-
     if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
         try:
             return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
@@ -1149,6 +1314,36 @@ def _get_stripe_oauth_app():
         redirect_uris="https://localhost",
         algorithm="RS256",
     )
+
+
+def _get_callback_url(partner_id: str) -> str:
+    """Get the callback URL from the partner's redirect_uris, falling back to the Stripe setting."""
+    if partner_id:
+        try:
+            app = OAuthApplication.objects.get(id=partner_id)
+            redirect_uris = app.redirect_uris.strip()
+            if redirect_uris:
+                return redirect_uris.split()[0]
+        except OAuthApplication.DoesNotExist:
+            pass
+
+    return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+
+
+def _get_oauth_app_for_code(code_data: dict):
+    """Resolve the OAuthApplication for a token exchange.
+
+    If the auth code was created by a provisioning partner, use that app.
+    Otherwise fall back to the Stripe Projects app lookup.
+    """
+    partner_id = code_data.get("partner_id", "")
+    if partner_id:
+        try:
+            return OAuthApplication.objects.get(id=partner_id)
+        except OAuthApplication.DoesNotExist:
+            pass
+
+    return _get_stripe_oauth_app()
 
 
 def _region_to_host(region: str) -> str:

@@ -129,9 +129,12 @@ def stripe_region_proxy(strategy: str):
     def decorator(view_func):
         @functools.wraps(view_func)
         def wrapper(request: Request, *args, **kwargs) -> Response:
-            error = verify_stripe_signature(request)
-            if error:
-                return error
+            # Only verify HMAC if the request has a Stripe-Signature header.
+            # PKCE/Bearer-only partners skip HMAC - auth handled by ProvisioningAuthentication in the view.
+            if request.META.get("HTTP_STRIPE_SIGNATURE"):
+                error = verify_stripe_signature(request)
+                if error:
+                    return error
 
             current = _current_region()
             if current is None or current in ("DEV", "LOCAL"):
