@@ -297,6 +297,8 @@ async def _generate_patterns_assignments(
     # TODO: Replace later by splitting `_generate_patterns_assignments` into separate activity
     temporal_client = await async_connect()
     info = temporalio.activity.info()
+    assert info.workflow_id  # Will always be defined if this activity was started by a workflow
+
     workflow_handle = temporal_client.get_workflow_handle(info.workflow_id, run_id=info.workflow_run_id)
     # Send initial progress
     await workflow_handle.signal("update_pattern_assignments_progress", 0)

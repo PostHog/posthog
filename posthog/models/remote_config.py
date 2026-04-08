@@ -194,10 +194,29 @@ class RemoteConfig(UUIDTModel):
         # V2: If trigger groups configured, send V2 + V1 fallback fields
         if team.session_recording_trigger_groups:
             trigger_groups_config = team.session_recording_trigger_groups
+            groups = trigger_groups_config.get("groups", [])
+
+            # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
+            # This future-proofs the contract so WHERE clauses (property filters on events)
+            # can be added later without a breaking SDK change.
+            # Build normalized copies to avoid mutating the team's stored data.
+            normalized_groups = []
+            for group in groups:
+                conditions = group.get("conditions", {})
+                if "events" in conditions:
+                    group = {
+                        **group,
+                        "conditions": {
+                            **conditions,
+                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
+                        },
+                    }
+                normalized_groups.append(group)
+
             return {
                 **base_config,
                 "version": 2,
-                "triggerGroups": trigger_groups_config.get("groups", []),
+                "triggerGroups": normalized_groups,
                 # Include V1 fields for backward compatibility with old SDKs
                 **v1_fields,
             }
