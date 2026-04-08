@@ -416,6 +416,21 @@ export interface PaginatedHogFlowScheduleListApi {
     results: HogFlowScheduleApi[]
 }
 
+/**
+ * Property filters to apply
+ */
+export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
+
+export interface BlastRadiusRequestApi {
+    /** Property filters to apply */
+    filters: BlastRadiusRequestApiFilters
+    /**
+     * Group type index for group-based targeting
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
