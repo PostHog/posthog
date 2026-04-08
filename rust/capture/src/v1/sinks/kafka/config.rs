@@ -57,6 +57,23 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub statistics_interval_ms: u32,
 
+    // -- v0 parity settings (defaults from production charts/argocd/capture) --
+    /// Partitioning strategy. Must be murmur2_random for v0 parity
+    /// (python-kafka compat). librdkafka default varies by version.
+    #[envconfig(default = "murmur2_random")]
+    pub partitioner: String,
+    /// Max retry attempts per message. Production default: 4 (tuned for
+    /// MSK failover with socket_timeout_ms=5000, message_timeout_ms=30000).
+    #[envconfig(default = "4")]
+    pub max_retries: u32,
+    #[envconfig(default = "1000000")]
+    pub max_in_flight_requests: u32,
+    /// How long (ms) the producer sticks to a random partition for keyless
+    /// messages before switching. Affects distribution of events with
+    /// force_disable_person_processing (no partition key).
+    #[envconfig(default = "10")]
+    pub sticky_partitioning_linger_ms: u32,
+
     // -- QueueFull backpressure --
     /// Max enqueue retry attempts when rdkafka returns QueueFull.
     /// 0 = no retries (immediate failure, pre-backpressure behavior).
@@ -170,6 +187,10 @@ mod tests {
         env.insert("STATISTICS_INTERVAL_MS".into(), "5000".into());
         env.insert("ENQUEUE_RETRY_MAX".into(), "5".into());
         env.insert("ENQUEUE_POLL_MS".into(), "50".into());
+        env.insert("PARTITIONER".into(), "consistent_random".into());
+        env.insert("MAX_RETRIES".into(), "6".into());
+        env.insert("MAX_IN_FLIGHT_REQUESTS".into(), "500000".into());
+        env.insert("STICKY_PARTITIONING_LINGER_MS".into(), "20".into());
 
         let cfg = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(cfg.hosts, "localhost:9092");
@@ -190,6 +211,10 @@ mod tests {
         assert_eq!(cfg.statistics_interval_ms, 5000);
         assert_eq!(cfg.enqueue_retry_max, 5);
         assert_eq!(cfg.enqueue_poll_ms, 50);
+        assert_eq!(cfg.partitioner, "consistent_random");
+        assert_eq!(cfg.max_retries, 6);
+        assert_eq!(cfg.max_in_flight_requests, 500000);
+        assert_eq!(cfg.sticky_partitioning_linger_ms, 20);
         assert_eq!(cfg.topic_main, "events_main");
     }
 
@@ -214,6 +239,10 @@ mod tests {
         assert_eq!(cfg.statistics_interval_ms, 10000);
         assert_eq!(cfg.enqueue_retry_max, 3);
         assert_eq!(cfg.enqueue_poll_ms, 33);
+        assert_eq!(cfg.partitioner, "murmur2_random");
+        assert_eq!(cfg.max_retries, 4);
+        assert_eq!(cfg.max_in_flight_requests, 1000000);
+        assert_eq!(cfg.sticky_partitioning_linger_ms, 10);
     }
 
     #[test]

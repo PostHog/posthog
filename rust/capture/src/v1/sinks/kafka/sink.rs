@@ -152,9 +152,19 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             key_buf.clear();
             event.write_partition_key(ctx, &mut key_buf);
 
+            // Empty buffer = event requested no partition key (e.g.
+            // force_disable_person_processing on AnalyticsMain). Pass None so
+            // librdkafka round-robins; Some("") would hash to a single
+            // deterministic partition via murmur2, creating a hot partition.
+            let key = if key_buf.is_empty() {
+                None
+            } else {
+                Some(key_buf.as_str())
+            };
+
             let mut record = ProduceRecord {
                 topic,
-                key: Some(&key_buf),
+                key,
                 payload: &payload_buf,
                 headers,
             };
