@@ -141,6 +141,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=order_by,
+                having=self.outer_where_breakdown(),
             )
 
         return query
@@ -255,11 +256,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 self._period_comparison_tuple("errors_count", "context.columns.errors", "sum"),
             ]
 
+            having_exprs = [self._frustration_metrics_having()]
+            outer_bkdn = self.outer_where_breakdown()
+            if outer_bkdn:
+                having_exprs.append(outer_bkdn)
+
             query = ast.SelectQuery(
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                having=self._frustration_metrics_having(),
+                having=ast.And(exprs=having_exprs) if len(having_exprs) > 1 else having_exprs[0],
                 order_by=self._frustration_metrics_order_by(),
             )
 
@@ -759,13 +765,19 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 raise NotImplementedError("Aggregation value not exists")
 
     def where_breakdown(self):
+        # Null filtering moved to outer_where_breakdown() for better ClickHouse performance.
+        # Filtering on the alias in the inner WHERE forced ClickHouse to evaluate the full
+        # join-dependent expression per-row; filtering after GROUP BY is much cheaper.
+        return parse_expr("TRUE")
+
+    def outer_where_breakdown(self) -> ast.Expr | None:
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
+                return parse_expr("tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
-                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
-                    "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
+                    "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
+                    "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
                 )
             case (
                 WebStatsBreakdown.INITIAL_UTM_SOURCE
@@ -774,13 +786,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 | WebStatsBreakdown.INITIAL_UTM_TERM
                 | WebStatsBreakdown.INITIAL_UTM_CONTENT
             ):
-                return parse_expr("TRUE")  # actually show null values
+                return None  # actually show null values
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(
-                    "breakdown_value IS NOT NULL AND breakdown_value != ''"
-                )  # we need to check for empty strings as well due to how the left join works
+                    "`context.columns.breakdown_value` IS NOT NULL AND `context.columns.breakdown_value` != ''"
+                )
             case _:
-                return parse_expr("breakdown_value IS NOT NULL")
+                return parse_expr("`context.columns.breakdown_value` IS NOT NULL")
 
     def _scroll_prev_pathname_breakdown(self):
         path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))

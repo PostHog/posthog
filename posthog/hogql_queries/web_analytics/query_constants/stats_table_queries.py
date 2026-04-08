@@ -54,6 +54,7 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) as bounce
 ON counts.breakdown_value = bounce.breakdown_value
+WHERE counts.breakdown_value IS NOT NULL
 """
 
 PATH_SCROLL_BOUNCE_QUERY = """
@@ -81,7 +82,6 @@ FROM (
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -146,6 +146,7 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
+WHERE counts.breakdown_value IS NOT NULL
 """
 
 PATH_BOUNCE_AND_AVG_TIME_QUERY = """
@@ -246,6 +247,7 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) AS bounce
 ON counts.breakdown_value = bounce.breakdown_value
+WHERE counts.breakdown_value IS NOT NULL
 """
 
 FRUSTRATION_METRICS_INNER_QUERY = """

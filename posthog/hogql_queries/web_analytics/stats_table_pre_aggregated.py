@@ -423,11 +423,30 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
         ]
 
+        outer_where_breakdown = self.runner.outer_where_breakdown()
+        if outer_where_breakdown:
+            # Use breakdown_value (not context.columns.breakdown_value) since this is a mid-level query
+            match self.runner.query.breakdownBy:
+                case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
+                    having = parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
+                case WebStatsBreakdown.VIEWPORT:
+                    having = parse_expr(
+                        "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
+                        "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
+                    )
+                case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                    having = parse_expr("breakdown_value IS NOT NULL AND breakdown_value != ''")
+                case _:
+                    having = parse_expr("breakdown_value IS NOT NULL")
+        else:
+            having = None
+
         outer_query = ast.SelectQuery(
             select=cast(list[ast.Expr], conversion_select_columns),
             select_from=ast.JoinExpr(table=inner_query),
             where=self.runner._periods_expression("start_timestamp"),
             group_by=[ast.Field(chain=["breakdown_value"])],
+            having=having,
         )
 
         return outer_query
