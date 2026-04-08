@@ -667,9 +667,11 @@ function generateToolCode(
     const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
+
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 }`
@@ -762,12 +764,14 @@ function generateCustomSchemaToolCode(
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
     handlerBody += buildEnrichment(config, category, enrichmentVar)
 
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
+
     const code = `
 const ${schemaName} = ${config.input_schema}
 
 const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 })
@@ -962,6 +966,9 @@ function generateCategoryFile(
                 }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
+                }
+                if (wrapperConfig.mcp_version !== undefined) {
+                    configParts.push(`mcpVersion: ${wrapperConfig.mcp_version}`)
                 }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
@@ -1196,6 +1203,9 @@ function generateQueryWrapperFile(
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            if (toolConfig.mcp_version !== undefined) {
+                configParts.push(`mcpVersion: ${toolConfig.mcp_version}`)
             }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })

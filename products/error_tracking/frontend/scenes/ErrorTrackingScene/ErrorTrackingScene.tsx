@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
@@ -12,7 +11,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -47,10 +45,9 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { activeTab, selectedSettingId } = useValues(errorTrackingSceneLogic)
+    const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
-    const hasSettingsSplit = useFeatureFlag('ERROR_TRACKING_SETTINGS_SPLIT')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -67,17 +64,6 @@ export function ErrorTrackingScene(): JSX.Element {
                 })
             })
     })
-
-    // Redirect to global project settings if someone tries to access exception autocapture
-    // via old link while the settings split flag is on
-    if (
-        hasSettingsSplit &&
-        activeTab === 'configuration' &&
-        selectedSettingId === 'error-tracking-exception-autocapture'
-    ) {
-        router.actions.replace(urls.settings('environment-error-tracking', 'error-tracking-exception-autocapture'))
-        return <></>
-    }
 
     const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
         {
