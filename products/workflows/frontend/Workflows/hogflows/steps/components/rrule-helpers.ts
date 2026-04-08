@@ -210,10 +210,15 @@ export function computePreviewOccurrences(
         options.dtstart = dtstart
 
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
-        // Generate extra when dtstart is in the past so we still have enough future occurrences
-        // after OccurrencesList filters out past ones
-        const generous = dayjs(dtstart).isBefore(dayjs()) ? limit * 50 : limit
-        return rule.all((_, i) => i < generous)
+        const isFinite = state.endType !== 'never'
+
+        if (dayjs(dtstart).isBefore(dayjs())) {
+            const all = rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit * 50))
+            const now = new Date()
+            const future = all.filter((d) => d.getTime() > now.getTime())
+            return isFinite ? future : future.slice(0, limit)
+        }
+        return rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit))
     } catch {
         return []
     }
@@ -230,7 +235,7 @@ export function computePreviewOccurrences(
  */
 export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     const utcStr = dayjs(date).utc().format('YYYY-MM-DD HH:mm:ss')
-    return timezone ? dayjs.tz(utcStr, timezone) : dayjs(utcStr)
+    return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
 export function buildSummary(state: ScheduleState, startsAt: string | null): string {
