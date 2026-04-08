@@ -42,7 +42,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter "@posthog/quill-*" --filter "@posthog/quill"
 
             - name: Build quill packages
               run: pnpm quill:build
