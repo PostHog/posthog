@@ -4,6 +4,7 @@ from django.test import SimpleTestCase
 
 from posthog.temporal.llm_analytics.eval_reports.delivery import (
     UUID_LINK_PATTERN,
+    _format_period_for_display,
     _inline_email_styles,
     _linkify_uuids,
     _render_section_html,
@@ -78,6 +79,26 @@ class TestRenderSectionHtml(SimpleTestCase):
     def test_renders_italic(self):
         html = _render_section_html("statistics", "*emphasis*", project_id=1)
         self.assertIn("<em>emphasis</em>", html)
+
+
+class TestFormatPeriodForDisplay(SimpleTestCase):
+    def test_formats_utc_iso_timestamp(self):
+        result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
+        self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
+
+    def test_formats_non_utc_iso_timestamp_by_converting_to_utc(self):
+        # 10:00 in America/New_York (UTC-4 in April) → 14:00 UTC
+        result = _format_period_for_display("2026-04-08T10:00:00-04:00")
+        self.assertEqual(result, "Apr 08, 2026 14:00 UTC")
+
+    def test_falls_back_to_raw_string_on_parse_error(self):
+        result = _format_period_for_display("not a timestamp")
+        self.assertEqual(result, "not a timestamp")
+
+    def test_falls_back_on_none(self):
+        # Guard against the activity passing something unexpected
+        result = _format_period_for_display(None)  # type: ignore[arg-type]
+        self.assertIsNone(result)
 
 
 class TestStripRedundantLeadingHeading(SimpleTestCase):

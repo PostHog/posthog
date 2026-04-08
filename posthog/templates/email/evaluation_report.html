@@ -1,18 +1,20 @@
-{% extends "email/base.html" %} {% block section %}
+{% extends "email/base.html" %}
 
-<p><strong>Hello,</strong></p>
-<p>
-    Your evaluation report for <strong>{{ evaluation_name }}</strong> is ready.
-</p>
+{% block heading %}Evaluation report: {{ evaluation_name }}{% endblock %}
+
+{% block section %}
+
 <p class="muted">
-    Period: {{ period_start }} to {{ period_end }}
+    {{ period_start }} &rarr; {{ period_end }}
 </p>
 
 <div class="divider"></div>
 
-{# report_body is markdown rendered by markdown-it-py with html=False, so raw HTML in
-   the markdown source is escaped. Content originates from our own LLM agent via
-   structured tool outputs (not user input), and is delivered via email only. #}
+{% comment %}
+report_body is markdown rendered by markdown-it-py with html=False, so raw HTML in
+the markdown source is escaped. Content originates from our own LLM agent via
+structured tool outputs (not user input), and is delivered via email only.
+{% endcomment %}
 {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
 {{ report_body|safe }}
 

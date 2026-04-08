@@ -1,6 +1,7 @@
 """Delivery logic for evaluation reports (email and Slack)."""
 
 import re
+from datetime import UTC, datetime
 
 import structlog
 from markdown_it import MarkdownIt
@@ -55,6 +56,19 @@ def _make_generation_link(project_id: int, trace_id: str) -> str:
     from posthog.utils import absolute_uri
 
     return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}")
+
+
+def _format_period_for_display(iso_str: str) -> str:
+    """Format an ISO-8601 timestamp string for display in emails and Slack messages.
+
+    Parses the ISO string and converts to UTC, returning e.g. "Apr 08, 2026 14:01 UTC".
+    Falls back to the raw string if parsing fails, so a bad timestamp never breaks delivery.
+    """
+    try:
+        dt = datetime.fromisoformat(iso_str).astimezone(UTC)
+    except (ValueError, TypeError):
+        return iso_str
+    return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
 def _linkify_uuids(text: str, project_id: int) -> str:
@@ -128,6 +142,8 @@ def deliver_email_report(
 
     body_html = "\n".join(body_parts)
     evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
+    period_start_display = _format_period_for_display(period_start)
+    period_end_display = _format_period_for_display(period_end)
 
     for target in targets:
         if target.get("type") != "email":
@@ -142,8 +158,8 @@ def deliver_email_report(
                     template_name="evaluation_report",
                     template_context={
                         "evaluation_name": evaluation_name,
-                        "period_start": period_start,
-                        "period_end": period_end,
+                        "period_start": period_start_display,
+                        "period_end": period_end_display,
                         "report_body": body_html,
                         "evaluation_url": evaluation_url,
                     },
@@ -169,7 +185,7 @@ def deliver_slack_report(
     period_end: str,
 ) -> list[str]:
     """Send report via Slack. Returns list of errors (empty if all succeeded)."""
-    from posthog.models.integration import Integration
+    from posthog.models.integration import Integration, SlackIntegration
 
     content = EvalReportContent.from_dict(report_run.content)
     errors: list[str] = []
@@ -185,7 +201,7 @@ def deliver_slack_report(
 
         try:
             integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
-            client = integration.slack_client()
+            client = SlackIntegration(integration).client
 
             # Post main message
             blocks = [
@@ -201,7 +217,7 @@ def deliver_slack_report(
                     "elements": [
                         {
                             "type": "mrkdwn",
-                            "text": f"Period: {period_start[:10]} to {period_end[:10]}",
+                            "text": f"Period: {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}",
                         }
                     ],
                 },
