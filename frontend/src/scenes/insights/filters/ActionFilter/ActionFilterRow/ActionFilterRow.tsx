@@ -573,7 +573,6 @@ export function ActionFilterRow({
                                                         isDataWarehouseFilter
                                                             ? [TaxonomicFilterGroupType.DataWarehouseProperties]
                                                             : [
-                                                                  TaxonomicFilterGroupType.DataWarehouseProperties,
                                                                   TaxonomicFilterGroupType.NumericalEventProperties,
                                                                   TaxonomicFilterGroupType.SessionProperties,
                                                                   TaxonomicFilterGroupType.PersonProperties,
