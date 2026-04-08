@@ -14,6 +14,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -23,6 +24,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 class TestExperimentService(APIBaseTest):
@@ -134,10 +136,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "bayesian"
 
     def test_stats_config_defaults_from_team(self):
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.default_experiment_stats_method = "frequentist"
         config.default_experiment_confidence_level = Decimal("0.90")
@@ -154,10 +152,6 @@ class TestExperimentService(APIBaseTest):
         assert abs(experiment.stats_config["frequentist"]["alpha"] - 0.10) < 1e-10
 
     def test_stats_config_preserves_provided_method(self):
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.default_experiment_stats_method = "bayesian"
         config.save()
@@ -175,10 +169,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "frequentist"
 
     def test_stats_config_preserves_provided_confidence(self):
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.default_experiment_confidence_level = Decimal("0.90")
         config.save()
