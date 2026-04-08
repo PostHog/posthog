@@ -184,5 +184,8 @@ async def test_export_failure_emits_slo_outcome(
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == expected_outcome
-    assert props["error"] is not None
-    assert expected_exception_class in str(props["error"])
+    # error_type, error_message, and error_trace are all populated by the SLO
+    # interceptor via its shared ActivityError -> ApplicationError unwrap logic.
+    assert props["error_type"] == expected_exception_class
+    assert props["error_message"]
+    assert props["error_trace"]

@@ -982,3 +982,12 @@ async def test_partial_export_failure_delivers_successful_assets(
     assert props["outcome"] == SloOutcome.FAILURE
     assert props["assets_with_content"] == 2
     assert props["total_assets"] == 3
+    # Per-insight fan-out failures land in asset_errors with {error_type, error_trace}.
+    # Workflow-level errors (create_export_assets / deliver_subscription failures) go
+    # through the interceptor's error_type / error_message / error_trace instead —
+    # partial-failure deliveries like this one never populate those.
+    assert len(props["asset_errors"]) == 1
+    assert props["asset_errors"][0]["error_type"] == "RuntimeError"
+    assert props["asset_errors"][0]["error_trace"]
+    assert "error_type" not in props
+    assert "error_trace" not in props

@@ -1,7 +1,6 @@
 import json
 import asyncio
 import datetime as dt
-import traceback
 
 import temporalio.common
 import temporalio.workflow
@@ -162,7 +161,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         assets_with_content = 0
         total_assets = 0
-        errors: list[ExportError] = []
+        asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
 
         try:
@@ -210,9 +209,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             outcome_assets, successful_asset_ids = _build_outcome_assets(asset_ids, export_results)
             assets_with_content = len(successful_asset_ids)
             total_assets = len(outcome_assets)
-            errors = [a.error for a in outcome_assets if a.error]
+            asset_errors = [a.error for a in outcome_assets if a.error]
 
-            non_user_errors = [e for e in errors if not is_user_query_error_type(e.exception_class)]
+            non_user_errors = [e for e in asset_errors if not is_user_query_error_type(e.exception_class)]
             if inputs.slo and non_user_errors:
                 inputs.slo.outcome = SloOutcome.FAILURE
 
@@ -242,14 +241,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            errors.append(
-                ExportError(
-                    exception_class=type(e).__name__,
-                    error_trace="\n".join(traceback.format_exception(e)[:5]),
-                )
-            )
+            # Workflow-level failure: the SLO interceptor populates
+            # error_type / error_message / error_trace when we re-raise.
+            # asset_errors stays for per-insight partial failures only.
             caught_error = e
-            # Don't re-raise — let finally run cleanup activities first
+            # Defer the re-raise until after the finally block — see note below.
 
         finally:
             # Advance schedule — always for scheduled deliveries, even on failure
@@ -265,14 +261,17 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Enrich SLO completion context
+            # Enrich SLO completion context with subscription-specific details.
+            # asset_errors captures per-insight fan-out failures (independent of
+            # whether the workflow itself succeeded); workflow-level errors go
+            # through the interceptor's error_type/error_message/error_trace.
             if inputs.slo:
                 inputs.slo.completion_properties.update(
                     {
                         "assets_with_content": assets_with_content,
                         "total_assets": total_assets,
-                        "errors": [
-                            {"exception_class": e.exception_class, "error_trace": e.error_trace} for e in errors
+                        "asset_errors": [
+                            {"error_type": e.exception_class, "error_trace": e.error_trace} for e in asset_errors
                         ],
                     }
                 )
