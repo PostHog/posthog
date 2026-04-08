@@ -158,9 +158,9 @@ class TestPlanResolver:
         assert result.plan_key == "posthog-code-200-20260301"
         assert result.in_trial_period is True
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.set.assert_called_once()  # type: ignore[union-attr]
+        resolver_with_redis._redis.set.assert_called_once()  # type: ignore[attr-defined]
 
-        resolver_with_redis._http.get.assert_called_once_with(  # type: ignore[union-attr]
+        resolver_with_redis._http.get.assert_called_once_with(
             "https://app.posthog.com/api/seats/me/",
             params={"product_key": "posthog_code"},
             headers={"Authorization": "Bearer phx_test"},
@@ -180,8 +180,8 @@ class TestPlanResolver:
             mock_settings.return_value.free_plan_trial_period_days = 30
             await resolver.get_plan(user_id=1, auth_header="Bearer phx_mysecretkey")
 
-        resolver._http.get.assert_called_once()  # type: ignore[union-attr]
-        call_kwargs = resolver._http.get.call_args  # type: ignore[union-attr]
+        resolver._http.get.assert_called_once()
+        call_kwargs = resolver._http.get.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer phx_mysecretkey"
 
     async def test_404_returns_none_plan(self, resolver: PlanResolver) -> None:
