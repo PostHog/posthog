@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, generateId, getPostHogClient } from '@/lib/analytics'
+import { AnalyticsEvent, generateId, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -37,6 +37,7 @@ export type RequestProperties = {
     apiToken: string
     sessionId?: string
     features?: string[]
+    tools?: string[]
     region?: string
     version?: number
     organizationId?: string
@@ -44,6 +45,7 @@ export type RequestProperties = {
     clientUserAgent?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
+    requestStartTime?: number
 }
 
 export class MCP extends McpAgent<Env> {
@@ -334,11 +336,14 @@ export class MCP extends McpAgent<Env> {
                     }
                 }
 
+                const useJson = tool._meta?.responseFormat === 'json'
+                const text = useJson ? JSON.stringify(result) : formatResponse(result)
+
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: formatResponse(result),
+                            text,
                         },
                     ],
                     // Include raw result as structuredContent for UI apps to consume
@@ -413,10 +418,11 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId, readOnly } = this.requestProperties
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache and fetch group types in parallel
+        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
+        const flagPromise = this.resolveVersionFlag()
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -424,8 +430,10 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('projectId', projectId)
         }
 
-        // Resolve group types (started above in parallel with cache seeding)
+        // Resolve group types and feature flag (started above in parallel with cache seeding)
         const groupTypes = await groupTypesPromise
+        const flagVersion = await flagPromise
+        const version = flagVersion ?? clientVersion ?? 1
         const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
@@ -450,6 +458,7 @@ export class MCP extends McpAgent<Env> {
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
+            tools,
             version,
             excludeTools,
             readOnly,
@@ -465,6 +474,30 @@ export class MCP extends McpAgent<Env> {
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+        }
+
+        const initDurationMs = this.requestProperties.requestStartTime
+            ? Date.now() - this.requestProperties.requestStartTime
+            : undefined
+
+        this.ctx.waitUntil(
+            this.trackEvent(AnalyticsEvent.MCP_INIT, {
+                tool_count: allTools.length,
+                mcp_version: version,
+                has_organization_id: !!organizationId,
+                has_project_id: !!projectId,
+                read_only: !!readOnly,
+                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+            })
+        )
+    }
+
+    private async resolveVersionFlag(): Promise<number | undefined> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return (await isFeatureFlagEnabled('mcp-version-2', distinctId, !!CUSTOM_API_BASE_URL)) ? 2 : undefined
+        } catch {
+            return undefined
         }
     }
 

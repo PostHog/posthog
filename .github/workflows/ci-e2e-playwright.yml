@@ -164,7 +164,7 @@ jobs:
         if: needs.changes.outputs.shouldRun == 'true'
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
-        timeout-minutes: 30
+        timeout-minutes: 45
         steps:
             - uses: actions/checkout@v6
               with:
@@ -253,7 +253,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml

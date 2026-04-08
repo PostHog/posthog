@@ -4,12 +4,15 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import EventsQuery
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
@@ -691,6 +694,147 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_200_OK
         new_token = response.json()["access_token"]
         assert new_token != initial_token
+
+
+class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["comment:read"]
+        self.key.save()
+
+    def test_allows_list_with_read_scope(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/comments/")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["thread", "count"])
+    def test_allows_custom_actions_with_read_scope(self, action):
+        # thread is a detail action — create a comment to reference; count is list-level
+        if action == "thread":
+            from posthog.models.comment import Comment
+
+            comment = Comment.objects.create(team=self.team, content="x", scope="Notebook")
+            url = f"/api/projects/{self.team.id}/comments/{comment.id}/thread/"
+        else:
+            url = f"/api/projects/{self.team.id}/comments/count/"
+        response = self._do_request(url)
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_denies_create_without_write_scope(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/",
+            data={"content": "hi", "scope": "Notebook"},
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'comment:write'"
+
+    def test_allows_create_with_write_scope(self):
+        self.key.scopes = ["comment:write"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/",
+            data={"content": "hi", "scope": "Notebook"},
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_denies_access_with_unrelated_scope(self):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/comments/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'comment:read'"
+
+
+class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = 8  # Admin, required for approval_policies write
+        self.organization_membership.save()
+        # Grant APPROVALS feature so the paywall doesn't interfere with scope assertions
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        self.key.scopes = ["approvals:read"]
+        self.key.save()
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    def test_read_scope_allows_list(self, endpoint):
+        response = self._do_request(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_read_scope_forbids_change_request_approve(self):
+        cr = self._create_change_request()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'approvals:write'"
+
+    def test_read_scope_forbids_approval_policy_create(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            data={"action_key": "feature_flag.enable", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'approvals:write'"
+
+    def test_denies_access_with_unrelated_scope(self):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        response = self._do_request(f"/api/environments/{self.team.id}/change_requests/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
+
+    def _create_change_request(self):
+        from posthog.approvals.models import ChangeRequest, ChangeRequestState
+
+        return ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id="123",
+            state=ChangeRequestState.PENDING,
+            intent={"gated_changes": {"active": True}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+
+
+class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["activity_log:read"]
+        self.key.save()
+
+    def test_allows_available_filters_with_read_scope(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_forbids_export_even_with_write_scope(self):
+        self.key.scopes = ["activity_log:write"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            data={"format": "csv"},
+            headers={"authorization": f"Bearer {self.value}"},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This action does not support Personal API Key access"
+
+    def test_denies_available_filters_with_unrelated_scope(self):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'activity_log:read'"
 
 
 class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysBaseTest):

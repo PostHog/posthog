@@ -79,7 +79,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -1444,7 +1444,6 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
@@ -1497,7 +1496,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, tools })
         }
 
         return (

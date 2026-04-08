@@ -108,18 +108,28 @@ class TestGetSslmode:
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
             assert _get_sslmode(True) == "require"
 
     def test_returns_prefer_when_ssl_not_required_outside_test(self):
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
             assert _get_sslmode(False) == "prefer"
 
     def test_returns_prefer_in_debug_mode(self):
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = True
+            mock_settings.E2E_TESTING = False
+            assert _get_sslmode(True) == "prefer"
+
+    def test_returns_prefer_in_e2e_mode(self):
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = True
             assert _get_sslmode(True) == "prefer"
 
 

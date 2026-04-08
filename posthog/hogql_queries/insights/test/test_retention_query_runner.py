@@ -4531,6 +4531,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 f"Missing expected {expected_type} at {expected_time} for person2 on day 1",
             )
 
+    @snapshot_clickhouse_queries
     def test_retention_first_time_vs_first_ever_occurrence(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         # First event, doesn't match property filter

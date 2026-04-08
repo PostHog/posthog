@@ -7,21 +7,25 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs
+from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
@@ -199,6 +203,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value="",
                     invite_message=invite_message,
+                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
                 ),
                 id=workflow_id,
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -227,6 +232,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value=previous_value,
                     invite_message=invite_message,
+                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
                 ),
                 id=workflow_id,
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -262,6 +268,50 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(deleted=str_to_bool(filters["deleted"]))
 
         return queryset
+
+    @extend_schema(
+        request=None,
+        responses={202: OpenApiResponse(description="Test delivery workflow started")},
+    )
+    @action(methods=["POST"], detail=True, url_path="test-delivery")
+    def test_delivery(self, request, **kwargs):
+        subscription = self.get_object()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        temporal = sync_connect()
+        workflow_id = f"test-delivery-subscription-{subscription.id}"
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=subscription.id,
+                        team_id=subscription.team_id,
+                        distinct_id=str(subscription.created_by.distinct_id)
+                        if subscription.created_by
+                        else str(subscription.team_id),
+                        previous_value=None,
+                        invite_message=None,
+                        trigger_type=SubscriptionTriggerType.MANUAL,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
+            )
+        except WorkflowAlreadyStartedError:
+            return Response(
+                {"detail": "Delivery already in progress"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                {"detail": "Failed to schedule delivery"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(status=status.HTTP_202_ACCEPTED)
 
 
 def unsubscribe(request: HttpRequest):

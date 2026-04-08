@@ -493,6 +493,59 @@ class TestEmailInboundRegionRouting(BaseTest):
         mock_proxy.assert_not_called()
 
 
+class TestBuildProxyKwargs(BaseTest):
+    """Unit tests for _build_proxy_kwargs multipart fallback."""
+
+    def test_raw_body_available(self):
+        from django.test import RequestFactory
+
+        from products.conversations.backend.services.region_routing import _build_proxy_kwargs
+
+        factory = RequestFactory()
+        request = factory.post(
+            "/api/conversations/v1/email/inbound",
+            data=b"key=val",
+            content_type="application/x-www-form-urlencoded",
+        )
+        result = _build_proxy_kwargs(request, {"Content-Type": "application/x-www-form-urlencoded"})
+        assert "data" in result
+        assert "files" not in result
+        assert result["data"] == b"key=val"
+
+    def test_multipart_fallback_after_stream_consumed(self):
+        from unittest.mock import PropertyMock, patch
+
+        from django.http.request import RawPostDataException
+        from django.test import RequestFactory
+
+        from products.conversations.backend.services.region_routing import _build_proxy_kwargs
+
+        factory = RequestFactory()
+        png = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+        request = factory.post(
+            "/api/conversations/v1/email/inbound",
+            data={"recipient": "team-abc@mg.posthog.com", "attachment-1": png},
+        )
+
+        _ = request.POST
+        _ = request.FILES
+
+        headers = {"Content-Type": "multipart/form-data; boundary=xxx"}
+        with patch.object(type(request), "body", new_callable=PropertyMock, side_effect=RawPostDataException()):
+            result = _build_proxy_kwargs(request, headers)
+
+        assert "files" in result
+        assert len(result["files"]) == 1
+        key, (name, content_bytes, ct) = result["files"][0]
+        assert key == "attachment-1"
+        assert name == "photo.png"
+        assert ct == "image/png"
+        assert len(content_bytes) > 0
+
+        assert any(k == "recipient" and v == "team-abc@mg.posthog.com" for k, v in result["data"])
+        assert "content-type" not in {k.lower() for k in result["headers"]}
+
+
 class TestEmailInboundMultiConfig(BaseTest):
     def setUp(self):
         super().setUp()

@@ -30,10 +30,10 @@ export function NodeDetailDetails({ id }: { id: string }): JSX.Element | null {
                 <span className="text-muted text-sm">Last refreshed:</span>
                 {effectiveLastRunAt ? <TZLabel time={effectiveLastRunAt} /> : <span className="text-muted">Never</span>}
             </div>
-            {node.dag_id && (
+            {node.dag && (
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">DAG:</span>
-                    <span className="text-muted">{node.dag_id}</span>
+                    <span className="text-muted">{node.dag_name ?? node.dag}</span>
                 </div>
             )}
         </div>

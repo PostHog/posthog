@@ -248,7 +248,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
-        component = <TwoDimensionalHeatmap />
+        component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

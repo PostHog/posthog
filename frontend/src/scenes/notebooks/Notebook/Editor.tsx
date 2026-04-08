@@ -59,7 +59,9 @@ import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
+import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
+import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
 
@@ -84,6 +86,7 @@ export function Editor(): JSX.Element {
         document: false,
         gapcursor: false,
         link: false,
+        trailingNode: false,
     }
 
     const extensions = [
@@ -160,6 +163,8 @@ export function Editor(): JSX.Element {
         NotebookNodeSupportTickets,
         NotebookNodeRelatedGroups,
         NotebookNodeCustomerJourney,
+        NotebookTrailingParagraph,
+        NotebookDefaultBlockOnEnter,
     ]
 
     if (hasCollapsibleSections) {
@@ -189,7 +194,7 @@ export function Editor(): JSX.Element {
             {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
-                    !editor.isActive('comment') ? (
+                    !editor.isSelectionFullyWithinSingleMark('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton
@@ -216,13 +221,15 @@ function getNodeBeforeActiveNode(editor: TTEditor): RichContentNode | null {
 }
 
 function findCommentPosition(editor: TTEditor, markId: string): number | null {
-    let result = null
+    let result: number | null = null
     const doc = editor.state.doc
     doc.descendants((node, pos) => {
         const mark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === markId)
         if (mark) {
-            result = pos
-            return
+            // Same id can appear on multiple text nodes; use the start of the marked run.
+            if (result === null || pos < result) {
+                result = pos
+            }
         }
     })
     return result

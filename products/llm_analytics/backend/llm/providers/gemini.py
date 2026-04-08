@@ -52,6 +52,17 @@ class GeminiConfig:
         "gemini-1.5-pro",
     ]
 
+    # Models available to trial users (PostHog pays). Excludes older/preview
+    # pro tiers while keeping the current flagship (gemini-2.5-pro).
+    TRIAL_MODELS: list[str] = [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+    ]
+
 
 class GeminiAdapter:
     """Gemini provider implementing the unified Client interface."""

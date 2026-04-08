@@ -97,6 +97,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(legacy_calls), 1)
 
+    def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "Creating or updating insights with legacy filters is not available for this user.",
+        )
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 1)
+
+    def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {
+                    "name": "Query insight",
+                    "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 0)
+
     def test_get_insight_items(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -3621,6 +3654,76 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "override value!"
+
+    def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Organization", code_name="organization", default_value="default", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.organization}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        base_query_params: dict[str, str] = {
+            "from_dashboard": str(dashboard.pk),
+            "refresh": "blocking",
+            "tile_filters_override": json.dumps({"date_from": "all", "explicitDate": False}),
+        }
+
+        some_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Some org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        another_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Another org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert some_org_response["filters_hash"] != another_org_response["filters_hash"]
 
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""

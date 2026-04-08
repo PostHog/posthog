@@ -1,0 +1,22 @@
+[package]
+name = "ingestion-consumer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+envconfig = { workspace = true }
+futures = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rand = { workspace = true }
+rdkafka = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

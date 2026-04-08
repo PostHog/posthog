@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,8 +16,10 @@ import {
 import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
+import { quietHoursFormError } from './scheduleRestrictionValidation'
 import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
 
 export type AlertFormType = Pick<
@@ -32,6 +34,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'schedule_restriction'
     | 'detector_config'
 > & {
     id?: AlertType['id']
@@ -54,6 +57,11 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+}
+
+/** Apply create/update/snooze API response to alertLogic so UI (e.g. next planned evaluation) updates immediately. */
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    alertLogic({ alertId: updatedAlert.id }).actions.loadAlertSuccess(updatedAlert)
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -163,12 +171,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     checks: [],
                     calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
+                    schedule_restriction: null,
                     detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
-            errors: ({ name }) => ({
-                name: !name ? 'You need to give your alert a name' : undefined,
-            }),
+            errors: (alert: AlertType | AlertFormType) =>
+                ({
+                    name: !alert.name ? 'You need to give your alert a name' : undefined,
+                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
+                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
                 const payload: AlertTypeWrite = {
                     ...alert,
@@ -185,6 +196,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
+                    schedule_restriction:
+                        (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
+                            ? alert.schedule_restriction
+                            : null,
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -216,6 +231,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         await flushPendingNotifications(updatedAlert.id)
+                        hydrateAlertLogicFromSaveResponse(updatedAlert)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -226,6 +242,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     await flushPendingNotifications(updatedAlert.id)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
@@ -272,6 +289,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -286,6 +304,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)

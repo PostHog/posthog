@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import models
@@ -32,6 +32,7 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_status = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
+    dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Node
@@ -40,6 +41,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "name",
             "type",
             "dag",
+            "dag_name",
             "description",
             "saved_query_id",
             "created_at",
@@ -58,12 +60,19 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
+            "dag_name",
         ]
 
     def get_upstream_count(self, node: Node) -> int:
+        counts = self.context.get("node_counts")
+        if counts and str(node.id) in counts:
+            return counts[str(node.id)][0]
         return len(_get_upstream_nodes(node))
 
     def get_downstream_count(self, node: Node) -> int:
+        counts = self.context.get("node_counts")
+        if counts and str(node.id) in counts:
+            return counts[str(node.id)][1]
         return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str | None:
@@ -80,6 +89,9 @@ class NodeSerializer(serializers.ModelSerializer):
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
+    def get_dag_name(self, node: Node) -> str:
+        return node.dag.name
+
 
 class NodePagination(PageNumberPagination):
     page_size = 1000
@@ -88,7 +100,8 @@ class NodePagination(PageNumberPagination):
 # TODO: consolidate graph traversal logic. similar implementations exist in:
 # - products/data_warehouse/backend/api/lineage.py (get_upstream_dag) should be deleted after new system takes over
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
-# shared utility should exist and used between node viewset and workflow
+# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
+# the temporal workflow and lineage API should migrate to Graph
 
 
 def _is_v2_backend_enabled(user: User, team: Team) -> bool:
@@ -153,7 +166,7 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
     latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
     return (
-        Node.objects.select_related("saved_query")
+        Node.objects.select_related("saved_query", "dag")
         .annotate(
             _latest_job_status=Subquery(latest_job.values("status")[:1]),
             _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
@@ -174,13 +187,40 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
-    def safely_get_queryset(self, queryset):
-        # TODO(andrew): remove the dag name filter after you have split up team 2 into multiple DAGs
-        return (
-            _node_queryset_with_latest_job()
-            .filter(team_id=self.team_id, dag__name=f"posthog_{self.team_id}")
-            .order_by(self.ordering)
+    def list(self, request, *args, **kwargs):
+        from products.data_modeling.backend.graph import Graph
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        nodes = page if page is not None else queryset
+
+        dag_id = self._get_dag_id_param()
+        graph = Graph(team_id=self.team_id, dag_id=dag_id)
+        node_ids = [str(n.id) for n in nodes]
+        counts = graph.batch_counts(node_ids)
+
+        serializer = self.get_serializer(
+            nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}
         )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
+
+    def _get_dag_id_param(self) -> str | None:
+        dag_id = self.request.query_params.get("dag")
+        if dag_id:
+            try:
+                UUID(dag_id)
+            except ValueError:
+                return None
+        return dag_id
+
+    def safely_get_queryset(self, queryset):
+        qs = queryset.filter(team_id=self.team_id).exclude(dag__name__startswith="conflict_")
+        dag_id = self._get_dag_id_param()
+        if dag_id:
+            qs = qs.filter(dag_id=dag_id)
+        return qs.order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -271,7 +311,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
         nodes = _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
-        edges = Edge.objects.select_related("source", "target").filter(
+        edges = Edge.objects.select_related("source", "target", "dag").filter(
             team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
         )
 
@@ -284,8 +324,14 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Get all distinct dag_ids for the team's nodes."""
-        dag_ids = list(DAG.objects.filter(team_id=self.team_id).values_list("name", flat=True).order_by("name"))
+        """Get all distinct DAGs for the team."""
+        dags = list(
+            DAG.objects.filter(team_id=self.team_id)
+            .exclude(name__startswith="conflict_")
+            .order_by("name")
+            .values("id", "name")
+        )
+        dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
         return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
