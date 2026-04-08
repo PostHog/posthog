@@ -141,6 +141,28 @@ export interface LinearIssueSignalInput {
     extra: LinearIssueSignalExtra
 }
 
+// Conversations ticket
+
+export interface ConversationsTicketSignalExtra {
+    ticket_number: number
+    channel_source: string
+    channel_detail: string | null
+    status: string
+    priority: string | null
+    created_at: string
+    email_subject: string | null
+    email_from: string | null
+}
+
+export interface ConversationsTicketSignalInput {
+    source_type: 'ticket'
+    source_product: 'conversations'
+    source_id: string
+    description: string
+    weight: number
+    extra: ConversationsTicketSignalExtra
+}
+
 // Error tracking
 
 export interface ErrorTrackingSignalExtra {
@@ -188,4 +210,5 @@ export type SignalInput =
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput

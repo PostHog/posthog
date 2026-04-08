@@ -864,6 +864,32 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class ConversationsTicketSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel_detail: str | None = None
+    channel_source: str
+    created_at: str
+    email_from: str | None = None
+    email_subject: str | None = None
+    priority: str | None = None
+    status: str
+    ticket_number: float
+
+
+class ConversationsTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ConversationsTicketSignalExtra
+    source_id: str
+    source_product: Literal["conversations"] = "conversations"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
+
+
 class CoreEventCategory(StrEnum):
     ACQUISITION = "acquisition"
     ACTIVATION = "activation"
@@ -7560,6 +7586,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
     ]
 ):
@@ -7569,6 +7596,7 @@ class SignalInput(
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
+        | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
     ) = Field(..., discriminator="source_product")
 

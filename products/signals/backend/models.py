@@ -13,6 +13,7 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
 
     class SourceType(models.TextChoices):

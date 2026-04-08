@@ -1,8 +1,7 @@
 # Signal emission pipeline
 
-Emits Signals from external data import sources (Zendesk tickets, GitHub issues, Linear issues)
-to surface actionable product feedback.
-The pipeline is designed to be source-agnostic so that internal PostHog products can plug in their own record fetchers later.
+Emits Signals from various sources — both external data imports (Zendesk tickets, GitHub issues, etc.)
+and internal products (Conversations tickets) — to surface actionable product feedback.
 
 ## How emitted signals are used
 
@@ -30,7 +29,8 @@ The core signal pipeline (`posthog/temporal/data_imports/signals/pipeline.py`) i
 
 `posthog/temporal/data_imports/signals/registry.py` maps `(source_type, schema_name)` pairs to their config.
 All emitters are auto-registered at module load time.
-The registry key is a plain string pair — external sources use `ExternalDataSourceType` values (e.g., `"Zendesk"`).
+The registry key is a plain string pair — external sources use `ExternalDataSourceType` values (e.g., `"Zendesk"`),
+internal sources use their own identifiers (e.g., `"conversations"`).
 
 ### Record fetchers
 
@@ -38,6 +38,8 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
   Receives `table_name` and `last_synced_at` via the runtime context dict.
+- **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
+  Marks tickets as emitted (`signal_emitted_at`) optimistically at fetch time.
 
 ### Data import sources (Zendesk, GitHub, Linear)
 
@@ -48,6 +50,15 @@ Triggered by the data import workflow:
 2. **Child workflow** (`posthog/temporal/data_imports/workflow_activities/emit_signals.py`) runs the activity that
    calls `config.record_fetcher` then the shared pipeline.
 
+### Conversations source
+
+Triggered by a Temporal schedule (hourly):
+
+1. **Coordinator workflow** (`conversations_coordinator.py`) queries teams with conversations signals enabled
+   and spawns per-team child workflows (batched, ~50 concurrent).
+2. **Per-team workflow** runs the activity that fetches eligible tickets (>1 hour old, not resolved,
+   not yet emitted) with their full message threads, then runs the shared pipeline.
+
 ### Gating
 
 All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`)
@@ -57,7 +68,7 @@ Users enable sources via the Inbox Sources modal.
 ## Adding a new source
 
 1. **Create the emitter module** — add a file in this directory (e.g., `jira_issues.py`).
-   Follow existing emitters (`zendesk_tickets.py`, `github_issues.py`, `linear_issues.py`) for the pattern:
+   Follow existing emitters (`zendesk_tickets.py`, `github_issues.py`, `conversations_tickets.py`) for the pattern:
    define which fields to query,
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient),
    define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources),
@@ -66,8 +77,9 @@ Users enable sources via the Inbox Sources modal.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.)
    unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
-2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`,
-   using the matching `ExternalDataSourceType` value as the source type.
+2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
+   For external sources, use the `ExternalDataSourceType` value as the source type.
+   For internal sources, use a descriptive string identifier.
 3. **Write tests in `tests/`** — emitter tests (`test_<source>.py`) covering valid records,
    missing/empty required fields (parameterized), and extra field extraction.
    Add a realistic mock record and pytest fixture in `tests/conftest.py`.
