@@ -60,6 +60,10 @@ impl CutoverHandler for RouterCutoverHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
 
     // Initialize tracing
