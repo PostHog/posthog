@@ -4,7 +4,7 @@ use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use serde_json::Value;
 
-use super::event_name::{get_event_name, has_ai_attributes_raw};
+use super::providers;
 
 pub struct SpanEvent {
     pub event_name: String,
@@ -117,15 +117,12 @@ pub fn expand_into_events(
 
         for ss in &rs.scope_spans {
             for span in &ss.spans {
-                if !has_ai_attributes_raw(&span.attributes) {
-                    continue;
-                }
-
-                let span_attrs = attributes_to_map(&span.attributes);
-
-                let Some(event_name) = get_event_name(&span_attrs) else {
+                let Some(provider) = providers::get_provider_raw(&span.attributes) else {
                     continue;
                 };
+
+                let span_attrs = attributes_to_map(&span.attributes);
+                let event_name = (provider.classify)(&span_attrs);
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
