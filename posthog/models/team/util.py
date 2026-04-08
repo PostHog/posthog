@@ -82,18 +82,17 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
 
 
 def _delete_persons_for_team_via_personhog(team_id: int) -> None:
-    from posthog.models.person import Person
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import DeletePersonsRequest
+    from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
 
-    all_uuids = [str(u) for u in Person.objects.filter(team_id=team_id).values_list("uuid", flat=True)]
-    for i in range(0, len(all_uuids), 1000):
-        batch = all_uuids[i : i + 1000]
-        client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=batch))
+    while True:
+        resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+        if resp.deleted_count == 0:
+            break
 
 
 def _delete_persons_for_team_via_orm(team_id: int) -> None:

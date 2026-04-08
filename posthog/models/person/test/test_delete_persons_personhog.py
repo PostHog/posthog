@@ -146,20 +146,9 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
         grpc_exception,
         mock_raw_delete_batch,
     ):
-        mock_person_cls = MagicMock()
-        mock_person_did_cls = MagicMock()
-        # Simulate no persons to delete (empty queryset)
-        mock_person_cls.objects.filter.return_value.values_list.return_value = []
-
-        with (
-            fake_personhog_client(gate_enabled=gate_on) as fake,
-            patch("posthog.models.person.Person", mock_person_cls),
-            patch("posthog.models.person.PersonDistinctId", mock_person_did_cls),
-        ):
+        with fake_personhog_client(gate_enabled=gate_on) as fake:
             if grpc_exception is not None:
-                fake.delete_persons = MagicMock(side_effect=grpc_exception)
-                # On failure, we need the queryset to return a uuid so the RPC is actually called
-                mock_person_cls.objects.filter.return_value.values_list.return_value = ["uuid-1"]
+                fake.delete_persons_batch_for_team = MagicMock(side_effect=grpc_exception)
 
             _delete_persons_for_teams([1])
 
@@ -239,7 +228,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
         assert Person.objects.filter(team_id=self.team.pk).count() == 0
         assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
 
-    def test_personhog_path_calls_rpc_per_team(self):
+    def test_personhog_path_calls_batch_rpc_per_team(self):
         other_team = self.organization.teams.create(name="Other Team")
         p1 = Person.objects.create(team=self.team, distinct_ids=["a"])
         p2 = Person.objects.create(team=other_team, distinct_ids=["b"])
@@ -250,17 +239,32 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
 
             _delete_persons_for_teams([self.team.pk, other_team.pk])
 
-            # Should call delete_persons for each team that has persons
-            calls = fake.assert_called("delete_persons")
+            calls = fake.assert_called("delete_persons_batch_for_team")
             team_ids_called = {c.request.team_id for c in calls}
             assert self.team.pk in team_ids_called
             assert other_team.pk in team_ids_called
+
+    def test_personhog_batch_rpc_loops_until_done(self):
+        p1 = Person.objects.create(team=self.team, distinct_ids=["a"])
+        p2 = Person.objects.create(team=self.team, distinct_ids=["b"])
+
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
+            fake.add_person(team_id=self.team.pk, person_id=p2.pk, uuid=str(p2.uuid), distinct_ids=["b"])
+
+            _delete_persons_for_teams([self.team.pk])
+
+            # Should have called at least twice: once to delete, once to confirm 0 remaining
+            calls = fake.assert_called("delete_persons_batch_for_team")
+            assert len(calls) >= 2
+            # Last call should have returned deleted_count=0
+            assert calls[-1].response.deleted_count == 0
 
     def test_personhog_fallback_on_error_deletes_via_orm(self):
         Person.objects.create(team=self.team, distinct_ids=["did-1"])
 
         with fake_personhog_client(gate_enabled=True) as fake:
-            fake.delete_persons = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            fake.delete_persons_batch_for_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
             _delete_persons_for_teams([self.team.pk])
 
         assert Person.objects.filter(team_id=self.team.pk).count() == 0
