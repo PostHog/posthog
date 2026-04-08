@@ -257,9 +257,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             ]
 
             having_exprs = [self._frustration_metrics_having()]
-            outer_bkdn = self.outer_where_breakdown()
-            if outer_bkdn:
-                having_exprs.append(outer_bkdn)
+            outer_breakdown = self.outer_where_breakdown()
+            if outer_breakdown:
+                having_exprs.append(outer_breakdown)
 
             query = ast.SelectQuery(
                 select=selects,
