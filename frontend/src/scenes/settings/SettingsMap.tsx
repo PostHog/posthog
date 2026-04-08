@@ -516,7 +516,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
-                flag: 'ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-integrations',
@@ -543,7 +542,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
-                flag: '!ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-alerting',

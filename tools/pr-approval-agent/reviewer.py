@@ -230,6 +230,7 @@ class Reviewer:
             posthog_kwargs = {
                 "posthog_distinct_id": "stamphog",
                 "posthog_properties": {
+                    "ai_product": "stamphog",
                     "stamphog_pr_number": pr.number,
                     "stamphog_repo": pr.repo,
                     "stamphog_author": pr.author,

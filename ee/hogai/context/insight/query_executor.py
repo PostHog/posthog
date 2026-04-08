@@ -16,6 +16,7 @@ from rest_framework.exceptions import APIException
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
@@ -105,6 +106,8 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | TrendsQuery
         | AssistantFunnelsQuery
         | FunnelsQuery
+        | AssistantLifecycleQuery
+        | LifecycleQuery
         | AssistantPathsQuery
         | PathsQuery
         | AssistantStickinessQuery
@@ -470,15 +473,15 @@ class AssistantQueryExecutor:
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
                 # Contains a nested ClickHouse query in the date ranges
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
+            elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
+                formatter_name = "LifecycleResultsFormatter"
+                result = LifecycleResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
                 result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
                 formatter_name = "StickinessResultsFormatter"
                 result = StickinessResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, LifecycleQuery):
-                formatter_name = "LifecycleResultsFormatter"
-                result = LifecycleResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
@@ -550,12 +553,12 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         if query.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
         return FUNNEL_TRENDS_EXAMPLE_PROMPT
+    if isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
+        return LIFECYCLE_EXAMPLE_PROMPT
     if isinstance(query, AssistantPathsQuery | PathsQuery):
         return PATHS_EXAMPLE_PROMPT
     if isinstance(query, AssistantStickinessQuery | StickinessQuery):
         return STICKINESS_EXAMPLE_PROMPT
-    if isinstance(query, LifecycleQuery):
-        return LIFECYCLE_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery):

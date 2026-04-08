@@ -270,9 +270,9 @@ async def create_worker(
         host,
         port,
         namespace,
-        server_root_ca_cert,
-        client_cert,
-        client_key,
+        server_root_ca_cert=server_root_ca_cert,
+        client_cert=client_cert,
+        client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
     )

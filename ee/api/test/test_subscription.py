@@ -2,13 +2,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs
+from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -445,6 +446,83 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
+
+    def test_deliver_subscription(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+        mock_client.start_workflow.reset_mock()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_202_ACCEPTED
+
+        # start_workflow is called twice: once for the create (target change) and once for test-delivery
+        assert mock_client.start_workflow.call_count == 1
+        wf_args, wf_kwargs = mock_client.start_workflow.call_args
+        assert wf_args[0] == "handle-subscription-value-change"
+        activity_inputs = wf_args[1]
+        assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
+        assert activity_inputs.subscription_id == sub_id
+        assert activity_inputs.previous_value is None
+        assert activity_inputs.trigger_type == SubscriptionTriggerType.MANUAL
+        assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
+
+    def test_deliver_cross_team_returns_404(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        response = self.client.post(f"/api/projects/{other_team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliver_deleted_subscription_returns_404(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+        Subscription.objects.filter(id=sub_id).update(deleted=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliver_temporal_error_returns_500(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(side_effect=[None, RuntimeError("Temporal unavailable")])
+        mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json()["detail"] == "Failed to schedule delivery"
+
+    def test_deliver_concurrent_returns_409(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(
+            side_effect=[
+                None,  # create subscription
+                WorkflowAlreadyStartedError(
+                    "test-delivery-subscription-1", "handle-subscription-value-change"
+                ),  # test-delivery
+            ]
+        )
+        mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_backfill_picks_same_integration_as_delivery(self, mock_sync):
         """The data migration must assign the lowest-id Slack integration
