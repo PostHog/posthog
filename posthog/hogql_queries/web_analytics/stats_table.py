@@ -156,7 +156,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
-                    "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
                     "time_on_page_event_properties": self._event_properties_for_scroll(),
@@ -224,7 +223,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
-                    "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
                     "bounce_event_properties": self._event_properties_for_bounce_rate(),
@@ -281,7 +279,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
                 ),
                 "all_properties": self._all_properties(),
-                "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
             },
         )
@@ -326,7 +323,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 "breakdown_value": breakdown,
                 "event_where": self.event_type_expr,
                 "all_properties": self._all_properties(),
-                "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
             },
         )
@@ -763,12 +759,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 )
             case _:
                 raise NotImplementedError("Aggregation value not exists")
-
-    def where_breakdown(self):
-        # Null filtering moved to outer_where_breakdown() for better ClickHouse performance.
-        # Filtering on the alias in the inner WHERE forced ClickHouse to evaluate the full
-        # join-dependent expression per-row; filtering after GROUP BY is much cheaper.
-        return parse_expr("TRUE")
 
     def outer_where_breakdown(self) -> ast.Expr | None:
         match self.query.breakdownBy:

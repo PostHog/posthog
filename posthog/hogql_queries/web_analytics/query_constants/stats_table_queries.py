@@ -24,7 +24,6 @@ FROM (
             {inside_periods},
             {event_properties},
             {session_properties},
-            {where_breakdown},
         )
         GROUP BY session_id, breakdown_value
     )
@@ -182,8 +181,7 @@ FROM (
             or(events.event = '$pageview', events.event = '$screen'),
             {inside_periods},
             {event_properties},
-            {session_properties},
-            {where_breakdown}
+            {session_properties}
         )
         GROUP BY session_id, breakdown_value
     )
@@ -257,7 +255,7 @@ SELECT
     session.session_id AS session_id,
     min(session.$start_timestamp) as start_timestamp
 FROM events
-WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
+WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
 """
 
@@ -270,6 +268,6 @@ SELECT
     any(session.$is_bounce) AS is_bounce,
     min(session.$start_timestamp) as start_timestamp
 FROM events
-WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
+WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
 """
