@@ -133,6 +133,14 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
             payload_buf.clear();
             if let Err(e) = event.serialize_into(ctx, &mut payload_buf) {
+                crate::ctx_log!(
+                    Level::ERROR,
+                    ctx,
+                    sink = sink_str,
+                    uuid_key = %uuid_key,
+                    error = %e,
+                    "event serialization failed, dropping event"
+                );
                 counter!(
                     "capture_v1_kafka_publish_total",
                     "mode" => labels.mode,

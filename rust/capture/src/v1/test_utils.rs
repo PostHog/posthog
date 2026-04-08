@@ -84,7 +84,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         result: EventResult::Ok,
         details: None,
         destination: Destination::default(),
-        skip_person_processing: false,
+        force_disable_person_processing: false,
     }
 }
 
@@ -106,7 +106,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         result: EventResult::Ok,
         details: None,
         destination: Destination::default(),
-        skip_person_processing: false,
+        force_disable_person_processing: false,
     }
 }
 
@@ -128,7 +128,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         result: EventResult::Drop,
         details: Some("missing_event_name"),
         destination: Destination::default(),
-        skip_person_processing: false,
+        force_disable_person_processing: false,
     }
 }
 
