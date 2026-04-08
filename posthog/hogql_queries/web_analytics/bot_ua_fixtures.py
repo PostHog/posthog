@@ -7,30 +7,41 @@ Organized by traffic category. Used by:
 """
 
 BOT_USER_AGENTS: dict[str, list[str]] = {
-    "ai_agent": [
+    "ai_crawler": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot",
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ClaudeBot/1.0; +https://anthropic.com",
-        "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
-        "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/bot)",
-        "Mozilla/5.0 (compatible; Google-Extended; +https://developers.google.com/search/docs/crawling-indexing/google-extended)",
-        "CCBot/2.0 (https://commoncrawl.org/faq/)",
         "anthropic-ai (https://anthropic.com)",
+        "Mozilla/5.0 (compatible; Google-Extended; +https://developers.google.com/search/docs/crawling-indexing/google-extended)",
+        "Mozilla/5.0 (compatible; GoogleOther; +https://developers.google.com/search/docs/crawling-indexing/googleother)",
+        "CCBot/2.0 (https://commoncrawl.org/faq/)",
         "cohere-ai",
         "meta-externalagent/1.1",
-        "Bytespider",
-        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
-        "Claude-Web/1.0 (https://anthropic.com)",
         "Meta-ExternalFetcher/1.0 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
+        "Bytespider",
+        "Mozilla/5.0 (compatible; TikTokSpider; +https://www.tiktok.com)",
         "Diffbot/0.1 (+http://www.diffbot.com)",
         "omgili/0.5 +http://omgili.com",
         "Webzio-Extended/1.0 (+https://webz.io)",
         "Mozilla/5.0 (compatible; Timpibot/0.9; +https://www.timpi.io)",
+        "Mozilla/5.0 (compatible; PetalBot; +https://webmaster.petalsearch.com/site/petalbot)",
+        "Mozilla/5.0 (compatible; Brightbot/1.0; +https://brightdata.com)",
+    ],
+    "ai_search": [
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
+        "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/bot)",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15 Applebot-Extended/0.1",
+    ],
+    "ai_assistant": [
+        "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+        "Mozilla/5.0 (compatible; Claude-User/1.0; +https://anthropic.com)",
+        "Claude-Web/1.0 (https://anthropic.com)",
     ],
     "search_crawler": [
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15 Applebot/0.1",
         "Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)",
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-        "Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+        "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Bingbot/2.0; +http://www.bing.com/Bingbot.htm) Chrome/116.0.0.0 Safari/537.36",
         "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
         "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
         "DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)",
@@ -41,7 +52,6 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
         "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
         "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
-        "Mozilla/5.0 (compatible; PetalBot; +https://webmaster.petalsearch.com/site/petalbot)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -94,7 +104,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
 
 # Category -> expected traffic_type mapping
 CATEGORY_TO_TRAFFIC_TYPE: dict[str, str] = {
-    "ai_agent": "AI Agent",
+    "ai_crawler": "AI Agent",
+    "ai_search": "AI Agent",
+    "ai_assistant": "AI Agent",
     "search_crawler": "Bot",
     "seo_crawler": "Bot",
     "social_crawler": "Bot",
@@ -106,7 +118,9 @@ CATEGORY_TO_TRAFFIC_TYPE: dict[str, str] = {
 
 # Category -> expected traffic_category mapping (the $virt_traffic_category value)
 CATEGORY_TO_TRAFFIC_CATEGORY: dict[str, str] = {
-    "ai_agent": "llm_crawler",
+    "ai_crawler": "ai_crawler",
+    "ai_search": "ai_search",
+    "ai_assistant": "ai_assistant",
     "search_crawler": "search_crawler",
     "seo_crawler": "seo_crawler",
     "social_crawler": "social_crawler",

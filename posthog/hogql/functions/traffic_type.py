@@ -93,7 +93,7 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Returns subcategory: 'llm_crawler', 'search_crawler', 'seo_crawler', etc.
+    Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
     """
     return _build_bot_array_lookup(args[0], "category", default="regular", empty_ua_value="no_user_agent")
@@ -133,7 +133,7 @@ def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     EXPERIMENTAL: This function may change without notice.
 
     Returns the bot category or empty string for regular traffic.
-    Categories: 'llm_crawler', 'search_crawler', 'seo_crawler', 'social_crawler',
+    Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', 'social_crawler',
                 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
     return _build_bot_array_lookup(args[0], "category", default="", empty_ua_value="no_user_agent")
