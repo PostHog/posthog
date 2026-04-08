@@ -1,8 +1,8 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -15,7 +15,7 @@ import type { actionsLogicType } from './actionsLogicType'
 
 export type ActionsFilterType = 'all' | 'me'
 
-export const actionsFuse = new Fuse<ActionType>([], {
+export const actionsFuse = createFuse<ActionType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
     threshold: 0.3,
     ignoreLocation: true,
