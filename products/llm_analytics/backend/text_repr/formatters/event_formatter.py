@@ -176,6 +176,50 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
     return formatted_text
 
 
+def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
+    """
+    Generate text representation of an evaluation event.
+    Shows the evaluation name, result (pass/fail/N/A), and reasoning.
+    """
+    lines: list[str] = []
+    props = event.get("properties", {})
+
+    eval_name = props.get("$ai_evaluation_name", "Unknown evaluation")
+    result = props.get("$ai_evaluation_result")
+    applicable = props.get("$ai_evaluation_applicable")
+    reasoning = props.get("$ai_evaluation_reasoning")
+
+    # Result line
+    if applicable is False or applicable == "false":
+        result_str = "N/A"
+    elif result is True or result == "true":
+        result_str = "PASS"
+    elif result is False or result == "false":
+        result_str = "FAIL"
+    else:
+        result_str = "UNKNOWN"
+
+    lines.append(SEPARATOR)
+    lines.append("")
+    lines.append(f"EVALUATION: {eval_name}")
+    lines.append(f"Result: {result_str}")
+
+    # Reasoning
+    if reasoning:
+        lines.append("")
+        lines.append("Reasoning:")
+        lines.append(reasoning)
+
+    lines.append("")
+
+    formatted_text = "\n".join(lines)
+
+    if options and options.get("include_line_numbers", False):
+        formatted_text = add_line_numbers(formatted_text)
+
+    return formatted_text
+
+
 def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate complete text representation of any LLM event.
@@ -191,6 +235,9 @@ def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | No
 
     if event_type == "$ai_embedding":
         return format_embedding_text_repr(event, options)
+
+    if event_type == "$ai_evaluation":
+        return format_evaluation_text_repr(event, options)
 
     # Default to generation formatter for $ai_generation and other events
     return format_generation_text_repr(event, options)

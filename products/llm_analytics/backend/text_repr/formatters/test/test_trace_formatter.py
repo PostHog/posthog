@@ -107,6 +107,50 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "ERROR" in summary
 
+    def test_evaluation_summary_pass(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": True,
+            },
+        }
+        summary = _get_event_summary(event)
+        assert "Factual accuracy" in summary
+        assert "PASS" in summary
+
+    def test_evaluation_summary_fail(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Relevance",
+                "$ai_evaluation_result": False,
+            },
+        }
+        summary = _get_event_summary(event)
+        assert "Relevance" in summary
+        assert "FAIL" in summary
+
+    def test_evaluation_summary_na(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Code quality",
+                "$ai_evaluation_applicable": False,
+            },
+        }
+        summary = _get_event_summary(event)
+        assert "Code quality" in summary
+        assert "N/A" in summary
+
+    def test_evaluation_summary_default_name(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {"$ai_evaluation_result": True},
+        }
+        summary = _get_event_summary(event)
+        assert "evaluation" in summary
+
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""
         event = {"event": "custom_event", "properties": {}}
@@ -351,6 +395,25 @@ class TestRenderTree:
         lines = _render_tree(nodes, {"include_markers": True, "collapsed": False})
         # Should render without error
         assert len(lines) > 0
+
+    def test_render_evaluation_node(self):
+        nodes = [
+            {
+                "event": {
+                    "id": "eval1",
+                    "event": "$ai_evaluation",
+                    "properties": {
+                        "$ai_evaluation_name": "Accuracy",
+                        "$ai_evaluation_result": True,
+                        "$ai_evaluation_reasoning": "Looks good.",
+                    },
+                }
+            }
+        ]
+        lines = _render_tree(nodes, {"include_markers": True, "collapsed": False})
+        result = "\n".join(lines)
+        assert "[EVAL]" in result
+        assert "Accuracy" in result
 
     def test_render_event_link(self):
         """Should create event links for other event types."""

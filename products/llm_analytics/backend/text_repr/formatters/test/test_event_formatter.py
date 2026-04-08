@@ -7,7 +7,12 @@ dicts, nested structures, and plain text.
 
 import json
 
-from ..event_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
+from ..event_formatter import (
+    _dict_to_yaml_lines,
+    format_embedding_text_repr,
+    format_evaluation_text_repr,
+    format_generation_text_repr,
+)
 
 
 class TestDictToYamlLines:
@@ -189,3 +194,76 @@ class TestErrorFormattingEmbedding:
 
         assert "ERROR:" in result
         assert error_string in result
+
+
+class TestEvaluationFormatting:
+    def test_evaluation_pass(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_reasoning": "The response is factually correct.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Factual accuracy" in result
+        assert "Result: PASS" in result
+        assert "Reasoning:" in result
+        assert "The response is factually correct." in result
+
+    def test_evaluation_fail(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Relevance check",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_reasoning": "The response does not address the query.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Relevance check" in result
+        assert "Result: FAIL" in result
+        assert "The response does not address the query." in result
+
+    def test_evaluation_na(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Code quality",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_applicable": False,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Code quality" in result
+        assert "Result: N/A" in result
+
+    def test_evaluation_string_result(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Check",
+                "$ai_evaluation_result": "true",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "Result: PASS" in result
+
+    def test_evaluation_no_reasoning(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Quick check",
+                "$ai_evaluation_result": True,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Quick check" in result
+        assert "Result: PASS" in result
+        assert "Reasoning:" not in result
+
+    def test_evaluation_missing_name(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_result": False,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Unknown evaluation" in result
+        assert "Result: FAIL" in result

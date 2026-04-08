@@ -143,6 +143,24 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             summary += f" ({', '.join(parts)})"
         return summary
 
+    if event_type == "$ai_evaluation":
+        eval_name = props.get("$ai_evaluation_name", "evaluation")
+        result = props.get("$ai_evaluation_result")
+        applicable = props.get("$ai_evaluation_applicable")
+
+        parts = []
+        if applicable is False or applicable == "false":
+            parts.append("N/A")
+        elif result is True or result == "true":
+            parts.append("PASS")
+        elif result is False or result == "false":
+            parts.append("FAIL")
+
+        summary = eval_name
+        if parts:
+            summary += f" ({', '.join(parts)})"
+        return summary
+
     return event_type
 
 
@@ -191,13 +209,15 @@ def _get_node_prefix(event_type: str) -> str:
         return "[SPAN]"
     elif event_type == "$ai_embedding":
         return "[EMBED]"
+    elif event_type == "$ai_evaluation":
+        return "[EVAL]"
     else:
         return "[EVENT]"
 
 
 def _is_expandable_event(event_type: str) -> bool:
     """Check if event type supports expandable content."""
-    return event_type in ("$ai_generation", "$ai_span", "$ai_embedding")
+    return event_type in ("$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation")
 
 
 def _render_collapsed_node(prefix: str, current_prefix: str, node_prefix: str, summary: str) -> str:
