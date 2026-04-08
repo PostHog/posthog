@@ -22,6 +22,8 @@ from posthog.schema import (
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
     FunnelsQuery,
+    PersonPropertyFilter,
+    PropertyOperator,
 )
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -73,6 +75,43 @@ def get_actors(
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+
+    def test_property_correlation_does_not_mutate_funnel_query_properties(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "properties": [{"key": "$browser", "value": "Chrome", "operator": "exact", "type": "person"}],
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+        original_properties = list(funnels_query.properties or [])
+        funnel_actors_query = FunnelsActorsQuery(source=funnels_query)
+        correlation_query = FunnelCorrelationQuery(
+            source=funnel_actors_query,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=["$browser"],
+        )
+        correlation_actors_query = FunnelCorrelationActorsQuery(
+            source=correlation_query,
+            funnelCorrelationPropertyValues=[
+                PersonPropertyFilter(key="$browser", value="Safari", operator=PropertyOperator.EXACT)
+            ],
+        )
+        actors_query = ActorsQuery(source=correlation_actors_query, select=["id"])
+        query_runner = ActorsQueryRunner(query=actors_query, team=self.team)
+
+        query_runner.source.to_actors_query()
+
+        self.assertEqual(
+            query_runner.source.context.query.properties,
+            original_properties,
+            "property correlation actor lookup should not mutate funnel query properties",
+        )
 
     def _setup_basic_test(self):
         filters = {
