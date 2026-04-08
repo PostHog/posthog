@@ -2730,29 +2730,28 @@ class TestExperimentService(APIBaseTest):
                 self._base_queryset(), action="list", query_params={"order": "feature_flag__key"}
             )
 
-    def test_order_by_valid_fields_works(self):
-        """Valid order fields should still work."""
+    @parameterized.expand(
+        [
+            ("created_at",),
+            ("-created_at",),
+            ("name",),
+            ("-name",),
+            ("start_date",),
+            ("-start_date",),
+            ("end_date",),
+            ("-end_date",),
+            ("updated_at",),
+            ("-updated_at",),
+            ("duration",),
+            ("-duration",),
+            ("status",),
+            ("-status",),
+        ]
+    )
+    def test_order_by_valid_fields_works(self, order: str):
         service = self._service()
-        for order in [
-            "created_at",
-            "-created_at",
-            "name",
-            "-name",
-            "start_date",
-            "-start_date",
-            "end_date",
-            "-end_date",
-            "updated_at",
-            "-updated_at",
-            "duration",
-            "-duration",
-            "status",
-            "-status",
-        ]:
-            qs = service.filter_experiments_queryset(
-                self._base_queryset(), action="list", query_params={"order": order}
-            )
-            assert qs is not None, f"order={order} should work"
+        qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
+        assert qs is not None
 
     def test_eligible_flags_order_by_invalid_field_raises(self):
         """Ordering eligible flags by a non-allowlisted field should be rejected."""
@@ -2791,14 +2790,18 @@ class TestExperimentService(APIBaseTest):
                 stats_config=stats_config,
             )
 
-    def test_valid_stats_config_methods_work(self):
-        """Valid stats methods should be accepted."""
+    @parameterized.expand(
+        [
+            ("bayesian",),
+            ("frequentist",),
+        ]
+    )
+    def test_valid_stats_config_methods_work(self, method: str):
         service = self._service()
-        for method in ["bayesian", "frequentist"]:
-            experiment = service.create_experiment(
-                name=f"Stats {method}",
-                feature_flag_key=f"stats-{method}-flag",
-                stats_config={"method": method},
-            )
-            assert experiment.stats_config is not None
-            assert experiment.stats_config["method"] == method
+        experiment = service.create_experiment(
+            name=f"Stats {method}",
+            feature_flag_key=f"stats-{method}-flag",
+            stats_config={"method": method},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == method

@@ -168,6 +168,32 @@ class ExperimentService:
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
+    EXPERIMENT_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "updated_at",
+        "-updated_at",
+        "name",
+        "-name",
+        "start_date",
+        "-start_date",
+        "end_date",
+        "-end_date",
+        "duration",
+        "-duration",
+        "status",
+        "-status",
+    }
+
+    ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "key",
+        "-key",
+        "name",
+        "-name",
+    }
+
     @classmethod
     def validate_stats_config(cls, stats_config: dict | None) -> None:
         """Validate stats_config shape and method value."""
@@ -1560,27 +1586,10 @@ class ExperimentService:
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
 
-        EXPERIMENT_ORDER_ALLOWLIST = {
-            "created_at",
-            "-created_at",
-            "updated_at",
-            "-updated_at",
-            "name",
-            "-name",
-            "start_date",
-            "-start_date",
-            "end_date",
-            "-end_date",
-            "duration",
-            "-duration",
-            "status",
-            "-status",
-        }
-
         order = query_params.get("order")
         if order:
             order_value = str(order)
-            if order_value not in EXPERIMENT_ORDER_ALLOWLIST:
+            if order_value not in self.EXPERIMENT_ORDER_ALLOWLIST:
                 raise ValidationError(f"Invalid order field: '{order_value}'")
             if order_value in ["duration", "-duration"]:
                 queryset = queryset.annotate(
@@ -1694,15 +1703,7 @@ class ExperimentService:
             else:
                 queryset = queryset.filter(eval_context_count=0)
 
-        ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
-            "created_at",
-            "-created_at",
-            "key",
-            "-key",
-            "name",
-            "-name",
-        }
-        if order and order not in ELIGIBLE_FLAGS_ORDER_ALLOWLIST:
+        if order and order not in self.ELIGIBLE_FLAGS_ORDER_ALLOWLIST:
             raise ValidationError(f"Invalid order field: '{order}'")
 
         queryset = queryset.order_by(order or "-created_at")
