@@ -6667,6 +6667,13 @@ export namespace Schemas {
       explicit_datetime?: string | null;
     }
 
+    export interface BlastRadius {
+      /** Number of users matching the filters */
+      affected: number;
+      /** Total number of users */
+      total: number;
+    }
+
     export interface BooleanScoreDefinitionConfig {
       /** Optional label for a true value. */
       true_label?: string;

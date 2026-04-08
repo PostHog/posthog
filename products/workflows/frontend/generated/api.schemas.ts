@@ -416,6 +416,13 @@ export interface PaginatedHogFlowScheduleListApi {
     results: HogFlowScheduleApi[]
 }
 
+export interface BlastRadiusApi {
+    /** Number of users matching the filters */
+    affected: number
+    /** Total number of users */
+    total: number
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
