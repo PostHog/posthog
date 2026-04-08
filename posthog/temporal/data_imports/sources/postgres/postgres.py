@@ -435,7 +435,6 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
-    add_order_by: bool = True,
 ) -> sql.Composed:
     if not should_use_incremental_field:
         if add_sampling:
@@ -488,11 +487,9 @@ def _build_query(
     if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    elif add_order_by:
+    else:
         query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
-    else:
-        return query
 
 
 def _build_count_query(

@@ -234,22 +234,6 @@ class TestBuildQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" in rendered
 
-    def test_incremental_without_order_by(self):
-        query = _build_query(
-            "public",
-            "events",
-            True,
-            "table",
-            "created_at",
-            IncrementalFieldType.Timestamp,
-            "2024-01-01",
-            add_order_by=False,
-        )
-        rendered = self._render(query)
-        assert '"created_at"' in rendered
-        assert "'2024-01-01'" in rendered
-        assert "ORDER BY" not in rendered
-
     def test_incremental_raises_without_field(self):
         with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
             _build_query("public", "events", True, "table", None, None, None)
