@@ -106,8 +106,7 @@ async fn resolve_issue(
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
-        let fingerprint_first_seen = result.fingerprint_first_seen;
-        let mut issue = result.issue;
+        let (mut issue, fingerprint_first_seen) = result.into_issue();
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
@@ -166,8 +165,9 @@ async fn resolve_issue(
         // Replace the attempt issue with the existing one
         let mut fingerprint_first_seen = None;
         if let Some(result) = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await? {
-            fingerprint_first_seen = result.fingerprint_first_seen;
-            issue = result.issue;
+            let (existing, first_seen) = result.into_issue();
+            issue = existing;
+            fingerprint_first_seen = first_seen;
         }
 
         // Since we just loaded an issue, check if it needs to be reopened

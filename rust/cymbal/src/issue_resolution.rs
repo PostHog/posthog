@@ -37,8 +37,29 @@ pub struct Issue {
 }
 
 pub struct IssueWithFirstSeen {
-    pub issue: Issue,
+    pub id: Uuid,
+    pub team_id: i32,
+    pub status: IssueStatus,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
     pub fingerprint_first_seen: Option<DateTime<Utc>>,
+}
+
+impl IssueWithFirstSeen {
+    pub fn into_issue(self) -> (Issue, Option<DateTime<Utc>>) {
+        (
+            Issue {
+                id: self.id,
+                team_id: self.team_id,
+                status: self.status,
+                name: self.name,
+                description: self.description,
+                created_at: self.created_at,
+            },
+            self.fingerprint_first_seen,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -72,33 +93,21 @@ impl Issue {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let row = sqlx::query(
+        let res = sqlx::query_as!(
+            IssueWithFirstSeen,
             r#"
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen
+            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
             "#,
+            team_id,
+            fingerprint
         )
-        .bind(team_id)
-        .bind(fingerprint)
         .fetch_optional(executor)
         .await?;
 
-        Ok(row.map(|r| {
-            use sqlx::Row;
-            IssueWithFirstSeen {
-                issue: Issue {
-                    id: r.get("id"),
-                    team_id: r.get("team_id"),
-                    status: IssueStatus::from(r.get::<String, _>("status")),
-                    name: r.get("name"),
-                    description: r.get("description"),
-                    created_at: r.get("created_at"),
-                },
-                fingerprint_first_seen: r.get("first_seen"),
-            }
-        }))
+        Ok(res)
     }
 
     pub async fn load<'c, E>(
