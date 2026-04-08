@@ -489,6 +489,11 @@ class SessionRecordingListResponseSerializer(serializers.Serializer):
     results = SessionRecordingSerializer(many=True)
     has_next = serializers.BooleanField()
     version = serializers.IntegerField()
+    next_cursor = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Cursor for fetching the next page of results.",
+    )
 
 
 class SessionRecordingSharedSerializer(serializers.ModelSerializer):

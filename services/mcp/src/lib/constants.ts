@@ -116,6 +116,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'project:read',
     'property_definition:read',
     'query:read',
+    'session_recording:read',
     'survey:read',
     'survey:write',
     'user:read',

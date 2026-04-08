@@ -1680,6 +1680,36 @@
             "readOnlyHint": false
         }
     },
+    "session-recordings-list": {
+        "description": "Search and list session recordings. Filter by session IDs, person UUID, distinct IDs, date range, and property filters on persons, sessions, events, and recordings. Returns recording metadata: duration, activity counts, start URL, person info, and a link to watch the recording.\nCommon filters (passed as query params): - session_ids: JSON array of session IDs - person_uuid: filter by person UUID - date_from/date_to: date range (default last 3 days). Relative: '-7d', '-24h'. Absolute: '2024-01-01' - properties: JSON array of property filters. Each filter has key, type, value, operator.\n  Types: person, session, event, recording, cohort, group.\n  Example: [{\"key\":\"$browser\",\"type\":\"person\",\"value\":[\"Chrome\"],\"operator\":\"exact\"}]\n- events: JSON array of event filters to match recordings containing specific events.\n  Example: [{\"id\":\"$pageview\",\"type\":\"events\",\"properties\":[{\"key\":\"$current_url\",\"type\":\"event\",\"value\":\"/pricing\",\"operator\":\"icontains\"}]}]\n- console_log_filters: JSON array for console log level filtering.\n  Example: [{\"key\":\"level\",\"type\":\"log_entry\",\"value\":[\"error\"],\"operator\":\"exact\"}]\n- order: start_time (default), duration, console_error_count, activity_score, click_count, etc. - filter_test_accounts: true to exclude test users\nUse the 'finding-session-recordings' skill for guidance on constructing filters from natural language.",
+        "category": "Session recordings",
+        "feature": "replay",
+        "summary": "List session recordings",
+        "title": "List session recordings",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recordings-retrieve": {
+        "description": "Retrieve a single session recording by its session ID. Returns full recording metadata including duration, activity counts, start URL, person info, viewer status, and a link to watch the recording.",
+        "category": "Session recordings",
+        "feature": "replay",
+        "summary": "Get session recording",
+        "title": "Get session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "surveys-get-all": {
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",

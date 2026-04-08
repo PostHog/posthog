@@ -21170,64 +21170,6 @@ export namespace Schemas {
       results: SessionRecordingExternalReference[];
     }
 
-    export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
-
-    export interface SessionRecording {
-      readonly id: string;
-      /** @nullable */
-      readonly distinct_id: string | null;
-      readonly viewed: boolean;
-      readonly viewers: readonly string[];
-      readonly recording_duration: number;
-      /** @nullable */
-      readonly active_seconds: number | null;
-      /** @nullable */
-      readonly inactive_seconds: number | null;
-      /** @nullable */
-      readonly start_time: string | null;
-      /** @nullable */
-      readonly end_time: string | null;
-      /** @nullable */
-      readonly click_count: number | null;
-      /** @nullable */
-      readonly keypress_count: number | null;
-      /** @nullable */
-      readonly mouse_activity_count: number | null;
-      /** @nullable */
-      readonly console_log_count: number | null;
-      /** @nullable */
-      readonly console_warn_count: number | null;
-      /** @nullable */
-      readonly console_error_count: number | null;
-      /** @nullable */
-      readonly start_url: string | null;
-      person?: MinimalPerson;
-      /** @nullable */
-      readonly retention_period_days: number | null;
-      readonly expiry_time: string;
-      readonly recording_ttl: string;
-      /** @nullable */
-      readonly snapshot_source: string | null;
-      /** @nullable */
-      readonly snapshot_library: string | null;
-      readonly ongoing: boolean;
-      /** @nullable */
-      readonly activity_score: number | null;
-      readonly has_summary: boolean;
-      readonly summary_outcome: Outcome | null;
-      /** Load external references (linked issues) for this recording */
-      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
-    }
-
-    export interface PaginatedSessionRecordingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionRecording[];
-    }
-
     /**
      * * `collection` - Collection
     * `filters` - Filters
@@ -29927,6 +29869,69 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
+
+    export interface SessionRecording {
+      readonly id: string;
+      /** @nullable */
+      readonly distinct_id: string | null;
+      readonly viewed: boolean;
+      readonly viewers: readonly string[];
+      readonly recording_duration: number;
+      /** @nullable */
+      readonly active_seconds: number | null;
+      /** @nullable */
+      readonly inactive_seconds: number | null;
+      /** @nullable */
+      readonly start_time: string | null;
+      /** @nullable */
+      readonly end_time: string | null;
+      /** @nullable */
+      readonly click_count: number | null;
+      /** @nullable */
+      readonly keypress_count: number | null;
+      /** @nullable */
+      readonly mouse_activity_count: number | null;
+      /** @nullable */
+      readonly console_log_count: number | null;
+      /** @nullable */
+      readonly console_warn_count: number | null;
+      /** @nullable */
+      readonly console_error_count: number | null;
+      /** @nullable */
+      readonly start_url: string | null;
+      person?: MinimalPerson;
+      /** @nullable */
+      readonly retention_period_days: number | null;
+      readonly expiry_time: string;
+      readonly recording_ttl: string;
+      /** @nullable */
+      readonly snapshot_source: string | null;
+      /** @nullable */
+      readonly snapshot_library: string | null;
+      readonly ongoing: boolean;
+      /** @nullable */
+      readonly activity_score: number | null;
+      readonly has_summary: boolean;
+      readonly summary_outcome: Outcome | null;
+      /** Load external references (linked issues) for this recording */
+      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+    }
+
+    /**
+     * Response serializer for the session recording list endpoint.
+     */
+    export interface SessionRecordingListResponse {
+      results: SessionRecording[];
+      has_next: boolean;
+      version: number;
+      /**
+       * Cursor for fetching the next page of results.
+       * @nullable
+       */
+      next_cursor?: string | null;
+    }
+
     export interface SessionSummaries {
       /**
        * List of session IDs to summarize (max 300)
@@ -32494,14 +32499,129 @@ export namespace Schemas {
 
     export type EnvironmentsSessionRecordingsListParams = {
     /**
-     * Number of results to return per page.
+     * JSON array of action filters. Similar to events but references saved actions by ID.
+     * @minLength 1
+     */
+    actions?: string;
+    /**
+     * JSON array of console log entry filters. Example: '[{"key":"level","type":"log_entry","value":["error"],"operator":"exact"}]'
+     * @minLength 1
+     */
+    console_log_filters?: string;
+    /**
+     * Start date for the search range. Relative: '-3d', '-7d', '-24h'. Absolute: '2024-01-01'. Defaults to '-3d'.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the search range. Null means 'now'. Absolute: '2024-01-15'.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * JSON array of distinct IDs. Example: '["user@example.com"]'
+     * @minLength 1
+     */
+    distinct_ids?: string;
+    /**
+     * JSON array of event filters. Matches recordings containing at least one matching event. Example: '[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"/pricing","operator":"icontains"}]}]'
+     * @minLength 1
+     */
+    events?: string;
+    /**
+     * Exclude internal/test users. Defaults to false.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Maximum number of recordings to return per page.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of recordings to skip for pagination.
      */
     offset?: number;
+    /**
+     * Logical operator to combine property filters. Defaults to 'AND'.
+
+    * `AND` - AND
+    * `OR` - OR
+     * @minLength 1
+     */
+    operand?: EnvironmentsSessionRecordingsListOperand;
+    /**
+     * Field to order recordings by. Defaults to 'start_time'.
+
+    * `start_time` - start_time
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `console_error_count` - console_error_count
+    * `active_seconds` - active_seconds
+    * `inactive_seconds` - inactive_seconds
+    * `click_count` - click_count
+    * `keypress_count` - keypress_count
+    * `mouse_activity_count` - mouse_activity_count
+    * `activity_score` - activity_score
+    * `recording_ttl` - recording_ttl
+     * @minLength 1
+     */
+    order?: EnvironmentsSessionRecordingsListOrder;
+    /**
+     * Sort direction. Defaults to 'DESC'.
+
+    * `ASC` - ASC
+    * `DESC` - DESC
+     * @minLength 1
+     */
+    order_direction?: EnvironmentsSessionRecordingsListOrderDirection;
+    /**
+     * Filter recordings by a specific person UUID.
+     * @minLength 1
+     */
+    person_uuid?: string;
+    /**
+     * JSON array of property filters for person, session, event, recording, or cohort properties. Example: '[{"key":"$browser","type":"person","value":["Chrome"],"operator":"exact"}]'. Supported types: person, session, event, recording, cohort, group, hogql.
+     * @minLength 1
+     */
+    properties?: string;
+    /**
+     * JSON array of session IDs to filter by. Example: '["session-abc","session-def"]'
+     * @minLength 1
+     */
+    session_ids?: string;
     };
+
+    export type EnvironmentsSessionRecordingsListOperand = typeof EnvironmentsSessionRecordingsListOperand[keyof typeof EnvironmentsSessionRecordingsListOperand];
+
+
+    export const EnvironmentsSessionRecordingsListOperand = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export type EnvironmentsSessionRecordingsListOrder = typeof EnvironmentsSessionRecordingsListOrder[keyof typeof EnvironmentsSessionRecordingsListOrder];
+
+
+    export const EnvironmentsSessionRecordingsListOrder = {
+      StartTime: 'start_time',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      ConsoleErrorCount: 'console_error_count',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+      ClickCount: 'click_count',
+      KeypressCount: 'keypress_count',
+      MouseActivityCount: 'mouse_activity_count',
+      ActivityScore: 'activity_score',
+      RecordingTtl: 'recording_ttl',
+    } as const;
+
+    export type EnvironmentsSessionRecordingsListOrderDirection = typeof EnvironmentsSessionRecordingsListOrderDirection[keyof typeof EnvironmentsSessionRecordingsListOrderDirection];
+
+
+    export const EnvironmentsSessionRecordingsListOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
 
     export type EnvironmentsSubscriptionsListParams = {
     /**
@@ -35824,14 +35944,129 @@ export namespace Schemas {
 
     export type SessionRecordingsListParams = {
     /**
-     * Number of results to return per page.
+     * JSON array of action filters. Similar to events but references saved actions by ID.
+     * @minLength 1
+     */
+    actions?: string;
+    /**
+     * JSON array of console log entry filters. Example: '[{"key":"level","type":"log_entry","value":["error"],"operator":"exact"}]'
+     * @minLength 1
+     */
+    console_log_filters?: string;
+    /**
+     * Start date for the search range. Relative: '-3d', '-7d', '-24h'. Absolute: '2024-01-01'. Defaults to '-3d'.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the search range. Null means 'now'. Absolute: '2024-01-15'.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * JSON array of distinct IDs. Example: '["user@example.com"]'
+     * @minLength 1
+     */
+    distinct_ids?: string;
+    /**
+     * JSON array of event filters. Matches recordings containing at least one matching event. Example: '[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"/pricing","operator":"icontains"}]}]'
+     * @minLength 1
+     */
+    events?: string;
+    /**
+     * Exclude internal/test users. Defaults to false.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Maximum number of recordings to return per page.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of recordings to skip for pagination.
      */
     offset?: number;
+    /**
+     * Logical operator to combine property filters. Defaults to 'AND'.
+
+    * `AND` - AND
+    * `OR` - OR
+     * @minLength 1
+     */
+    operand?: SessionRecordingsListOperand;
+    /**
+     * Field to order recordings by. Defaults to 'start_time'.
+
+    * `start_time` - start_time
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `console_error_count` - console_error_count
+    * `active_seconds` - active_seconds
+    * `inactive_seconds` - inactive_seconds
+    * `click_count` - click_count
+    * `keypress_count` - keypress_count
+    * `mouse_activity_count` - mouse_activity_count
+    * `activity_score` - activity_score
+    * `recording_ttl` - recording_ttl
+     * @minLength 1
+     */
+    order?: SessionRecordingsListOrder;
+    /**
+     * Sort direction. Defaults to 'DESC'.
+
+    * `ASC` - ASC
+    * `DESC` - DESC
+     * @minLength 1
+     */
+    order_direction?: SessionRecordingsListOrderDirection;
+    /**
+     * Filter recordings by a specific person UUID.
+     * @minLength 1
+     */
+    person_uuid?: string;
+    /**
+     * JSON array of property filters for person, session, event, recording, or cohort properties. Example: '[{"key":"$browser","type":"person","value":["Chrome"],"operator":"exact"}]'. Supported types: person, session, event, recording, cohort, group, hogql.
+     * @minLength 1
+     */
+    properties?: string;
+    /**
+     * JSON array of session IDs to filter by. Example: '["session-abc","session-def"]'
+     * @minLength 1
+     */
+    session_ids?: string;
     };
+
+    export type SessionRecordingsListOperand = typeof SessionRecordingsListOperand[keyof typeof SessionRecordingsListOperand];
+
+
+    export const SessionRecordingsListOperand = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export type SessionRecordingsListOrder = typeof SessionRecordingsListOrder[keyof typeof SessionRecordingsListOrder];
+
+
+    export const SessionRecordingsListOrder = {
+      StartTime: 'start_time',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      ConsoleErrorCount: 'console_error_count',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+      ClickCount: 'click_count',
+      KeypressCount: 'keypress_count',
+      MouseActivityCount: 'mouse_activity_count',
+      ActivityScore: 'activity_score',
+      RecordingTtl: 'recording_ttl',
+    } as const;
+
+    export type SessionRecordingsListOrderDirection = typeof SessionRecordingsListOrderDirection[keyof typeof SessionRecordingsListOrderDirection];
+
+
+    export const SessionRecordingsListOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
 
     export type SignalProcessingListParams = {
     /**

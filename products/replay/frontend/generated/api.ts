@@ -9,11 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    PaginatedSessionRecordingListApi,
     PaginatedSessionRecordingPlaylistListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
+    SessionRecordingListResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
@@ -216,6 +216,9 @@ export const sessionRecordingPlaylistsRecordingsDestroy = async (
     })
 }
 
+/**
+ * List and search session recordings. Filter by session IDs, person UUID, distinct IDs, date range, person/session/event properties, console log levels, and more. Returns recording metadata including duration, activity counts, start URL, and person info.
+ */
 export const getSessionRecordingsListUrl = (projectId: string, params?: SessionRecordingsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -236,8 +239,8 @@ export const sessionRecordingsList = async (
     projectId: string,
     params?: SessionRecordingsListParams,
     options?: RequestInit
-): Promise<PaginatedSessionRecordingListApi> => {
-    return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsListUrl(projectId, params), {
+): Promise<SessionRecordingListResponseApi[]> => {
+    return apiMutator<SessionRecordingListResponseApi[]>(getSessionRecordingsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

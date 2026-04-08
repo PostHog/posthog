@@ -1,22 +1,23 @@
 ---
 name: finding-session-recordings
 description: >
-  Find session recordings via MCP by converting natural language queries into recording filters.
-  Use when the user asks to find, search, or list session recordings by person, URL, date, device,
-  browser, location, errors, or any other criteria. Covers filter construction, property discovery,
-  and common search patterns.
+  Find session recordings (also called replays, sessions, or user sessions) via MCP by converting
+  natural language queries into recording filters. Use when the user asks to find, search, list,
+  or look up session recordings, replays, or user sessions by person, URL, date, device, browser,
+  location, errors, or any other criteria. Covers filter construction, property discovery, and
+  common search patterns.
 ---
 
 # Finding session recordings with MCP tools
 
 ## Available tools
 
-| Tool                                 | Purpose                                           |
-| ------------------------------------ | ------------------------------------------------- |
-| `posthog:session-recordings-list`    | Search recordings with filters                    |
-| `posthog:session-recordings-retrieve`| Get a single recording by session ID              |
-| `posthog:read-data-schema`           | Discover available properties and their values     |
-| `posthog:execute-sql`                | Find session IDs via SQL when filters aren't enough|
+| Tool                                  | Purpose                                             |
+| ------------------------------------- | --------------------------------------------------- |
+| `posthog:session-recordings-list`     | Search recordings with filters                      |
+| `posthog:session-recordings-retrieve` | Get a single recording by session ID                |
+| `posthog:read-data-schema`            | Discover available properties and their values      |
+| `posthog:execute-sql`                 | Find session IDs via SQL when filters aren't enough |
 
 ## Workflow: natural language to recording filters
 
@@ -24,22 +25,22 @@ description: >
 
 Map the user's request to filter categories:
 
-| User says                                    | Filter type      | Parameter         |
-| -------------------------------------------- | ---------------- | ----------------- |
-| "recordings from user X"                     | Person           | `properties`      |
-| "recordings visiting /pricing"               | Event property   | `events`          |
-| "recordings from mobile devices"             | Session property | `properties`      |
-| "recordings with console errors"             | Recording metric | `properties`      |
-| "recordings from the US"                     | Person property  | `properties`      |
-| "recording for session ABC"                  | Session ID       | `session_ids`     |
-| "recordings from last week"                  | Date range       | `date_from`       |
-| "recordings where users clicked Sign Up"     | Element property | `events`          |
+| User says                                | Filter type      | Parameter     |
+| ---------------------------------------- | ---------------- | ------------- |
+| "recordings from user X"                 | Person           | `properties`  |
+| "recordings visiting /pricing"           | Event property   | `events`      |
+| "recordings from mobile devices"         | Session property | `properties`  |
+| "recordings with console errors"         | Recording metric | `properties`  |
+| "recordings from the US"                 | Person property  | `properties`  |
+| "recording for session ABC"              | Session ID       | `session_ids` |
+| "recordings from last week"              | Date range       | `date_from`   |
+| "recordings where users clicked Sign Up" | Element property | `events`      |
 
-### Step 2 — Discover properties with read_taxonomy
+### Step 2 — Discover properties with read-data-schema
 
 Before constructing filters, **always verify property names and values exist** using `posthog:read-data-schema`:
 
-```
+```text
 posthog:read-data-schema { kind: "session_properties" }
 posthog:read-data-schema { kind: "person_properties" }
 posthog:read-data-schema { kind: "event_properties", event_name: "$pageview" }
@@ -47,6 +48,7 @@ posthog:read-data-schema { kind: "event_property_values", event_name: "$pageview
 ```
 
 **Common properties you can use without discovery:**
+
 - **Session**: `$device_type`, `$browser`, `$os`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`
 - **Person**: `$geoip_country_code`, `$geoip_city_name`, email (custom)
 - **Event**: `$current_url`, `$pathname`, `$event_type`
@@ -58,7 +60,7 @@ The `session-recordings-list` tool accepts query parameters. Complex types are J
 
 #### Simple filters (scalar query params)
 
-```
+```text
 session_ids: '["session-abc-123"]'
 person_uuid: "0190abcd-1234-7000-8000-abcdef123456"
 date_from: "-7d"
@@ -84,6 +86,7 @@ The `properties` parameter accepts a JSON array of filter objects:
 ```
 
 **Filter types:**
+
 - `person` — person properties (browser, country, email, custom fields)
 - `session` — session-level properties (device type, OS, entry URL)
 - `event` — event properties (current URL, pathname)
@@ -93,6 +96,7 @@ The `properties` parameter accepts a JSON array of filter objects:
 - `hogql` — raw HogQL expression
 
 **Operators by data type:**
+
 - String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`
 - Numeric: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`
 - Boolean: `exact`, `is_not`, `is_set`, `is_not_set`
@@ -156,7 +160,7 @@ Valid element property keys: `tag_name`, `text`, `href`, `selector`.
 
 Combine the filters into a single tool call:
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   filter_test_accounts: true,
@@ -171,7 +175,7 @@ posthog:session-recordings-list {
 
 ### Find recordings by URL visited
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   events: '[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"<url_pattern>","operator":"icontains"}]}]'
@@ -182,7 +186,7 @@ posthog:session-recordings-list {
 
 First discover the email property name, then filter:
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   properties: '[{"key":"email","type":"person","value":["user@example.com"],"operator":"exact"}]'
@@ -191,7 +195,7 @@ posthog:session-recordings-list {
 
 ### Find recordings with errors sorted by error count
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   properties: '[{"key":"console_error_count","type":"recording","value":[0],"operator":"gt"}]',
@@ -215,7 +219,7 @@ LIMIT 20
 
 Then pass the results to the list tool:
 
-```
+```text
 posthog:session-recordings-list {
   session_ids: '["found-session-id-1","found-session-id-2"]',
   date_from: "-7d"
@@ -224,7 +228,7 @@ posthog:session-recordings-list {
 
 ### Find recordings from mobile users in a specific country
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   filter_test_accounts: true,
@@ -234,12 +238,97 @@ posthog:session-recordings-list {
 
 ### Find frustrated users (rageclicks)
 
-```
+```text
 posthog:session-recordings-list {
   date_from: "-7d",
   events: '[{"id":"$rageclick","type":"events"}]',
   order: "activity_score",
   order_direction: "DESC"
+}
+```
+
+## End-to-end examples
+
+### Example 1: "Show me replays of users who visited the pricing page from mobile"
+
+1. Map to filters: URL visited → event filter, mobile → session property
+2. No taxonomy discovery needed (common properties)
+3. Call:
+
+```text
+posthog:session-recordings-list {
+  date_from: "-7d",
+  filter_test_accounts: true,
+  properties: '[{"key":"$device_type","type":"session","value":["Mobile"],"operator":"exact"}]',
+  events: '[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"/pricing","operator":"icontains"}]}]'
+}
+```
+
+### Example 2: "Find the session replay for booking UUID 3bf9166b-5231-4406-b4e6-c1a86f5b17b7"
+
+1. Map to filters: partial UUID in URL → need SQL to find session IDs first
+2. Run SQL:
+
+```text
+posthog:execute-sql {
+  query: "SELECT DISTINCT $session_id FROM events WHERE timestamp >= now() - INTERVAL 14 DAY AND properties.$current_url ILIKE '%3bf9166b-5231-4406-b4e6-c1a86f5b17b7%' LIMIT 20"
+}
+```
+
+3. Pass found session IDs to the list tool:
+
+```text
+posthog:session-recordings-list {
+  session_ids: '["0192abcd-session-id-here"]',
+  date_from: "-14d"
+}
+```
+
+4. Return the recording link(s) to the user.
+
+### Example 3: "Show me sessions from john@acme.com in the last month"
+
+1. Map to filters: email → person property, last month → date range
+2. Discover the email property name:
+
+```text
+posthog:read-data-schema { kind: "person_properties" }
+```
+
+3. Confirm the property is `email` (or `$email`, etc.), then call:
+
+```text
+posthog:session-recordings-list {
+  date_from: "-30d",
+  filter_test_accounts: true,
+  properties: '[{"key":"email","type":"person","value":["john@acme.com"],"operator":"exact"}]'
+}
+```
+
+### Example 4: "Find replays where users got errors on the checkout page last week"
+
+1. Map to filters: errors → recording metric + console log filter, checkout page → event filter, last week → date range
+2. Call:
+
+```text
+posthog:session-recordings-list {
+  date_from: "-7d",
+  filter_test_accounts: true,
+  properties: '[{"key":"console_error_count","type":"recording","value":[0],"operator":"gt"}]',
+  events: '[{"id":"$pageview","type":"events","properties":[{"key":"$current_url","type":"event","value":"/checkout","operator":"icontains"}]}]',
+  order: "console_error_count",
+  order_direction: "DESC"
+}
+```
+
+### Example 5: "Get me the replay for session 018f1234-abcd-7000-8000-deadbeef0001"
+
+1. Map to filters: exact session ID → use retrieve directly
+2. Call:
+
+```text
+posthog:session-recordings-retrieve {
+  id: "018f1234-abcd-7000-8000-deadbeef0001"
 }
 ```
 

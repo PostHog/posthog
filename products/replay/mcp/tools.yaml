@@ -19,6 +19,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
+        response_type: Schemas.SessionRecordingListResponse
         title: List session recordings
         description: >
             Search and list session recordings. Filter by session IDs, person UUID,
