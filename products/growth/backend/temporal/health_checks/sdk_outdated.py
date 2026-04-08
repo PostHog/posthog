@@ -1,6 +1,5 @@
 import json
 from collections import defaultdict
-from typing import Any
 
 import structlog
 
@@ -12,7 +11,12 @@ from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
-from products.growth.backend.constants import SDK_CACHE_EXPIRY, github_sdk_versions_key, team_sdk_versions_key
+from products.growth.backend.constants import (
+    SDK_CACHE_EXPIRY,
+    SdkVersionEntry,
+    github_sdk_versions_key,
+    team_sdk_versions_key,
+)
 from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +43,7 @@ ORDER BY
 """
 
 
-def _decode_redis_json(raw: bytes | str) -> Any:
+def _decode_redis_json(raw: bytes | str) -> dict:
     return json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
 
 
@@ -59,7 +63,7 @@ def _load_github_sdk_data() -> dict[str, dict]:
     return data
 
 
-def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[dict[str, Any]]]]) -> None:
+def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]]) -> None:
     """Cache team SDK version data in Redis for the SDK Doctor API."""
     if not team_sdk_data:
         return
@@ -91,7 +95,9 @@ class SdkOutdatedCheck(HealthCheck):
             lookback_days=7,
         )
 
-        team_sdk_data: dict[int, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+        team_sdk_data: defaultdict[int, defaultdict[str, list[SdkVersionEntry]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         for team_id, lib, lib_version, max_timestamp, event_count in rows:
             if lib in SDK_TYPES:
                 team_sdk_data[team_id][lib].append(
