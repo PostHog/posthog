@@ -153,9 +153,15 @@ export function onChartClick(
 
     const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-    // Use the tooltip's active data point so the modal matches what the user sees
+    // Use the tooltip's active data point so the modal matches what the user sees,
+    // but only when the tooltip refers to the same data column as the click
     const tooltipDataPoint = chart.tooltip?.dataPoints?.[0]
-    const referencePoint: GraphPoint = tooltipDataPoint
+    const tooltipIsForThisColumn =
+        tooltipDataPoint != null &&
+        pointsIntersectingLine.some(
+            (p) => p.datasetIndex === tooltipDataPoint.datasetIndex && p.index === tooltipDataPoint.dataIndex
+        )
+    const referencePoint: GraphPoint = tooltipIsForThisColumn
         ? {
               datasetIndex: tooltipDataPoint.datasetIndex,
               index: tooltipDataPoint.dataIndex,

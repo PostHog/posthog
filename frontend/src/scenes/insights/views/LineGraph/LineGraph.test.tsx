@@ -214,19 +214,12 @@ describe('LineGraph', () => {
             return captured
         }
 
-        it('selects the correct series in a stacked bar chart when clicking below center', () => {
-            // y=220 is inside Flutter (150-250) but below its center (200)
+        it.each([
+            ['below center (y=220)', 220],
+            ['above center (y=180)', 180],
+        ])('selects Flutter when clicking %s in a stacked bar chart', (_, y) => {
             const chart = makeMockChart()
-            const payload = clickAndCapture(chart, makeEvent(220))
-
-            expect(payload).toBeTruthy()
-            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
-            expect(payload!.points.referencePoint.datasetIndex).toBe(1)
-        })
-
-        it('selects the correct series in a stacked bar chart when clicking above center', () => {
-            const chart = makeMockChart()
-            const payload = clickAndCapture(chart, makeEvent(180))
+            const payload = clickAndCapture(chart, makeEvent(y as number))
 
             expect(payload).toBeTruthy()
             expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
@@ -260,6 +253,17 @@ describe('LineGraph', () => {
             const payload = clickAndCapture(chart, makeEvent(200))
 
             expect(payload).toBeTruthy()
+            expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
+        })
+
+        it('ignores stale tooltip pointing to a different column than the click', () => {
+            // Tooltip cached from hovering a different data index (index=5) — should be ignored
+            const tooltipDataPoints = [{ datasetIndex: 1, dataIndex: 5 }]
+            const chart = makeMockChart([], tooltipDataPoints)
+            const payload = clickAndCapture(chart, makeEvent(200))
+
+            expect(payload).toBeTruthy()
+            // Falls back to click detection since tooltip column doesn't match
             expect(payload!.points.referencePoint.dataset.label).toBe('Flutter')
         })
 
