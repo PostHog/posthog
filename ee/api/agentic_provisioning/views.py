@@ -66,12 +66,16 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — a single free deployable (analytics) that provisions a
-# PostHog project. Paid plan (pay_as_you_go with SPT) will be re-added once
-# billing integration is complete.
+# Service catalog — three services:
+#   1. free (plan) — generous free tier, no credit card required
+#   2. pay_as_you_go (plan) — usage-based pricing, no minimum commitment
+#   3. analytics (deployable) — provisions a PostHog project, pricing varies
+#      by parent plan via component pricing
 # ---------------------------------------------------------------------------
 
 ANALYTICS_SERVICE_ID = "analytics"
+FREE_PLAN_SERVICE_ID = "free"
+PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
 
@@ -86,12 +90,40 @@ _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 _FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
 
+def _build_free_plan_service() -> dict[str, Any]:
+    return {
+        "id": FREE_PLAN_SERVICE_ID,
+        "description": "Free - generous free tier across all PostHog products, no credit card required.",
+        "categories": ALL_CATEGORIES,
+        "pricing": {"type": "free"},
+        "kind": "plan",
+    }
+
+
+def _build_pay_as_you_go_service() -> dict[str, Any]:
+    return {
+        "id": PAY_AS_YOU_GO_SERVICE_ID,
+        "description": "Pay-as-you-go - usage-based pricing across all PostHog products with no minimum commitment.",
+        "categories": ALL_CATEGORIES,
+        "pricing": {"type": "paid", "paid": {"type": "custom"}},
+        "kind": "plan",
+    }
+
+
 def _build_analytics_service(description: str) -> dict[str, Any]:
     return {
         "id": ANALYTICS_SERVICE_ID,
         "description": description,
         "categories": ALL_CATEGORIES,
-        "pricing": {"type": "free"},
+        "pricing": {
+            "type": "component",
+            "component": {
+                "options": [
+                    {"parent_service_ids": [FREE_PLAN_SERVICE_ID], "type": "free"},
+                    {"parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID], "type": "paid", "paid": {"type": "custom"}},
+                ]
+            },
+        },
         "kind": "deployable",
     }
 
@@ -116,7 +148,7 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
     ]
     description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
 
-    return [_build_analytics_service(description)]
+    return [_build_free_plan_service(), _build_pay_as_you_go_service(), _build_analytics_service(description)]
 
 
 def _get_services() -> list[dict[str, Any]]:
@@ -139,13 +171,17 @@ def _get_services() -> list[dict[str, Any]]:
         return cached
 
     logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [_build_analytics_service(_FALLBACK_DESCRIPTION)]
+    fallback = [
+        _build_free_plan_service(),
+        _build_pay_as_you_go_service(),
+        _build_analytics_service(_FALLBACK_DESCRIPTION),
+    ]
     cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
     cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
     return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {ANALYTICS_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
@@ -785,6 +821,92 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             },
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/update_service
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_update_service(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in scoped_teams:
+        return _error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    service_id = request.data.get("service_id", "")
+    if not service_id:
+        return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
+    if service_id not in VALID_SERVICE_IDS:
+        return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
+
+    payment_credentials = request.data.get("payment_credentials")
+    if payment_credentials:
+        spt = payment_credentials.get("stripe_payment_token")
+        if spt:
+            _activate_billing_with_spt(team, spt)
+
+    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", service_id, timeout=None)
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    _capture_provisioning_event("update_service", "success", service_id=service_id, team_id=team_id)
+
+    access_configuration: dict[str, str] = {
+        "api_key": team.api_token,
+        "host": host,
+    }
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "service_id": service_id,
+            "complete": {
+                "access_configuration": access_configuration,
+            },
+        }
+    )
+
+
+def _activate_billing_with_spt(team: Team, spt: str) -> None:
+    """Forward a Stripe Payment Token to the billing service to activate a paid subscription."""
+    try:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate",
+            headers={"Authorization": f"Bearer {team.api_token}"},
+            json={"products": "all_products:", "stripe_payment_token": spt},
+        )
+        res.raise_for_status()
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id})
+        logger.warning("agentic_provisioning.activate_billing_with_spt_failed", team_id=team.id)
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
