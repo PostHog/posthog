@@ -201,7 +201,12 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <UpcomingOccurrences />
+            {hasSchedule && (
+                <div>
+                    <SectionHeading>Upcoming</SectionHeading>
+                    <UpcomingOccurrences />
+                </div>
+            )}
             <div>
                 {hasSchedule && <SectionHeading>Past invocations</SectionHeading>}
                 {pastJobsSection}

@@ -212,7 +212,7 @@ export function computePreviewOccurrences(
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
         // Generate extra when dtstart is in the past so we still have enough future occurrences
         // after OccurrencesList filters out past ones
-        const generous = dtstart < new Date() ? limit * 50 : limit
+        const generous = dayjs(dtstart).isBefore(dayjs()) ? limit * 50 : limit
         return rule.all((_, i) => i < generous)
     } catch {
         return []
