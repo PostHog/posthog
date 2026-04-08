@@ -184,7 +184,7 @@ export function CodeInstructions({
     const allFlagLibraries = [
         {
             title: 'Client libraries',
-            options: OPTIONS.filter((option) => option.type == LibraryType.Client).map((option) => ({
+            options: OPTIONS.filter((option) => option.type === LibraryType.Client).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -198,7 +198,7 @@ export function CodeInstructions({
         },
         {
             title: 'Server libraries',
-            options: OPTIONS.filter((option) => option.type == LibraryType.Server).map((option) => ({
+            options: OPTIONS.filter((option) => option.type === LibraryType.Server).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -213,8 +213,26 @@ export function CodeInstructions({
     ]
     const remoteConfigurationLibraries = [
         {
+            title: 'Client libraries',
+            options: OPTIONS.filter(
+                (option) => option.type === LibraryType.Client && REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)
+            ).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center deprecated-space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+        {
             title: 'Server libraries',
-            options: OPTIONS.filter((option) => REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)).map((option) => ({
+            options: OPTIONS.filter(
+                (option) => option.type === LibraryType.Server && REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)
+            ).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,

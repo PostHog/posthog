@@ -2,10 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JourneyBuilder } from '../../components/CustomerJourneys/JourneyBuilder'
 import { journeyBuilderLogic } from '../../components/CustomerJourneys/journeyBuilderLogic'
@@ -20,6 +23,11 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
     const { journeyName, journeyDescription, isSaving, isEditMode } = useValues(journeyBuilderLogic)
     const { setJourneyName, setJourneyDescription, saveJourney } = useActions(journeyBuilderLogic)
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -29,7 +37,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
                 onNameChange={setJourneyName}
                 onDescriptionChange={setJourneyDescription}
                 descriptionMaxLength={400}
-                canEdit
+                canEdit={!accessControlDisabledReason}
                 forceEdit
                 renameDebounceMs={0}
                 saveOnBlur
@@ -40,6 +48,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
                         loading={isSaving}
                         onClick={() => saveJourney()}
                         data-attr="journey-builder-save"
+                        disabledReason={accessControlDisabledReason}
                     >
                         {isEditMode ? 'Update' : 'Save'}
                     </LemonButton>

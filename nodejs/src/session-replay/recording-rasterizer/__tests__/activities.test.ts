@@ -124,9 +124,9 @@ describe('rasterizeRecordingActivity', () => {
             expect.objectContaining({ session_id: 'test-session-123' }),
             expect.stringContaining('ph-video-'),
             playerHtml,
+            expect.any(Function),
             undefined,
-            expect.any(Object),
-            expect.any(Function)
+            expect.any(Object)
         )
     })
 

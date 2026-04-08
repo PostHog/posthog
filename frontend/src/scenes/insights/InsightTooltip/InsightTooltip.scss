@@ -24,6 +24,15 @@
         box-shadow: none;
     }
 
+    // Close button: hidden by default, visible when pinned
+    .InsightTooltip__close {
+        opacity: 0;
+
+        .InsightTooltipWrapper--pinned & {
+            opacity: 1;
+        }
+    }
+
     .LemonRow {
         font-size: 0.8125rem;
     }
@@ -31,11 +40,38 @@
     .LemonTable {
         font-size: 0.75rem;
         border: none;
-        border-bottom-right-radius: 0;
-        border-bottom-left-radius: 0;
+        border-bottom: 1px solid var(--color-border-primary);
+        border-radius: 0;
 
-        &:not(:last-child) {
-            border-bottom: 1px solid var(--color-border-primary);
+        // Disable all scroll shadows inside tooltip
+        .ScrollableShadows {
+            --shadow-x-start: 0 0 0 0 transparent !important;
+            --shadow-x-end: 0 0 0 0 transparent !important;
+            --shadow-y-start: 0 0 0 0 transparent !important;
+            --shadow-y-end: 0 0 0 0 transparent !important;
+        }
+
+        .LemonTable__cell--sticky::before,
+        .LemonTable__header--sticky::before {
+            box-shadow: none !important;
+        }
+
+        // Close column in table header
+        th.InsightTooltip__close-column {
+            position: sticky;
+            right: 0;
+            padding: 0.4rem;
+            vertical-align: top;
+            background: transparent;
+
+            .InsightTooltipWrapper--pinned & {
+                background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
+            }
+        }
+
+        td.InsightTooltip__close-column {
+            padding: 0;
+            background: transparent;
         }
 
         .insights-label {
@@ -45,23 +81,6 @@
         .datum-column {
             padding-left: 0.5rem;
             overflow-wrap: anywhere;
-        }
-
-        th.InsightTooltip__close-column {
-            position: sticky;
-            right: 0;
-            padding: 0.4rem;
-            vertical-align: top;
-            background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
-
-            .LemonTable__header-content {
-                opacity: 0;
-            }
-        }
-
-        td.InsightTooltip__close-column {
-            padding: 0;
-            background: transparent;
         }
 
         .LemonTable__content > table > thead {
@@ -98,16 +117,27 @@
         }
     }
 
+    // Scrollable tooltip body with sticky header
+    &__scrollable .LemonTable {
+        .ScrollableShadows__inner {
+            max-height: 16rem;
+            overflow-y: auto !important;
+        }
+
+        .LemonTable__content > table > thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: var(--color-bg-surface-primary);
+        }
+    }
+
     .table-subtext {
         padding: 0.5rem 1rem;
         font-size: 0.75rem;
         color: var(--color-text-secondary);
         text-align: center;
         background-color: var(--color-bg-surface-primary);
-
-        .table-subtext-truncated {
-            margin-bottom: 4px;
-        }
 
         .table-subtext-click-to-inspect {
             display: flex;

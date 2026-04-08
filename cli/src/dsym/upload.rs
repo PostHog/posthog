@@ -42,6 +42,18 @@ pub struct Args {
     /// allowing PostHog to display source code context around crash locations.
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Allow overwriting an existing symbol set that has already been uploaded.
+    ///
+    /// By default, if a symbol set with the same UUID already exists on the server
+    /// its content is left unchanged. Use this flag to replace it — for example
+    /// after adding source files to a previously source-less upload.
+    ///
+    /// Without this flag a re-upload whose content differs from the stored copy is
+    /// silently skipped, preventing accidental overwrites of production symbol sets
+    /// from a local development machine.
+    #[arg(long, default_value_t = false)]
+    pub force: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -52,6 +64,7 @@ pub fn upload(args: &Args) -> Result<()> {
         build,
         main_dsym,
         include_source,
+        force,
     } = args;
 
     let directory = directory.canonicalize().map_err(|e| {
@@ -205,7 +218,10 @@ pub fn upload(args: &Args) -> Result<()> {
     }
 
     info!("Uploading {} dSYM(s)...", uploads.len());
-    api::symbol_sets::upload_with_retry(uploads, 10, true)?;
+    // --include-source implies force: uploading with source replaces an existing
+    // source-less upload, so we always want the new content to win.
+    let effective_force = *force || *include_source;
+    api::symbol_sets::upload_with_retry(uploads, 10, true, effective_force)?;
     info!("dSYM upload complete");
 
     Ok(())

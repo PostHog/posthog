@@ -130,6 +130,20 @@ export const lemonToast = {
         })
         return id
     },
+    loading(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+        const options = ensureToastId(toastOptions, 'loading', message)
+        const id = options.toastId!
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
+            }
+            toast.loading(<ToastContent type="info" message={message} button={button} id={id} />, {
+                icon: <Spinner />,
+                ...options,
+            })
+        })
+        return id
+    },
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
         const id = options.toastId!

@@ -282,6 +282,48 @@ class TestCombineFilterBytecodes:
         result = execute_bytecode(combined, globals_input)
         assert result.result == expected_result
 
+    @parameterized.expand(
+        [
+            (
+                "single_failing",
+                ["failing_condition"],
+                ["working_condition"],
+                {"working_condition": True},
+            ),
+            (
+                "multiple_failing",
+                ["fail1", "fail2"],
+                ["work"],
+                {"work": True},
+            ),
+        ]
+    )
+    def test_failing_filters_are_omitted_from_results(self, _, failing_hashes, working_hashes, expected):
+        """Failing filters should be omitted from results, not crash the entire execution."""
+        from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+            evaluate_combined_filters_with_fallback_sync,
+        )
+
+        failing_bytecode = ["_H", 1, 31, 32, "nonexistent", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
+        working_bytecode = ["_H", 1, 29]  # Always true
+
+        filters = [
+            PersonPropertyFilter(condition_hash=h, bytecode=failing_bytecode, cohort_ids=[i], property_key=None)
+            for i, h in enumerate(failing_hashes)
+        ] + [
+            PersonPropertyFilter(
+                condition_hash=h, bytecode=working_bytecode, cohort_ids=[len(failing_hashes) + i], property_key=None
+            )
+            for i, h in enumerate(working_hashes)
+        ]
+
+        combined = combine_filter_bytecodes(filters)
+        result = evaluate_combined_filters_with_fallback_sync(
+            combined, filters, {"person": {"properties": {}}}, "test-person"
+        )
+
+        assert result == expected
+
 
 class TestEvaluateCombinedFiltersSync:
     """Tests for evaluate_combined_filters_sync."""
@@ -294,3 +336,39 @@ class TestEvaluateCombinedFiltersSync:
     def test_returns_empty_dict_on_error(self):
         result = evaluate_combined_filters_sync(["_H", 1, 999], {}, "person-1")
         assert result == {}
+
+    @parameterized.expand(
+        [
+            ("enabled_success", True, {"test_condition": True}, True, False),
+            ("disabled", False, {"test_condition": True}, False, False),
+            ("enabled_non_dict", True, {}, True, True),
+        ]
+    )
+    @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
+    def test_detailed_logging(self, _name, detailed, expected_result, expect_info, expect_warning, mock_logger):
+        if detailed and expect_warning:
+            combined = ["_H", 1, Operation.STRING, "not_a_dict"]
+        else:
+            combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
+
+        hog_globals = {"person": {"properties": {"$browser": "Chrome"}}} if detailed and not expect_warning else {}
+
+        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=detailed)
+
+        assert result == expected_result
+
+        if expect_info:
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args
+            assert call_args[0][0] == "HogVM evaluation completed"
+            logged_kwargs = call_args[1]
+            assert logged_kwargs["person_id"] == "person-123"
+        else:
+            mock_logger.info.assert_not_called()
+
+        if expect_warning:
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "HogVM evaluation returned non-dict result"
+        else:
+            mock_logger.warning.assert_not_called()

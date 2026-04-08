@@ -22,6 +22,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_hog_eval
 
+from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -88,7 +89,30 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     )
                 except ValueError as e:
                     raise serializers.ValidationError({"config": str(e)})
+
+        # Prevent re-enabling an evaluation that uses trial credits when quota is exhausted.
+        if data.get("enabled") and self.instance and not self.instance.enabled:
+            has_byok = self._has_byok_key(data)
+            if not has_byok:
+                team = self.context["get_team"]()
+                config = EvaluationConfig.objects.filter(team=team).first()
+                if config and config.trial_limit_reached:
+                    raise serializers.ValidationError(
+                        {
+                            "enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."
+                        }
+                    )
+
         return data
+
+    def _has_byok_key(self, data: dict) -> bool:
+        """Check if the evaluation will have a BYOK key after this update."""
+        model_config_data = data.get("model_configuration")
+        if model_config_data is not None:
+            return bool(model_config_data.get("provider_key_id"))
+        if self.instance and self.instance.model_configuration:
+            return self.instance.model_configuration.provider_key_id is not None
+        return False
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int

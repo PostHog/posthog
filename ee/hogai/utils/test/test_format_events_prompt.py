@@ -139,37 +139,13 @@ class TestFormatEventsPrompt(BaseTest):
         self.assertGreater(len(descriptions), 0)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
-    def test_format_events_xml_filters_low_count_events(self, mock_runner_class):
-        """Test that events with count <= 3 are filtered out when there are more than 25 results."""
-        # Create 30 results with some low count events
+    def test_format_events_xml_includes_all_taxonomy_results(self, mock_runner_class):
+        """Test that all events from the taxonomy runner are included regardless of count."""
         taxonomy_items = self._create_taxonomy_items(
             [
                 ("high_count_event", 100),
-                ("low_count_event", 2),  # Should be filtered out
-                ("medium_count_event", 10),
-            ]
-            * 10
-        )  # Create 30 results total
-        self._setup_mock_runner(mock_runner_class, taxonomy_items)
-
-        events_in_context: list[MaxEventContext] = []
-        result = format_events_xml(events_in_context, self.team)
-
-        event_names = self._get_event_names_from_xml(result)
-
-        # Should not contain the low count event
-        self.assertNotIn("low_count_event", event_names)
-        self.assertIn("high_count_event", event_names)
-        self.assertIn("medium_count_event", event_names)
-
-    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
-    def test_format_events_xml_keeps_low_count_events_when_few_results(self, mock_runner_class):
-        """Test that low count events are kept when there are 25 or fewer results."""
-        taxonomy_items = self._create_taxonomy_items(
-            [
-                ("high_count_event", 100),
-                ("low_count_event", 2),  # Should be kept
-                ("medium_count_event", 10),
+                ("low_count_event", 2),
+                ("zero_count_event", 0),
             ]
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
@@ -179,12 +155,12 @@ class TestFormatEventsPrompt(BaseTest):
 
         event_names = self._get_event_names_from_xml(result)
 
-        # Should contain the low count event when there are few results
+        self.assertIn("high_count_event", event_names)
         self.assertIn("low_count_event", event_names)
+        self.assertIn("zero_count_event", event_names)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_skips_ignored_events(self, mock_runner_class):
-        """Test that events marked as ignored_in_assistant are skipped."""
         taxonomy_items = self._create_taxonomy_items(
             [
                 ("$autocapture", 50),  # This is ignored_in_assistant
@@ -202,7 +178,6 @@ class TestFormatEventsPrompt(BaseTest):
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_keeps_ignored_events_in_context(self, mock_runner_class):
-        """Test that ignored events are kept if they're in the context."""
         taxonomy_items = self._create_taxonomy_items(
             [
                 ("$pageview", 100),
