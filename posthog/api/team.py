@@ -199,9 +199,6 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
-    "experiment_recalculation_time",
-    "default_experiment_confidence_level",
-    "default_experiment_stats_method",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -1544,6 +1541,40 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="experiments_config",
+    )
+    def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage experiment configuration for this environment."""
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+        if request.method == "PATCH":
+            if "experiment_recalculation_time" in request.data:
+                config.experiment_recalculation_time = request.data["experiment_recalculation_time"]
+            if "default_experiment_confidence_level" in request.data:
+                config.default_experiment_confidence_level = request.data["default_experiment_confidence_level"]
+            if "default_experiment_stats_method" in request.data:
+                config.default_experiment_stats_method = request.data["default_experiment_stats_method"]
+            config.save()
+
+        return response.Response(
+            {
+                "experiment_recalculation_time": str(config.experiment_recalculation_time)
+                if config.experiment_recalculation_time
+                else None,
+                "default_experiment_confidence_level": float(config.default_experiment_confidence_level)
+                if config.default_experiment_confidence_level is not None
+                else None,
+                "default_experiment_stats_method": config.default_experiment_stats_method,
+            }
+        )
 
     @action(
         methods=["GET", "POST", "DELETE"],

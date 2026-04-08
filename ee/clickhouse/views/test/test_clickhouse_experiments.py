@@ -4521,8 +4521,13 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(stats_config["method"], "bayesian")
 
     def test_create_experiment_uses_team_default_confidence_level(self) -> None:
-        self.team.default_experiment_confidence_level = 0.90
-        self.team.save()
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_confidence_level = 0.90
+        config.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
