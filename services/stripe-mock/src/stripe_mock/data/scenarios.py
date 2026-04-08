@@ -145,11 +145,12 @@ class ScenarioBuilder:
         if start_date > self.data_end:
             return
 
-        merged_metadata = {**self.cfg.customer_metadata, **(persona_metadata or {})}
+        customer_metadata = {**self.cfg.customer_metadata, **(persona_metadata or {})}
+        subscription_metadata = {**self.cfg.subscription_metadata, **(persona_metadata or {})}
 
         cust_idx = _next_id("cus")
         customer = make_customer(
-            cust_idx, start_date, name=name, email=email, currency=currency, metadata=merged_metadata
+            cust_idx, start_date, name=name, email=email, currency=currency, metadata=customer_metadata
         )
         self.customers.append(customer)
 
@@ -175,7 +176,7 @@ class ScenarioBuilder:
             currency=currency,
             interval=interval,
             product_id=product_id,
-            metadata=merged_metadata,
+            metadata=subscription_metadata,
         )
         if trial_days > 0:
             from datetime import timedelta
@@ -284,6 +285,7 @@ class ScenarioBuilder:
             sub["latest_invoice"] = invoice["id"]
 
             ch_idx = _next_id("ch")
+            charge_metadata = {**self.cfg.charge_metadata, **(persona_metadata or {})}
             charge = make_charge(
                 ch_idx,
                 invoice_date,
@@ -291,6 +293,7 @@ class ScenarioBuilder:
                 currency=currency,
                 customer_id=customer["id"],
                 invoice_id=invoice["id"],
+                metadata=charge_metadata,
             )
             self.charges.append(charge)
 
