@@ -1,21 +1,16 @@
 import asyncio
-import logging
 from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-import structlog
 import temporalio.client
 
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.common.client import connect
 
 from products.batch_exports.backend.service import align_timestamp_to_interval
-
-logger = structlog.get_logger(__name__)
-
 
 # Statuses that count as "covered" — the run either succeeded or is still in progress
 COVERED_STATUSES = [
@@ -66,13 +61,8 @@ def get_batch_exports(
         try:
             export = BatchExport.objects.select_related("destination", "team").get(id=batch_export_id)
         except BatchExport.DoesNotExist:
-            logger.warning(f"Batch export {batch_export_id} not found")
             return []
-        if export.deleted:
-            logger.warning(f"Batch export {batch_export_id} is deleted, skipping")
-            return []
-        if export.paused:
-            logger.warning(f"Batch export {batch_export_id} is paused, skipping")
+        if export.deleted or export.paused:
             return []
         return [export]
 
@@ -138,98 +128,6 @@ def find_missing_intervals(
             results.append((export, merged))
 
     return results
-
-
-async def backfill_export(
-    client: temporalio.client.Client,
-    export: BatchExport,
-    missing_intervals: list[tuple],
-    dry_run: bool,
-    overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
-    no_delay: bool = False,
-) -> int:
-    """Trigger Temporal schedule backfills for the missing intervals of a single export.
-
-    Returns the number of backfills triggered (or that would be triggered in dry-run mode).
-    """
-    batch_export_id = str(export.id)
-    handle = client.get_schedule_handle(batch_export_id)
-
-    try:
-        await handle.describe()
-    except Exception as err:
-        logger.warning(f"Schedule {batch_export_id} not found ({err.__class__.__name__}: {err}), skipping")
-        return 0
-
-    count = 0
-    for interval_start, interval_end in missing_intervals:
-        # Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at],
-        # where each action time corresponds to a data_interval_end
-        first_interval_end = next_interval_boundary(interval_start, export)
-        try:
-            backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, interval_end)
-        except ValueError as err:
-            logger.warning(f"Unsupported interval for {batch_export_id} ({err}), skipping export")
-            return count
-
-        if dry_run:
-            logger.info(f"  [DRY RUN] Would backfill {interval_start.isoformat()} -> {interval_end.isoformat()}")
-        else:
-            logger.info(f"  Backfilling {interval_start.isoformat()} -> {interval_end.isoformat()}")
-            backfill = temporalio.client.ScheduleBackfill(
-                start_at=backfill_start,
-                end_at=backfill_end,
-                overlap=overlap_policy,
-            )
-            await handle.backfill(backfill)
-            if not no_delay:
-                await asyncio.sleep(2)
-
-        count += 1
-
-    return count
-
-
-async def run_backfills(
-    missing_by_export: list[tuple[BatchExport, list[tuple]]],
-    dry_run: bool,
-    overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
-    no_delay: bool = False,
-) -> tuple[int, int]:
-    """Connect to Temporal and trigger backfills for all missing intervals.
-
-    Returns (total_backfills, failed_exports).
-    """
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        client_cert=settings.TEMPORAL_CLIENT_CERT,
-        client_key=settings.TEMPORAL_CLIENT_KEY,
-    )
-
-    total_backfills = 0
-    failed_exports = 0
-
-    for export, missing_intervals in missing_by_export:
-        logger.info(
-            f"Batch export '{export.name}' (id={export.id}, team={export.team_id}, "
-            f"interval={export.interval}) — {len(missing_intervals)} missing"
-        )
-
-        count = await backfill_export(
-            client=client,
-            export=export,
-            missing_intervals=missing_intervals,
-            dry_run=dry_run,
-            overlap_policy=overlap_policy,
-            no_delay=no_delay,
-        )
-        if count == 0 and len(missing_intervals) > 0:
-            failed_exports += 1
-        total_backfills += count
-
-    return total_backfills, failed_exports
 
 
 class Command(BaseCommand):
@@ -338,9 +236,105 @@ class Command(BaseCommand):
         lookback_hours = has_lookback and options["lookback_hours"] or 48
         return now - timedelta(hours=lookback_hours), now
 
-    def handle(self, **options):
-        logger.setLevel(logging.INFO)
+    async def _backfill_export(
+        self,
+        client: temporalio.client.Client,
+        export: BatchExport,
+        missing_intervals: list[tuple],
+        dry_run: bool,
+        overlap_policy: temporalio.client.ScheduleOverlapPolicy,
+        no_delay: bool = False,
+    ) -> int:
+        """Trigger Temporal schedule backfills for the missing intervals of a single export.
 
+        Returns the number of backfills triggered (or that would be triggered in dry-run mode).
+        """
+        batch_export_id = str(export.id)
+        handle = client.get_schedule_handle(batch_export_id)
+
+        try:
+            await handle.describe()
+        except Exception as err:
+            self.stderr.write(
+                self.style.WARNING(f"Schedule {batch_export_id} not found ({err.__class__.__name__}: {err}), skipping")
+            )
+            return 0
+
+        count = 0
+        for interval_start, interval_end in missing_intervals:
+            # Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at],
+            # where each action time corresponds to a data_interval_end
+            first_interval_end = next_interval_boundary(interval_start, export)
+            try:
+                backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, interval_end)
+            except ValueError as err:
+                self.stderr.write(
+                    self.style.WARNING(f"Unsupported interval for {batch_export_id} ({err}), skipping export")
+                )
+                return count
+
+            if dry_run:
+                self.stdout.write(
+                    f"  [DRY RUN] Would backfill {interval_start.isoformat()} -> {interval_end.isoformat()}"
+                )
+            else:
+                self.stdout.write(f"  Backfilling {interval_start.isoformat()} -> {interval_end.isoformat()}")
+                backfill = temporalio.client.ScheduleBackfill(
+                    start_at=backfill_start,
+                    end_at=backfill_end,
+                    overlap=overlap_policy,
+                )
+                await handle.backfill(backfill)
+                if not no_delay:
+                    await asyncio.sleep(2)
+
+            count += 1
+
+        return count
+
+    async def _run_backfills(
+        self,
+        missing_by_export: list[tuple[BatchExport, list[tuple]]],
+        dry_run: bool,
+        overlap_policy: temporalio.client.ScheduleOverlapPolicy,
+        no_delay: bool = False,
+    ) -> tuple[int, int]:
+        """Connect to Temporal and trigger backfills for all missing intervals.
+
+        Returns (total_backfills, failed_exports).
+        """
+        client = await connect(
+            settings.TEMPORAL_HOST,
+            settings.TEMPORAL_PORT,
+            settings.TEMPORAL_NAMESPACE,
+            client_cert=settings.TEMPORAL_CLIENT_CERT,
+            client_key=settings.TEMPORAL_CLIENT_KEY,
+        )
+
+        total_backfills = 0
+        failed_exports = 0
+
+        for export, missing_intervals in missing_by_export:
+            self.stdout.write(
+                f"Batch export '{export.name}' (id={export.id}, team={export.team_id}, "
+                f"interval={export.interval}) — {len(missing_intervals)} missing"
+            )
+
+            count = await self._backfill_export(
+                client=client,
+                export=export,
+                missing_intervals=missing_intervals,
+                dry_run=dry_run,
+                overlap_policy=overlap_policy,
+                no_delay=no_delay,
+            )
+            if count == 0 and len(missing_intervals) > 0:
+                failed_exports += 1
+            total_backfills += count
+
+        return total_backfills, failed_exports
+
+    def handle(self, **options):
         start, end = self._resolve_window(options)
 
         exports = get_batch_exports(
@@ -351,26 +345,37 @@ class Command(BaseCommand):
         )
 
         if not exports:
-            logger.info("No batch exports found")
+            self.stdout.write(self.style.WARNING("No batch exports found"))
             return
 
-        logger.info(
+        self.stdout.write(
             f"Checking {len(exports)} batch export(s) for missing runs ({start.isoformat()} to {end.isoformat()})"
         )
 
         missing_by_export = find_missing_intervals(exports, start, end)
 
         if not missing_by_export:
-            logger.info("No missing runs found")
+            self.stdout.write(self.style.SUCCESS("No missing runs found"))
             return
 
         total_missing = sum(len(m) for _, m in missing_by_export)
-        logger.info(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s)")
+        self.stdout.write(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s):")
+        preview_limit = 10
+        for export, intervals in missing_by_export[:preview_limit]:
+            first_start = intervals[0][0].isoformat()
+            last_end = intervals[-1][1].isoformat()
+            self.stdout.write(
+                f"  {export.id} ({export.interval}, {export.destination.type}): "
+                f"{len(intervals)} gap(s), {first_start} -> {last_end}"
+            )
+        remaining = len(missing_by_export) - preview_limit
+        if remaining > 0:
+            self.stdout.write(f"  ... and {remaining} more export(s)")
 
         if not options["dry_run"] and not options["no_confirm"]:
             confirm = input(f"Proceed with backfilling {total_missing} interval(s)? [y/N] ")
             if confirm.lower() != "y":
-                logger.info("Aborted")
+                self.stdout.write(self.style.WARNING("Aborted"))
                 return
 
         overlap_policy_map = {
@@ -380,8 +385,10 @@ class Command(BaseCommand):
         overlap_policy = overlap_policy_map[options["overlap_policy"]]
 
         total_backfills, failed_exports = asyncio.run(
-            run_backfills(missing_by_export, options["dry_run"], overlap_policy, options["no_delay"]),
+            self._run_backfills(missing_by_export, options["dry_run"], overlap_policy, options["no_delay"]),
         )
 
         if not options["dry_run"]:
-            logger.info(f"Backfill complete: {total_backfills} backfills, {failed_exports} failed exports")
+            self.stdout.write(
+                self.style.SUCCESS(f"Backfill complete: {total_backfills} backfills, {failed_exports} failed exports")
+            )
