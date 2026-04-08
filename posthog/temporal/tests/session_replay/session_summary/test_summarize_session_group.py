@@ -1043,7 +1043,7 @@ class TestSummarizeSessionGroupWorkflow:
                 async with Worker(
                     activity_environment.client,
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                    workflows=AI_WORKFLOWS + SESSION_SUMMARY_WORKFLOWS,
+                    workflows=[*AI_WORKFLOWS, *SESSION_SUMMARY_WORKFLOWS],
                     activities=[
                         get_llm_single_session_summary_activity,
                         extract_session_group_patterns_activity,

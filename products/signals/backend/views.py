@@ -37,12 +37,8 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
@@ -70,11 +66,14 @@ from products.signals.backend.temporal.backfill_error_tracking import (
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
+from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_for_source_products,
+    fetch_signals_for_report_sync,
+)
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
-from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = structlog.get_logger(__name__)
 
@@ -327,29 +326,7 @@ class SignalReportViewSet(
         if source_product_filter:
             source_products = [s.strip() for s in source_product_filter.split(",") if s.strip()]
             if source_products:
-                # Find report IDs that have at least one signal from the requested source products.
-                # We start from signals (narrowed by source_product) and get their report IDs,
-                # then intersect with the PG queryset that already has status/search filters.
-                ch_query = """
-                    SELECT DISTINCT
-                        JSONExtractString(metadata, 'report_id') as report_id
-                    FROM document_embeddings
-                    WHERE model_name = {model_name}
-                      AND product = 'signals'
-                      AND JSONExtractString(metadata, 'source_product') IN ({source_products})
-                      AND NOT JSONExtractBool(metadata, 'deleted')
-                """
-                tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
-                result = execute_hogql_query(
-                    query_type="SignalsFilterBySourceProduct",
-                    query=ch_query,
-                    team=self.team,
-                    placeholders={
-                        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                        "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
-                    },
-                )
-                report_ids_with_source = {row[0] for row in (result.results or []) if row[0]}
+                report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
                 qs = qs.filter(id__in=report_ids_with_source)
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         qs = qs.annotate(
@@ -523,60 +500,7 @@ class SignalReportViewSet(
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
         report_data = SignalReportSerializer(report).data
-
-        # Fetch signals from ClickHouse
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY timestamp ASC
-        """
-
-        tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
-        result = execute_hogql_query(
-            query_type="SignalsDebugFetchForReport",
-            query=query,
-            team=self.team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=str(report.id)),
-            },
-        )
-
-        signals_list = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str)
-            signals_list.append(
-                {
-                    "signal_id": document_id,
-                    "content": content,
-                    "source_product": metadata.get("source_product", ""),
-                    "source_type": metadata.get("source_type", ""),
-                    "source_id": metadata.get("source_id", ""),
-                    "weight": metadata.get("weight", 0.0),
-                    "timestamp": timestamp,
-                    "extra": metadata.get("extra", {}),
-                    "match_metadata": metadata.get("match_metadata"),
-                }
-            )
-
+        signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
     @extend_schema(exclude=True)
