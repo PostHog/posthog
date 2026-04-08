@@ -90,7 +90,6 @@ tools:
             - parameters
             - metrics
             - metrics_secondary
-            - saved_metrics_ids
             - holdout_id
             - exposure_criteria
         ui_app: experiment
@@ -117,7 +116,6 @@ tools:
             - parameters
             - metrics
             - metrics_secondary
-            - saved_metrics_ids
             - exposure_criteria
             - conclusion
             - conclusion_comment
@@ -137,6 +135,11 @@ tools:
         description: >
             Delete an experiment by ID.
         soft_delete: true
+        response:
+            include:
+                - id
+                - name
+                - deleted
 
     # ── Lifecycle tools ────────────────────────────────────────────
     experiment-launch:

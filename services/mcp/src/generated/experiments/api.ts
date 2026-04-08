@@ -56,7 +56,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         end_date: zod.iso.datetime({}).nullish(),
         feature_flag_key: zod
             .string()
-            .describe("Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only."),
+            .describe(
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .object({
@@ -83,7 +85,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.'
+                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -109,11 +111,42 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 filterTestAccounts: zod.boolean().optional().describe('Whether to filter out internal test accounts.'),
                 exposure_config: zod
                     .object({
-                        kind: zod.enum(['ExperimentEventExposureConfig']).optional(),
-                        event: zod.string().optional().describe('Custom exposure event name.'),
+                        kind: zod.enum(['ExperimentEventExposureConfig']),
+                        event: zod.string().describe('Custom exposure event name.'),
+                        properties: zod
+                            .array(
+                                zod
+                                    .object({
+                                        key: zod.string().describe('Property key to filter on.'),
+                                        value: zod
+                                            .union([
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.array(zod.string()),
+                                                zod.array(zod.number()),
+                                            ])
+                                            .nullish()
+                                            .describe('Value to match against.'),
+                                        operator: zod
+                                            .string()
+                                            .optional()
+                                            .describe(
+                                                "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                            ),
+                                        type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                    })
+                                    .describe(
+                                        "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                    )
+                            )
+                            .describe(
+                                'Event property filters for the exposure event. Pass an empty array if no filters are needed.'
+                            ),
                     })
                     .optional()
-                    .describe('Custom exposure event configuration.'),
+                    .describe(
+                        'Custom exposure event configuration. Requires kind, event, and properties (can be empty array).'
+                    ),
             })
             .nullish()
             .describe('Exposure configuration including filter test accounts and custom exposure events.'),
@@ -134,6 +167,34 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
                                 event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe("For mean metrics: EventsNode with 'kind' and 'event' fields."),
@@ -141,7 +202,38 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             .array(
                                 zod.object({
                                     kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                    event: zod.string().optional(),
+                                    event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    key: zod.string().describe('Property key to filter on.'),
+                                                    value: zod
+                                                        .union([
+                                                            zod.string(),
+                                                            zod.number(),
+                                                            zod.array(zod.string()),
+                                                            zod.array(zod.number()),
+                                                        ])
+                                                        .nullish()
+                                                        .describe('Value to match against.'),
+                                                    operator: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe(
+                                                            "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                        ),
+                                                    type: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe("Filter type, usually 'event'."),
+                                                })
+                                                .describe(
+                                                    "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                                )
+                                        )
+                                        .optional()
+                                        .describe('Event property filters to narrow which events are counted.'),
                                 })
                             )
                             .optional()
@@ -149,14 +241,70 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         numerator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the numerator EventsNode.'),
                         denominator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the denominator EventsNode.'),
@@ -172,7 +320,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).'
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
             ),
         metrics_secondary: zod
             .array(
@@ -191,6 +339,34 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
                                 event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe("For mean metrics: EventsNode with 'kind' and 'event' fields."),
@@ -198,7 +374,38 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             .array(
                                 zod.object({
                                     kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                    event: zod.string().optional(),
+                                    event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    key: zod.string().describe('Property key to filter on.'),
+                                                    value: zod
+                                                        .union([
+                                                            zod.string(),
+                                                            zod.number(),
+                                                            zod.array(zod.string()),
+                                                            zod.array(zod.number()),
+                                                        ])
+                                                        .nullish()
+                                                        .describe('Value to match against.'),
+                                                    operator: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe(
+                                                            "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                        ),
+                                                    type: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe("Filter type, usually 'event'."),
+                                                })
+                                                .describe(
+                                                    "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                                )
+                                        )
+                                        .optional()
+                                        .describe('Event property filters to narrow which events are counted.'),
                                 })
                             )
                             .optional()
@@ -206,14 +413,70 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         numerator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the numerator EventsNode.'),
                         denominator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the denominator EventsNode.'),
@@ -228,7 +491,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     )
             )
             .nullish()
-            .describe('Secondary experiment metrics array for additional measurements.'),
+            .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
         _create_in_folder: zod.string().optional(),
@@ -299,7 +562,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .optional()
-            .describe("Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only."),
+            .describe(
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .object({
@@ -326,7 +591,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.'
+                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -352,11 +617,42 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 filterTestAccounts: zod.boolean().optional().describe('Whether to filter out internal test accounts.'),
                 exposure_config: zod
                     .object({
-                        kind: zod.enum(['ExperimentEventExposureConfig']).optional(),
-                        event: zod.string().optional().describe('Custom exposure event name.'),
+                        kind: zod.enum(['ExperimentEventExposureConfig']),
+                        event: zod.string().describe('Custom exposure event name.'),
+                        properties: zod
+                            .array(
+                                zod
+                                    .object({
+                                        key: zod.string().describe('Property key to filter on.'),
+                                        value: zod
+                                            .union([
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.array(zod.string()),
+                                                zod.array(zod.number()),
+                                            ])
+                                            .nullish()
+                                            .describe('Value to match against.'),
+                                        operator: zod
+                                            .string()
+                                            .optional()
+                                            .describe(
+                                                "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                            ),
+                                        type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                    })
+                                    .describe(
+                                        "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                    )
+                            )
+                            .describe(
+                                'Event property filters for the exposure event. Pass an empty array if no filters are needed.'
+                            ),
                     })
                     .optional()
-                    .describe('Custom exposure event configuration.'),
+                    .describe(
+                        'Custom exposure event configuration. Requires kind, event, and properties (can be empty array).'
+                    ),
             })
             .nullish()
             .describe('Exposure configuration including filter test accounts and custom exposure events.'),
@@ -377,6 +673,34 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
                                 event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe("For mean metrics: EventsNode with 'kind' and 'event' fields."),
@@ -384,7 +708,38 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             .array(
                                 zod.object({
                                     kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                    event: zod.string().optional(),
+                                    event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    key: zod.string().describe('Property key to filter on.'),
+                                                    value: zod
+                                                        .union([
+                                                            zod.string(),
+                                                            zod.number(),
+                                                            zod.array(zod.string()),
+                                                            zod.array(zod.number()),
+                                                        ])
+                                                        .nullish()
+                                                        .describe('Value to match against.'),
+                                                    operator: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe(
+                                                            "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                        ),
+                                                    type: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe("Filter type, usually 'event'."),
+                                                })
+                                                .describe(
+                                                    "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                                )
+                                        )
+                                        .optional()
+                                        .describe('Event property filters to narrow which events are counted.'),
                                 })
                             )
                             .optional()
@@ -392,14 +747,70 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         numerator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the numerator EventsNode.'),
                         denominator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the denominator EventsNode.'),
@@ -415,7 +826,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).'
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
             ),
         metrics_secondary: zod
             .array(
@@ -434,6 +845,34 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
                                 event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe("For mean metrics: EventsNode with 'kind' and 'event' fields."),
@@ -441,7 +880,38 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             .array(
                                 zod.object({
                                     kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                    event: zod.string().optional(),
+                                    event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                    properties: zod
+                                        .array(
+                                            zod
+                                                .object({
+                                                    key: zod.string().describe('Property key to filter on.'),
+                                                    value: zod
+                                                        .union([
+                                                            zod.string(),
+                                                            zod.number(),
+                                                            zod.array(zod.string()),
+                                                            zod.array(zod.number()),
+                                                        ])
+                                                        .nullish()
+                                                        .describe('Value to match against.'),
+                                                    operator: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe(
+                                                            "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                        ),
+                                                    type: zod
+                                                        .string()
+                                                        .optional()
+                                                        .describe("Filter type, usually 'event'."),
+                                                })
+                                                .describe(
+                                                    "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                                )
+                                        )
+                                        .optional()
+                                        .describe('Event property filters to narrow which events are counted.'),
                                 })
                             )
                             .optional()
@@ -449,14 +919,70 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         numerator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the numerator EventsNode.'),
                         denominator: zod
                             .object({
                                 kind: zod.enum(['EventsNode', 'ActionsNode']).optional(),
-                                event: zod.string().optional(),
+                                event: zod.string().optional().describe("Event name, e.g. '$pageview'."),
+                                properties: zod
+                                    .array(
+                                        zod
+                                            .object({
+                                                key: zod.string().describe('Property key to filter on.'),
+                                                value: zod
+                                                    .union([
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.array(zod.string()),
+                                                        zod.array(zod.number()),
+                                                    ])
+                                                    .nullish()
+                                                    .describe('Value to match against.'),
+                                                operator: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe(
+                                                        "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt')."
+                                                    ),
+                                                type: zod.string().optional().describe("Filter type, usually 'event'."),
+                                            })
+                                            .describe(
+                                                "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}."
+                                            )
+                                    )
+                                    .optional()
+                                    .describe('Event property filters to narrow which events are counted.'),
                             })
                             .optional()
                             .describe('For ratio metrics: the denominator EventsNode.'),
@@ -471,7 +997,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     )
             )
             .nullish()
-            .describe('Secondary experiment metrics array for additional measurements.'),
+            .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
         _create_in_folder: zod.string().optional(),

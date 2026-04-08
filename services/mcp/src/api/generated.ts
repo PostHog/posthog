@@ -14762,7 +14762,7 @@ export namespace Schemas {
     };
 
     /**
-     * Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.
+     * Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.
      * @nullable
      */
     export type ExperimentParameters = {
@@ -14779,11 +14779,13 @@ export namespace Schemas {
     export type ExperimentExposureCriteriaProperty = {
       /** Whether to filter out internal test accounts. */
       filterTestAccounts?: boolean;
-      /** Custom exposure event configuration. */
+      /** Custom exposure event configuration. Requires kind, event, and properties (can be empty array). */
       exposure_config?: {
-      kind?: 'ExperimentEventExposureConfig';
+      kind: 'ExperimentEventExposureConfig';
       /** Custom exposure event name. */
-      event?: string;
+      event: string;
+      /** Event property filters for the exposure event. Pass an empty array if no filters are needed. */
+      properties: Item[];
     };
     } | null | null;
 
@@ -14819,12 +14821,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsItemSourcePropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For mean metrics: EventsNode with 'kind' and 'event' fields.
      */
     export type ExperimentMetricsItemSource = {
       kind?: ExperimentMetricsItemSourceKind;
       /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsItemSourcePropertiesItem[];
     };
 
     export type ExperimentMetricsItemSeriesItemKind = typeof ExperimentMetricsItemSeriesItemKind[keyof typeof ExperimentMetricsItemSeriesItemKind];
@@ -14835,9 +14853,26 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsItemSeriesItemPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
     export type ExperimentMetricsItemSeriesItem = {
       kind?: ExperimentMetricsItemSeriesItemKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsItemSeriesItemPropertiesItem[];
     };
 
     export type ExperimentMetricsItemNumeratorKind = typeof ExperimentMetricsItemNumeratorKind[keyof typeof ExperimentMetricsItemNumeratorKind];
@@ -14849,11 +14884,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsItemNumeratorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the numerator EventsNode.
      */
     export type ExperimentMetricsItemNumerator = {
       kind?: ExperimentMetricsItemNumeratorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsItemNumeratorPropertiesItem[];
     };
 
     export type ExperimentMetricsItemDenominatorKind = typeof ExperimentMetricsItemDenominatorKind[keyof typeof ExperimentMetricsItemDenominatorKind];
@@ -14865,11 +14917,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsItemDenominatorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the denominator EventsNode.
      */
     export type ExperimentMetricsItemDenominator = {
       kind?: ExperimentMetricsItemDenominatorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsItemDenominatorPropertiesItem[];
     };
 
     /**
@@ -14941,12 +15010,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsSecondaryItemSourcePropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For mean metrics: EventsNode with 'kind' and 'event' fields.
      */
     export type ExperimentMetricsSecondaryItemSource = {
       kind?: ExperimentMetricsSecondaryItemSourceKind;
       /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsSecondaryItemSourcePropertiesItem[];
     };
 
     export type ExperimentMetricsSecondaryItemSeriesItemKind = typeof ExperimentMetricsSecondaryItemSeriesItemKind[keyof typeof ExperimentMetricsSecondaryItemSeriesItemKind];
@@ -14957,9 +15042,26 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsSecondaryItemSeriesItemPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
     export type ExperimentMetricsSecondaryItemSeriesItem = {
       kind?: ExperimentMetricsSecondaryItemSeriesItemKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsSecondaryItemSeriesItemPropertiesItem[];
     };
 
     export type ExperimentMetricsSecondaryItemNumeratorKind = typeof ExperimentMetricsSecondaryItemNumeratorKind[keyof typeof ExperimentMetricsSecondaryItemNumeratorKind];
@@ -14971,11 +15073,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsSecondaryItemNumeratorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the numerator EventsNode.
      */
     export type ExperimentMetricsSecondaryItemNumerator = {
       kind?: ExperimentMetricsSecondaryItemNumeratorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsSecondaryItemNumeratorPropertiesItem[];
     };
 
     export type ExperimentMetricsSecondaryItemDenominatorKind = typeof ExperimentMetricsSecondaryItemDenominatorKind[keyof typeof ExperimentMetricsSecondaryItemDenominatorKind];
@@ -14987,11 +15106,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type ExperimentMetricsSecondaryItemDenominatorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the denominator EventsNode.
      */
     export type ExperimentMetricsSecondaryItemDenominator = {
       kind?: ExperimentMetricsSecondaryItemDenominatorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: ExperimentMetricsSecondaryItemDenominatorPropertiesItem[];
     };
 
     /**
@@ -15102,7 +15238,7 @@ export namespace Schemas {
       start_date?: string | null;
       /** @nullable */
       end_date?: string | null;
-      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. */
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
       readonly feature_flag: MinimalFeatureFlag;
       readonly holdout: ExperimentHoldout;
@@ -15114,7 +15250,7 @@ export namespace Schemas {
       /** @nullable */
       readonly exposure_cohort: number | null;
       /**
-       * Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.
+       * Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.
        * @nullable
        */
       parameters?: ExperimentParameters;
@@ -15144,12 +15280,12 @@ export namespace Schemas {
        */
       exposure_criteria?: ExperimentExposureCriteriaProperty;
       /**
-       * Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).
+       * Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project.
        * @nullable
        */
       metrics?: ExperimentMetricsItem[] | null;
       /**
-       * Secondary experiment metrics array for additional measurements.
+       * Secondary metrics for additional measurements. Same format as primary metrics.
        * @nullable
        */
       metrics_secondary?: ExperimentMetricsSecondaryItem[] | null;
@@ -24080,7 +24216,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.
+     * Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.
      * @nullable
      */
     export type PatchedExperimentParameters = {
@@ -24097,11 +24233,13 @@ export namespace Schemas {
     export type PatchedExperimentExposureCriteria = {
       /** Whether to filter out internal test accounts. */
       filterTestAccounts?: boolean;
-      /** Custom exposure event configuration. */
+      /** Custom exposure event configuration. Requires kind, event, and properties (can be empty array). */
       exposure_config?: {
-      kind?: 'ExperimentEventExposureConfig';
+      kind: 'ExperimentEventExposureConfig';
       /** Custom exposure event name. */
-      event?: string;
+      event: string;
+      /** Event property filters for the exposure event. Pass an empty array if no filters are needed. */
+      properties: Item[];
     };
     } | null | null;
 
@@ -24137,12 +24275,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsItemSourcePropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For mean metrics: EventsNode with 'kind' and 'event' fields.
      */
     export type PatchedExperimentMetricsItemSource = {
       kind?: PatchedExperimentMetricsItemSourceKind;
       /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsItemSourcePropertiesItem[];
     };
 
     export type PatchedExperimentMetricsItemSeriesItemKind = typeof PatchedExperimentMetricsItemSeriesItemKind[keyof typeof PatchedExperimentMetricsItemSeriesItemKind];
@@ -24153,9 +24307,26 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsItemSeriesItemPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
     export type PatchedExperimentMetricsItemSeriesItem = {
       kind?: PatchedExperimentMetricsItemSeriesItemKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsItemSeriesItemPropertiesItem[];
     };
 
     export type PatchedExperimentMetricsItemNumeratorKind = typeof PatchedExperimentMetricsItemNumeratorKind[keyof typeof PatchedExperimentMetricsItemNumeratorKind];
@@ -24167,11 +24338,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsItemNumeratorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the numerator EventsNode.
      */
     export type PatchedExperimentMetricsItemNumerator = {
       kind?: PatchedExperimentMetricsItemNumeratorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsItemNumeratorPropertiesItem[];
     };
 
     export type PatchedExperimentMetricsItemDenominatorKind = typeof PatchedExperimentMetricsItemDenominatorKind[keyof typeof PatchedExperimentMetricsItemDenominatorKind];
@@ -24183,11 +24371,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsItemDenominatorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the denominator EventsNode.
      */
     export type PatchedExperimentMetricsItemDenominator = {
       kind?: PatchedExperimentMetricsItemDenominatorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsItemDenominatorPropertiesItem[];
     };
 
     /**
@@ -24259,12 +24464,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsSecondaryItemSourcePropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For mean metrics: EventsNode with 'kind' and 'event' fields.
      */
     export type PatchedExperimentMetricsSecondaryItemSource = {
       kind?: PatchedExperimentMetricsSecondaryItemSourceKind;
       /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsSecondaryItemSourcePropertiesItem[];
     };
 
     export type PatchedExperimentMetricsSecondaryItemSeriesItemKind = typeof PatchedExperimentMetricsSecondaryItemSeriesItemKind[keyof typeof PatchedExperimentMetricsSecondaryItemSeriesItemKind];
@@ -24275,9 +24496,26 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsSecondaryItemSeriesItemPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
     export type PatchedExperimentMetricsSecondaryItemSeriesItem = {
       kind?: PatchedExperimentMetricsSecondaryItemSeriesItemKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsSecondaryItemSeriesItemPropertiesItem[];
     };
 
     export type PatchedExperimentMetricsSecondaryItemNumeratorKind = typeof PatchedExperimentMetricsSecondaryItemNumeratorKind[keyof typeof PatchedExperimentMetricsSecondaryItemNumeratorKind];
@@ -24289,11 +24527,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsSecondaryItemNumeratorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the numerator EventsNode.
      */
     export type PatchedExperimentMetricsSecondaryItemNumerator = {
       kind?: PatchedExperimentMetricsSecondaryItemNumeratorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsSecondaryItemNumeratorPropertiesItem[];
     };
 
     export type PatchedExperimentMetricsSecondaryItemDenominatorKind = typeof PatchedExperimentMetricsSecondaryItemDenominatorKind[keyof typeof PatchedExperimentMetricsSecondaryItemDenominatorKind];
@@ -24305,11 +24560,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.
+     */
+    export type PatchedExperimentMetricsSecondaryItemDenominatorPropertiesItem = {
+      /** Property key to filter on. */
+      key: string;
+      /** Value to match against. */
+      value?: string | number | string[] | number[] | null;
+      /** Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt'). */
+      operator?: string;
+      /** Filter type, usually 'event'. */
+      type?: string;
+    };
+
+    /**
      * For ratio metrics: the denominator EventsNode.
      */
     export type PatchedExperimentMetricsSecondaryItemDenominator = {
       kind?: PatchedExperimentMetricsSecondaryItemDenominatorKind;
+      /** Event name, e.g. '$pageview'. */
       event?: string;
+      /** Event property filters to narrow which events are counted. */
+      properties?: PatchedExperimentMetricsSecondaryItemDenominatorPropertiesItem[];
     };
 
     /**
@@ -24369,7 +24641,7 @@ export namespace Schemas {
       start_date?: string | null;
       /** @nullable */
       end_date?: string | null;
-      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. */
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
       readonly feature_flag?: MinimalFeatureFlag;
       readonly holdout?: ExperimentHoldout;
@@ -24381,7 +24653,7 @@ export namespace Schemas {
       /** @nullable */
       readonly exposure_cohort?: number | null;
       /**
-       * Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.
+       * Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.
        * @nullable
        */
       parameters?: PatchedExperimentParameters;
@@ -24411,12 +24683,12 @@ export namespace Schemas {
        */
       exposure_criteria?: PatchedExperimentExposureCriteria;
       /**
-       * Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).
+       * Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project.
        * @nullable
        */
       metrics?: PatchedExperimentMetricsItem[] | null;
       /**
-       * Secondary experiment metrics array for additional measurements.
+       * Secondary metrics for additional measurements. Same format as primary metrics.
        * @nullable
        */
       metrics_secondary?: PatchedExperimentMetricsSecondaryItem[] | null;

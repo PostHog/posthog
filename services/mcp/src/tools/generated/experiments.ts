@@ -90,6 +90,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
     secondary_metrics: true,
+    saved_metrics_ids: true,
     filters: true,
     archived: true,
     deleted: true,
@@ -126,9 +127,6 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
             }
-            if (params.saved_metrics_ids !== undefined) {
-                body['saved_metrics_ids'] = params.saved_metrics_ids
-            }
             if (params.type !== undefined) {
                 body['type'] = params.type
             }
@@ -157,6 +155,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         feature_flag_key: true,
         holdout_id: true,
         secondary_metrics: true,
+        saved_metrics_ids: true,
         filters: true,
         deleted: true,
         type: true,
@@ -185,9 +184,6 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
-            }
-            if (params.saved_metrics_ids !== undefined) {
-                body['saved_metrics_ids'] = params.saved_metrics_ids
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
@@ -228,7 +224,8 @@ const experimentDelete = (): ToolBase<typeof ExperimentDeleteSchema, Schemas.Exp
             path: `/api/projects/${projectId}/experiments/${params.id}/`,
             body: { deleted: true },
         })
-        return result
+        const filtered = pickResponseFields(result, ['id', 'name', 'deleted']) as typeof result
+        return filtered
     },
 })
 

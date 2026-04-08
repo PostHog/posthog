@@ -55,7 +55,7 @@
                 {
                     "properties": {
                         "exposure_config": {
-                            "description": "Custom exposure event configuration.",
+                            "description": "Custom exposure event configuration. Requires kind, event, and properties (can be empty array).",
                             "properties": {
                                 "event": {
                                     "description": "Custom exposure event name.",
@@ -64,8 +64,62 @@
                                 "kind": {
                                     "enum": ["ExperimentEventExposureConfig"],
                                     "type": "string"
+                                },
+                                "properties": {
+                                    "description": "Event property filters for the exposure event. Pass an empty array if no filters are needed.",
+                                    "items": {
+                                        "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                        "properties": {
+                                            "key": {
+                                                "description": "Property key to filter on.",
+                                                "type": "string"
+                                            },
+                                            "operator": {
+                                                "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                "type": "string"
+                                            },
+                                            "type": {
+                                                "description": "Filter type, usually 'event'.",
+                                                "type": "string"
+                                            },
+                                            "value": {
+                                                "anyOf": [
+                                                    {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "items": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "type": "array"
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Value to match against."
+                                            }
+                                        },
+                                        "required": ["key"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
                                 }
                             },
+                            "required": ["kind", "event", "properties"],
                             "type": "object"
                         },
                         "filterTestAccounts": {
@@ -99,11 +153,65 @@
                                 "description": "For ratio metrics: the denominator EventsNode.",
                                 "properties": {
                                     "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
                                         "type": "string"
                                     },
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -131,11 +239,65 @@
                                 "description": "For ratio metrics: the numerator EventsNode.",
                                 "properties": {
                                     "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
                                         "type": "string"
                                     },
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -145,11 +307,65 @@
                                 "items": {
                                     "properties": {
                                         "event": {
+                                            "description": "Event name, e.g. '$pageview'.",
                                             "type": "string"
                                         },
                                         "kind": {
                                             "enum": ["EventsNode", "ActionsNode"],
                                             "type": "string"
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters to narrow which events are counted.",
+                                            "items": {
+                                                "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                                "properties": {
+                                                    "key": {
+                                                        "description": "Property key to filter on.",
+                                                        "type": "string"
+                                                    },
+                                                    "operator": {
+                                                        "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "description": "Filter type, usually 'event'.",
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "items": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "array"
+                                                                    },
+                                                                    {
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        },
+                                                                        "type": "array"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Value to match against."
+                                                    }
+                                                },
+                                                "required": ["key"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
                                         }
                                     },
                                     "type": "object"
@@ -166,6 +382,59 @@
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -184,7 +453,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio)."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [
@@ -200,11 +469,65 @@
                                 "description": "For ratio metrics: the denominator EventsNode.",
                                 "properties": {
                                     "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
                                         "type": "string"
                                     },
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -232,11 +555,65 @@
                                 "description": "For ratio metrics: the numerator EventsNode.",
                                 "properties": {
                                     "event": {
+                                        "description": "Event name, e.g. '$pageview'.",
                                         "type": "string"
                                     },
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -246,11 +623,65 @@
                                 "items": {
                                     "properties": {
                                         "event": {
+                                            "description": "Event name, e.g. '$pageview'.",
                                             "type": "string"
                                         },
                                         "kind": {
                                             "enum": ["EventsNode", "ActionsNode"],
                                             "type": "string"
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters to narrow which events are counted.",
+                                            "items": {
+                                                "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                                "properties": {
+                                                    "key": {
+                                                        "description": "Property key to filter on.",
+                                                        "type": "string"
+                                                    },
+                                                    "operator": {
+                                                        "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "description": "Filter type, usually 'event'.",
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "items": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "array"
+                                                                    },
+                                                                    {
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        },
+                                                                        "type": "array"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Value to match against."
+                                                    }
+                                                },
+                                                "required": ["key"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
                                         }
                                     },
                                     "type": "object"
@@ -267,6 +698,59 @@
                                     "kind": {
                                         "enum": ["EventsNode", "ActionsNode"],
                                         "type": "string"
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters to narrow which events are counted.",
+                                        "items": {
+                                            "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+                                            "properties": {
+                                                "key": {
+                                                    "description": "Property key to filter on.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "description": "Filter type, usually 'event'.",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Value to match against."
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
                                     }
                                 },
                                 "type": "object"
@@ -285,7 +769,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Secondary experiment metrics array for additional measurements."
+            "description": "Secondary metrics for additional measurements. Same format as primary metrics."
         },
         "name": {
             "description": "Name of the experiment.",
@@ -331,25 +815,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect."
-        },
-        "saved_metrics_ids": {
-            "anyOf": [
-                {
-                    "items": {
-                        "additionalProperties": {},
-                        "propertyNames": {
-                            "type": "string"
-                        },
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary)."
+            "description": "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         }
     },
     "required": ["id"],

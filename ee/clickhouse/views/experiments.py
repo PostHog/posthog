@@ -49,6 +49,50 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
+EVENT_PROPERTY_FILTER_SCHEMA = {
+    "type": "object",
+    "required": ["key"],
+    "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
+    "properties": {
+        "key": {"type": "string", "description": "Property key to filter on."},
+        "value": {
+            "description": "Value to match against.",
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "number"},
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "array", "items": {"type": "number"}},
+                    ]
+                },
+                {"type": "null"},
+            ],
+        },
+        "operator": {
+            "type": "string",
+            "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
+        },
+        "type": {
+            "type": "string",
+            "description": "Filter type, usually 'event'.",
+        },
+    },
+}
+
+EVENTS_NODE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
+        "event": {"type": "string", "description": "Event name, e.g. '$pageview'."},
+        "properties": {
+            "type": "array",
+            "description": "Event property filters to narrow which events are counted.",
+            "items": EVENT_PROPERTY_FILTER_SCHEMA,
+        },
+    },
+}
+
 EXPERIMENT_METRIC_SCHEMA = {
     "type": "object",
     "description": (
@@ -79,39 +123,21 @@ EXPERIMENT_METRIC_SCHEMA = {
             "description": "Unique identifier for the metric. Auto-generated if not provided.",
         },
         "source": {
-            "type": "object",
+            **EVENTS_NODE_SCHEMA,
             "description": "For mean metrics: EventsNode with 'kind' and 'event' fields.",
-            "properties": {
-                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
-                "event": {"type": "string", "description": "Event name, e.g. '$pageview'."},
-            },
         },
         "series": {
             "type": "array",
             "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
-                    "event": {"type": "string"},
-                },
-            },
+            "items": EVENTS_NODE_SCHEMA,
         },
         "numerator": {
-            "type": "object",
+            **EVENTS_NODE_SCHEMA,
             "description": "For ratio metrics: the numerator EventsNode.",
-            "properties": {
-                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
-                "event": {"type": "string"},
-            },
         },
         "denominator": {
-            "type": "object",
+            **EVENTS_NODE_SCHEMA,
             "description": "For ratio metrics: the denominator EventsNode.",
-            "properties": {
-                "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
-                "event": {"type": "string"},
-            },
         },
         "goal": {
             "type": "string",
@@ -192,7 +218,8 @@ EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA = {
         },
         "exposure_config": {
             "type": "object",
-            "description": "Custom exposure event configuration.",
+            "description": "Custom exposure event configuration. Requires kind, event, and properties (can be empty array).",
+            "required": ["kind", "event", "properties"],
             "properties": {
                 "kind": {
                     "type": "string",
@@ -201,6 +228,11 @@ EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA = {
                 "event": {
                     "type": "string",
                     "description": "Custom exposure event name.",
+                },
+                "properties": {
+                    "type": "array",
+                    "description": "Event property filters for the exposure event. Pass an empty array if no filters are needed.",
+                    "items": EVENT_PROPERTY_FILTER_SCHEMA,
                 },
             },
         },
@@ -216,7 +248,10 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
-        help_text="Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only.",
+        help_text=(
+            "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
+            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+        ),
     )
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -250,17 +285,29 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     parameters = ExperimentParametersField(
         required=False,
         allow_null=True,
-        help_text="Configuration object containing variant definitions (feature_flag_variants) and minimum detectable effect.",
+        help_text=(
+            "Variant definitions and statistical configuration. "
+            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
+            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+        ),
     )
     metrics = ExperimentMetricsField(
         required=False,
         allow_null=True,
-        help_text="Primary experiment metrics array. Each metric defines what to measure (e.g., mean, funnel, ratio).",
+        help_text=(
+            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Use the event-definitions-list tool to find available events in the project."
+        ),
     )
     metrics_secondary = ExperimentMetricsField(
         required=False,
         allow_null=True,
-        help_text="Secondary experiment metrics array for additional measurements.",
+        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
     )
     exposure_criteria = ExperimentExposureCriteriaField(
         required=False,
