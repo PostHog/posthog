@@ -46,7 +46,7 @@ const meta: Meta<typeof UpstreamGraph> = {
     title: 'Scenes-App/Data Warehouse/Editor/Upstream graph',
     component: UpstreamGraph,
     parameters: {
-        layout: 'padded',
+        layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
             snapshotBrowsers: ['chromium'],
