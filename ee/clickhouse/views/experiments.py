@@ -584,12 +584,14 @@ class EnterpriseExperimentsViewSet(
             return Response({"detail": "You do not have write access to the target project."}, status=403)
 
         feature_flag_key = request.data.get("feature_flag_key")
+        name = request.data.get("name")
 
         service = ExperimentService(team=self.team, user=request.user)
         new_experiment = service.copy_experiment_to_project(
             source_experiment,
             target_team,
             feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context={
                 "request": request,
                 "team_id": target_team.id,

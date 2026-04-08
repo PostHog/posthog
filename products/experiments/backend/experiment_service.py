@@ -1251,21 +1251,30 @@ class ExperimentService:
     # Duplication
     # ------------------------------------------------------------------
 
-    def duplicate_experiment(
+    def clone_experiment(
         self,
         source_experiment: Experiment,
         *,
+        target_team: Team | None = None,
         feature_flag_key: str | None = None,
         name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
-        """Duplicate an experiment as a new draft."""
+        """Clone an experiment as a new draft, optionally into a different project."""
+        target = target_team or self.team
+        is_cross_project = target.id != self.team.id
+
         if feature_flag_key is None:
             feature_flag_key = source_experiment.feature_flag.key
 
         parameters = deepcopy(source_experiment.parameters) or {}
-        if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
+
+        # Reuse variants from an existing flag in the target project.
+        # For cross-project clones we always check the target; for same-project
+        # clones we only check when the key differs from the source flag.
+        should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        if should_check_existing:
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
 
@@ -1275,44 +1284,57 @@ class ExperimentService:
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
         if name:
-            duplicate_name = name
+            clone_name = name
         else:
             base_name = f"{source_experiment.name} (Copy)"
-            duplicate_name = base_name
+            clone_name = base_name
             counter = 1
-            while Experiment.objects.filter(team_id=self.team.id, name=duplicate_name, deleted=False).exists():
-                duplicate_name = f"{base_name} {counter}"
+            while Experiment.objects.filter(team_id=target.id, name=clone_name, deleted=False).exists():
+                clone_name = f"{base_name} {counter}"
                 counter += 1
 
-        saved_metrics_data = []
-        for link in source_experiment.experimenttosavedmetric_set.all():
-            saved_metrics_data.append(
-                {
-                    "id": link.saved_metric.id,
-                    "metadata": link.metadata,
-                }
-            )
+        # Saved metrics are team-scoped — only copy for same-project clones.
+        saved_metrics_data: list[dict] | None = None
+        if not is_cross_project:
+            saved_metrics_data = [
+                {"id": link.saved_metric.id, "metadata": link.metadata}
+                for link in source_experiment.experimenttosavedmetric_set.all()
+            ] or None
 
-        duplicate_description = source_experiment.description or ""
-        duplicate_type = source_experiment.type or "product"
-
-        return self.create_experiment(
-            name=duplicate_name,
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
+        return service.create_experiment(
+            name=clone_name,
             feature_flag_key=feature_flag_key,
-            description=duplicate_description,
-            type=duplicate_type,
+            description=source_experiment.description or "",
+            type=source_experiment.type or "product",
             parameters=parameters,
             filters=source_experiment.filters,
-            metrics=source_experiment.metrics,
-            metrics_secondary=source_experiment.metrics_secondary,
+            metrics=deepcopy(source_experiment.metrics),
+            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
             exposure_criteria=source_experiment.exposure_criteria,
-            saved_metrics_ids=saved_metrics_data or None,
+            saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
             exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
             only_count_matured_users=source_experiment.only_count_matured_users,
+            serializer_context=serializer_context,
+        )
+
+    def duplicate_experiment(
+        self,
+        source_experiment: Experiment,
+        *,
+        feature_flag_key: str | None = None,
+        name: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft."""
+        return self.clone_experiment(
+            source_experiment,
+            feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=serializer_context,
         )
 
@@ -1322,51 +1344,15 @@ class ExperimentService:
         target_team: Team,
         *,
         feature_flag_key: str | None = None,
+        name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
         """Duplicate an experiment as a new draft in a different project."""
-        if feature_flag_key is None:
-            feature_flag_key = source_experiment.feature_flag.key
-
-        parameters = deepcopy(source_experiment.parameters) or {}
-        # Check the target project for an existing flag with this key and reuse its variants if present
-        existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target_team.id).first()
-        if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-            parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
-
-        self.validate_experiment_parameters(parameters)
-        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
-        self.validate_experiment_metrics(source_experiment.metrics)
-        self.validate_experiment_metrics(source_experiment.metrics_secondary)
-
-        base_name = f"{source_experiment.name} (Copy)"
-        duplicate_name = base_name
-        counter = 1
-        while Experiment.objects.filter(team_id=target_team.id, name=duplicate_name, deleted=False).exists():
-            duplicate_name = f"{base_name} {counter}"
-            counter += 1
-
-        duplicate_description = source_experiment.description or ""
-        duplicate_type = source_experiment.type or "product"
-
-        # Saved metrics and holdouts are team-scoped — skip them for cross-project copy.
-        # The inline metrics/metrics_secondary JSON fields carry the actual definitions.
-        target_service = ExperimentService(team=target_team, user=self.user)
-        return target_service.create_experiment(
-            name=duplicate_name,
+        return self.clone_experiment(
+            source_experiment,
+            target_team=target_team,
             feature_flag_key=feature_flag_key,
-            description=duplicate_description,
-            type=duplicate_type,
-            parameters=parameters,
-            filters=source_experiment.filters,
-            metrics=deepcopy(source_experiment.metrics),
-            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
-            stats_config=source_experiment.stats_config,
-            scheduling_config=source_experiment.scheduling_config,
-            exposure_criteria=source_experiment.exposure_criteria,
-            primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
-            exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
+            name=name,
             serializer_context=serializer_context,
         )
 
