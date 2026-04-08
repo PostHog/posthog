@@ -2105,8 +2105,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         }
     }),
 
-    beforeUnload(({ values }) => ({
+    beforeUnload(({ values, actions }) => ({
         enabled: () => values.featureFlagChanged,
         message: 'Leave?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetFeatureFlag()
+        },
     })),
 ])
