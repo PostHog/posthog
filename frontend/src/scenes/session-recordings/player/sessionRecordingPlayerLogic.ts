@@ -1545,8 +1545,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
                     } else if (searchParams.t) {
+                        // Landing exactly on durationMs fires endReached in seekToTimestamp,
+                        // which blocks auto-init of the rrweb replayer — keep strictly below.
                         const desiredStartTime = Number(searchParams.t) * 1000
-                        actions.seekToTime(desiredStartTime)
+                        const maxTime = (values.sessionPlayerData?.durationMs ?? Infinity) - 1
+                        actions.seekToTime(clamp(desiredStartTime, 0, maxTime))
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
@@ -1592,6 +1595,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
+            } else if (values.currentSegment?.kind === 'buffer') {
+                // initializePlayerFromStart can capture a synthetic buffer segment
+                // before snapshots load; refresh it now that real segments exist
+                // so tryInitReplayer can find a valid windowId.
+                const refreshedSegment = values.segmentForTimestamp(values.currentTimestamp)
+                if (refreshedSegment && refreshedSegment.windowId !== undefined) {
+                    actions.setCurrentSegment(refreshedSegment)
+                }
             }
             actions.checkBufferingCompleted()
 

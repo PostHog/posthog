@@ -325,6 +325,110 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
         })
+
+        // This tests the stale-segment refresh in syncSnapshotsWithPlayer.
+        // In production there's a race: initializePlayerFromStart runs from
+        // loadRecordingMetaSuccess before snapshots are processed. At that
+        // moment segments[0] is a synthetic buffer (no windowId). The player
+        // captures it as currentSegment, and without a refresh step nothing
+        // updates it when real segments arrive — leaving tryInitReplayer
+        // unable to find a valid windowId until manual user interaction.
+        // We can't reproduce the race naturally because test mocks resolve
+        // synchronously, so we inject the stale state manually and then
+        // trigger the sync to verify the refresh logic.
+        it('syncSnapshotsWithPlayer refreshes stale buffer currentSegment', async () => {
+            // Let the logic fully initialize with real segments first.
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // Inject a stale buffer currentSegment. The setCurrentSegment
+            // listener triggers a seekToTimestamp that would refresh it
+            // immediately, so we wait for all listeners to drain first,
+            // then inject directly via a freshly-dispatched action and
+            // immediately trigger the sync before the chain can recover.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            const end = logic.values.sessionPlayerData.end?.valueOf() ?? 0
+            const staleBuffer: RecordingSegment = {
+                kind: 'buffer',
+                startTimestamp: start,
+                endTimestamp: end,
+                isActive: false,
+                durationMs: end - start,
+                windowId: undefined,
+            }
+
+            // Stub the setCurrentSegment listener-triggered seek away so it
+            // doesn't immediately overwrite our injected stale segment.
+            const originalSeek = logic.actions.seekToTimestamp
+            logic.actions.seekToTimestamp = jest.fn() as any
+
+            try {
+                logic.actions.setCurrentSegment(staleBuffer)
+                expect(logic.values.currentSegment?.windowId).toBeUndefined()
+                expect(logic.values.currentSegment?.kind).toBe('buffer')
+            } finally {
+                logic.actions.seekToTimestamp = originalSeek
+            }
+
+            // Now trigger the sync. The fix should detect the stale buffer
+            // and refresh currentSegment to a real window segment.
+            await expectLogic(logic, () => {
+                logic.actions.syncSnapshotsWithPlayer()
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSegment?.kind).not.toBe('buffer')
+            expect(logic.values.currentSegment?.windowId).not.toBeUndefined()
+        })
+
+        // The mock recording is 11 seconds long.
+        // We test loading with `?t=999` (999 seconds, ~16x the recording length).
+        // The player should recover gracefully — leave the player in a state
+        // where tryInitReplayer can succeed (valid currentSegment with windowId,
+        // and not stuck in endReached) so the rrweb wrapper can render.
+        it('handles out-of-range t parameter without leaving player in endReached state', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // The current segment must have a valid windowId so tryInitReplayer
+            // can find snapshots and create the rrweb Replayer.
+            expect(logic.values.currentSegment).not.toBeNull()
+            expect(logic.values.currentSegment?.windowId).not.toBeUndefined()
+
+            // currentTimestamp must be set (not undefined) so the player has a
+            // position to render from, and it must be within the recording's
+            // valid range — not past the end (which would put us into the
+            // endReached state and prevent the replayer from auto-initializing).
+            expect(logic.values.currentTimestamp).not.toBeUndefined()
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            const end = logic.values.sessionPlayerData.end?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.currentTimestamp).toBeLessThan(end)
+
+            // After init with an out-of-range t param, the player should NOT be
+            // stuck in endReached state — that prevents tryInitReplayer from
+            // creating the rrweb wrapper without manual user interaction.
+            expect(logic.values.endReached).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {
