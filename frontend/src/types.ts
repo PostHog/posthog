@@ -776,6 +776,7 @@ export interface ActionType extends WithAccessControl {
     bytecode_error?: string
     pinned_at: string | null
     _create_in_folder?: string | null
+    reference_count?: number
 }
 
 /** Sync with nodejs/src/types.ts */
@@ -4920,6 +4921,7 @@ export interface SubscriptionType {
     until_date?: string
     title: string
     summary: string
+    next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -5150,8 +5152,10 @@ export type APIScopeObject =
     | 'activity_log'
     | 'alert'
     | 'annotation'
+    | 'approvals'
     | 'batch_export'
     | 'cohort'
+    | 'comment'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'

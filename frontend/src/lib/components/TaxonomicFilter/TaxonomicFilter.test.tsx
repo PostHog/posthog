@@ -7,6 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
@@ -17,6 +18,10 @@ import {
 
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
+
+jest.mock('~/queries/query', () => ({
+    performQuery: jest.fn(),
+}))
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -30,6 +35,10 @@ describe('TaxonomicFilter', () => {
     beforeEach(() => {
         onChangeMock = jest.fn()
         onCloseMock = jest.fn()
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            tables: {},
+            joins: [],
+        })
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -132,6 +141,32 @@ describe('TaxonomicFilter', () => {
             })
 
             expect(container.querySelector('.one-taxonomic-tab')).not.toBeInTheDocument()
+        })
+
+        it('shows a loading empty state while data warehouse tables are still loading', async () => {
+            let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+            ;(performQuery as jest.Mock).mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveQuery = resolve
+                    })
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouse],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Loading data warehouse tables')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Connect external data')).not.toBeInTheDocument()
+
+            resolveQuery?.({ tables: {}, joins: [] })
+
+            await waitFor(() => {
+                expect(screen.getByText('Connect external data')).toBeInTheDocument()
+            })
         })
     })
 

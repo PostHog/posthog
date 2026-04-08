@@ -107,6 +107,7 @@ const UniversalSearch = ({
                     size="small"
                     autoFocus={false}
                     fullWidth
+                    placeholder="Add a filter or search..."
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
                 />
             </LemonDropdown>

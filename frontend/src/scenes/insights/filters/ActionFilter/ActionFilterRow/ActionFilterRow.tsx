@@ -247,12 +247,18 @@ export function ActionFilterRow({
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
+
+    const initialGroupType =
+        filter.type === EntityTypes.DATA_WAREHOUSE
+            ? TaxonomicFilterGroupType.DataWarehouse
+            : TaxonomicFilterGroupType.SuggestedFilters
+
     const filterElement = (
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={TaxonomicFilterGroupType.SuggestedFilters}
+            groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
