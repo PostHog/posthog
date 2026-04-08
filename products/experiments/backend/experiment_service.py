@@ -79,10 +79,32 @@ class ExperimentService:
             raise ValidationError("End date must be after start date")
 
     @staticmethod
-    def validate_experiment_parameters(parameters: dict | None) -> None:
-        """Validate experiment parameters accepted by the API layer."""
+    def validate_variant_shapes(parameters: dict | None) -> None:
+        """Validate that variant entries are well-formed dicts with required keys.
+
+        This catches malformed input early before it reaches FeatureFlagSerializer,
+        preventing unhandled KeyError/AttributeError 500s.
+        """
         if not parameters:
             return
+        variants = parameters.get("feature_flag_variants", [])
+        for i, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                raise ValidationError(f"Feature flag variant at index {i} must be an object")
+            if "key" not in variant:
+                raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
+
+    @staticmethod
+    def validate_experiment_parameters(parameters: dict | None) -> None:
+        """Validate experiment parameters accepted by the API layer.
+
+        Includes shape validation plus count/control checks.
+        Called from the serializer where the full parameter set is available.
+        """
+        if not parameters:
+            return
+
+        ExperimentService.validate_variant_shapes(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -93,11 +115,6 @@ class ExperimentService:
                 raise ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
-            for i, variant in enumerate(variants):
-                if not isinstance(variant, dict):
-                    raise ValidationError(f"Feature flag variant at index {i} must be an object")
-                if "key" not in variant:
-                    raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
@@ -237,7 +254,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
-        self.validate_experiment_parameters(parameters)
+        self.validate_variant_shapes(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_stats_config(stats_config)
