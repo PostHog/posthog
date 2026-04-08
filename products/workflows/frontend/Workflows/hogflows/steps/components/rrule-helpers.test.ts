@@ -215,6 +215,33 @@ describe('rrule-helpers', () => {
             expect(result[0].getUTCMonth()).toBe(0) // January
             expect(result[0].getUTCDate()).toBe(15)
         })
+
+        it('returns only future occurrences when dtstart is in the past', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'weekly', endType: 'never' }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            expect(result.length).toBeGreaterThan(0)
+            expect(result.length).toBeLessThanOrEqual(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
+
+        it('returns all future occurrences for finite schedules with past dtstart', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = {
+                ...DEFAULT_STATE,
+                frequency: 'monthly',
+                endType: 'after_count',
+                endCount: 50,
+            }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            // Should return more than 6 for finite schedules so OccurrencesList can show the collapse
+            expect(result.length).toBeGreaterThan(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
     })
 
     describe('fakeUtcToReal', () => {
@@ -235,6 +262,10 @@ describe('rrule-helpers', () => {
             },
         ])('$label', ({ timezone, expectedUtcHour, expectedUtcMinute }) => {
             const real = fakeUtcToReal(fakeDate, timezone)
+            // Verify the result is in UTC when no timezone is given (not local browser time)
+            if (!timezone) {
+                expect(real.isUTC()).toBe(true)
+            }
             expect(real.utc().hour()).toBe(expectedUtcHour)
             expect(real.utc().minute()).toBe(expectedUtcMinute)
         })
