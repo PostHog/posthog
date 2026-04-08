@@ -81,6 +81,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
+        # Signal report research sandboxes need full history for git blame.
+        # All other sandboxes use shallow clone (--depth 1) for faster boot.
+        shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+
         github_token = ""
         if has_repo:
             assert github_integration_id is not None
@@ -178,7 +182,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             assert repository is not None
             emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
-                clone_result = sandbox.clone_repository(repository, github_token=github_token)
+                clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {repository}: {clone_result.stderr}")
@@ -203,9 +207,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         extra={"branch": ctx.branch, "stderr": update_result.stderr},
                     )
 
+            depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
             fetch_and_checkout = (
                 f"cd {shlex.quote(repo_path)} && "
-                f"git fetch origin -- {shlex.quote(ctx.branch)} && "
+                f"git fetch{depth_flag} origin -- {shlex.quote(ctx.branch)} && "
                 f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
             )
             try:
