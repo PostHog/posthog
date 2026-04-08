@@ -309,7 +309,7 @@ describe('PersonHogPersonRepository', () => {
             expect(handlers.getPersonsByDistinctIds).not.toHaveBeenCalled()
         })
 
-        it('routes fetchPersonsByDistinctIds to gRPC when any team ID matches', async () => {
+        it('routes fetchPersonsByDistinctIds to gRPC when all team IDs are in rollout set', async () => {
             handlers.getPersonsByDistinctIds.mockReturnValue({
                 results: [
                     {
