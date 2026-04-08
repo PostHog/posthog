@@ -129,7 +129,7 @@ async fn resolve_issue(
             send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
-        return Ok(issue);
+        Ok(issue)
     }
 
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling

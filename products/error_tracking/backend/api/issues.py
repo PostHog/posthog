@@ -277,7 +277,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     )
 
                 issues.update(status=new_status)
-                sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
+                transaction.on_commit(
+                    lambda ids=[i.id for i in issues], tid=self.team_id: sync_issues_to_clickhouse(
+                        issue_ids=ids, team_id=tid
+                    )
+                )
             elif action == "assign":
                 assignee = request.data.get("assignee", None)
 
@@ -285,7 +289,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     assign_issue(
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
-                sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
+                transaction.on_commit(
+                    lambda ids=[i.id for i in issues], tid=self.team_id: sync_issues_to_clickhouse(
+                        issue_ids=ids, team_id=tid
+                    )
+                )
 
         return Response({"success": True})
 
