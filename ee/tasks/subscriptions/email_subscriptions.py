@@ -60,7 +60,11 @@ def send_email_subscription_report(
         raise NotImplementedError("This type of subscription resource is not supported")
 
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
-    campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+    # Include subscription id so shared recipients on many subscriptions still get one email per subscription;
+    campaign_key = (
+        f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_"
+        f"{subscription.next_delivery_date.isoformat()}"
+    )
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
