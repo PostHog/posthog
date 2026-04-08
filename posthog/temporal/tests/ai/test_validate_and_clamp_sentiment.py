@@ -2,8 +2,10 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.temporal.ai.session_summary.activities.a4_consolidate_video_segments import _validate_and_clamp_sentiment
-from posthog.temporal.ai.session_summary.types.video import (
+from posthog.temporal.session_replay.session_summary.activities.a4_consolidate_video_segments import (
+    _validate_and_clamp_sentiment,
+)
+from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
     ConsolidatedVideoSegment,
     SentimentSignal,
