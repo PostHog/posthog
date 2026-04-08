@@ -1,14 +1,32 @@
+from django.db.models import QuerySet
+
+from products.data_warehouse.backend.models import ExternalDataSource
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
-def get_customer_revenue_view_name(table_prefix: str) -> str:
+def get_customer_revenue_view_name(table_prefix: str = "") -> str:
     stripped = table_prefix.strip("_")
     if stripped:
         return f"stripe.{stripped}.customer_revenue_view"
     return "stripe.customer_revenue_view"
 
 
-def ensure_person_join(team_id: int, table_prefix: str) -> None:
+def get_stripe_sources_for_team(team_id: int) -> QuerySet[ExternalDataSource]:
+    return ExternalDataSource.objects.filter(
+        team_id=team_id,
+        source_type=ExternalDataSourceType.STRIPE,
+    ).exclude(deleted=True)
+
+
+def ensure_person_join_for_team(team_id: int) -> None:
+    sources = get_stripe_sources_for_team(team_id)
+    for source in sources:
+        if source.revenue_analytics_config_safe.enabled:
+            ensure_person_join(team_id, source.prefix)
+
+
+def ensure_person_join(team_id: int, table_prefix: str = "") -> None:
     DataWarehouseJoin.objects.get_or_create(
         team_id=team_id,
         deleted=False,
@@ -20,7 +38,14 @@ def ensure_person_join(team_id: int, table_prefix: str) -> None:
     )
 
 
-def remove_person_join(team_id: int, table_prefix: str) -> None:
+def remove_person_join_for_team(team_id: int) -> None:
+    sources = get_stripe_sources_for_team(team_id)
+    for source in sources:
+        if source.revenue_analytics_config_safe.enabled:
+            remove_person_join(team_id, source.prefix)
+
+
+def remove_person_join(team_id: int, table_prefix: str = "") -> None:
     for join in DataWarehouseJoin.objects.filter(
         team_id=team_id,
         source_table_name=get_customer_revenue_view_name(table_prefix),

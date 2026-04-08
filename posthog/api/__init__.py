@@ -1220,6 +1220,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"revenue_analytics/joins",
+    revenue_analytics.RevenueAnalyticsJoinViewSet,
+    "environment_revenue_analytics_joins",
+    ["team_id"],
+)
+
 projects_router.register(
     r"flag_value",
     flag_value.FlagValueViewSet,
