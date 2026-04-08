@@ -265,7 +265,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                having=ast.And(exprs=having_exprs) if len(having_exprs) > 1 else having_exprs[0],
+                having=ast.And(exprs=having_exprs),
                 order_by=self._frustration_metrics_order_by(),
             )
 
@@ -790,7 +790,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(
                     "`context.columns.breakdown_value` IS NOT NULL AND `context.columns.breakdown_value` != ''"
-                )
+                )  # we need to check for empty strings as well due to how the left join works
             case _:
                 return parse_expr("`context.columns.breakdown_value` IS NOT NULL")
 

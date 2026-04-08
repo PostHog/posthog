@@ -44,7 +44,6 @@ LEFT JOIN (
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
             {inside_periods},
             {bounce_event_properties}, -- Using filtered properties but excluding pathname
             {session_properties}
@@ -104,7 +103,6 @@ LEFT JOIN (
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties},
             {session_properties},
@@ -136,7 +134,6 @@ LEFT JOIN (
         FROM events
         WHERE and(
             or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
             {inside_periods},
             {event_properties_for_scroll},
             {session_properties},
@@ -237,7 +234,6 @@ LEFT JOIN (
         FROM events
         WHERE and(
             or(events.event = '$pageview', events.event = '$screen'),
-            breakdown_value IS NOT NULL,
             {inside_periods},
             {bounce_event_properties},
             {session_properties}
