@@ -1947,6 +1947,11 @@ export class ApiRequest {
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
     }
+
+    // Revenue analytics
+    public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -6011,7 +6016,11 @@ const api = {
 
         resolveByName(
             promptName: string,
-            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+            params?: { version?: number
+                version_id?: string
+                offset?: number
+                before_version?: number
+                limit?: number }
         ): Promise<LLMPromptResolveResponse> {
             return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
         },
@@ -6342,6 +6351,12 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    revenueAnalyticsJoins: {
+        async sync(enabled: boolean): Promise<void> {
+            return await new ApiRequest().revenueAnalyticsJoins().create({ data: { enabled } })
         },
     },
 
