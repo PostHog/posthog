@@ -715,7 +715,7 @@ const ReplayFiltersTab = ({
                                 { key: 'Last 3 days', values: ['-3d'] },
                                 { key: 'Last 7 days', values: ['-7d'] },
                                 { key: 'Last 30 days', values: ['-30d'] },
-                                { key: 'All time', values: ['-90d'] },
+                                { key: 'All time', values: ['-5y'] },
                             ]}
                             dropdownPlacement="bottom-start"
                             size="small"
