@@ -643,13 +643,16 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "Extra arguments are passed through to the underlying test runner.\n\n"
         "Examples:\n\n"
         "\b\n"
-        "  hogli test posthog/api/test/\n"
-        "  hogli test posthog/api/test/test_user.py --watch\n"
-        "  hogli test posthog/api/test/test_user.py::TestUser::test_create\n"
-        "  hogli test playwright/e2e/sql-editor.spec.ts\n"
-        "  hogli test --changed\n"
-        "  hogli test livestream/\n"
-        "  hogli test products/visual_review/"
+        "  hogli test posthog/api/test/test_user.py                          # single Python file\n"
+        "  hogli test posthog/api/test/test_user.py::TestUser::test_create   # single Python test\n"
+        "  hogli test posthog/api/test/test_user.py --watch                  # re-run on changes\n"
+        "  hogli test frontend/src/lib/utils.test.ts                         # single Jest file\n"
+        '  hogli test "frontend/src/lib/utils.test.ts::my test name"         # Jest by name pattern\n'
+        "  hogli test playwright/e2e/sql-editor.spec.ts                      # Playwright spec\n"
+        "  hogli test cli/src/utils/throttler.rs                             # single Rust module\n"
+        "  hogli test cli/src/utils/throttler.rs::test_create                # single Rust test\n"
+        "  hogli test --changed                                              # tests for branch changes\n"
+        "  hogli test products/alerts/                                       # all tests in a product"
     ),
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
