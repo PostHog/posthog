@@ -1216,9 +1216,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'On this page',
                     },
                     {
-                        name: 'Suggested filters',
-                        searchPlaceholder: 'suggested filters',
-                        categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
+                        name: props.suggestedFiltersLabel ?? 'Suggested filters',
+                        searchPlaceholder: (props.suggestedFiltersLabel ?? 'Suggested filters').toLowerCase(),
+                        categoryLabel: (count: number) =>
+                            (props.suggestedFiltersLabel ?? 'Suggested filters') + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
                         isMetaGroup: true,
@@ -1231,7 +1232,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => 'Suggested filters',
+                        getPopoverHeader: () => props.suggestedFiltersLabel ?? 'Suggested filters',
                     },
                     {
                         name: 'Recent',
