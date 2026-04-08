@@ -233,10 +233,16 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
                 return segment
             }
         }
-        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Timestamp falls outside all segments (e.g. timezone mismatch, stale link).
         // Pick the nearest segment that has a windowId so the player can still boot.
         if (timestamp < segments[0].startTimestamp) {
             const nearest = segments.find((s) => s.windowId !== undefined)
+            if (nearest) {
+                return nearest
+            }
+        }
+        if (timestamp > segments[segments.length - 1].endTimestamp) {
+            const nearest = [...segments].reverse().find((s) => s.windowId !== undefined)
             if (nearest) {
                 return nearest
             }
@@ -1712,23 +1718,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
-            if (segment && !objectsEqual(segment, values.currentSegment)) {
+            // End-of-recording detection — independent of segment type so that
+            // findSegmentForTimestamp can safely return a real segment for
+            // past-end timestamps (needed for the image exporter to boot the
+            // rrweb replayer). See #49364 and #53550.
+            const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+            if (isPastEnd) {
+                actions.setEndReached(true)
+            } else if (segment && !objectsEqual(segment, values.currentSegment)) {
                 actions.setCurrentSegment(segment)
             }
 
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
-                const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
-                if (isPastEnd) {
-                    actions.setEndReached(true)
-                } else {
-                    values.player?.replayer?.pause()
-                    actions.startBuffer()
-                    actions.clearPlayerError()
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+                actions.clearPlayerError()
 
-                    // if we're buffering, then be careful to ensure we're loading data
-                    actions.loadNextSnapshotSource()
-                }
+                // if we're buffering, then be careful to ensure we're loading data
+                actions.loadNextSnapshotSource()
             }
 
             // If not forced to play and if last playing state was pause, pause

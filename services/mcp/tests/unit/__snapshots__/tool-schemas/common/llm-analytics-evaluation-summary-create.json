@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request serializer for evaluation summary - accepts IDs only, fetches data server-side.",
+    "properties": {
+        "evaluation_id": {
+            "description": "UUID of the evaluation config to summarize",
+            "type": "string"
+        },
+        "filter": {
+            "default": "all",
+            "description": "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n* `all` - all\n* `pass` - pass\n* `fail` - fail\n* `na` - na",
+            "enum": ["all", "pass", "fail", "na"],
+            "type": "string"
+        },
+        "force_refresh": {
+            "default": false,
+            "description": "If true, bypass cache and generate a fresh summary",
+            "type": "boolean"
+        },
+        "generation_ids": {
+            "description": "Optional: specific generation IDs to include in summary (max 250)",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 250,
+            "type": "array"
+        }
+    },
+    "required": ["evaluation_id"],
+    "type": "object"
+}
