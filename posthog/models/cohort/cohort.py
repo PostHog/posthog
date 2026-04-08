@@ -59,6 +59,16 @@ REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 logger = structlog.get_logger(__name__)
 
+DELETE_QUERY = """
+DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
+"""
+
+UPDATE_QUERY = """
+INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
+{values_query}
+ON CONFLICT DO NOTHING
+"""
+
 DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
 
 
@@ -689,39 +699,37 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             db_read = router.db_for_read(Person) or "default"
             persons_connection = connections[db_write]
             cursor = persons_connection.cursor()
-            cohort_people_table = CohortPeople._meta.db_table
-
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
+                # Get persons already in this cohort to exclude them
+                # Can't use .exclude(cohort__id=self.id) because Cohort is in default DB
+                # and Person/CohortPeople are in persons DB - cross-DB joins don't work
+                existing_person_ids = set(
+                    CohortPeople.objects.using(db_write).filter(cohort_id=self.id).values_list("person_id", flat=True)
+                )
 
-                persons_query = Person.objects.db_manager(db_read).filter(team_id=team_id).filter(uuid__in=batch)
+                persons_query = (
+                    Person.objects.db_manager(db_read)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)
+                    .exclude(id__in=existing_person_ids)
+                )
                 if insert_in_clickhouse:
-                    # Exclude existing cohort members via a subquery on
-                    # CohortPeople so we don't insert duplicates into the
-                    # ReplacingMergeTree (duplicates persist until async merge).
-                    insert_uuids_query = persons_query.exclude(
-                        id__in=CohortPeople.objects.using(db_write)
-                        .filter(cohort_id=self.id)
-                        .values_list("person_id", flat=True)
-                    )
                     insert_static_cohort(
-                        list(insert_uuids_query.values_list("uuid", flat=True)),
+                        list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
                         team_id=team_id,
                     )
-
-                # Exclude existing members via a LEFT JOIN so the exclusion
-                # stays entirely within the database. Both tables are on
-                # the same persons DB so this join works.
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-                query = f"""
-                    INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
-                    SELECT p."id", {self.pk}, {self.version or "NULL"}
-                    FROM ({sql}) AS p
-                    LEFT JOIN "{cohort_people_table}" AS cp
-                        ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
-                    WHERE cp."person_id" IS NULL
-                """
+                person_table = Person._meta.db_table
+                query = UPDATE_QUERY.format(
+                    cohort_id=self.pk,
+                    values_query=sql.replace(
+                        f'FROM "{person_table}"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "{person_table}"',
+                        1,
+                    ),
+                )
                 cursor.execute(query, params)
 
         except Exception as err:

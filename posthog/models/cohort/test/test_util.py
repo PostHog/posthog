@@ -393,6 +393,7 @@ class TestCohortUtils(BaseTest):
         self.assertIn("SETTINGS", sql)
         self.assertIn("transform_null_in=1", sql)
 
+        # Also check for other critical settings
         self.assertIn("readonly=2", sql)
         self.assertIn("max_execution_time=60", sql)
         self.assertIn("allow_experimental_object_type=1", sql)
