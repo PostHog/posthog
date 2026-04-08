@@ -10,8 +10,6 @@ set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 ARCH="$(uname -m)"
-CACHE_DIR="/opt/.tool-version-cache"
-mkdir -p "$CACHE_DIR"
 
 # --- Parse versions from config files using Python for reliable TOML/JSON parsing ---
 read -r REQUIRED_UV REQUIRED_PYTHON REQUIRED_PNPM < <(python3 -c "
