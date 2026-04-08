@@ -113,9 +113,6 @@ def _make_exception(
     return exc(err.request_info, err.history, status=err.status, message=err.message, headers=err.headers)
 
 
-Request = asyncio.Task[None]
-
-
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
@@ -139,7 +136,6 @@ class WorkflowsConsumer(Consumer):
         self.session = session
         self.internal_api_secret = settings.INTERNAL_API_SECRET
         self.request_task_group = request_task_group
-        self._pending_requests: set[Request] = set()
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
     async def consume_chunk(self, data: bytes) -> None:
