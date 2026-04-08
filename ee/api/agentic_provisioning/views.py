@@ -105,7 +105,10 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
         "id": PAY_AS_YOU_GO_SERVICE_ID,
         "description": "Pay-as-you-go - usage-based pricing across all PostHog products with no minimum commitment.",
         "categories": ALL_CATEGORIES,
-        "pricing": {"type": "paid", "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."}},
+        "pricing": {
+            "type": "paid",
+            "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+        },
         "kind": "plan",
     }
 
@@ -120,7 +123,11 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
             "component": {
                 "options": [
                     {"parent_service_ids": [FREE_PLAN_SERVICE_ID], "type": "free"},
-                    {"parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID], "type": "paid", "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."}},
+                    {
+                        "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
+                        "type": "paid",
+                        "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+                    },
                 ]
             },
         },
@@ -961,7 +968,6 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             },
         }
     )
-
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
