@@ -32,14 +32,12 @@ CRAWL_PATTERNS: dict[str, list[str]] = {
         URL_MARIUS_TECH_TIPS,
         URL_PRICING,
         f"{SITE_URL}/docs/",
-        f"{SITE_URL}/blog/",
     ],
     "ai_assistant": [
         URL_HOME,
         URL_MARIUS_TECH_TIPS,
         URL_PRICING,
         f"{SITE_URL}/docs/",
-        f"{SITE_URL}/blog/",
     ],
     "search_crawler": [
         URL_HOME,
