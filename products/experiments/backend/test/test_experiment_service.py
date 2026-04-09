@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -2558,3 +2559,249 @@ class TestExperimentService(APIBaseTest):
         experiment.save()
         updated = service.update_experiment(experiment, {"parameters": {"minimum_detectable_effect": 0.05}})
         assert updated.parameters == {"minimum_detectable_effect": 0.05}
+
+    # ------------------------------------------------------------------
+    # Validation hardening
+    # ------------------------------------------------------------------
+
+    def test_variant_missing_key_raises_validation_error(self):
+        """Variant without 'key' should return 400, not 500 KeyError."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Variants",
+                feature_flag_key="bad-variant-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+
+    def test_variant_not_a_dict_raises_validation_error(self):
+        """Variant that is not a dict should return 400."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Variants",
+                feature_flag_key="bad-variant-flag-2",
+                parameters={"feature_flag_variants": ["control", "test"]},
+            )
+
+    def test_duplicate_metric_uuids_raises_validation_error(self):
+        """Metrics with duplicate UUIDs should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Dup UUIDs",
+                feature_flag_key="dup-uuid-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            )
+
+    def test_duplicate_metric_uuids_across_primary_and_secondary_raises(self):
+        """Duplicate UUIDs across primary and secondary metrics should also be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Dup UUIDs Cross",
+                feature_flag_key="dup-uuid-cross-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                metrics_secondary=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            )
+
+    def test_metrics_without_uuids_get_auto_assigned(self):
+        """Metrics with no UUID should get unique auto-generated UUIDs on create."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Auto UUID",
+            feature_flag_key="auto-uuid-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 2
+        uuid_0 = experiment.metrics[0].get("uuid")
+        uuid_1 = experiment.metrics[1].get("uuid")
+        assert uuid_0 is not None
+        assert uuid_1 is not None
+        UUID(uuid_0)  # raises ValueError if not a valid UUID
+        UUID(uuid_1)
+        assert uuid_0 != uuid_1
+
+    def test_metrics_with_empty_string_uuid_get_auto_assigned(self):
+        """Metrics with empty string UUID should get auto-generated UUIDs on create."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Empty UUID",
+            feature_flag_key="empty-uuid-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+        uuid = experiment.metrics[0].get("uuid")
+        assert uuid is not None
+        assert uuid != ""
+        UUID(uuid)  # raises ValueError if not a valid UUID
+
+    def test_duplicate_empty_string_uuids_do_not_clash(self):
+        """Two metrics with empty string UUIDs should both get unique auto-generated UUIDs."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Empty UUID Dup",
+            feature_flag_key="empty-uuid-dup-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 2
+        uuid_0 = experiment.metrics[0].get("uuid")
+        uuid_1 = experiment.metrics[1].get("uuid")
+        assert uuid_0 is not None
+        assert uuid_1 is not None
+        UUID(uuid_0)  # raises ValueError if not a valid UUID
+        UUID(uuid_1)
+        assert uuid_0 != uuid_1
+
+    def _base_queryset(self):
+        return Experiment.objects.filter(team=self.team)
+
+    def test_order_by_invalid_field_raises_validation_error(self):
+        """Ordering by a non-allowlisted field should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.filter_experiments_queryset(
+                self._base_queryset(), action="list", query_params={"order": "feature_flag__key"}
+            )
+
+    @parameterized.expand(
+        [
+            ("created_at",),
+            ("-created_at",),
+            ("name",),
+            ("-name",),
+            ("start_date",),
+            ("-start_date",),
+            ("end_date",),
+            ("-end_date",),
+            ("updated_at",),
+            ("-updated_at",),
+            ("duration",),
+            ("-duration",),
+            ("status",),
+            ("-status",),
+        ]
+    )
+    def test_order_by_valid_fields_works(self, order: str):
+        service = self._service()
+        qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
+        assert qs is not None
+
+    def test_eligible_flags_order_by_invalid_field_raises(self):
+        """Ordering eligible flags by a non-allowlisted field should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.get_eligible_feature_flags(order="team__organization__name")
+
+    def test_launch_with_deleted_flag_raises(self):
+        """Launching an experiment whose flag is soft-deleted should fail."""
+        experiment = self._create_launchable_experiment(
+            name="Deleted Flag Launch",
+            feature_flag_key="deleted-flag-launch",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+    @parameterized.expand(
+        [
+            ("empty_string", {"method": ""}),
+            ("garbage", {"method": "garbage"}),
+            ("numeric", {"method": 42}),
+        ]
+    )
+    def test_invalid_stats_config_method_raises(self, _name: str, stats_config: dict):
+        """Invalid stats_config method values should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Stats",
+                feature_flag_key=f"bad-stats-flag-{_name}",
+                stats_config=stats_config,
+            )
+
+    @parameterized.expand(
+        [
+            ("bayesian",),
+            ("frequentist",),
+        ]
+    )
+    def test_valid_stats_config_methods_work(self, method: str):
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Stats {method}",
+            feature_flag_key=f"stats-{method}-flag",
+            stats_config={"method": method},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == method

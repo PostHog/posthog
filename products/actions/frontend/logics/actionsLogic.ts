@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { urls } from 'scenes/urls'
@@ -22,11 +23,20 @@ export const actionsFuse = new Fuse<ActionType>([], {
     includeMatches: true,
 })
 
+// Called from actionsLogic's connect() — before dependencies are mounted. We read the flag via
+// findMounted() because featureFlagLogic is mounted at app bootstrap, long before the actions scene.
+// If it's somehow not mounted yet, we safely fall back to the non-reference-count path.
+export const getActionsModelParams = (): string => {
+    const referenceCountEnabled =
+        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
+    return referenceCountEnabled ? 'include_count=1&include_reference_count=1' : 'include_count=1'
+}
+
 export const actionsLogic = kea<actionsLogicType>([
     path(['products', 'actions', 'actionsLogic']),
     connect(() => ({
         values: [
-            actionsModel({ params: 'include_count=1&include_reference_count=1' }),
+            actionsModel({ params: getActionsModelParams() }),
             ['actions', 'actionsLoading'],
             userLogic,
             ['user'],

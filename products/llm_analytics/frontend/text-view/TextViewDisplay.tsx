@@ -119,7 +119,7 @@ export function TextViewDisplay({
     if (textReprLoading) {
         return (
             <div className="flex items-center justify-center p-8 bg-bg-light rounded border border-border">
-                <Spinner className="text-2xl" />
+                <Spinner className="text-2xl" captureTime />
                 <span className="ml-2">Loading text representation...</span>
             </div>
         )

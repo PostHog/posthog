@@ -18071,7 +18071,7 @@
             "description": "Send event data to Koala (Cloud)",
             "filters": null,
             "masking": null,
-            "icon_url": "/static/services/koala.com.png"
+            "icon_url": "/static/services/getkoala.com.png"
         },
         {
             "mapping_templates": null,
