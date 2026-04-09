@@ -1536,6 +1536,9 @@ export const sceneLogic = kea<sceneLogicType>([
                             iconType,
                         },
                     ])
+                    if (!process?.env?.STORYBOOK) {
+                        window.setTimeout(() => router.actions.refreshRouterState(), 1)
+                    }
                 } else {
                     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
                         cache.pendingTitleAndIcon = { title, iconType }
@@ -1588,15 +1591,15 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache }) => {
         cache.disposables.add(
             () => {
-                const onVisible = (): void => {
+                const onVisibilityChange = (): void => {
                     if (document.visibilityState === 'visible' && cache.pendingTitleAndIcon) {
                         const { title, iconType } = cache.pendingTitleAndIcon
                         cache.pendingTitleAndIcon = null
                         actions.applyTitleAndIcon(title, iconType)
                     }
                 }
-                document.addEventListener('visibilitychange', onVisible)
-                return () => document.removeEventListener('visibilitychange', onVisible)
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
             },
             'titleAndIconVisibilitySync',
             { pauseOnPageHidden: false }
