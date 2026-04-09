@@ -1,4 +1,9 @@
+import datetime as dt
+
+from temporalio.common import RetryPolicy
+
 from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY, ALERT_NOTIFY_RETRY_POLICY
 from posthog.temporal.alerts.types import (
     AlertInfo,
     CheckAlertWorkflowInputs,
@@ -81,3 +86,19 @@ def test_activity_input_types_construct():
 
 def test_schedule_all_alert_checks_workflow_inputs_construct():
     ScheduleAllAlertChecksWorkflowInputs()
+
+
+def test_alert_evaluate_retry_policy_is_valid():
+    assert isinstance(ALERT_EVALUATE_RETRY_POLICY, RetryPolicy)
+    assert ALERT_EVALUATE_RETRY_POLICY.maximum_attempts == 4
+    assert ALERT_EVALUATE_RETRY_POLICY.initial_interval == dt.timedelta(seconds=1)
+    assert ALERT_EVALUATE_RETRY_POLICY.maximum_interval == dt.timedelta(seconds=10)
+    assert ALERT_EVALUATE_RETRY_POLICY.backoff_coefficient == 2.0
+
+
+def test_alert_notify_retry_policy_is_valid():
+    assert isinstance(ALERT_NOTIFY_RETRY_POLICY, RetryPolicy)
+    assert ALERT_NOTIFY_RETRY_POLICY.maximum_attempts == 5
+    assert ALERT_NOTIFY_RETRY_POLICY.initial_interval == dt.timedelta(seconds=5)
+    assert ALERT_NOTIFY_RETRY_POLICY.maximum_interval == dt.timedelta(minutes=2)
+    assert ALERT_NOTIFY_RETRY_POLICY.backoff_coefficient == 2.0
