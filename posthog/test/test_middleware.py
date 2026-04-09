@@ -536,6 +536,20 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertNotIn("ph_current_project_token", response.cookies)
         self.assertNotIn("ph_current_project_name", response.cookies)
 
+    def test_split_path_edge_cases_do_not_raise(self):
+        from django.test import RequestFactory
+        from django.http import HttpResponse
+        from posthog.middleware import PostHogTokenCookieMiddleware
+
+        factory = RequestFactory()
+        middleware = PostHogTokenCookieMiddleware(lambda r: HttpResponse())
+
+        for path in ["", "/", "/api"]:
+            request = factory.get("/")
+            request.path = path
+
+            # should NOT raise IndexError
+            middleware(request)
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
