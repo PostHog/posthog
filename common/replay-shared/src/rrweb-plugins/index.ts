@@ -77,6 +77,7 @@ export { WindowTitlePlugin } from './window-title-plugin'
 
 export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {
     const instances: Set<{ destroy: () => void }> = new Set()
+    let destroyed = false
 
     return {
         onBuild: (node) => {
@@ -87,6 +88,9 @@ export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } 
                 if (videoEl && hlsSrc) {
                     void import('hls.js')
                         .then(({ default: Hls }) => {
+                            if (destroyed) {
+                                return
+                            }
                             if (Hls.isSupported()) {
                                 const hls = new Hls()
                                 instances.add(hls)
@@ -123,6 +127,8 @@ export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } 
         },
 
         destroy: () => {
+            destroyed = true
+
             for (const hls of instances) {
                 hls.destroy()
             }
