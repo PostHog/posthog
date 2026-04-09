@@ -24,6 +24,9 @@ jobs:
               with:
                   version: '0.10.2'
 
+            - name: Check dorny pattern sync
+              run: uv run bin/find_affected_tests.py --check-sync
+
             - name: Compute affected tests (shadow mode)
               run: |
                   CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')

@@ -54,8 +54,12 @@ MAX_FANOUT = 100
 TEST_FILE_RE = re.compile(r"(^|/)test_[^/]*\.py$")
 EVAL_FILE_RE = re.compile(r"(^|/)eval_[^/]*\.py$")
 
-# Files/patterns that force a full test run when changed
+# Files/patterns that force a full test run when changed.
+# Uses substring matching: any changed file containing one of these triggers a full run.
+# Keep in sync with the dorny backend filter in .github/workflows/ci-backend.yml
+# — run `--check-sync` to verify.
 FULL_RUN_PATTERNS = (
+    # Python infrastructure
     "conftest.py",
     "posthog/settings/",
     "posthog/test/",
@@ -65,9 +69,34 @@ FULL_RUN_PATTERNS = (
     "requirements.txt",
     "requirements-dev.txt",
     "pytest.ini",
+    "mypy.ini",
+    ".test_durations",
+    # CI / Docker infrastructure
     ".github/workflows/ci-backend.yml",
+    ".github/clickhouse-versions.json",
     "docker-compose",
     "docker/clickhouse/",
+    "bin/wait-for-docker",
+    "bin/ci-wait-for-docker",
+    # Non-Python files that affect generated Python code or test behavior
+    "frontend/src/queries/schema.json",
+    "frontend/public/email/",
+    "rust/feature-flags/src/properties/property_models.rs",
+    "common/plugin_transpiler/src",
+)
+
+# Patterns in the dorny backend filter that don't affect test selection.
+# These exist in dorny's gate to be conservative, but changing them alone
+# doesn't require running any Python tests. Listed here so --check-sync
+# can verify full coverage of the dorny list.
+GATE_ONLY_PATTERNS = (
+    "bin/build-schema-latest-versions.py",
+    "bin/build-taxonomy-json.py",
+    "bin/check_uv_python_compatibility.py",
+    "bin/find_python_dependencies.py",
+    "bin/granian_metrics.py",
+    "bin/ty.py",
+    "bin/unit_metrics.py",
 )
 
 # Max changed files before we give up and run everything
@@ -186,6 +215,78 @@ def requires_full_run(changed_file: str) -> bool:
     return False
 
 
+def parse_dorny_backend_patterns() -> list[str]:
+    """Extract the backend filter patterns from ci-backend.yml."""
+    ci_backend = REPO_ROOT / ".github" / "workflows" / "ci-backend.yml"
+    lines = ci_backend.read_text().splitlines()
+
+    patterns: list[str] = []
+    in_backend = False
+    for line in lines:
+        stripped = line.strip()
+        # Look for "backend:" at the start of a filter group
+        if stripped == "backend:":
+            in_backend = True
+            continue
+        if in_backend:
+            if stripped.startswith("- "):
+                # Strip "- " prefix and surrounding quotes
+                pattern = stripped[2:].strip().strip("'\"")
+                patterns.append(pattern)
+            elif stripped and not stripped.startswith("#"):
+                # Hit the next filter group (e.g. "legacy:")
+                break
+    return patterns
+
+
+def pattern_is_covered(pattern: str) -> bool:
+    """Check if a dorny pattern is covered by LOCAL_PACKAGES, FULL_RUN_PATTERNS, or GATE_ONLY_PATTERNS."""
+    # Strip glob suffixes to get the base path
+    base = re.sub(r"(/?\*\*?/?)+$", "", pattern)
+
+    # Covered by import graph?
+    for pkg in LOCAL_PACKAGES:
+        if base == pkg or base.startswith(pkg + "/"):
+            return True
+
+    # Covered by full-run patterns? (substring match, same as requires_full_run)
+    for full_pat in FULL_RUN_PATTERNS:
+        if full_pat in base or base in full_pat:
+            return True
+
+    # Explicitly marked as gate-only?
+    for gate_pat in GATE_ONLY_PATTERNS:
+        if gate_pat in base or base in gate_pat:
+            return True
+
+    return False
+
+
+def check_sync() -> None:
+    """Verify all dorny backend patterns are covered by find_affected_tests.py."""
+    patterns = parse_dorny_backend_patterns()
+    if not patterns:
+        sys.stderr.write("ERROR: could not parse any backend patterns from ci-backend.yml\n")
+        sys.exit(1)
+
+    uncovered: list[str] = []
+    for pattern in patterns:
+        if not pattern_is_covered(pattern):
+            uncovered.append(pattern)
+
+    if uncovered:
+        sys.stderr.write("ERROR: dorny backend patterns not covered by find_affected_tests.py:\n")
+        for p in uncovered:
+            sys.stderr.write(f"  - {p}\n")
+        sys.stderr.write(
+            "\nAdd each pattern to FULL_RUN_PATTERNS (forces full test run) or\n"
+            "GATE_ONLY_PATTERNS (dorny gate only, no test impact) in bin/find_affected_tests.py\n"
+        )
+        sys.exit(1)
+    else:
+        sys.stderr.write(f"OK: all {len(patterns)} dorny backend patterns are covered\n")
+
+
 def estimate_duration(test_files: list[str]) -> float:
     if not DURATIONS_PATH.exists():
         return 0
@@ -228,7 +329,16 @@ def main():
         action="store_true",
         help="Just build and print map stats, don't look up affected tests",
     )
+    parser.add_argument(
+        "--check-sync",
+        action="store_true",
+        help="Verify all dorny backend patterns in ci-backend.yml are covered",
+    )
     args = parser.parse_args()
+
+    if args.check_sync:
+        check_sync()
+        return
 
     # Build-only mode: just print stats
     if args.build_only:
