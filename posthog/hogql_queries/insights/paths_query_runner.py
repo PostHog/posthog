@@ -194,6 +194,10 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         condition that actually matches. Without this, ``actor_id`` ends up as a session id
         or group key while the events side uses ``person_id``, and the join silently returns
         zero rows.
+
+        Keep this in sync with ``FunnelEventQuery._aggregation_target_expr`` — that function
+        defines the *inside* of the funnel's aggregation; this one mirrors it on the *outside*
+        so the paths query joins events against the right column.
         """
         funnelsFilter = funnelSource.funnelsFilter or FunnelsFilter()
 
