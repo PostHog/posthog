@@ -159,7 +159,13 @@ For day-to-day development, the quick approach is recommended.
 
 ### Uploading
 
+**You must bump the version in `stripe-app.json` before uploading.**
+Stripe rejects uploads with an already-published version number.
+Use semver: bump the patch for fixes, minor for new fields/features, major for breaking changes.
+
 ```bash
+# 1. Bump "version" in stripe-app.json
+# 2. Upload
 cd services/stripe-app
 pnpm run upload
 ```
