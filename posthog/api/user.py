@@ -573,7 +573,7 @@ class UserViewSet(
                 "social_auth",
                 queryset=UserSocialAuth.objects.annotate(
                     _prefetched_github_login=KeyTextTransform("login", "extra_data"),
-                ).only("id", "user_id", "provider"),
+                ).only("id", "user_id", "provider", "extra_data"),
             )
         )
 
