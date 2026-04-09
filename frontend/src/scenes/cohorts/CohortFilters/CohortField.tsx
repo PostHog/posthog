@@ -25,9 +25,18 @@ import {
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
+    FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    AnyPropertyFilter,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -100,6 +109,24 @@ export function CohortSelectorField({
             </span>
         </LemonButtonWithDropdown>
     )
+}
+
+/**
+ * Wraps CohortSelectorField to show date-only or math-only operators based on
+ * the selected person property's type. Without this, DateTime properties like
+ * "date_of_birth" would show irrelevant operators like "contains" or "maximum".
+ */
+export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const propertyKey = props.criteria?.key
+    const propDef = getPropertyDefinition(propertyKey, PropertyDefinitionType.Person)
+    const isDateTime = propDef?.property_type === PropertyType.DateTime
+
+    const fieldOptionGroupTypes = isDateTime
+        ? [FieldOptionsType.SingleFieldDateOperators]
+        : [FieldOptionsType.CohortMathOperators]
+
+    return <CohortSelectorField {...props} fieldOptionGroupTypes={fieldOptionGroupTypes} />
 }
 
 export function CohortTaxonomicField({
