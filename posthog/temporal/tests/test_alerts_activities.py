@@ -1,0 +1,83 @@
+from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.temporal.alerts.types import (
+    AlertInfo,
+    CheckAlertWorkflowInputs,
+    EnumerateDueAlertsActivityInputs,
+    EvaluateAlertActivityInputs,
+    EvaluateAlertResult,
+    NotifyAlertActivityInputs,
+    PrepareAlertActivityInputs,
+    PrepareAlertResult,
+    ScheduleAllAlertChecksWorkflowInputs,
+)
+
+
+def test_alert_info_can_be_instantiated():
+    info = AlertInfo(
+        alert_id="abc",
+        team_id=1,
+        distinct_id="abc",
+        calculation_interval="hourly",
+        insight_id=42,
+    )
+    assert info.alert_id == "abc"
+    assert info.team_id == 1
+    assert info.calculation_interval == "hourly"
+
+
+def test_check_alert_workflow_inputs_with_slo():
+    inputs = CheckAlertWorkflowInputs(
+        alert_id="abc",
+        team_id=1,
+        distinct_id="abc",
+        calculation_interval="hourly",
+        insight_id=42,
+        slo=SloConfig(
+            operation=SloOperation.ALERT_CHECK,
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=1,
+            resource_id="abc",
+            distinct_id="abc",
+        ),
+    )
+    assert inputs.slo is not None
+    assert inputs.slo.operation == SloOperation.ALERT_CHECK
+
+
+def test_check_alert_workflow_inputs_without_slo_defaults_to_none():
+    inputs = CheckAlertWorkflowInputs(
+        alert_id="abc",
+        team_id=1,
+        distinct_id="abc",
+        calculation_interval=None,
+        insight_id=42,
+    )
+    assert inputs.slo is None
+
+
+def test_prepare_alert_result_actions():
+    assert PrepareAlertResult(action="evaluate").reason is None
+    assert PrepareAlertResult(action="skip", reason="snoozed").reason == "snoozed"
+    assert PrepareAlertResult(action="auto_disable", reason="invalid").reason == "invalid"
+
+
+def test_evaluate_alert_result():
+    result = EvaluateAlertResult(
+        alert_check_id=123,
+        should_notify=True,
+        new_state="firing",
+    )
+    assert result.alert_check_id == 123
+    assert result.should_notify is True
+    assert result.new_state == "firing"
+
+
+def test_activity_input_types_construct():
+    EnumerateDueAlertsActivityInputs()
+    PrepareAlertActivityInputs(alert_id="abc")
+    EvaluateAlertActivityInputs(alert_id="abc")
+    NotifyAlertActivityInputs(alert_id="abc", alert_check_id=123)
+
+
+def test_schedule_all_alert_checks_workflow_inputs_construct():
+    ScheduleAllAlertChecksWorkflowInputs()
