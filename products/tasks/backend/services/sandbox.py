@@ -79,7 +79,7 @@ class SandboxConfig(BaseModel):
 WORKING_DIR = "/tmp/workspace"
 
 
-class SandboxProtocol(ABC):
+class SandboxBase(ABC):
     id: str
     config: SandboxConfig
 
@@ -91,11 +91,11 @@ class SandboxProtocol(ABC):
 
     @staticmethod
     @abstractmethod
-    def create(config: SandboxConfig) -> SandboxProtocol: ...
+    def create(config: SandboxConfig) -> SandboxBase: ...
 
     @staticmethod
     @abstractmethod
-    def get_by_id(sandbox_id: str) -> SandboxProtocol: ...
+    def get_by_id(sandbox_id: str) -> SandboxBase: ...
 
     @staticmethod
     @abstractmethod
@@ -188,7 +188,7 @@ class SandboxProtocol(ABC):
     @abstractmethod
     def is_running(self) -> bool: ...
 
-    def __enter__(self) -> SandboxProtocol:
+    def __enter__(self) -> SandboxBase:
         return self
 
     def __exit__(
@@ -232,7 +232,7 @@ def wait_for_health_check(
     return False
 
 
-SandboxClass = type[SandboxProtocol]
+SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
@@ -302,7 +302,7 @@ __all__ = [
     "ExecutionResult",
     "ExecutionStream",
     "SANDBOX_TTL_SECONDS",
-    "SandboxProtocol",
+    "SandboxBase",
     "WORKING_DIR",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",

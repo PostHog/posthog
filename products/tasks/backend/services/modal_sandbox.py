@@ -33,7 +33,7 @@ from products.tasks.backend.services.agentsh import (
     generate_policy_yaml,
 )
 from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
-from products.tasks.backend.services.sandbox import WORKING_DIR, SandboxProtocol, wait_for_health_check
+from products.tasks.backend.services.sandbox import WORKING_DIR, SandboxBase, wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -198,7 +198,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox(SandboxProtocol):
+class ModalSandbox(SandboxBase):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.

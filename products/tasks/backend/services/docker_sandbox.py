@@ -43,8 +43,8 @@ from .sandbox import (
     AgentServerResult,
     ExecutionResult,
     ExecutionStream,
+    SandboxBase,
     SandboxConfig,
-    SandboxProtocol,
     SandboxStatus,
     SandboxTemplate,
     wait_for_health_check,
@@ -57,7 +57,7 @@ NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
-class DockerSandbox(SandboxProtocol):
+class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
