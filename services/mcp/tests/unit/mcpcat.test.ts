@@ -129,14 +129,17 @@ describe('initMcpCatObservability', () => {
         expect(result).toEqual({ userId: 'user-123' })
     })
 
-    it('eventTags callback returns session_id when available', async () => {
+    it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
         await initMcpCatObservability(server, identity)
 
         const result = await getEventTagsCallback()()
-        expect(result).toEqual({ $session_id: 'session-uuid-456' })
+        expect(result).toEqual({
+            $session_id: 'session-uuid-456',
+            $ai_session_id: 'session-uuid-456',
+        })
     })
 
     it('eventTags callback returns empty when session uuid is undefined', async () => {

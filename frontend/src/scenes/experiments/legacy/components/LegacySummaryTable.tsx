@@ -18,8 +18,8 @@ import {
     legacyCredibleIntervalForVariant,
     legacyExposureCountDataForVariant,
     legacyGetHighestProbabilityVariant,
-} from '~/scenes/experiments/legacy/calculations/legacyExperimentCalculations'
-import { LegacyVariantTag } from '~/scenes/experiments/legacy/components/LegacyVariantTag'
+    LegacyVariantTag,
+} from '~/scenes/experiments/legacy'
 import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
 import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
 

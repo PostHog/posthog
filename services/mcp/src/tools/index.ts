@@ -29,10 +29,6 @@ import evaluationRun from './llmAnalytics/evaluations/run'
 import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributes from './logs/listAttributes'
-import logsListAttributeValues from './logs/listAttributeValues'
-// Logs
-import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -74,11 +70,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
-
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
 
     // Experiments
     'experiment-get-all': getAllExperiments,

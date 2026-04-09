@@ -1,4 +1,4 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -10,6 +10,10 @@ class CohortAdmin(admin.ModelAdmin):
         "id",
         "name",
         "team_link",
+        "is_static",
+        "count",
+        "is_calculating",
+        "errors_calculating",
         "created_at",
         "created_by",
     )
@@ -18,6 +22,7 @@ class CohortAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
+    actions = ["resync_static_cohort"]
 
     @admin.display(description="Team")
     def team_link(self, cohort: Cohort):
@@ -26,3 +31,32 @@ class CohortAdmin(admin.ModelAdmin):
             reverse("admin:posthog_team_change", args=[cohort.team.pk]),
             cohort.team.name,
         )
+
+    @admin.action(description="Re-sync static cohort from source query")
+    def resync_static_cohort(self, request, queryset):
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        for cohort in queryset:
+            if not cohort.is_static:
+                self.message_user(
+                    request,
+                    f"Cohort {cohort.id} ({cohort.name}) is not static, skipping.",
+                    messages.WARNING,
+                )
+                continue
+
+            if not cohort.query:
+                self.message_user(
+                    request,
+                    f"Cohort {cohort.id} ({cohort.name}) has no source query, skipping.",
+                    messages.WARNING,
+                )
+                continue
+
+            old_count = cohort.count
+            insert_cohort_from_query.delay(cohort.pk, cohort.team_id)
+            self.message_user(
+                request,
+                f"Queued re-sync for cohort {cohort.id} ({cohort.name}), current count: {old_count}.",
+                messages.SUCCESS,
+            )

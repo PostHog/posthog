@@ -86,7 +86,7 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 function operationIdToToolName(operationId: string): string {
-    return operationId.replace(/_/g, '-')
+    return operationId.replace(/[_.]+/g, '-')
 }
 
 /**
