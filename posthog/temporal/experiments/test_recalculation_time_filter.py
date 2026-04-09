@@ -29,7 +29,7 @@ def _create_running_experiment(team, user, flag_key, metrics=None):
 
 
 # Access the underlying sync function, patching out close_old_connections which kills the test DB connection
-_raw_sync = _get_experiment_regular_metrics_for_hour_sync.func
+_raw_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
 
 
 def _get_metrics_sync(hour):
