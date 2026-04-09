@@ -12,6 +12,7 @@ describe('SurveyWizard', () => {
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
+        localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
 
         useMocks({
             get: {
@@ -22,16 +23,18 @@ describe('SurveyWizard', () => {
                 '/api/environments/:team_id/add_product_intent/': () => [200, {}],
             },
         })
+
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('keeps new surveys on template selection when full editor is preferred', async () => {
-        initKeaTests()
-        localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
-
         router.actions.push('/surveys/guided/new')
 
-        const replaceSpy = jest.fn()
-        router.actions.replace = replaceSpy
+        const replaceSpy = jest.spyOn(router.actions, 'replace').mockImplementation(() => {})
 
         render(<SurveyWizardComponent id="new" />)
 
