@@ -383,6 +383,13 @@ export function SourceFormComponent({
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields
                     .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                    .filter(
+                        (field) =>
+                            field.name !== 'ssl_enabled' ||
+                            jobInputs?.ssh_tunnel?.enabled === true ||
+                            jobInputs?.ssh_tunnel?.enabled === 'True' ||
+                            jobInputs?.ssh_tunnel?.enabled === 'true'
+                    )
                     .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
             </Group>
             {showPrefix && !isPostgresDirectQuery && (

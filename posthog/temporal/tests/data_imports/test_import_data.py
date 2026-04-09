@@ -259,7 +259,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             db_incremental_field_last_value=None,
             chunk_size_override=None,
             team_id=team.id,
-            require_ssl=False,
+            require_ssl=True,
         )
 
 

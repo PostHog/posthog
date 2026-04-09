@@ -432,7 +432,7 @@ class TestSSLRequirement:
             assert call_kwargs["require_ssl"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_source_does_not_require_ssl_when_ssh_tunnel_enabled(self, team, postgres_config):
+    def test_source_does_not_require_ssl_when_ssl_toggle_disabled(self, team, postgres_config):
         from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         source = ExternalDataSource.objects.create(
@@ -459,8 +459,7 @@ class TestSSLRequirement:
 
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
-        # Simulate an SSH tunnel being enabled
-        config.ssh_tunnel = mock.MagicMock(enabled=True)
+        config.ssl_enabled = mock.MagicMock(enabled=False)
 
         mock_inputs = mock.MagicMock()
         mock_inputs.schema_id = str(schema.id)

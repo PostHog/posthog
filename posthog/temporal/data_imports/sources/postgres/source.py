@@ -9,6 +9,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -111,6 +112,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         placeholder="public",
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
+                    SourceFieldSwitchGroupConfig(
+                        name="ssl_enabled",
+                        label="Require SSL/TLS?",
+                        default=True,
+                        fields=[],
+                        caption="Disable if your database does not support SSL/TLS.",
+                    ),
                 ],
             ),
             featured=True,
@@ -270,10 +278,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
 
-        # Require SSL for sources created after the cutoff date, but not when
-        # an SSH tunnel is in use — the tunnel already encrypts the connection.
-        has_ssh_tunnel = config.ssh_tunnel.enabled if config.ssh_tunnel else False
-        require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE and not has_ssh_tunnel
+        # Require SSL for sources created after the cutoff date, unless the
+        # user has explicitly opted out via the SSL toggle.
+        ssl_enabled = config.ssl_enabled.enabled if config.ssl_enabled else True
+        require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE and ssl_enabled
 
         return postgres_source(
             tunnel=ssh_tunnel,

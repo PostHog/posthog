@@ -1111,19 +1111,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
     @override_settings(DEBUG=False, TEST=False)
     @patch("posthog.hogql.query.psycopg.connect")
-    @patch(
-        "products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder",
-    )
-    def test_execute_direct_postgres_query_uses_prefer_sslmode_when_ssh_tunnel_enabled(
-        self, mock_tunnel_cls, mock_connect
-    ):
-        mock_tunnel = MagicMock()
-        mock_tunnel.local_bind_host = "127.0.0.1"
-        mock_tunnel.local_bind_port = 15432
-        mock_tunnel.__enter__ = MagicMock(return_value=mock_tunnel)
-        mock_tunnel.__exit__ = MagicMock(return_value=False)
-        mock_tunnel_cls.return_value = mock_tunnel
-
+    def test_execute_direct_postgres_query_uses_prefer_sslmode_when_ssl_disabled(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1139,17 +1127,8 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "user": "postgres",
                 "password": "postgres",
                 "schema": "ph3",
-                "ssh_tunnel": {
-                    "enabled": True,
-                    "host": "bastion.example.com",
-                    "port": 22,
-                    "auth_type": {
-                        "selection": "password",
-                        "username": "user",
-                        "password": "pass",
-                        "private_key": "",
-                        "passphrase": "",
-                    },
+                "ssl_enabled": {
+                    "enabled": False,
                 },
             },
         )

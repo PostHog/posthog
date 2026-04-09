@@ -599,6 +599,11 @@ class PolarSourceConfig(config.Config):
 
 
 @config.config
+class PostgresSslEnabledConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=True)
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -608,6 +613,7 @@ class PostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+    ssl_enabled: PostgresSslEnabledConfig | None = None
 
 
 @config.config
