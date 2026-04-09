@@ -190,6 +190,7 @@ class TestIsPosthogDev:
 
     @patch("hogli.core.cli._check_email_domain", return_value=True)
     @patch("hogli.core.cli._check_github_org_membership", return_value=None)
-    def test_gh_unavailable_falls_back_to_email(self, _mock_gh, mock_email, _config_dir):
+    def test_gh_unavailable_falls_back_to_email_and_caches(self, _mock_gh, mock_email, _config_dir):
         assert _is_posthog_dev() is True
         mock_email.assert_called_once()
+        assert json.loads(_config_dir.read_text())["is_posthog_org_member"] is True

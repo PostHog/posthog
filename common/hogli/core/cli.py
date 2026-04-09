@@ -371,7 +371,7 @@ def _is_posthog_dev() -> bool:
 
     is_member = _check_github_org_membership()
     if is_member is None:
-        return _check_email_domain()
+        is_member = _check_email_domain()
 
     config["is_posthog_org_member"] = is_member
     config["org_check_timestamp"] = _time.time()
