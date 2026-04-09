@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CopyExperimentToProjectApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -426,14 +427,14 @@ export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: numb
 export const experimentsCopyToProjectCreate = async (
     projectId: string,
     id: number,
-    experimentApi: NonReadonly<ExperimentApi>,
+    copyExperimentToProjectApi: CopyExperimentToProjectApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
+        body: JSON.stringify(copyExperimentToProjectApi),
     })
 }
 
