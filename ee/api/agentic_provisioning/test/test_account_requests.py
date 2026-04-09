@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from parameterized import parameterized
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -8,6 +7,7 @@ from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
 from posthog.models.user import User

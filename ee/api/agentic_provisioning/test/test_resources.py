@@ -1,4 +1,5 @@
 from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.personal_api_key import PersonalAPIKey
