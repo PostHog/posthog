@@ -240,7 +240,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
     forms(({ values }) => ({
         filterForm: {
             defaults: DEFAULT_FORM,
-            errors: ({ filter_tree, mode }: EventFilterFormValues) => ({
+            errors: ({ filter_tree, mode, test_cases }: EventFilterFormValues) => ({
                 // Validation errors go on `mode` (a string field) rather than `filter_tree`
                 // because kea-forms expects errors on object fields to be DeepPartialMap, not strings.
                 mode: (() => {
@@ -249,6 +249,9 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     }
                     if (treeHasConditions(filter_tree) && treeHasEmptyValues(filter_tree)) {
                         return 'All conditions must have a value'
+                    }
+                    if (mode === 'live' && treeHasConditions(filter_tree) && test_cases.length === 0) {
+                        return 'Add at least one test case before going live'
                     }
                     return undefined
                 })(),
