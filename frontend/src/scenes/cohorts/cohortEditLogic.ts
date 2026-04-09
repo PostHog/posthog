@@ -548,9 +548,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
 
-            const propDef = propertyDefinitionsModel
-                .findMounted()
-                ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+            const propDef = newCriteria.key
+                ? propertyDefinitionsModel
+                      .findMounted()
+                      ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+                : null
             const isDateTime = propDef?.property_type === PropertyType.DateTime
             const currentOperator = criteria.operator as PropertyOperator | undefined
 

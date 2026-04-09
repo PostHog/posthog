@@ -122,7 +122,7 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propDef = getPropertyDefinition(propertyKey, PropertyDefinitionType.Person)
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
     const isDateTime = propDef?.property_type === PropertyType.DateTime
 
     const fieldOptionGroupTypes = isDateTime
