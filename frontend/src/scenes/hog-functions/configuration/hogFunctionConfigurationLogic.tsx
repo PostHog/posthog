@@ -60,7 +60,6 @@ import {
     PropertyGroupFilterValue,
     Survey,
     SurveyEventProperties,
-    TeamType,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
