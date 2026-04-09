@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, viewsets
@@ -19,13 +20,23 @@ from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.helpers.full_text_search import build_rank
+from posthog.models.user import User
+from posthog.permissions import get_organization_from_view
 from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
+
+# Keep in sync with frontend `FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING`
+CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG = "customer-dashboard-template-authoring"
+
+_NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted"})
+_NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url", "github_url"})
 
 # load dashboard_template_schema.json
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
@@ -38,16 +49,54 @@ def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
     return ["-is_featured", Lower("template_name")]
 
 
-class OnlyStaffCanEditDashboardTemplate(BasePermission):
+class CustomerDashboardTemplateWritePermission(BasePermission):
+    """
+    Staff: any unsafe method (delegates object rules to has_object_permission).
+    Non-staff: org-level authoring feature flag (see CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG).
+    Project RBAC for this resource is enforced separately by AccessControlPermission (editor on `dashboard_template`).
+    """
+
     message = "You don't have edit permissions for this dashboard template."
 
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        return request.user.is_staff
+        user = request.user
+        if getattr(user, "is_staff", False):
+            return True
+        organization = get_organization_from_view(view)
+        org_id = str(organization.id)
+        if not posthoganalytics.feature_enabled(
+            CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG,
+            cast(User, user).distinct_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=False,
+        ):
+            return False
+        return True
+
+    def has_object_permission(self, request: Request, view, obj: Any) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        if getattr(user, "is_staff", False):
+            return True
+        if not isinstance(obj, DashboardTemplate):
+            return False
+        if obj.scope in (DashboardTemplate.Scope.GLOBAL, DashboardTemplate.Scope.FEATURE_FLAG):
+            return False
+        view_team_id = getattr(view, "team_id", None)
+        if view_team_id is None:
+            return False
+        if obj.scope == DashboardTemplate.Scope.ONLY_TEAM and obj.team_id is not None and obj.team_id != view_team_id:
+            return False
+        return True
 
 
 class DashboardTemplateSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
     class Meta:
         model = DashboardTemplate
         fields = [
@@ -72,9 +121,57 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         error_str = str(exc)
         if "unique_template_name_per_team" in error_str:
             raise ValidationError(
-                {"template_name": ["A dashboard template with this name already exists for this project."]}
+                detail="A dashboard template with this name already exists for this project.",
+                code="unique_template_name_per_team",
             ) from exc
         raise exc
+
+    def _request_user_is_staff(self) -> bool:
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        return bool(user and user.is_authenticated and user.is_staff)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        is_staff = bool(user and user.is_authenticated and user.is_staff)
+        initial = getattr(self, "initial_data", None) or {}
+        if not is_staff:
+            if self.instance is None:
+                forbidden_create = _NON_STAFF_FORBIDDEN_CREATE_FIELDS & set(initial.keys())
+                if forbidden_create:
+                    raise ValidationError(
+                        {
+                            k: ["You cannot set this field when creating a project template."]
+                            for k in sorted(forbidden_create)
+                        }
+                    )
+            if self.instance is not None:
+                forbidden_patch = set(initial.keys()) - _NON_STAFF_ALLOWED_PATCH_KEYS
+                if forbidden_patch:
+                    raise ValidationError(
+                        {
+                            k: ["Only name, description, tags, and delete can be changed for project templates."]
+                            for k in sorted(forbidden_patch)
+                        }
+                    )
+                if attrs.get("scope") not in (None, self.instance.scope):
+                    raise ValidationError({"scope": ["You cannot change template scope."]})
+                if "is_featured" in initial:
+                    raise ValidationError({"is_featured": ["You cannot change featured status for project templates."]})
+
+        if self.instance is None and not is_staff:
+            requested_scope = attrs.get("scope") or initial.get("scope")
+            if requested_scope not in (None, "", DashboardTemplate.Scope.ONLY_TEAM, "team"):
+                raise ValidationError(
+                    {"scope": ["Project templates must use team scope."]},
+                )
+            is_featured_val = initial.get("is_featured", attrs.get("is_featured"))
+            if is_featured_val:
+                raise ValidationError({"is_featured": ["Only staff can mark templates as featured."]})
+            attrs["scope"] = DashboardTemplate.Scope.ONLY_TEAM
+            attrs["is_featured"] = False
+        return attrs
 
     def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
         if not validated_data["tiles"]:
@@ -94,6 +191,17 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         # if the original request was to make the template scope to team only, and the template is none then deny the request
         if validated_data.get("scope") == "team" and instance.scope == "global" and not instance.team_id:
             raise ValidationError(detail="The original templates cannot be made private as they would be lost.")
+
+        if not self._request_user_is_staff():
+            validated_data.pop("scope", None)
+            validated_data.pop("team_id", None)
+            validated_data.pop("tiles", None)
+            validated_data.pop("variables", None)
+            validated_data.pop("dashboard_filters", None)
+            validated_data.pop("is_featured", None)
+            validated_data.pop("availability_contexts", None)
+            validated_data.pop("image_url", None)
+            validated_data.pop("github_url", None)
 
         try:
             return super().update(instance, validated_data, *args, **kwargs)
@@ -125,15 +233,48 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     "(same as other API query booleans)."
                 ),
             ),
+            OpenApiParameter(
+                "scope",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. `global`: official templates only. `team`: this project's saved templates only "
+                    "(`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. "
+                    "Omit for both official and this project's templates (default dashboard template picker behavior)."
+                ),
+                enum=["global", "team", "feature_flag"],
+            ),
         ],
     ),
 )
 @extend_schema(tags=["core"])
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "dashboard_template"
-    permission_classes = [OnlyStaffCanEditDashboardTemplate]
+    permission_classes = [CustomerDashboardTemplateWritePermission]
     serializer_class = DashboardTemplateSerializer
     queryset = DashboardTemplate.objects.all()
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        instance = serializer.save(created_by=user)
+        if instance.scope != DashboardTemplate.Scope.GLOBAL and isinstance(user, User):
+            report_user_action(
+                user,
+                "dashboard project template created",
+                properties={
+                    "template_id": str(instance.id),
+                    "scope": instance.scope or "",
+                    "team_id": instance.team_id,
+                    "organization_id": self.organization_id,
+                    "is_staff": bool(user.is_staff),
+                    "created_by_id": instance.created_by_id,
+                    "template_name": instance.template_name,
+                    "tile_count": len(instance.tiles or []),
+                    "variable_count": len(instance.variables or []),
+                },
+                team=self.team,
+                organization=self.organization,
+            )
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
     @action(methods=["GET"], detail=False)
@@ -154,11 +295,15 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             query_condition = Q(scope=DashboardTemplate.Scope.FEATURE_FLAG)
         elif scope == DashboardTemplate.Scope.GLOBAL:
             query_condition = Q(scope=DashboardTemplate.Scope.GLOBAL)
+        elif scope == DashboardTemplate.Scope.ONLY_TEAM:
+            query_condition = Q(team_id=self.team_id) & Q(scope=DashboardTemplate.Scope.ONLY_TEAM)
         # otherwise we are in the new dashboard context so show global templates and ones from this team
         else:
             query_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
 
-        qs = DashboardTemplate.objects.filter(query_condition)
+        # Include soft-deleted rows for retrieve/update so PATCH `{deleted: false}` (undo) can resolve the object.
+        # The default manager excludes `deleted=True`, which made undo 404 after soft delete.
+        qs = DashboardTemplate.objects_including_soft_deleted.filter(query_condition)
 
         is_featured_raw = self.request.query_params.get("is_featured")
         if is_featured_raw is not None:
@@ -178,5 +323,8 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             qs = qs.order_by("-is_featured", "-rank", Lower("template_name"))
         else:
             qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
+
+        if self.action == "list":
+            qs = qs.exclude(deleted=True)
 
         return qs

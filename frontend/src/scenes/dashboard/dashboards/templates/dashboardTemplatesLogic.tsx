@@ -27,6 +27,41 @@ export interface DashboardTemplateProps {
 
 export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
     listQuery?: Partial<Pick<DashboardTemplateListParams, 'is_featured'>>
+    /** When true, this logic instance is scoped to the Dashboards → Templates tab (visibility filter + refresh after edits). */
+    templatesTabList?: boolean
+}
+
+export type DashboardTemplatesTabVisibility = 'all' | 'official' | 'project'
+
+/**
+ * Mixed template lists (project + official): project-scoped rows first, then global/official.
+ * Respects name column order when set; otherwise featured first, then A–Z by name (matches API defaults within each bucket).
+ */
+function sortTemplatesTeamScopeBeforeOfficial(
+    templates: DashboardTemplateType[],
+    nameOrdering: '' | 'template_name' | '-template_name'
+): DashboardTemplateType[] {
+    const officialRank = (t: DashboardTemplateType): number => (t.scope === 'global' ? 1 : 0)
+
+    return [...templates].sort((a, b) => {
+        const scopeDiff = officialRank(a) - officialRank(b)
+        if (scopeDiff !== 0) {
+            return scopeDiff
+        }
+        if (nameOrdering === 'template_name' || nameOrdering === '-template_name') {
+            const na = (a.template_name || '').toLowerCase()
+            const nb = (b.template_name || '').toLowerCase()
+            return nameOrdering === '-template_name' ? nb.localeCompare(na) : na.localeCompare(nb)
+        }
+        const fa = a.is_featured === true ? 1 : 0
+        const fb = b.is_featured === true ? 1 : 0
+        if (fa !== fb) {
+            return fb - fa
+        }
+        const na = (a.template_name || '').toLowerCase()
+        const nb = (b.template_name || '').toLowerCase()
+        return na.localeCompare(nb)
+    })
 }
 
 /** Kea key segment for listQuery.is_featured — false vs omitted only diverge for global-scoped lists (API treats them differently). */
@@ -43,7 +78,10 @@ function listQueryFeaturedKeySegment(p: DashboardTemplatesLogicProps): 'featured
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
     props({} as DashboardTemplatesLogicProps),
-    key((p: DashboardTemplatesLogicProps) => `${p.scope ?? 'default'}-${listQueryFeaturedKeySegment(p)}`),
+    key(
+        (p: DashboardTemplatesLogicProps) =>
+            `${p.scope ?? 'default'}-${listQueryFeaturedKeySegment(p)}${p.templatesTabList ? '-templatesTab' : ''}`
+    ),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
@@ -51,6 +89,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
         setTemplateFilter: (search: string) => ({ search }),
         setTemplateNameOrdering: (ordering: '' | 'template_name' | '-template_name') => ({ ordering }),
+        setTemplatesTabVisibility: (visibility: DashboardTemplatesTabVisibility) => ({ visibility }),
     }),
     reducers({
         templateFilter: [
@@ -74,6 +113,12 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 getAllTemplatesSuccess: () => true,
             },
         ],
+        templatesTabVisibility: [
+            'all' as DashboardTemplatesTabVisibility,
+            {
+                setTemplatesTabVisibility: (_, { visibility }) => visibility,
+            },
+        ],
     }),
     lazyLoaders(({ props, values }) => ({
         allTemplates: [
@@ -85,15 +130,33 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
                     // `urlToAction` when the Templates tab or another surface leaves `?templateFilter=` on /dashboard.
                     const useSearch = !featuredOnly && values.templateFilter.length > 2
+
+                    let listScope: DashboardTemplateScope | undefined
+                    if (logicProps.scope !== 'default' && logicProps.scope !== undefined) {
+                        listScope = logicProps.scope
+                    } else if (logicProps.templatesTabList) {
+                        if (values.templatesTabVisibility === 'official') {
+                            listScope = 'global'
+                        } else if (values.templatesTabVisibility === 'project') {
+                            listScope = 'team'
+                        } else {
+                            listScope = undefined
+                        }
+                    } else {
+                        listScope = undefined
+                    }
+
                     const params: DashboardTemplateListParams = {
-                        // the backend doesn't know about a default scope
-                        scope: logicProps.scope !== 'default' ? logicProps.scope : undefined,
+                        scope: listScope,
                         search: useSearch ? values.templateFilter : undefined,
                         // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
                         ordering: useSearch ? undefined : values.templateNameOrdering || undefined,
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
+                    if (!useSearch && listScope === undefined) {
+                        return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
+                    }
                     return page.results
                 },
             },
@@ -105,6 +168,9 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             actions.getAllTemplates()
         },
         setTemplateNameOrdering: () => {
+            actions.getAllTemplates()
+        },
+        setTemplatesTabVisibility: () => {
             actions.getAllTemplates()
         },
     })),

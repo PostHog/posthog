@@ -558,6 +558,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_id: string
             template_name: string
             template_variable_count: number
+            /** API `scope`: `team` | `global` | `feature_flag`; use `global` for official catalog templates */
+            template_scope: string | null
         }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,

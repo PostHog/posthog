@@ -12,6 +12,13 @@ import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemp
 
 export type DashboardTemplateChooserExperimentVariant = 'control' | 'simple' | 'new'
 
+/** Single place for flag → chooser experiment variant (modal toolbar + grid must agree on chooser logic key). */
+export function resolveDashboardTemplateChooserExperimentVariant(
+    raw: unknown
+): DashboardTemplateChooserExperimentVariant {
+    return raw === 'simple' || raw === 'new' || raw === 'control' ? raw : 'new'
+}
+
 export type DashboardTemplateChooserLogicProps = DashboardTemplateProps & {
     experimentVariant: DashboardTemplateChooserExperimentVariant
 }
@@ -51,11 +58,14 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
         ],
     })),
     actions({
-        templateTileClicked: (template: DashboardTemplateType, tileLocation: 'main_grid' | 'featured_row') => ({
+        templateTileClicked: (
+            template: DashboardTemplateType,
+            tileLocation: 'main_grid' | 'featured_row' | 'team_section'
+        ) => ({
             template,
             tileLocation,
         }),
-        blankTileClicked: (tileLocation: 'main_grid' | 'featured_row') => ({ tileLocation }),
+        blankTileClicked: (tileLocation: 'main_grid' | 'featured_row' | 'modal_toolbar') => ({ tileLocation }),
     }),
     listeners(({ actions, values, props }) => ({
         templateTileClicked: ({ template, tileLocation }) => {
@@ -69,6 +79,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                 template_id: template.id,
                 template_name: template.template_name.toLowerCase(),
                 is_featured: template.is_featured === true,
+                template_scope: template.scope ?? null,
                 $feature_flag: FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT,
                 $feature_flag_response: props.experimentVariant,
             })
