@@ -13,6 +13,7 @@ import {
     ActionType,
     DashboardType,
     EventDefinition,
+    FeatureFlagType,
     InsightShortId,
     QueryBasedInsightModel,
     SidePanelTab,
@@ -90,6 +91,22 @@ describe('maxContextLogic', () => {
         type: 'dashboard',
     }
 
+    const mockFeatureFlag = {
+        id: 1,
+        key: 'test-flag',
+        name: 'Test flag description',
+        active: true,
+        filters: {},
+    } as FeatureFlagType
+
+    const expectedTransformedFeatureFlag = {
+        id: 1,
+        key: 'test-flag',
+        name: 'Test flag description',
+        active: true,
+        type: 'feature_flag',
+    }
+
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
@@ -108,18 +125,21 @@ describe('maxContextLogic', () => {
                 contextDashboards: [],
                 contextEvents: [],
                 contextActions: [],
+                contextFeatureFlags: [],
             })
 
             logic.actions.addOrUpdateContextInsight(mockInsight as any)
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
             logic.actions.addOrUpdateContextEvent(mockEvent)
             logic.actions.addOrUpdateContextAction(mockAction)
+            logic.actions.addOrUpdateContextFeatureFlag(mockFeatureFlag)
 
             await expectLogic(logic).toMatchValues({
                 contextInsights: [expectedTransformedInsight],
                 contextDashboards: [expectedTransformedDashboard],
                 contextEvents: [expectedTransformedEvent],
                 contextActions: [expectedTransformedAction],
+                contextFeatureFlags: [expectedTransformedFeatureFlag],
             })
         })
 
@@ -128,12 +148,14 @@ describe('maxContextLogic', () => {
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
             logic.actions.addOrUpdateContextEvent(mockEvent)
             logic.actions.addOrUpdateContextAction(mockAction)
+            logic.actions.addOrUpdateContextFeatureFlag(mockFeatureFlag)
 
             await expectLogic(logic).toMatchValues({
                 contextInsights: [expectedTransformedInsight],
                 contextDashboards: [expectedTransformedDashboard],
                 contextEvents: [expectedTransformedEvent],
                 contextActions: [expectedTransformedAction],
+                contextFeatureFlags: [expectedTransformedFeatureFlag],
             })
 
             logic.actions.resetContext()
@@ -143,6 +165,7 @@ describe('maxContextLogic', () => {
                 contextDashboards: [],
                 contextEvents: [],
                 contextActions: [],
+                contextFeatureFlags: [],
             })
         })
     })
@@ -160,6 +183,24 @@ describe('maxContextLogic', () => {
             })
 
             logic.actions.removeContextInsight('insight-1')
+
+            await expectLogic(logic).toMatchValues({
+                hasData: false,
+            })
+        })
+
+        it('calculates hasData correctly for feature flags', async () => {
+            await expectLogic(logic).toMatchValues({
+                hasData: false,
+            })
+
+            logic.actions.addOrUpdateContextFeatureFlag(mockFeatureFlag)
+
+            await expectLogic(logic).toMatchValues({
+                hasData: true,
+            })
+
+            logic.actions.removeContextFeatureFlag(1)
 
             await expectLogic(logic).toMatchValues({
                 hasData: false,
@@ -203,6 +244,7 @@ describe('maxContextLogic', () => {
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
             logic.actions.addOrUpdateContextEvent(mockEvent)
             logic.actions.addOrUpdateContextAction(mockAction)
+            logic.actions.addOrUpdateContextFeatureFlag(mockFeatureFlag)
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
@@ -249,7 +291,34 @@ describe('maxContextLogic', () => {
                             type: 'action',
                         },
                     ],
+                    feature_flags: [
+                        {
+                            id: 1,
+                            key: 'test-flag',
+                            name: 'Test flag description',
+                            active: true,
+                            type: 'feature_flag',
+                        },
+                    ],
                 }),
+            })
+        })
+
+        it('adds and removes feature flag context', async () => {
+            await expectLogic(logic).toMatchValues({
+                contextFeatureFlags: [],
+            })
+
+            logic.actions.addOrUpdateContextFeatureFlag(mockFeatureFlag)
+
+            await expectLogic(logic).toMatchValues({
+                contextFeatureFlags: [expectedTransformedFeatureFlag],
+            })
+
+            logic.actions.removeContextFeatureFlag(1)
+
+            await expectLogic(logic).toMatchValues({
+                contextFeatureFlags: [],
             })
         })
 

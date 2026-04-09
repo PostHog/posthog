@@ -27,6 +27,7 @@ from posthog.schema import (
     MaxDashboardContext,
     MaxEvaluationContext,
     MaxEventContext,
+    MaxFeatureFlagContext,
     MaxInsightContext,
     MaxUIContext,
     ModeContext,
@@ -850,3 +851,42 @@ class TestAssistantContextManager(BaseTest):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertNotIn("Current Hog source:", result)
+
+    async def test_format_ui_context_with_feature_flag(self):
+        flag = MaxFeatureFlagContext(id=42, key="my-feature", name="My feature description", active=True)
+        ui_context = MaxUIContext(feature_flags=[flag])
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("<feature_flags_context>", result)
+        self.assertIn('Flag key: "my-feature"', result)
+        self.assertIn("ID: 42", result)
+        self.assertIn("Status: active", result)
+        self.assertIn('Description: "My feature description"', result)
+
+    async def test_format_ui_context_with_inactive_feature_flag(self):
+        flag = MaxFeatureFlagContext(id=7, key="disabled-flag", name="Disabled flag description", active=False)
+        ui_context = MaxUIContext(feature_flags=[flag])
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("<feature_flags_context>", result)
+        self.assertIn('Flag key: "disabled-flag"', result)
+        self.assertIn("ID: 7", result)
+        self.assertIn("Status: inactive", result)
+        self.assertIn('Description: "Disabled flag description"', result)
+
+    async def test_format_ui_context_with_feature_flag_no_name(self):
+        flag = MaxFeatureFlagContext(id=99, key="nameless-flag", name=None, active=True)
+        ui_context = MaxUIContext(feature_flags=[flag])
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("<feature_flags_context>", result)
+        self.assertIn('Flag key: "nameless-flag"', result)
+        self.assertIn("ID: 99", result)
+        self.assertIn("Status: active", result)
+        self.assertNotIn("Description:", result)

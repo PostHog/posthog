@@ -1,7 +1,14 @@
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { ActionType, DashboardType, EventDefinition, FeatureFlagType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    ActionType,
+    DashboardType,
+    EventDefinition,
+    FeatureFlagType,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 // eslint-disable-next-line import/no-cycle
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

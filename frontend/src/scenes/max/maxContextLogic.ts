@@ -12,7 +12,14 @@ import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, FeatureFlagType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    ActionType,
+    DashboardType,
+    EventDefinition,
+    FeatureFlagType,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import {
     REVENUE_ANALYTICS_QUERY_TO_NAME,
@@ -224,10 +231,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextFeatureFlags: [
             [] as MaxFeatureFlagContext[],
             {
-                addOrUpdateContextFeatureFlag: (
-                    state: MaxFeatureFlagContext[],
-                    { data }: { data: FeatureFlagType }
-                ) => addOrUpdateEntity(state, featureFlagToMaxContextPayload(data)),
+                addOrUpdateContextFeatureFlag: (state: MaxFeatureFlagContext[], { data }: { data: FeatureFlagType }) =>
+                    addOrUpdateEntity(state, featureFlagToMaxContextPayload(data)),
                 removeContextFeatureFlag: (state: MaxFeatureFlagContext[], { id }: { id: number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
