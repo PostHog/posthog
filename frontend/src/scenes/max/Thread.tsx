@@ -477,6 +477,7 @@ function Message({
                                         events={message.ui_context.events}
                                         actions={message.ui_context.actions}
                                         notebooks={message.ui_context.notebooks}
+                                        feature_flags={message.ui_context.feature_flags}
                                         useCurrentPageContext={false}
                                     />
                                 )}

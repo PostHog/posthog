@@ -38,6 +38,8 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/con
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -2224,6 +2226,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                           access_control_resource_id: `${featureFlag.id}`,
                       }
                     : null
+            },
+        ],
+        maxContext: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): MaxContextInput[] => {
+                if (!featureFlag?.id) {
+                    return []
+                }
+                return [createMaxContextHelpers.featureFlag(featureFlag)]
             },
         ],
         recordingFilterForFlag: [

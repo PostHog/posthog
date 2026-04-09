@@ -313,6 +313,20 @@ class AssistantContextManager(AssistantContextMixin):
                 f"</evaluations_context>"
             )
 
+        # Format feature flags context
+        feature_flags_context = ""
+        if ui_context.feature_flags:
+            flag_details = []
+            for flag in ui_context.feature_flags:
+                name = flag.name or ""
+                status = "active" if flag.active else "inactive"
+                lines = [f'- Flag key: "{flag.key}", ID: {int(flag.id)}, Status: {status}']
+                if name:
+                    lines[0] += f', Description: "{name}"'
+                flag_details.append("\n".join(lines))
+            if flag_details:
+                feature_flags_context = f"<feature_flags_context>Feature flags the user is referring to:\n{chr(10).join(flag_details)}\n</feature_flags_context>"
+
         if (
             dashboard_context
             or insights_context
@@ -321,6 +335,7 @@ class AssistantContextManager(AssistantContextMixin):
             or actions_context
             or error_tracking_context
             or evaluations_context
+            or feature_flags_context
         ):
             return self._render_user_context_template(
                 dashboard_context,
@@ -330,6 +345,7 @@ class AssistantContextManager(AssistantContextMixin):
                 error_tracking_context,
                 notebooks_context,
                 evaluations_context,
+                feature_flags_context,
             )
         return None
 
@@ -431,6 +447,7 @@ class AssistantContextManager(AssistantContextMixin):
         error_tracking_context: str = "",
         notebooks_context: str = "",
         evaluations_context: str = "",
+        feature_flags_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
@@ -442,6 +459,7 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_actions=actions_context,
             ui_context_error_tracking=error_tracking_context,
             ui_context_evaluations=evaluations_context,
+            ui_context_feature_flags=feature_flags_context,
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:

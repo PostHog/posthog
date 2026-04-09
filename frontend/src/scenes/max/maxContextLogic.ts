@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
+import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook, IconToggle } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -12,7 +12,7 @@ import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, FeatureFlagType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import {
     REVENUE_ANALYTICS_QUERY_TO_NAME,
@@ -34,6 +34,7 @@ import {
     MaxErrorTrackingIssueContext,
     MaxEvaluationContext,
     MaxEventContext,
+    MaxFeatureFlagContext,
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
@@ -44,6 +45,7 @@ import {
     errorTrackingIssueToMaxContextPayload,
     evaluationToMaxContextPayload,
     eventToMaxContextPayload,
+    featureFlagToMaxContextPayload,
     insightToMaxContext,
     notebookToMaxContextPayload,
 } from './utils'
@@ -94,6 +96,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             evaluation_type: 'hog' | 'llm_judge'
             hog_source?: string | null
         }) => ({ data }),
+        addOrUpdateContextFeatureFlag: (data: FeatureFlagType) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
         removeContextEvent: (id: string | number) => ({ id }),
@@ -101,6 +104,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
         removeContextErrorTrackingIssue: (id: string) => ({ id }),
         removeContextNotebook: (id: string) => ({ id }),
         removeContextEvaluation: (id: string) => ({ id }),
+        removeContextFeatureFlag: (id: number) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
         loadAndProcessInsight: (
             data: InsightItemInfo,
@@ -213,6 +217,18 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     }
                 ) => addOrUpdateEntity(state, evaluationToMaxContextPayload(data)),
                 removeContextEvaluation: (state: MaxEvaluationContext[], { id }: { id: string }) =>
+                    removeEntity(state, id),
+                resetContext: () => [],
+            },
+        ],
+        contextFeatureFlags: [
+            [] as MaxFeatureFlagContext[],
+            {
+                addOrUpdateContextFeatureFlag: (
+                    state: MaxFeatureFlagContext[],
+                    { data }: { data: FeatureFlagType }
+                ) => addOrUpdateEntity(state, featureFlagToMaxContextPayload(data)),
+                removeContextFeatureFlag: (state: MaxFeatureFlagContext[], { id }: { id: number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
             },
@@ -534,6 +550,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 return notebookToMaxContextPayload(item.data)
                             case MaxContextType.EVALUATION:
                                 return evaluationToMaxContextPayload(item.data)
+                            case MaxContextType.FEATURE_FLAG:
+                                return featureFlagToMaxContextPayload(item.data)
                             default:
                                 return null
                         }
@@ -596,6 +614,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             type: MaxContextType.EVALUATION,
                             icon: IconCheckbox,
                         })
+                    } else if (item.type == MaxContextType.FEATURE_FLAG) {
+                        options.push({
+                            id: item.id.toString(),
+                            name: item.key || `Flag ${item.id}`,
+                            value: item.id,
+                            type: MaxContextType.FEATURE_FLAG,
+                            icon: IconToggle,
+                        })
                     }
                 })
 
@@ -638,6 +664,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextErrorTrackingIssues,
                 s.contextNotebooks,
                 s.contextEvaluations,
+                s.contextFeatureFlags,
                 s.sceneContext,
             ],
             (
@@ -649,6 +676,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
                 contextNotebooks: MaxNotebookContext[],
                 contextEvaluations: MaxEvaluationContext[],
+                contextFeatureFlags: MaxFeatureFlagContext[],
                 sceneContext: MaxContextItem[]
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
@@ -755,6 +783,17 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.evaluations = Array.from(uniqueEvaluations.values())
                 }
 
+                // Add feature flags (combine manual selections + auto-added from scene context)
+                const sceneFeatureFlags = sceneContext.filter(
+                    (item): item is MaxFeatureFlagContext => item.type === MaxContextType.FEATURE_FLAG
+                )
+                const allFeatureFlags = [...contextFeatureFlags, ...sceneFeatureFlags]
+                if (allFeatureFlags.length > 0) {
+                    const uniqueFlags = new Map<number, MaxFeatureFlagContext>()
+                    allFeatureFlags.forEach((flag) => uniqueFlags.set(flag.id, flag))
+                    context.feature_flags = Array.from(uniqueFlags.values())
+                }
+
                 return hasData ? context : null
             },
         ],
@@ -767,6 +806,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextErrorTrackingIssues,
                 s.contextNotebooks,
                 s.contextEvaluations,
+                s.contextFeatureFlags,
                 s.sceneContext,
             ],
             (
@@ -777,6 +817,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
                 contextNotebooks: MaxNotebookContext[],
                 contextEvaluations: MaxEvaluationContext[],
+                contextFeatureFlags: MaxFeatureFlagContext[],
                 sceneContext: MaxContextItem[]
             ): boolean => {
                 return [
@@ -787,6 +828,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     contextErrorTrackingIssues,
                     contextNotebooks,
                     contextEvaluations,
+                    contextFeatureFlags,
                     sceneContext,
                 ].some((arr) => arr.length > 0)
             },

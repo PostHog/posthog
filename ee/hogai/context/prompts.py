@@ -7,6 +7,7 @@ ROOT_UI_CONTEXT_PROMPT = """
 {{{ui_context_actions}}}
 {{{ui_context_error_tracking}}}
 {{{ui_context_evaluations}}}
+{{{ui_context_feature_flags}}}
 </attached_context>
 <system_reminder>
 The user can provide additional context in the <attached_context> tag.

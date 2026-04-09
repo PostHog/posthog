@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
-import { IconAtSign, IconDashboard, IconGraph, IconNotebook, IconPageChart } from '@posthog/icons'
+import { IconAtSign, IconDashboard, IconGraph, IconNotebook, IconPageChart, IconToggle } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -16,6 +16,7 @@ import {
     MaxActionContext,
     MaxDashboardContext,
     MaxEventContext,
+    MaxFeatureFlagContext,
     MaxInsightContext,
     MaxNotebookContext,
 } from './maxTypes'
@@ -36,6 +37,7 @@ interface ContextSummaryProps {
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
     notebooks?: MaxNotebookContext[]
+    feature_flags?: MaxFeatureFlagContext[]
     useCurrentPageContext?: boolean
 }
 
@@ -45,6 +47,7 @@ export function ContextSummary({
     events,
     actions,
     notebooks,
+    feature_flags,
     useCurrentPageContext,
 }: ContextSummaryProps): JSX.Element | null {
     const contextCounts = useMemo(() => {
@@ -55,9 +58,10 @@ export function ContextSummary({
             events: events ? events.length : 0,
             actions: actions ? actions.length : 0,
             notebooks: notebooks ? notebooks.length : 0,
+            feature_flags: feature_flags ? feature_flags.length : 0,
         }
         return counts
-    }, [insights, dashboards, useCurrentPageContext, events, actions, notebooks])
+    }, [insights, dashboards, useCurrentPageContext, events, actions, notebooks, feature_flags])
 
     const totalCount =
         contextCounts.insights +
@@ -65,7 +69,8 @@ export function ContextSummary({
         contextCounts.currentPage +
         contextCounts.events +
         contextCounts.actions +
-        contextCounts.notebooks
+        contextCounts.notebooks +
+        contextCounts.feature_flags
 
     const contextSummaryText = useMemo(() => {
         const parts = []
@@ -86,6 +91,9 @@ export function ContextSummary({
         }
         if (contextCounts.notebooks > 0) {
             parts.push(pluralize(contextCounts.notebooks, 'notebook'))
+        }
+        if (contextCounts.feature_flags > 0) {
+            parts.push(pluralize(contextCounts.feature_flags, 'flag'))
         }
 
         if (parts.length === 1) {
@@ -150,8 +158,18 @@ export function ContextSummary({
             })
         }
 
+        if (feature_flags) {
+            feature_flags.forEach((flag) => {
+                items.push({
+                    type: 'feature_flag',
+                    name: flag.key || `Flag ${flag.id}`,
+                    icon: <IconToggle />,
+                })
+            })
+        }
+
         return items
-    }, [dashboards, insights, events, actions, notebooks])
+    }, [dashboards, insights, events, actions, notebooks, feature_flags])
 
     if (totalCount === 0) {
         return null
@@ -179,14 +197,22 @@ export function ContextSummary({
 }
 
 export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
-    const { contextInsights, contextDashboards, contextEvents, contextActions, contextNotebooks, toolContextItems } =
-        useValues(maxContextLogic)
+    const {
+        contextInsights,
+        contextDashboards,
+        contextEvents,
+        contextActions,
+        contextNotebooks,
+        contextFeatureFlags,
+        toolContextItems,
+    } = useValues(maxContextLogic)
     const {
         removeContextInsight,
         removeContextDashboard,
         removeContextEvent,
         removeContextAction,
         removeContextNotebook,
+        removeContextFeatureFlag,
     } = useActions(maxContextLogic)
 
     const allTags = useMemo(() => {
@@ -235,6 +261,13 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                 removeAction: removeContextNotebook,
                 getName: (item: MaxNotebookContext) => item.name || `Notebook ${item.id}`,
             },
+            {
+                items: contextFeatureFlags,
+                type: 'feature_flag',
+                icon: IconToggle,
+                removeAction: removeContextFeatureFlag,
+                getName: (item: MaxFeatureFlagContext) => item.key || `Flag ${item.id}`,
+            },
         ]
 
         // Generate tags for each context type, skipping items already in tool context
@@ -275,12 +308,14 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         contextEvents,
         contextActions,
         contextNotebooks,
+        contextFeatureFlags,
         toolContextItems,
         removeContextDashboard,
         removeContextInsight,
         removeContextEvent,
         removeContextAction,
         removeContextNotebook,
+        removeContextFeatureFlag,
     ])
 
     if (allTags.length === 0) {

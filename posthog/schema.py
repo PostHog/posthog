@@ -2914,6 +2914,17 @@ class MaxErrorTrackingIssueContext(BaseModel):
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
+class MaxFeatureFlagContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    id: float
+    key: str
+    name: str | None = None
+    type: Literal["feature_flag"] = "feature_flag"
+
+
 class MaxErrorTrackingIssuePreview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21917,6 +21928,7 @@ class MaxUIContext(BaseModel):
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
     evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
+    feature_flags: list[MaxFeatureFlagContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
     notebooks: list[MaxNotebookContext] | None = None

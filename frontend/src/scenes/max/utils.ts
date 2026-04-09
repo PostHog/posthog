@@ -34,7 +34,7 @@ import {
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, FeatureFlagType, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
@@ -47,6 +47,7 @@ import {
     MaxErrorTrackingIssueContext,
     MaxEvaluationContext,
     MaxEventContext,
+    MaxFeatureFlagContext,
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
@@ -215,6 +216,14 @@ export const notebookToMaxContextPayload = (notebook: {
     type: MaxContextType.NOTEBOOK,
     id: notebook.short_id,
     name: notebook.title,
+})
+
+export const featureFlagToMaxContextPayload = (flag: FeatureFlagType): MaxFeatureFlagContext => ({
+    type: MaxContextType.FEATURE_FLAG,
+    id: flag.id!,
+    key: flag.key,
+    name: flag.name || null,
+    active: flag.active,
 })
 
 export const evaluationToMaxContextPayload = (evaluation: {

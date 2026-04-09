@@ -1,7 +1,7 @@
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, FeatureFlagType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 // eslint-disable-next-line import/no-cycle
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
@@ -14,6 +14,7 @@ export enum MaxContextType {
     ERROR_TRACKING_ISSUE = 'error_tracking_issue',
     EVALUATION = 'evaluation',
     NOTEBOOK = 'notebook',
+    FEATURE_FLAG = 'feature_flag',
 }
 
 export type InsightWithQuery = Pick<
@@ -75,6 +76,14 @@ export interface MaxNotebookContext {
     name?: string | null
 }
 
+export interface MaxFeatureFlagContext {
+    type: MaxContextType.FEATURE_FLAG
+    id: number
+    key: string
+    name?: string | null // description field
+    active: boolean
+}
+
 // The main shape for the UI context sent to the backend
 export interface MaxUIContext {
     dashboards?: MaxDashboardContext[]
@@ -84,6 +93,7 @@ export interface MaxUIContext {
     error_tracking_issues?: MaxErrorTrackingIssueContext[]
     evaluations?: MaxEvaluationContext[]
     notebooks?: MaxNotebookContext[]
+    feature_flags?: MaxFeatureFlagContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
@@ -105,6 +115,7 @@ export type MaxContextItem =
     | MaxErrorTrackingIssueContext
     | MaxEvaluationContext
     | MaxNotebookContext
+    | MaxFeatureFlagContext
 
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
@@ -143,6 +154,10 @@ type MaxNotebookContextInput = {
     type: MaxContextType.NOTEBOOK
     data: { short_id: string; title?: string | null }
 }
+type MaxFeatureFlagContextInput = {
+    type: MaxContextType.FEATURE_FLAG
+    data: FeatureFlagType
+}
 export type MaxContextInput =
     | MaxInsightContextInput
     | MaxDashboardContextInput
@@ -151,6 +166,7 @@ export type MaxContextInput =
     | MaxErrorTrackingIssueContextInput
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
+    | MaxFeatureFlagContextInput
 
 function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
     return {
@@ -227,6 +243,11 @@ export const createMaxContextHelpers = {
     notebook: (notebook: { short_id: string; title?: string | null }): MaxNotebookContextInput => ({
         type: MaxContextType.NOTEBOOK,
         data: notebook,
+    }),
+
+    featureFlag: (flag: FeatureFlagType): MaxFeatureFlagContextInput => ({
+        type: MaxContextType.FEATURE_FLAG,
+        data: flag,
     }),
 }
 

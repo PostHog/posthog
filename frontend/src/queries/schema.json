@@ -23566,6 +23566,29 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "MaxFeatureFlagContext": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "feature_flag",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id", "key", "active"],
+            "type": "object"
+        },
         "MaxErrorTrackingIssuePreview": {
             "additionalProperties": false,
             "description": "Preview of an error tracking issue for display in Max AI chat",
@@ -24107,6 +24130,12 @@
                 "events": {
                     "items": {
                         "$ref": "#/definitions/MaxEventContext"
+                    },
+                    "type": "array"
+                },
+                "feature_flags": {
+                    "items": {
+                        "$ref": "#/definitions/MaxFeatureFlagContext"
                     },
                     "type": "array"
                 },
