@@ -108,19 +108,24 @@ class ChangeEventBatcher:
 def _safe_pa_array(values: list, target_type: pa.DataType) -> pa.Array:
     """Build a pa.Array, falling back to type inference if the explicit cast fails.
 
-    Parquet/DeltaLake can store types (e.g. fixed-size binary for decimals) that
-    don't round-trip cleanly through Python objects. When enrichment fills values
-    from existing_rows.to_pylist() (which yields decimal.Decimal, bytes, etc.)
-    into a column whose Arrow type is the parquet storage type, pa.array() may
-    reject the Python objects. In that case we let PyArrow infer the type.
+    Enrichment can produce mixed Python types in a single column — e.g. the
+    incoming batch stores a decimal column as ``str`` while existing DeltaLake
+    rows yield ``decimal.Decimal`` via ``.as_py()``. We try three strategies:
+
+    1. Explicit type (``target_type``) — fastest, works when types match.
+    2. PyArrow auto-inference — works when all values share a type.
+    3. Coerce everything to ``str`` — last resort for mixed-type lists.
     """
     try:
         return pa.array(values, type=target_type)
     except (pa.ArrowTypeError, pa.ArrowInvalid):
-        arr = pa.array(values)
-        if arr.type == pa.null():
-            return arr.cast(pa.string())
-        return arr
+        try:
+            arr = pa.array(values)
+            if arr.type == pa.null():
+                return arr.cast(pa.string())
+            return arr
+        except (pa.ArrowTypeError, pa.ArrowInvalid):
+            return pa.array([str(v) if v is not None else None for v in values], type=pa.string())
 
 
 def enrich_delete_rows(
