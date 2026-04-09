@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
+use tracing::level_filters::LevelFilter;
 
 /// Bool that accepts "1", "0", "true", "false" from env vars.
 #[derive(Clone, Debug)]
@@ -58,4 +60,24 @@ pub struct Config {
 
     #[envconfig(from = "MAX_CONCURRENCY", default = "1000")]
     pub max_concurrency: usize,
+
+    // --- OpenTelemetry ---
+    #[envconfig(from = "OTEL_URL")]
+    pub otel_url: Option<String>,
+
+    #[envconfig(from = "OTEL_SAMPLING_RATE", default = "1.0")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "hypercache-server")]
+    pub otel_service_name: String,
+
+    #[envconfig(from = "OTEL_EXPORT_TIMEOUT_SECS", default = "3")]
+    pub otel_export_timeout_secs: u64,
+
+    #[envconfig(from = "OTEL_LOG_LEVEL", default = "ERROR")]
+    pub otel_log_level: LevelFilter,
+
+    // --- Continuous profiling ---
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
