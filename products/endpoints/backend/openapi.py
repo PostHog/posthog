@@ -115,9 +115,6 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
                     "type": "string",
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                 },
-                "filters_override": {
-                    "$ref": "#/components/schemas/DashboardFilter",
-                },
                 "refresh": {
                     "type": "string",
                     "enum": ["cache", "force", "direct"],
@@ -145,74 +142,6 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
                 },
             },
         },
-        "DashboardFilter": {
-            "type": "object",
-            "description": "Override dashboard/query filters including date range and properties.",
-            "properties": {
-                "date_from": {
-                    "type": "string",
-                    "description": "Start date for the query (e.g., '-7d', '2024-01-01', 'mStart').",
-                    "examples": ["-7d", "-30d", "2024-01-01", "mStart"],
-                },
-                "date_to": {
-                    "type": "string",
-                    "description": "End date for the query (e.g., 'now', '2024-12-31'). Defaults to now.",
-                    "examples": ["now", "2024-12-31", "dStart"],
-                },
-                "properties": {
-                    "type": "array",
-                    "description": "Property filters to apply to the query.",
-                    "items": {"$ref": "#/components/schemas/PropertyFilter"},
-                },
-            },
-        },
-        "PropertyFilter": {
-            "type": "object",
-            "description": "A property filter to narrow down results.",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "The property key to filter on.",
-                },
-                "value": {
-                    "description": "The value(s) to filter for.",
-                    "oneOf": [
-                        {"type": "string"},
-                        {"type": "number"},
-                        {"type": "array", "items": {"type": "string"}},
-                    ],
-                },
-                "operator": {
-                    "type": "string",
-                    "enum": [
-                        "exact",
-                        "is_not",
-                        "icontains",
-                        "not_icontains",
-                        "regex",
-                        "not_regex",
-                        "gt",
-                        "lt",
-                        "gte",
-                        "lte",
-                        "is_set",
-                        "is_not_set",
-                        "is_date_exact",
-                        "is_date_before",
-                        "is_date_after",
-                        "in",
-                        "not_in",
-                    ],
-                    "description": "The comparison operator.",
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["event", "person", "session", "cohort", "group", "hogql"],
-                    "description": "The type of property filter.",
-                },
-            },
-            "required": ["key"],
-        },
     }
 
     # Add variables schema based on query type and materialization state
@@ -238,7 +167,7 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
 
 
 # Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
 
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:

@@ -67,6 +67,9 @@ export function validateSurveyAppearance(
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        textColor: validateCSSProperty('color', appearance.textColor),
+        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
+        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
             ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),

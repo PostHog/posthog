@@ -41,6 +41,7 @@
         "agents": "^0.3.6",
         "ai": "^6.0.0",
         "fflate": "^0.8.2",
+        "mcpcat": "0.1.15",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",
         "uuid": "^11.1.0",

@@ -1616,6 +1616,130 @@ class TestPasskeySignupAPI(APIBaseTest):
         )
         self.assertEqual(User.objects.count(), count)
 
+    @pytest.mark.skip_on_multitenancy
+    def test_password_signup_with_passkey_in_session(self):
+        """
+        When a password is provided, password signup should work even if passkey data exists in session.
+        This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_user@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-12345"),
+            "public_key": bytes_to_base64url(b"test-public-key-bytes"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password (using a different email)
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Password",
+                "last_name": "User",
+                "email": "password_fallback@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Password Fallback Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="password_fallback@posthog.com")
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
+    @pytest.mark.skip_on_multitenancy
+    def test_password_signup_with_passkey_in_session_same_email(self):
+        """
+        When a password is provided, password signup should work even if passkey data exists in session,
+        even when using the same email that was used for passkey registration.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        passkey_email = "same_email@posthog.com"
+
+        # Create a session and set passkey data
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = passkey_email
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-67890"),
+            "public_key": bytes_to_base64url(b"test-public-key-bytes-67890"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password using the same email
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Password",
+                "last_name": "SameEmail",
+                "email": passkey_email,
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Same Email Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=passkey_email)
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
 
 class TestSignupSessionSaveRecovery(unittest.TestCase):
     def test_save_session_with_recovery_uses_save_when_row_exists(self):
@@ -2524,3 +2648,66 @@ class TestInviteSignupAPI(APIBaseTest):
         nonexistent_id = str(uuid.uuid4())
         result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
         self.assertIsNone(result)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_password_invite_signup_with_passkey_in_session(self):
+        """
+        When a password is provided for invite signup, it should work even if passkey data exists in session.
+        This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        # Create an invite
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="password_invite_user@posthog.com", organization=self.organization
+        )
+
+        # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_user@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-invite"),
+            "public_key": bytes_to_base64url(b"test-public-key-invite"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password using the invite
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Password",
+                "last_name": "Invite",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="password_invite_user@posthog.com")
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))

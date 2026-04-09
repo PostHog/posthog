@@ -32,7 +32,7 @@ from products.tasks.backend.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from products.tasks.backend.services.local_packages import overlay_local_packages
+from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
 from products.tasks.backend.services.sandbox import wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -103,22 +103,44 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     return f"{image}:master"
 
 
+def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
+    """Overlay each local package's built `dist/` dir onto the installed package
+    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
+    local packages are available.
+
+    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
+    only compiled output is swapped live.
+    """
+    if template != SandboxTemplate.DEFAULT_BASE:
+        return image
+    packages = get_local_posthog_code_packages()
+    if not packages:
+        return image
+    for package in packages:
+        image = image.add_local_dir(
+            str(package.build_output_path),
+            package.sandbox_build_output_path,
+            copy=False,
+        )
+    return image
+
+
+@lru_cache(maxsize=2)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
-    if template == SandboxTemplate.DEFAULT_BASE:
-        if settings.DEBUG:
-            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Unknown template: {template}")
 
-    if template == SandboxTemplate.NOTEBOOK_BASE:
-        if settings.DEBUG:
-            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
+    if settings.DEBUG:
+        dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
+        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    else:
+        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
 
-    raise ValueError(f"Unknown template: {template}")
+    return _attach_local_package_mounts(image, template)
 
 
 def _copy_directory_contents(source: Path, destination: Path) -> None:
@@ -140,12 +162,12 @@ def _copy_directory_contents(source: Path, destination: Path) -> None:
 
 def _populate_local_skills_directory(destination: Path) -> None:
     built_skills_dir = Path(settings.BASE_DIR) / LOCAL_BUILT_SKILLS_PATH
-    if built_skills_dir.exists():
+    if built_skills_dir.exists() and any(built_skills_dir.iterdir()):
         logger.info(f"Using pre-built skills from {built_skills_dir} for local Modal sandbox builds")
         _copy_directory_contents(built_skills_dir, destination)
         return
 
-    logger.info("Built skills directory missing; falling back to local skill sources for Modal sandbox builds")
+    logger.info("Built skills directory empty or missing; falling back to local skill sources for Modal sandbox builds")
     for relative_path in LOCAL_SOURCE_SKILLS_PATHS:
         _copy_directory_contents(Path(settings.BASE_DIR) / relative_path, destination)
 
@@ -173,9 +195,6 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(source_install_script_path, destination_install_script_path)
 
         _populate_local_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH)
-
-        # Overlay local agent packages when LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set
-        overlay_local_packages(context_dir, destination_dockerfile_path)
 
     return str(destination_dockerfile_path), str(context_dir)
 
@@ -226,7 +245,9 @@ class ModalSandbox:
 
             if config.snapshot_external_id:
                 try:
-                    image = modal.Image.from_id(config.snapshot_external_id)
+                    image = _attach_local_package_mounts(
+                        modal.Image.from_id(config.snapshot_external_id), config.template
+                    )
                     used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
@@ -235,7 +256,7 @@ class ModalSandbox:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
-                        image = modal.Image.from_id(snapshot.external_id)
+                        image = _attach_local_package_mounts(modal.Image.from_id(snapshot.external_id), config.template)
                         used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")

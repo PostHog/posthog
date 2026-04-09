@@ -11,6 +11,7 @@ import { SyncTypeLabelMap } from '../utils'
 
 const getSyncFrequencyLabel = (syncFrequency: string): string => {
     const syncFrequencyMap: Record<DataWarehouseSyncInterval, string> = {
+        '1min': 'every 1 min',
         '5min': 'every 5 mins',
         '15min': 'every 15 mins',
         '30min': 'every 30 mins',

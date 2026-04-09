@@ -228,6 +228,18 @@ describe('recentTaxonomicFiltersLogic', () => {
             groupType: TaxonomicFilterGroupType.MaxAIContext,
             description: 'MaxAIContext',
         },
+        {
+            groupType: TaxonomicFilterGroupType.DataWarehouse,
+            description: 'DataWarehouse',
+        },
+        {
+            groupType: TaxonomicFilterGroupType.DataWarehouseProperties,
+            description: 'DataWarehouseProperties',
+        },
+        {
+            groupType: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            description: 'DataWarehousePersonProperties',
+        },
     ])('ignores selections from excluded group type: $description', ({ groupType }) => {
         logic.actions.recordRecentFilter(groupType, 'Ignored', 'some-value', { name: 'some-value' })
         expect(logic.values.recentFilters).toHaveLength(0)

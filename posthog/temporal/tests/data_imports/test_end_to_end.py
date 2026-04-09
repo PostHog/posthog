@@ -3406,6 +3406,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     webhook_event = {
         "id": "evt_abc123",
         "type": "charge.refunded",
+        "created": 1775760601,
         "data": {
             "object": {
                 "id": "ch_abc123",
@@ -3575,6 +3576,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     webhook_event = {
         "id": "evt_abc123",
         "type": "charge.refunded",
+        "created": 1775760601,
         "data": {
             "object": {
                 "id": "ch_abc123",

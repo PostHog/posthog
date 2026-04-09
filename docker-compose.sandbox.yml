@@ -385,18 +385,13 @@ services:
         # No host ports — avoid conflicts between sandboxes
 
     duckgres:
-        image: ghcr.io/posthog/duckgres:4b787d7a5c576cba92ff53d6e95f10c7b6464a39
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: duckgres
         # No host ports — avoid conflicts between sandboxes
         volumes:
             - ${SANDBOX_CODE:-.}/devenv/duckgres.yaml:/app/config.yaml:ro
             - duckgres-data:/app/data
-        depends_on:
-            db:
-                condition: service_healthy
-            objectstorage:
-                condition: service_started
-        command: ['--config', '/app/config.yaml']
 
     redis-cluster:
         image: redis:7.2

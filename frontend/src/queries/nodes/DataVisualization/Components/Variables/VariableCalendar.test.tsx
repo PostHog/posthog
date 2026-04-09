@@ -82,7 +82,7 @@ describe('VariableCalendar', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
         expect(updateVariable).toHaveBeenLastCalledWith(expect.stringMatching(/^2026-03-16 \d{2}:\d{2}:00$/))
-    })
+    }, 10000)
 
     it('saves a date-only value when include time is off', async () => {
         const updateVariable = jest.fn()
