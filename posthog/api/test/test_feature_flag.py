@@ -10660,10 +10660,35 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
-    @pytest.mark.ee
-    def test_evaluation_context_changes_logged_in_activity(self):
+    def _get_eval_context_activity_entries(self, flag_id: int, activity: str = "updated") -> list:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
+        def _has_eval_context_change(entry: ActivityLog) -> bool:
+            detail = entry.detail
+            if detail is None:
+                return False
+            changes = detail.get("changes") or []
+            return any(c.get("field") == "evaluation_contexts" for c in changes)
+
+        return [
+            entry
+            for entry in ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="FeatureFlag",
+                item_id=str(flag_id),
+                activity=activity,
+            ).order_by("-created_at")
+            if _has_eval_context_change(entry)
+        ]
+
+    @staticmethod
+    def _get_eval_context_change(entry) -> dict:
+        assert entry.detail is not None
+        changes = entry.detail["changes"]
+        return next(c for c in changes if c["field"] == "evaluation_contexts")
+
+    @pytest.mark.ee
+    def test_evaluation_context_changes_logged_in_activity(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="activity-test",
@@ -10680,22 +10705,10 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify an activity log entry was created for the evaluation_contexts change
-        activity = ActivityLog.objects.filter(
-            team_id=self.team.id,
-            scope="FeatureFlag",
-            item_id=str(flag.id),
-            activity="updated",
-        ).order_by("-created_at")
+        entries = self._get_eval_context_activity_entries(flag.id)
+        self.assertEqual(len(entries), 1)
 
-        eval_context_changes = [
-            entry
-            for entry in activity
-            if any(c.get("field") == "evaluation_contexts" for c in (entry.detail.get("changes") or []))
-        ]
-        self.assertEqual(len(eval_context_changes), 1)
-
-        change = next(c for c in eval_context_changes[0].detail["changes"] if c["field"] == "evaluation_contexts")
+        change = self._get_eval_context_change(entries[0])
         self.assertEqual(change["before"], [])
         self.assertEqual(change["after"], ["production", "staging"])
 
@@ -10707,28 +10720,15 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        eval_context_changes = [
-            entry
-            for entry in ActivityLog.objects.filter(
-                team_id=self.team.id,
-                scope="FeatureFlag",
-                item_id=str(flag.id),
-                activity="updated",
-            ).order_by("-created_at")
-            if any(c.get("field") == "evaluation_contexts" for c in (entry.detail.get("changes") or []))
-        ]
-        self.assertEqual(len(eval_context_changes), 2)
+        entries = self._get_eval_context_activity_entries(flag.id)
+        self.assertEqual(len(entries), 2)
 
-        latest_change = next(
-            c for c in eval_context_changes[0].detail["changes"] if c["field"] == "evaluation_contexts"
-        )
+        latest_change = self._get_eval_context_change(entries[0])
         self.assertEqual(latest_change["before"], ["production", "staging"])
         self.assertEqual(latest_change["after"], ["docs", "production"])
 
     @pytest.mark.ee
     def test_no_activity_log_when_evaluation_contexts_unchanged(self):
-        from posthog.models.activity_logging.activity_log import ActivityLog
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="no-change-test",
@@ -10751,19 +10751,9 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
             format="json",
         )
 
-        # The flag update itself creates an entry, but there should be no
-        # evaluation_contexts change entry
-        eval_context_entries = [
-            entry
-            for entry in ActivityLog.objects.filter(
-                team_id=self.team.id,
-                scope="FeatureFlag",
-                item_id=str(flag.id),
-            ).order_by("-created_at")
-            if any(c.get("field") == "evaluation_contexts" for c in (entry.detail.get("changes") or []))
-        ]
         # Only 1 from the initial set, none from the no-op update
-        self.assertEqual(len(eval_context_entries), 1)
+        entries = self._get_eval_context_activity_entries(flag.id)
+        self.assertEqual(len(entries), 1)
 
 
 class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
