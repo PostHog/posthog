@@ -7,6 +7,7 @@ The sync is one-directional in this module: GitHub -> PostHog.
 GitHub is the source of truth once connected.
 """
 
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,10 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.models.integration import GitHubIntegration
 
@@ -114,6 +119,10 @@ def sync_models_from_files(
         )
         dag_objects[dag_path] = dag_obj
     default_dag = DAG.get_or_create_default(team)
+    # sort files in topological order so dependencies are created before dependents
+    files = _topological_sort_files(files)
+    # sort files in topological order so dependencies are created before dependents
+    files = _topological_sort_files(files)
     # track which file paths we see in this sync
     seen_paths: set[str] = set()
     for file in files:
@@ -324,6 +333,129 @@ def _dag_name_from_toml_path(dag_toml_path: str) -> str:
     if len(parts) >= 2:
         return parts[-2]
     return parts[0]
+
+
+def _extract_table_refs_from_query(query: str) -> set[str]:
+    """Extract table references from a HogQL query using the parser.
+
+    Walks the parsed AST to find table names in FROM/JOIN clauses,
+    resolving through CTEs. Does not require a team or database context
+    since we only need the syntactic table names, not resolved types.
+    """
+    try:
+        parsed = parse_select(query)
+    except Exception:
+        return set()
+
+    if isinstance(parsed, ast.SelectSetQuery):
+        queries: list[ast.SelectQuery] = list(extract_select_queries(parsed))
+    else:
+        queries = [parsed]
+
+    ctes: dict[str, ast.CTE] = {}
+    for q in queries:
+        if q.ctes:
+            ctes.update(q.ctes)
+
+    refs: set[str] = set()
+    expanded_ctes: set[int] = set()
+
+    while queries:
+        query_node = queries.pop()
+
+        if query_node.ctes:
+            ctes.update(query_node.ctes)
+
+        join = query_node.select_from
+        while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                if join.table.view_name is not None:
+                    refs.add(join.table.view_name)
+                else:
+                    queries.append(join.table)
+                join = join.next_join
+                continue
+            elif isinstance(join.table, ast.SelectSetQuery):
+                queries.extend(list(extract_select_queries(join.table)))
+                join = join.next_join
+                continue
+
+            if join.table_args is not None:
+                join = join.next_join
+                continue
+
+            parent_name: str | None = None
+            if isinstance(join.table, ast.Placeholder):
+                parent_name = join.table.field
+            elif isinstance(join.table, ast.Field):
+                parent_name = ".".join(str(s) for s in join.table.chain)
+
+            if parent_name is not None:
+                if parent_name in ctes and id(ctes[parent_name]) not in expanded_ctes:
+                    expanded_ctes.add(id(ctes[parent_name]))
+                    cte_expr = ctes[parent_name].expr
+                    if isinstance(cte_expr, ast.SelectSetQuery):
+                        queries.extend(list(extract_select_queries(cte_expr)))
+                    elif isinstance(cte_expr, ast.SelectQuery):
+                        queries.append(cte_expr)
+                elif parent_name not in ctes:
+                    refs.add(parent_name)
+
+            join = join.next_join
+
+    return refs
+
+
+def _topological_sort_files(files: list[SyncedFile]) -> list[SyncedFile]:
+    """Sort files so that dependencies come before dependents.
+
+    Parses each file's SQL to extract table references, then performs a
+    topological sort among files in the batch. Files that reference each
+    other (cycles) or reference external tables are unaffected — the
+    DAG sync layer handles those cases.
+    """
+    if len(files) <= 1:
+        return files
+
+    file_by_name: dict[str, SyncedFile] = {}
+    for f in files:
+        name = model_name_from_path(f.path)
+        file_by_name[name] = f
+
+    batch_names = set(file_by_name.keys())
+
+    # build adjacency: deps[A] = {B, C} means A depends on B and C (within the batch)
+    deps: dict[str, set[str]] = defaultdict(set)
+    dependents: dict[str, set[str]] = defaultdict(set)
+    for name, f in file_by_name.items():
+        refs = _extract_table_refs_from_query(f.content)
+        for ref in refs:
+            if ref in batch_names and ref != name:
+                deps[name].add(ref)
+                dependents[ref].add(name)
+
+    # Kahn's algorithm
+    in_degree = {name: len(deps[name]) for name in file_by_name}
+    queue: deque[str] = deque(name for name, degree in in_degree.items() if degree == 0)
+    sorted_names: list[str] = []
+
+    while queue:
+        name = queue.popleft()
+        sorted_names.append(name)
+        for dep in dependents[name]:
+            in_degree[dep] -= 1
+            if in_degree[dep] == 0:
+                queue.append(dep)
+
+    # if there's a cycle, append remaining nodes in original order
+    if len(sorted_names) < len(file_by_name):
+        seen = set(sorted_names)
+        for f in files:
+            name = model_name_from_path(f.path)
+            if name not in seen:
+                sorted_names.append(name)
+
+    return [file_by_name[name] for name in sorted_names]
 
 
 def _cleanup_stale_dags(team: "Team", active_dag_ids: set) -> None:

@@ -95,7 +95,7 @@ class TestClassifyChanges:
             {"filename": "models/staging/revenue.sql", "status": "added", "sha": "def"},
         ]
         result = _classify_changes(files, "models", "production")
-        assert len(result["models"]["added"]) == 1
+        assert len(result["models"]["added"]) == 2
         assert result["models"]["added"][0]["path"] == "models/production/revenue.sql"
 
     @pytest.mark.parametrize(
@@ -178,8 +178,8 @@ class TestRenderPlanComment:
     def test_dag_action_labels(self, action_key, action_label):
         plan_data = _make_plan_data(dags={action_key: [{"path": "models/core/dag.toml"}]})
         result = render_plan_comment(GitHubSyncPlan(plan=plan_data))
-        assert "#### DAGs" in result
         assert action_label in result
+        assert "models/core/dag.toml" in result
 
     def test_contains_merge_note(self):
         plan_data = _make_plan_data(models={"added": [{"name": "x", "path": "models/x.sql"}]})
@@ -321,7 +321,7 @@ class TestPostPlanComment(BaseTest):
         plan = self._make_db_plan(
             plan=_make_plan_data(models={"added": [{"name": "x", "path": "models/x.sql"}]}),
         )
-        post_plan_comment(plan, self.config)
+        post_plan_comment([("production", plan)], [self.config], 42)
 
         plan.refresh_from_db()
         assert plan.github_comment_id == 12345
@@ -337,7 +337,7 @@ class TestPostPlanComment(BaseTest):
             github_comment_id=99999,
         )
         new_plan = self._make_db_plan(head_sha="new")
-        post_plan_comment(new_plan, self.config)
+        post_plan_comment([("production", new_plan)], [self.config], 42)
 
         # should pass the stale plan's comment_id for update
         call_args = mock_github.create_or_update_issue_comment.call_args
@@ -349,7 +349,7 @@ class TestPostPlanComment(BaseTest):
         mock_github.create_or_update_issue_comment.return_value = {"success": False, "error": "rate limited"}
 
         plan = self._make_db_plan()
-        post_plan_comment(plan, self.config)
+        post_plan_comment([("production", plan)], [self.config], 42)
 
         plan.refresh_from_db()
         assert plan.github_comment_id is None

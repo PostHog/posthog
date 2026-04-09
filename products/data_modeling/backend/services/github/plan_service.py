@@ -335,3 +335,103 @@ def post_plan_comment(
             pr_number=pr_number,
             error=result.get("error"),
         )
+
+
+def render_apply_comment(plan: GitHubSyncPlan) -> str:
+    """Render an apply result comment for a single plan."""
+    plan_data = plan.plan
+    lines: list[str] = ["### PostHog data modeling plan — applied", ""]
+
+    total = sum(len(v) for v in plan_data.get("models", {}).values()) + sum(
+        len(v) for v in plan_data.get("dags", {}).values()
+    )
+
+    if total == 0:
+        lines.append("No data modeling changes were applied.")
+        return "\n".join(lines)
+
+    change_word = "change" if total == 1 else "changes"
+    lines.append(f"**{total} {change_word}** applied from this PR.")
+    lines.append("")
+    lines.extend(_render_plan_section(plan_data))
+    lines.append(f"> Applied at commit `{plan.applied_sha[:7]}`.")
+    return "\n".join(lines)
+
+
+def render_combined_apply_comment(plans: list[tuple[str, GitHubSyncPlan]]) -> str:
+    """Render apply results for multiple environments into a single comment."""
+    lines: list[str] = ["### PostHog data modeling plan — applied", ""]
+
+    total = 0
+    for _, plan in plans:
+        plan_data = plan.plan
+        total += sum(len(v) for v in plan_data.get("models", {}).values())
+        total += sum(len(v) for v in plan_data.get("dags", {}).values())
+
+    if total == 0:
+        lines.append("No data modeling changes were applied.")
+        return "\n".join(lines)
+
+    change_word = "change" if total == 1 else "changes"
+    lines.append(f"**{total} {change_word}** applied from this PR.")
+    lines.append("")
+
+    for env_name, plan in plans:
+        section = _render_plan_section(plan.plan)
+        if section:
+            lines.append(f"#### {env_name}")
+            lines.append("")
+            lines.extend(section)
+
+    applied_sha = plans[0][1].applied_sha
+    lines.append(f"> Applied at commit `{applied_sha[:7]}`.")
+    return "\n".join(lines)
+
+
+def _plan_has_changes(plan: GitHubSyncPlan) -> bool:
+    plan_data = plan.plan
+    total = sum(len(v) for v in plan_data.get("models", {}).values()) + sum(
+        len(v) for v in plan_data.get("dags", {}).values()
+    )
+    return total > 0
+
+
+def post_apply_comment(
+    plans: list[GitHubSyncPlan],
+    config: GitHubSyncConfig,
+) -> None:
+    """Post a new comment on the PR confirming the apply succeeded."""
+    if not config.integration:
+        return
+
+    # only comment for plans that had actual changes
+    plans = [p for p in plans if _plan_has_changes(p)]
+    if not plans:
+        return
+
+    # group by PR number — there should typically be one, but be safe
+    by_pr: dict[int, list[GitHubSyncPlan]] = {}
+    for plan in plans:
+        by_pr.setdefault(plan.pr_number, []).append(plan)
+
+    github = GitHubIntegration(config.integration)
+    repo_name = _extract_repo_name(config.repository)
+
+    for pr_number, pr_plans in by_pr.items():
+        if len(pr_plans) == 1:
+            body = render_apply_comment(pr_plans[0])
+        else:
+            body = render_combined_apply_comment([(config.environment_name, p) for p in pr_plans])
+
+        result = github.create_or_update_issue_comment(
+            repo_name,
+            pr_number,
+            body,
+        )
+
+        if not result.get("success"):
+            logger.warning(
+                "post_apply_comment: failed to post comment",
+                pr_number=pr_number,
+                error=result.get("error"),
+            )
