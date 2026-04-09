@@ -51,7 +51,9 @@ describe('build a tree from scratch and verify evaluation', () => {
         expect(evaluateFilterTree(tree, { event_name: '$pageview', distinct_id: 'user-1' })).toBe(false)
 
         // Verify expression output
-        expect(filterTreeToExpression(tree)).toBe('event_name = "$autocapture"\nAND\nNOT (distinct_id ~ "bot")')
+        expect(filterTreeToExpression(tree)).toBe(
+            ['AND', '├── event_name = "$autocapture"', '└── NOT', '    └── distinct_id ~ "bot"'].join('\n')
+        )
     })
 })
 

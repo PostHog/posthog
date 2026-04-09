@@ -16,52 +16,51 @@ export function isTreeEmpty(node: FilterNode): boolean {
 }
 
 /**
- * Render the filter tree as a human-readable expression string.
+ * Render the filter tree as a human-readable tree diagram.
  * Used in the "Show expression" modal. Example output:
  *
- *   event_name = "$drop_me"
  *   OR
- *   event_name = "$internal"
- *     AND
- *     distinct_id ~ "bot-"
+ *   ├── event_name = "$drop_me"
+ *   └── AND
+ *       ├── event_name = "$internal"
+ *       └── distinct_id ~ "bot-"
+ *
+ * `indent` is the whitespace prefix for continuation lines (children).
+ * The node's own label is rendered without indent — the caller prepends
+ * the connector (├── or └──) and indent.
  */
-export function filterTreeToExpression(node: FilterNode, indent: number = 0): string {
-    const pad = '  '.repeat(indent)
+function renderNode(node: FilterNode, indent: string): string {
     switch (node.type) {
         case 'condition': {
             const op = node.operator === 'exact' ? '=' : '~'
-            return `${pad}${node.field} ${op} "${node.value}"`
+            return `${node.field} ${op} "${node.value}"`
         }
         case 'not': {
-            const inner = filterTreeToExpression(node.child, indent + 1)
-            const isSimple = node.child.type === 'condition'
-            if (isSimple) {
-                return `${pad}NOT (${inner.trim()})`
-            }
-            return `${pad}NOT (\n${inner}\n${pad})`
+            const childLine = renderNode(node.child, indent + '    ')
+            return `NOT\n${indent}└── ${childLine}`
         }
         case 'and':
         case 'or': {
             if (node.children.length === 0) {
-                return `${pad}(empty)`
+                return `${node.type.toUpperCase()} (empty)`
             }
-            if (node.children.length === 1) {
-                return filterTreeToExpression(node.children[0], indent)
-            }
-            const joiner = node.type === 'and' ? 'AND' : 'OR'
-            const parts = node.children.map((child) => {
-                const needsParens = (child.type === 'and' || child.type === 'or') && child.type !== node.type
-                if (needsParens) {
-                    const innerParts = child.children.map((c) => filterTreeToExpression(c, indent + 1))
-                    const innerJoiner = child.type === 'and' ? 'AND' : 'OR'
-                    const inner = innerParts.join(`\n${pad}  ${innerJoiner}\n`)
-                    return `${pad}(\n${inner}\n${pad})`
-                }
-                return filterTreeToExpression(child, indent)
+            const lines = node.children.map((child, i) => {
+                const isLast = i === node.children.length - 1
+                const connector = isLast ? '└── ' : '├── '
+                const childIndent = indent + (isLast ? '    ' : '│   ')
+                return `${indent}${connector}${renderNode(child, childIndent)}`
             })
-            return parts.join(`\n${pad}${joiner}\n`)
+            return `${node.type.toUpperCase()}\n${lines.join('\n')}`
         }
     }
+}
+
+/**
+ * Render the filter tree as a human-readable tree diagram.
+ * Used in the "Show expression" modal.
+ */
+export function filterTreeToExpression(node: FilterNode): string {
+    return renderNode(node, '')
 }
 
 /** One-line summary of a node, shown in the DnD drag overlay. */

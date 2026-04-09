@@ -24,40 +24,59 @@ describe('filterTreeToExpression', () => {
         expect(filterTreeToExpression(cond('distinct_id', 'contains', 'bot'))).toBe('distinct_id ~ "bot"')
     })
 
-    it('renders OR group', () => {
-        const tree = or(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
-        expect(filterTreeToExpression(tree)).toBe('event_name = "a"\nOR\nevent_name = "b"')
-    })
-
-    it('renders AND group', () => {
+    it('renders AND group with tree connectors', () => {
         const tree = and(cond('event_name', 'exact', 'a'), cond('distinct_id', 'exact', 'u1'))
-        expect(filterTreeToExpression(tree)).toBe('event_name = "a"\nAND\ndistinct_id = "u1"')
+        expect(filterTreeToExpression(tree)).toBe(['AND', '├── event_name = "a"', '└── distinct_id = "u1"'].join('\n'))
     })
 
-    it('renders NOT with simple child inline', () => {
-        expect(filterTreeToExpression(not(cond('event_name', 'exact', 'x')))).toBe('NOT (event_name = "x")')
+    it('renders OR group with tree connectors', () => {
+        const tree = or(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
+        expect(filterTreeToExpression(tree)).toBe(['OR', '├── event_name = "a"', '└── event_name = "b"'].join('\n'))
+    })
+
+    it('renders NOT with child', () => {
+        expect(filterTreeToExpression(not(cond('event_name', 'exact', 'x')))).toBe(
+            ['NOT', '└── event_name = "x"'].join('\n')
+        )
     })
 
     it('renders empty group', () => {
-        expect(filterTreeToExpression(or())).toBe('(empty)')
+        expect(filterTreeToExpression(or())).toBe('OR (empty)')
     })
 
-    it('collapses single-child group', () => {
-        expect(filterTreeToExpression(or(cond('event_name', 'exact', 'a')))).toBe('event_name = "a"')
-    })
-
-    it('renders NOT wrapping a group (multi-line)', () => {
-        const tree = not(and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b')))
-        expect(filterTreeToExpression(tree)).toBe('NOT (\n  event_name = "a"\n  AND\n  event_name = "b"\n)')
-    })
-
-    it('parenthesizes AND inside OR', () => {
+    it('renders nested AND inside OR', () => {
         const tree = or(
             cond('event_name', 'exact', 'a'),
-            and(cond('event_name', 'exact', 'b'), cond('event_name', 'exact', 'c'))
+            and(cond('event_name', 'exact', 'b'), cond('distinct_id', 'contains', 'bot'))
         )
         expect(filterTreeToExpression(tree)).toBe(
-            'event_name = "a"\nOR\n(\n  event_name = "b"\n  AND\n  event_name = "c"\n)'
+            ['OR', '├── event_name = "a"', '└── AND', '    ├── event_name = "b"', '    └── distinct_id ~ "bot"'].join(
+                '\n'
+            )
+        )
+    })
+
+    it('renders NOT wrapping a group', () => {
+        const tree = not(and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b')))
+        expect(filterTreeToExpression(tree)).toBe(
+            ['NOT', '└── AND', '    ├── event_name = "a"', '    └── event_name = "b"'].join('\n')
+        )
+    })
+
+    it('renders deeply nested tree', () => {
+        const tree = or(
+            cond('event_name', 'exact', '$drop_me'),
+            and(cond('event_name', 'exact', '$internal'), not(cond('distinct_id', 'contains', 'admin')))
+        )
+        expect(filterTreeToExpression(tree)).toBe(
+            [
+                'OR',
+                '├── event_name = "$drop_me"',
+                '└── AND',
+                '    ├── event_name = "$internal"',
+                '    └── NOT',
+                '        └── distinct_id ~ "admin"',
+            ].join('\n')
         )
     })
 })

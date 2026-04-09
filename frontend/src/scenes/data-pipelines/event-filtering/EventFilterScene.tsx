@@ -203,8 +203,13 @@ export function EventFilterScene(): JSX.Element {
                                     on save.
                                 </p>
                             </div>
-                            <LemonButton size="small" type="secondary" onClick={() => setShowExpression(true)}>
-                                Show expression
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                className="ml-2 shrink-0"
+                                onClick={() => setShowExpression(true)}
+                            >
+                                Show as ASCII
                             </LemonButton>
                         </div>
                         <DndContext
@@ -236,13 +241,13 @@ export function EventFilterScene(): JSX.Element {
                         <LemonModal
                             isOpen={showExpression}
                             onClose={() => setShowExpression(false)}
-                            title="Filter expression"
+                            title="Filter tree"
                             description="Events matching this expression will be dropped."
                         >
                             <pre className="font-mono text-sm whitespace-pre-wrap p-3 border rounded bg-bg-light overflow-auto max-h-96">
                                 {isTreeEmpty(filterForm.filter_tree)
                                     ? '(no conditions configured)'
-                                    : `DROP WHERE\n  ${filterTreeToExpression(filterForm.filter_tree, 1).trim()}`}
+                                    : filterTreeToExpression(filterForm.filter_tree)}
                             </pre>
                         </LemonModal>
                     </div>
