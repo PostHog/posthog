@@ -72,7 +72,7 @@ export const OnboardingStep = ({
             <div className="pb-2">
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
-                        className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
+                        className="flex items-center justify-start gap-x-3 px-4 sm:px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
                         {onboardingStepKeys.map((stepName, idx) => {
@@ -96,15 +96,15 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
-                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                    <div className="flex flex-row justify-between items-center gap-2 mt-3 px-4 sm:px-0">
+                        <h1 className={`font-bold m-0 px-0 sm:px-2 ${fullWidth && 'text-center'}`}>
                             {title || stepKeyToTitle(stepKey)}
                         </h1>
                         {actions && <div className="flex flex-row gap-2">{actions}</div>}
                     </div>
                 </div>
             </div>
-            <div className={clsx('p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
+            <div className={clsx('px-4 py-2 sm:p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
                         <p>{subtitle}</p>
