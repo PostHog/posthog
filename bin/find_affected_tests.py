@@ -92,10 +92,18 @@ def module_to_file(module: str) -> str | None:
     return None
 
 
-def build_reverse_map() -> dict[str, list[str]]:
-    """Build reverse dependency map: source file -> test files that import it."""
+def build_reverse_map() -> tuple[dict[str, list[str]], int]:
+    """Build reverse dependency map: source file -> test files that import it.
+
+    Returns (filtered_map, total_test_count).
+    """
     start = time.monotonic()
     sys.stderr.write(f"Building import graph for packages: {', '.join(LOCAL_PACKAGES)}...\n")
+
+    # Ensure repo root is on sys.path so grimp can find local packages
+    repo_root_str = str(REPO_ROOT)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
 
     graph = grimp.build_graph(*LOCAL_PACKAGES)
 
@@ -141,32 +149,29 @@ def build_reverse_map() -> dict[str, list[str]]:
             sys.stderr.write(f"  Processed {processed}/{len(test_modules)} test modules...\n")
 
     # Exclude high-fan-out entries (core/shared modules that affect too many tests)
-    excluded = {k for k, v in reverse_map.items() if len(v) > MAX_FANOUT}
+    # excluded = {k for k, v in reverse_map.items() if len(v) > MAX_FANOUT}
     # Also drop entries where a test file only references itself — that's implicit
     self_only = {k for k, v in reverse_map.items() if v == {k}}
-    filtered_map = {k: v for k, v in reverse_map.items() if k not in excluded and k not in self_only}
+    filtered_map = {k: v for k, v in reverse_map.items() if k not in self_only}
 
     elapsed_total = time.monotonic() - start
-    sys.stderr.write(
-        f"Map covers {len(filtered_map)} source files "
-        f"(excluded {len(excluded)} high-fan-out files with >{MAX_FANOUT} tests, "
-        f"built in {elapsed_total:.1f}s)\n"
-    )
+    sys.stderr.write(f"Map covers {len(filtered_map)} source files (built in {elapsed_total:.1f}s)\n")
 
-    return {k: sorted(v) for k, v in sorted(filtered_map.items())}
+    return {k: sorted(v) for k, v in sorted(filtered_map.items())}, len(test_modules)
 
 
 def output_full(reason: str) -> None:
     sys.stdout.write(json.dumps({"mode": "full", "reason": reason}) + "\n")
 
 
-def output_selective(affected_tests: list[str], suggested_shards: int) -> None:
+def output_selective(affected_tests: list[str], suggested_shards: int, total_test_count: int) -> None:
     sys.stdout.write(
         json.dumps(
             {
                 "mode": "selective",
                 "affected_tests": affected_tests,
                 "affected_test_count": len(affected_tests),
+                "total_test_count": total_test_count,
                 "suggested_shards": max(1, suggested_shards),
             }
         )
@@ -227,7 +232,7 @@ def main():
 
     # Build-only mode: just print stats
     if args.build_only:
-        reverse_map = build_reverse_map()
+        reverse_map, _total_test_count = build_reverse_map()
         all_test_files: set[str] = set()
         for tests in reverse_map.values():
             all_test_files.update(tests)
@@ -266,7 +271,7 @@ def main():
             if requires_full_run(f):
                 output_full(f"non-Python file requires full run: {f}")
                 return
-        output_selective([], 0)
+        output_selective([], 0, 0)
         return
 
     # Check for too many changes
@@ -281,13 +286,19 @@ def main():
             return
 
     # Build the dependency map
-    reverse_map = build_reverse_map()
+    reverse_map, total_test_count = build_reverse_map()
 
     # Look up affected tests
     affected: set[str] = set()
     unmapped_files: list[str] = []
 
     for changed_file in py_files:
+        # Only files under LOCAL_PACKAGES can appear in the import graph.
+        # Skip anything outside (bin/, tools/, scripts/, etc.)
+        top_dir = changed_file.split("/")[0] if "/" in changed_file else ""
+        if top_dir not in LOCAL_PACKAGES:
+            continue
+
         normalized = os.path.normpath(changed_file)
         if normalized in reverse_map:
             affected.update(reverse_map[normalized])
@@ -315,7 +326,7 @@ def main():
 
     sys.stderr.write(f"Estimated duration: {estimated_duration:.0f}s, suggested shards: {suggested_shards}\n")
 
-    output_selective(affected_sorted, suggested_shards)
+    output_selective(affected_sorted, suggested_shards, total_test_count)
 
 
 if __name__ == "__main__":

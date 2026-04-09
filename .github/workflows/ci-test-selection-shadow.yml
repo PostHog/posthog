@@ -30,7 +30,7 @@ jobs:
                   echo "### Changed files" >&2
                   echo "$CHANGED" | tr ' ' '\n' >&2
 
-                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
+                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>/dev/stderr | tail -1)
                   MODE=$(echo "$RESULT" | jq -r '.mode')
 
                   echo ""
@@ -39,10 +39,11 @@ jobs:
 
                   if [ "$MODE" = "selective" ]; then
                     COUNT=$(echo "$RESULT" | jq -r '.affected_test_count')
+                    TOTAL=$(echo "$RESULT" | jq -r '.total_test_count')
                     SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
                     echo ""
                     echo "**Would run $COUNT test files in $SHARDS shards (instead of 38)**"
-                    echo "Estimated savings: $((38 - SHARDS)) shards"
+                    echo "Estimated savings: $(($TOTAL - $COUNT)) test files not run"
                   else
                     REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
                     echo ""
