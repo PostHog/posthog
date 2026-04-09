@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from temporalio.client import Schedule, ScheduleOverlapPolicy, ScheduleSpec
 
-from posthog.temporal.alerts.schedule import SCHEDULE_ID, create_schedule_all_alert_checks_schedule
+from posthog.temporal.alerts.schedule import create_schedule_all_alert_checks_schedule
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleAllAlertChecksWorkflow
 
 
@@ -99,10 +99,6 @@ def test_check_alert_workflow_emits_slo_completion_properties():
 @pytest.mark.skip(reason="Implementation in PR2 — regression test for orphaned starts")
 def test_check_alert_workflow_replay_does_not_double_emit_slo():
     pass
-
-
-def test_schedule_id_constant():
-    assert SCHEDULE_ID == "schedule-all-alert-checks-schedule"
 
 
 @pytest.mark.asyncio

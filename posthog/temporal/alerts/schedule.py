@@ -1,7 +1,4 @@
-"""Schedule registration for the alert check coordinator workflow.
-
-NOT registered in posthog/temporal/schedule.py until PR3 (cutover).
-"""
+"""Schedule registration for the alert check coordinator workflow."""
 
 import datetime as dt
 from dataclasses import asdict

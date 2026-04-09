@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 
 import structlog
 import temporalio.activity
-from asgiref.sync import sync_to_async
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EnumerateDueAlertsActivityInputs,
@@ -37,7 +37,6 @@ logger = structlog.get_logger(__name__)
 # Until then they raise NotImplementedError; the workflow is registered on
 # the analytics-platform Temporal worker but no schedule points at it yet,
 # so nothing in production reaches these stubs.
-_FOLLOWUP_PR_URL = "https://github.com/PostHog/posthog/pull/53835"
 
 
 @temporalio.activity.defn
@@ -52,7 +51,7 @@ async def enumerate_due_alerts_activity(
     Temporal, concurrency is bounded by ClickHouse query tagging and workload
     management rather than per-team serialisation.
     """
-    return await sync_to_async(_enumerate_due_alerts_sync)()
+    return await database_sync_to_async(_enumerate_due_alerts_sync)()
 
 
 def _enumerate_due_alerts_sync() -> list[AlertInfo]:
@@ -68,6 +67,9 @@ def _enumerate_due_alerts_sync() -> list[AlertInfo]:
 
     now = datetime.now(UTC)
 
+    # The `is_calculating=False` filter from the Celery version is intentionally
+    # dropped: Temporal's deterministic child workflow ID (`check-alert-{id}`)
+    # enforces at-most-one-running-check per alert via WorkflowAlreadyStartedError.
     alerts = (
         AlertConfiguration.objects.filter(
             Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
@@ -98,16 +100,22 @@ def _enumerate_due_alerts_sync() -> list[AlertInfo]:
 @temporalio.activity.defn
 async def prepare_alert_activity(inputs: PrepareAlertActivityInputs) -> PrepareAlertResult:
     """Load the alert, validate its config, and decide whether to evaluate."""
-    raise NotImplementedError(f"Alert check logic is ported in follow-up PR: {_FOLLOWUP_PR_URL}")
+    raise NotImplementedError(
+        "Alert check logic is ported in follow-up PR: https://github.com/PostHog/posthog/pull/53835"
+    )
 
 
 @temporalio.activity.defn
 async def evaluate_alert_activity(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
-    raise NotImplementedError(f"Alert check logic is ported in follow-up PR: {_FOLLOWUP_PR_URL}")
+    raise NotImplementedError(
+        "Alert check logic is ported in follow-up PR: https://github.com/PostHog/posthog/pull/53835"
+    )
 
 
 @temporalio.activity.defn
 async def notify_alert_activity(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
-    raise NotImplementedError(f"Alert check logic is ported in follow-up PR: {_FOLLOWUP_PR_URL}")
+    raise NotImplementedError(
+        "Alert check logic is ported in follow-up PR: https://github.com/PostHog/posthog/pull/53835"
+    )

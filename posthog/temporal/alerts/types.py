@@ -10,9 +10,7 @@ class ScheduleAllAlertChecksWorkflowInputs:
     """Inputs for the scheduled coordinator workflow.
 
     No fields today; reserved for future tuning (per-tick batch size,
-    alert kind filter). `frozen=True` is intentional and a deliberate
-    improvement over ScheduleAllSubscriptionsWorkflowInputs — Temporal
-    workflow inputs should be immutable.
+    alert kind filter).
     """
 
 
@@ -47,10 +45,7 @@ class CheckAlertWorkflowInputs:
     config must be on the type the workflow declares. Same pattern as
     TrackedSubscriptionInputs in posthog/temporal/subscriptions/types.py.
 
-    `slo: SloConfig | None` is the field the SloInterceptor inspects
-    (see posthog/temporal/common/slo_interceptor.py:20). When set, the
-    interceptor emits slo_operation_started/_completed events around
-    the entire workflow execution with replay protection.
+    The `slo` field opts the workflow into SLO tracking via SloInterceptor.
     """
 
     alert_id: str
@@ -119,6 +114,3 @@ class EvaluateAlertResult:
 class NotifyAlertActivityInputs:
     alert_id: str
     alert_check_id: int
-
-
-# notify_alert_activity returns None; raises on permanent failure.

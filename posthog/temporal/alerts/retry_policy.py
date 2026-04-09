@@ -19,9 +19,9 @@ ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=[],
 )
 
-# Notification retries are independent of evaluate retries — this is the
-# TODO win from posthog/tasks/alerts/checks.py:338. SMTP/Slack flakes get
-# their own backoff without re-running the CH query.
+# Notification retries are independent of evaluate retries — unlike the
+# atomic check_alert_and_notify_atomically path in the Celery version,
+# SMTP/Slack flakes get their own backoff without re-running the CH query.
 ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=5),
     maximum_interval=dt.timedelta(minutes=2),

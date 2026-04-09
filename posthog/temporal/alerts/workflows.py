@@ -187,7 +187,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                     inputs.slo.completion_properties.update(completion_props)
 
         # Re-raise after cleanup completes. Same Temporal SDK quirk as
-        # ProcessSubscriptionWorkflow at workflows.py:273-277 — re-raising
-        # inside `except` blocks new activity scheduling in `finally`.
+        # ProcessSubscriptionWorkflow — re-raising inside `except` blocks
+        # new activity scheduling in `finally`.
         if caught_error:
             raise caught_error
