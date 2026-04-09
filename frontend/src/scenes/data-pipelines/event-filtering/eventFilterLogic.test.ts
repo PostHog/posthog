@@ -1,24 +1,5 @@
 import { evaluateFilterTree, treeHasConditions, treeHasEmptyValues, updateAtPath, FilterNode } from './eventFilterLogic'
-
-function cond(
-    field: 'event_name' | 'distinct_id' = 'event_name',
-    operator: 'exact' | 'contains' = 'exact',
-    value: string = 'pageview'
-): FilterNode {
-    return { type: 'condition', field, operator, value }
-}
-
-function and(...children: FilterNode[]): FilterNode {
-    return { type: 'and', children }
-}
-
-function or(...children: FilterNode[]): FilterNode {
-    return { type: 'or', children }
-}
-
-function not(child: FilterNode): FilterNode {
-    return { type: 'not', child }
-}
+import { cond, and, or, not } from './testHelpers'
 
 describe('evaluateFilterTree', () => {
     describe('condition nodes', () => {
@@ -102,6 +83,31 @@ describe('evaluateFilterTree', () => {
             ],
             ['event_name missing -> ingest', { distinct_id: 'user-1' }, false],
             ['distinct_id missing -> drop', { event_name: '$autocapture' }, true],
+        ])('%s', (_name, event, expected) => {
+            expect(evaluateFilterTree(tree, event)).toBe(expected)
+        })
+    })
+
+    describe('double negation', () => {
+        it('NOT(NOT(condition)) evaluates to the original condition result', () => {
+            const tree = not(not(cond('event_name', 'exact', 'pageview')))
+            expect(evaluateFilterTree(tree, { event_name: 'pageview' })).toBe(true)
+            expect(evaluateFilterTree(tree, { event_name: 'click' })).toBe(false)
+        })
+    })
+
+    describe('deeply nested tree (4 levels)', () => {
+        // OR(AND(NOT(condition), condition), condition)
+        const tree = or(
+            and(not(cond('event_name', 'contains', 'internal')), cond('distinct_id', 'contains', 'bot')),
+            cond('event_name', 'exact', '$drop_me')
+        )
+
+        it.each([
+            ['matches second OR branch', { event_name: '$drop_me', distinct_id: 'user-1' }, true],
+            ['matches first OR branch (not internal + bot)', { event_name: 'ping', distinct_id: 'bot-1' }, true],
+            ['blocked by NOT (internal + bot)', { event_name: 'internal_check', distinct_id: 'bot-1' }, false],
+            ['no match at all', { event_name: 'click', distinct_id: 'user-1' }, false],
         ])('%s', (_name, event, expected) => {
             expect(evaluateFilterTree(tree, event)).toBe(expected)
         })
@@ -220,6 +226,26 @@ describe('updateAtPath', () => {
         })
     })
 
+    describe('edge cases', () => {
+        it('out-of-bounds index returns node unchanged', () => {
+            const tree = or(cond())
+            const result = updateAtPath(tree, [5], () => replacement)
+            expect(result).toEqual(tree)
+        })
+
+        it('numeric step on NOT node returns node unchanged', () => {
+            const tree = not(cond())
+            const result = updateAtPath(tree, [0], () => replacement)
+            expect(result).toEqual(tree)
+        })
+
+        it('"child" step on group node returns node unchanged', () => {
+            const tree = and(cond())
+            const result = updateAtPath(tree, ['child'], () => replacement)
+            expect(result).toEqual(tree)
+        })
+    })
+
     describe('immutability', () => {
         it('does not mutate the original tree', () => {
             const tree = and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
@@ -260,6 +286,8 @@ describe('treeHasEmptyValues', () => {
         ['nested empty in and', and(cond(), cond('event_name', 'exact', '')), true],
         ['nested empty in not', not(cond('event_name', 'exact', '')), true],
         ['all filled in group', and(cond(), cond('distinct_id', 'exact', 'u1')), false],
+        ['empty group has no empty values', or(), false],
+        ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
     })

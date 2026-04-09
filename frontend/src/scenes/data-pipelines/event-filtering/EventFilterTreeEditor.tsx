@@ -10,7 +10,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 import { eventFilterLogic, FilterNode, TreePath } from './eventFilterLogic'
-import { nid } from './eventFilterTreeUtils'
+import { NodeIdMap } from './NodeIdMap'
 
 const FIELD_OPTIONS = [
     { value: 'event_name', label: 'Event name' },
@@ -87,20 +87,22 @@ function GroupEditor({
     depth,
     onDelete,
     showValidation,
+    nodeIds,
 }: {
     node: FilterNode & { type: 'and' | 'or' }
     path: TreePath
     depth: number
     onDelete?: () => void
     showValidation?: boolean
+    nodeIds: NodeIdMap
 }): JSX.Element {
     const { updateTreeNode, removeChild, wrapInNot, addChild } = useActions(eventFilterLogic)
 
-    const droppableId = `drop:${nid(node)}`
+    const droppableId = `drop:${nodeIds.nidOf(node)}`
     const { setNodeRef, isOver } = useDroppable({ id: droppableId })
     const borderColor = node.type === 'and' ? 'bg-[#2563EB]' : 'bg-[#F59E0B]'
 
-    const childNids = node.children.map((child) => nid(child))
+    const childNids = node.children.map((child) => nodeIds.nidOf(child))
 
     // Track whether the drag is over this group or any of its direct children
     const [isOverGroup, setIsOverGroup] = useState(false)
@@ -158,7 +160,7 @@ function GroupEditor({
                 <SortableContext items={childNids} strategy={verticalListSortingStrategy}>
                     {node.children.map((child, i) => {
                         const childPath: TreePath = [...path, i]
-                        const childId = nid(child)
+                        const childId = nodeIds.nidOf(child)
                         return (
                             <SortableItem key={childId} id={childId}>
                                 <NodeEditor
@@ -167,6 +169,7 @@ function GroupEditor({
                                     depth={depth + 1}
                                     onDelete={() => removeChild(path, i)}
                                     showValidation={showValidation}
+                                    nodeIds={nodeIds}
                                 />
                             </SortableItem>
                         )
@@ -203,12 +206,14 @@ export function NodeEditor({
     depth,
     onDelete,
     showValidation,
+    nodeIds,
 }: {
     node: FilterNode
     path: TreePath
     depth: number
     onDelete?: () => void
     showValidation?: boolean
+    nodeIds: NodeIdMap
 }): JSX.Element {
     const { unwrapNot } = useActions(eventFilterLogic)
 
@@ -238,9 +243,19 @@ export function NodeEditor({
                     path={[...path, 'child']}
                     depth={depth + 1}
                     showValidation={showValidation}
+                    nodeIds={nodeIds}
                 />
             </div>
         )
     }
-    return <GroupEditor node={node} path={path} depth={depth} onDelete={onDelete} showValidation={showValidation} />
+    return (
+        <GroupEditor
+            node={node}
+            path={path}
+            depth={depth}
+            onDelete={onDelete}
+            showValidation={showValidation}
+            nodeIds={nodeIds}
+        />
+    )
 }

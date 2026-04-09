@@ -12,7 +12,7 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { LemonButton, LemonDivider, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
@@ -22,26 +22,14 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import {
-    eventFilterLogic,
-    EVENT_FILTER_MAX_CONDITIONS,
-    EVENT_FILTER_MAX_DEPTH,
-    FilterNode,
-    TreePath,
-} from './eventFilterLogic'
+import { eventFilterLogic, EVENT_FILTER_MAX_CONDITIONS, EVENT_FILTER_MAX_DEPTH } from './eventFilterLogic'
 import { EventFilterMetrics } from './EventFilterMetrics'
 import { EventFilterTestCases } from './EventFilterTestCases'
 import { NodeEditor } from './EventFilterTreeEditor'
-import {
-    buildNidIndex,
-    filterTreeToExpression,
-    getNodeAtPath,
-    isAncestorPath,
-    isTreeEmpty,
-    nodeSummary,
-    splitParentChild,
-    stampNids,
-} from './eventFilterTreeUtils'
+import { filterTreeToExpression, isTreeEmpty, nodeSummary } from './filterTreeDisplay'
+import { moveBetweenGroups, reorderWithinGroup, resolveDropTarget } from './filterTreeDnd'
+import { getNodeAtPath, isAncestorPath, splitParentChild } from './filterTreePath'
+import { NodeIdMap } from './NodeIdMap'
 
 export const scene: SceneExport = {
     component: EventFilterScene,
@@ -54,12 +42,10 @@ export function EventFilterScene(): JSX.Element {
     const { setFilterFormValue, submitFilterForm, updateTreeNode } = useActions(eventFilterLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [showExpression, setShowExpression] = useState(false)
+    const nodeIds = useRef(new NodeIdMap()).current
 
-    // Stamp stable IDs on tree nodes (mutates in place, idempotent)
-    stampNids(filterForm.filter_tree as FilterNode & { _nid?: string })
-
-    // Build nid → path index on every render
-    const nidIndex = useMemo(() => buildNidIndex(filterForm.filter_tree), [filterForm.filter_tree])
+    // Build nid → path index on every render (also assigns IDs to new nodes)
+    useMemo(() => nodeIds.buildIndex(filterForm.filter_tree), [filterForm.filter_tree, nodeIds])
 
     const sensors = useSensors(
         useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
@@ -78,12 +64,11 @@ export function EventFilterScene(): JSX.Element {
                 return
             }
 
-            const activeNid = active.id as string
             const overIdStr = over.id as string
             const tree = filterForm.filter_tree
-            const idx = buildNidIndex(tree)
+            nodeIds.buildIndex(tree)
 
-            const activePath = idx.get(activeNid)
+            const activePath = nodeIds.pathOf(active.id as string)
             if (!activePath) {
                 return
             }
@@ -92,107 +77,44 @@ export function EventFilterScene(): JSX.Element {
                 return
             }
 
-            // Determine target
-            let targetGroupPath: TreePath
-            let insertIndex: number
-
-            if (overIdStr.startsWith('drop:')) {
-                // Dropped on a group droppable — append at end
-                const groupNid = overIdStr.slice(5)
-                const groupPath = idx.get(groupNid)
-                if (!groupPath) {
-                    return
-                }
-                targetGroupPath = groupPath
-                const targetNode = groupPath.length === 0 ? tree : getNodeAtPath(tree, groupPath)
-                if (!targetNode || (targetNode.type !== 'and' && targetNode.type !== 'or')) {
-                    return
-                }
-                insertIndex = targetNode.children.length
-            } else {
-                // Dropped on a sortable item — insert at its position
-                const overPath = idx.get(overIdStr)
-                if (!overPath) {
-                    return
-                }
-                const overParent = splitParentChild(overPath)
-                if (!overParent) {
-                    return
-                }
-                targetGroupPath = overParent.parentPath
-                insertIndex = overParent.childIndex
+            const target = resolveDropTarget(overIdStr, tree, nodeIds)
+            if (!target) {
+                return
             }
-
-            // Prevent dropping into own descendant
-            if (isAncestorPath(activePath, targetGroupPath)) {
+            if (isAncestorPath(activePath, target.groupPath)) {
                 return
             }
 
-            const sameGroup = activeParent.parentPath.join('.') === targetGroupPath.join('.')
+            const sameGroup = activeParent.parentPath.join('.') === target.groupPath.join('.')
 
             if (sameGroup) {
-                // Reorder within same group
-                const parentNode =
-                    activeParent.parentPath.length === 0 ? tree : getNodeAtPath(tree, activeParent.parentPath)
-                if (!parentNode || (parentNode.type !== 'and' && parentNode.type !== 'or')) {
-                    return
+                const reorderedGroup = reorderWithinGroup(
+                    tree,
+                    activeParent.parentPath,
+                    activeParent.childIndex,
+                    target.insertIndex,
+                    arrayMove
+                )
+                if (reorderedGroup) {
+                    updateTreeNode(activeParent.parentPath, reorderedGroup)
                 }
-                const newChildren = arrayMove([...parentNode.children], activeParent.childIndex, insertIndex)
-                updateTreeNode(activeParent.parentPath, { ...parentNode, children: newChildren })
             } else {
-                // Move between groups
-                const srcParent =
-                    activeParent.parentPath.length === 0 ? tree : getNodeAtPath(tree, activeParent.parentPath)
-                if (!srcParent || (srcParent.type !== 'and' && srcParent.type !== 'or')) {
-                    return
+                const newTree = moveBetweenGroups(
+                    tree,
+                    activeParent.parentPath,
+                    activeParent.childIndex,
+                    target.groupPath,
+                    target.insertIndex
+                )
+                if (newTree) {
+                    setFilterFormValue('filter_tree', newTree)
                 }
-
-                const movedNode = srcParent.children[activeParent.childIndex]
-                const newTree = JSON.parse(JSON.stringify(tree))
-
-                // Remove from source first
-                const newSrc =
-                    activeParent.parentPath.length === 0 ? newTree : getNodeAtPath(newTree, activeParent.parentPath)
-                if (newSrc && (newSrc.type === 'and' || newSrc.type === 'or')) {
-                    newSrc.children.splice(activeParent.childIndex, 1)
-                }
-
-                // Recompute target path after removal (indices may have shifted)
-                stampNids(newTree as FilterNode & { _nid?: string })
-                const newIdx = buildNidIndex(newTree)
-                let destGroupPath: TreePath
-                let destIndex: number
-
-                if (overIdStr.startsWith('drop:')) {
-                    const groupNid2 = overIdStr.slice(5)
-                    destGroupPath = newIdx.get(groupNid2) ?? targetGroupPath
-                    const destNode = destGroupPath.length === 0 ? newTree : getNodeAtPath(newTree, destGroupPath)
-                    destIndex = destNode?.children?.length ?? 0
-                } else {
-                    const overPath2 = newIdx.get(overIdStr)
-                    if (!overPath2) {
-                        return
-                    }
-                    const overParent2 = splitParentChild(overPath2)
-                    if (!overParent2) {
-                        return
-                    }
-                    destGroupPath = overParent2.parentPath
-                    destIndex = overParent2.childIndex
-                }
-
-                const newDst = destGroupPath.length === 0 ? newTree : getNodeAtPath(newTree, destGroupPath)
-                if (newDst && (newDst.type === 'and' || newDst.type === 'or')) {
-                    newDst.children.splice(destIndex, 0, JSON.parse(JSON.stringify(movedNode)))
-                }
-
-                setFilterFormValue('filter_tree', newTree)
             }
         },
         [filterForm.filter_tree, updateTreeNode, setFilterFormValue]
     )
 
-    const activeNode = activeId ? getNodeAtPath(filterForm.filter_tree, nidIndex.get(activeId) ?? []) : null
+    const activeNode = activeId ? getNodeAtPath(filterForm.filter_tree, nodeIds.pathOf(activeId) ?? []) : null
 
     return (
         <SceneContent>
@@ -291,6 +213,7 @@ export function EventFilterScene(): JSX.Element {
                                     path={[]}
                                     depth={0}
                                     showValidation={showFilterFormErrors}
+                                    nodeIds={nodeIds}
                                 />
                             </div>
                             {showFilterFormErrors && filterFormErrors.mode && (
