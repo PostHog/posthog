@@ -1236,6 +1236,53 @@ describe('filtersToQueryNode', () => {
             expect(result).toEqual(query)
         })
 
+        it('converts a change chart insight', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                events: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                        order: 0,
+                    },
+                ],
+                actions: [],
+                display: ChartDisplayType.ChangeChart,
+                compare: true,
+                breakdown: '$browser',
+                date_from: '-7d',
+                properties: [],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            expect(result).toEqual({
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                dateRange: {
+                    date_from: '-7d',
+                },
+                breakdownFilter: {
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                },
+                compareFilter: {
+                    compare: true,
+                },
+                trendsFilter: {
+                    display: ChartDisplayType.ChangeChart,
+                },
+            })
+        })
+
         it('converts `Daily unique visitors over time` insight', () => {
             const filters: Partial<TrendsFilterType> = {
                 insight: InsightType.TRENDS,

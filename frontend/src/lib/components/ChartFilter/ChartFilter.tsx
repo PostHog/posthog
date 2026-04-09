@@ -8,6 +8,7 @@ import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { getDisplayValidationError } from 'scenes/insights/views/ChangeChart/changeChartData'
 
 import { ChartDisplayType } from '~/types'
 
@@ -22,16 +23,26 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
 
 export function ChartFilter(): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { display } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { display, isTrends, dateRange, series, hasFormula, breakdownFilter } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { updateDisplay } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { isSingleSeriesOutput, formula } = useValues(insightVizDataLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
+    const changeChartDisabledReason = getDisplayValidationError({
+        display: ChartDisplayType.ChangeChart,
+        isTrends,
+        dateRange,
+        series,
+        breakdownFilter,
+        compareFilter: { compare: true },
+        hasFormula,
+    })
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
@@ -147,6 +158,18 @@ export function ChartFilter(): JSX.Element {
                     ),
                 },
                 {
+                    value: ChartDisplayType.ChangeChart,
+                    icon: <IconGraph className="rotate-90" />,
+                    label: 'Change chart',
+                    disabledReason: changeChartDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Change chart"
+                            description="Change versus the previous period for each breakdown value."
+                        />
+                    ),
+                },
+                {
                     value: ChartDisplayType.ActionsTable,
                     icon: <IconTableChart />,
                     label: 'Table',
@@ -198,9 +221,7 @@ export function ChartFilter(): JSX.Element {
         <LemonSelect
             key="2"
             value={display || ChartDisplayType.ActionsLineGraph}
-            onChange={(value) => {
-                updateInsightFilter({ display: value })
-            }}
+            onChange={(value) => updateDisplay(value)}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}

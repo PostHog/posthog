@@ -17,6 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { ChangeChartOptions } from 'scenes/insights/EditorFilters/ChangeChartOptions'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -35,6 +36,7 @@ import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/Retenti
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
+import { isChangeChartDisplay } from 'scenes/insights/views/ChangeChart/changeChartData'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
@@ -84,6 +86,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
+            display !== ChartDisplayType.ChangeChart &&
             display !== ChartDisplayType.CalendarHeatmap &&
             display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
@@ -175,6 +178,14 @@ export function InsightDisplayConfig(): JSX.Element {
                                     ? [{ label: () => <HideWeekendsFilter /> }]
                                     : []),
                             ],
+                  },
+              ]
+            : []),
+        ...(display === ChartDisplayType.ChangeChart
+            ? [
+                  {
+                      title: 'Change chart',
+                      items: [{ label: () => <ChangeChartOptions /> }],
                   },
               ]
             : []),
@@ -356,7 +367,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {showCompare && (
+                {showCompare && !isChangeChartDisplay(display) && (
                     <ConfigFilter>
                         <CompareFilter
                             compareFilter={compareFilter}

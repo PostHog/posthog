@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { ChangeChart } from 'scenes/insights/views/ChangeChart/ChangeChart'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
@@ -96,6 +97,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                     context={context}
                     inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
+                />
+            )
+        }
+        if (display === ChartDisplayType.ChangeChart) {
+            return (
+                <ChangeChart
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded && !inSharedMode}
                 />
             )
         }

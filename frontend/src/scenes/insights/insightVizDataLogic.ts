@@ -18,6 +18,11 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import {
+    getDisplayValidationError,
+    isChangeChartDisplay,
+    shouldForceExactDateRangeForChangeChart,
+} from 'scenes/insights/views/ChangeChart/changeChartData'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -136,6 +141,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
+        cacheChangeChartDisplayState: (compareFilter: CompareFilter | null, explicitDate: boolean) => ({
+            compareFilter,
+            explicitDate,
+        }),
         toggleFormulaMode: true,
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
@@ -159,6 +168,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return 'interval' in querySource ? true : state
                 },
                 setIsIntervalManuallySet: (_, { isIntervalManuallySet }) => isIntervalManuallySet,
+            },
+        ],
+        cachedChangeChartCompareFilter: [
+            null as CompareFilter | null,
+            {
+                cacheChangeChartDisplayState: (_, { compareFilter }) => compareFilter,
+            },
+        ],
+        cachedChangeChartExplicitDate: [
+            false,
+            {
+                cacheChangeChartDisplayState: (_, { explicitDate }) => explicitDate,
             },
         ],
         isFormulaModeOpenedExplicitly: [
@@ -212,6 +233,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource, s.display, s.dateRange],
             (q, display, dateRange) =>
                 (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) &&
+                !isChangeChartDisplay(display) &&
                 display !== ChartDisplayType.WorldMap &&
                 display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',
@@ -502,8 +524,35 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
         validationError: [
-            (s) => [s.insightDataError],
-            (insightDataError): string | null => extractValidationError(insightDataError),
+            (s) => [
+                s.insightDataError,
+                s.display,
+                s.isTrends,
+                s.dateRange,
+                s.series,
+                s.breakdownFilter,
+                s.compareFilter,
+                s.hasFormula,
+            ],
+            (
+                insightDataError,
+                display,
+                isTrends,
+                dateRange,
+                series,
+                breakdownFilter,
+                compareFilter,
+                hasFormula
+            ): string | null =>
+                getDisplayValidationError({
+                    display,
+                    isTrends,
+                    dateRange,
+                    series,
+                    breakdownFilter,
+                    compareFilter,
+                    hasFormula,
+                }) ?? extractValidationError(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
@@ -694,7 +743,47 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter properties
         updateDisplay: ({ display }) => {
-            actions.updateInsightFilter({ display })
+            if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
+                return
+            }
+
+            const filterProperty = filterKeyForQuery(values.localQuerySource)
+            const nextFilter = {
+                ...filterForQuery(values.localQuerySource),
+                display,
+            }
+            const updates: QuerySourceUpdate = {
+                [filterProperty]: nextFilter,
+            }
+
+            if (isChangeChartDisplay(display) && !isChangeChartDisplay(values.display)) {
+                actions.cacheChangeChartDisplayState(
+                    values.compareFilter ?? null,
+                    values.dateRange?.explicitDate ?? false
+                )
+                updates.compareFilter = { compare: true, compare_to: undefined }
+
+                if (shouldForceExactDateRangeForChangeChart(values.dateRange)) {
+                    updates.dateRange = {
+                        ...values.dateRange,
+                        explicitDate: true,
+                    }
+                }
+            } else if (!isChangeChartDisplay(display) && isChangeChartDisplay(values.display)) {
+                updates.compareFilter = values.cachedChangeChartCompareFilter ?? {
+                    compare: false,
+                    compare_to: undefined,
+                }
+
+                if ((values.dateRange?.explicitDate ?? false) !== values.cachedChangeChartExplicitDate) {
+                    updates.dateRange = {
+                        ...values.dateRange,
+                        explicitDate: values.cachedChangeChartExplicitDate,
+                    }
+                }
+            }
+
+            actions.updateQuerySource(updates)
         },
 
         setDetailedResultsAggregationType: ({ detailedResultsAggregationType }) => {

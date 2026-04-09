@@ -28,6 +28,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.BoldNumber]: 'Big number',
         [ChartDisplayType.ActionsPie]: 'Pie chart',
         [ChartDisplayType.ActionsBarValue]: 'Value chart',
+        [ChartDisplayType.ChangeChart]: 'Change chart',
         [ChartDisplayType.ActionsTable]: 'Table',
         [ChartDisplayType.WorldMap]: 'World map',
         [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',

@@ -1,6 +1,8 @@
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import {
+    cleanInsightQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     syncSelectedVariablesToQuery,
@@ -173,5 +175,27 @@ describe('validateQuery', () => {
             properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
         }
         expect(validateQuery(trendsQuery)).toBe(true)
+    })
+})
+
+describe('cleanInsightQuery', () => {
+    it('canonicalizes change chart as a total-value display when ignoring visualization-only changes', () => {
+        const cleaned = cleanInsightQuery(
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ChangeChart,
+                },
+            },
+            { ignoreVisualizationOnlyChanges: true }
+        )
+
+        expect(cleaned).toMatchObject({
+            kind: NodeKind.TrendsQuery,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsBarValue,
+            },
+        })
     })
 })

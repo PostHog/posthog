@@ -133,6 +133,33 @@ describe('queryNodeToFilter', () => {
         expect(result).toEqual(filters)
     })
 
+    test('converts a change chart query into legacy filter properties', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: {
+                breakdown: '$browser',
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ChangeChart,
+            },
+            compareFilter: {
+                compare: true,
+            },
+        }
+
+        const result = queryNodeToFilter(query)
+
+        expect(result).toEqual({
+            insight: InsightType.TRENDS,
+            entity_type: 'events',
+            interval: undefined,
+            breakdown: '$browser',
+            display: ChartDisplayType.ChangeChart,
+            compare: true,
+        })
+    })
+
     test('converts a funnelsFilter into filter properties', () => {
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,

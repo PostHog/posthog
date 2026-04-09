@@ -507,6 +507,104 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('updateDisplay', () => {
+        it('handles change chart enter and exit side effects in logic', async () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                ],
+                dateRange: {
+                    date_from: '-24h',
+                    explicitDate: false,
+                },
+                breakdownFilter: {
+                    breakdown: '$browser',
+                },
+                compareFilter: {
+                    compare: true,
+                    compare_to: '-30d',
+                },
+            } as TrendsQuery)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDisplay(ChartDisplayType.ChangeChart)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    event: '$pageview',
+                                    name: '$pageview',
+                                },
+                            ],
+                            dateRange: {
+                                date_from: '-24h',
+                                explicitDate: true,
+                            },
+                            breakdownFilter: {
+                                breakdown: '$browser',
+                            },
+                            compareFilter: {
+                                compare: true,
+                                compare_to: undefined,
+                            },
+                            interval: 'hour',
+                            trendsFilter: {
+                                display: ChartDisplayType.ChangeChart,
+                            },
+                            version: 2,
+                        },
+                    },
+                })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDisplay(ChartDisplayType.ActionsLineGraph)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    event: '$pageview',
+                                    name: '$pageview',
+                                },
+                            ],
+                            dateRange: {
+                                date_from: '-24h',
+                                explicitDate: false,
+                            },
+                            breakdownFilter: {
+                                breakdown: '$browser',
+                            },
+                            compareFilter: {
+                                compare: true,
+                                compare_to: '-30d',
+                            },
+                            interval: 'hour',
+                            trendsFilter: {
+                                display: ChartDisplayType.ActionsLineGraph,
+                            },
+                            version: 2,
+                        },
+                    },
+                })
+        })
+    })
+
     describe('activeUsersMath', () => {
         it('returns null without active users math', () => {
             expectLogic(builtInsightVizDataLogic, () => {
@@ -754,6 +852,83 @@ describe('insightVizDataLogic', () => {
                 builtInsightDataLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
+            })
+        })
+
+        it('returns a validation error for invalid saved change chart queries', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            name: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ChangeChart,
+                    },
+                } as TrendsQuery)
+            }).toMatchValues({
+                validationError: 'Change chart requires exactly one breakdown.',
+            })
+        })
+
+        it('requires compare mode for saved change chart queries', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            name: '$pageview',
+                        },
+                    ],
+                    dateRange: {
+                        date_from: '-7d',
+                    },
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                    },
+                    compareFilter: {
+                        compare: false,
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ChangeChart,
+                    },
+                } as TrendsQuery)
+            }).toMatchValues({
+                validationError: 'Change chart requires comparison with the previous period.',
+            })
+        })
+    })
+
+    describe('supportsCompare', () => {
+        it('returns false for change chart displays', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            name: '$pageview',
+                        },
+                    ],
+                    dateRange: {
+                        date_from: '-7d',
+                    },
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ChangeChart,
+                    },
+                } as TrendsQuery)
+            }).toMatchValues({
+                supportsCompare: false,
             })
         })
     })

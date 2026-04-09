@@ -116,4 +116,20 @@ describe('InsightDisplayConfig', () => {
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
         })
     })
+
+    describe('change chart display options', () => {
+        it('hides the compare control while change chart is active', () => {
+            setupAndRender({
+                ...makeTrendsQuery(ChartDisplayType.ChangeChart),
+                breakdownFilter: {
+                    breakdown: '$browser',
+                },
+                compareFilter: {
+                    compare: true,
+                },
+            } as TrendsQuery)
+
+            expect(screen.queryByTestId('compare-filter')).not.toBeInTheDocument()
+        })
+    })
 })

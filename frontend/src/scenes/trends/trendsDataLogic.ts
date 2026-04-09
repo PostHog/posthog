@@ -392,6 +392,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],
         ],
 
+        changeChartVizOptions: [
+            () => [() => values.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ChangeChart],
+        ],
+
         mightContainFractionalNumbers: [
             (s) => [s.formula, s.series],
             (formula, series): boolean => {

@@ -14,6 +14,7 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ChangeChart]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.CalendarHeatmap]: ChartDisplayCategory.TotalValue,
@@ -35,6 +36,7 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [
 export const SINGLE_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
+    ChartDisplayType.ChangeChart,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
 ]
@@ -43,6 +45,7 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
+    ChartDisplayType.ChangeChart,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
 ]
