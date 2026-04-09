@@ -50,6 +50,7 @@ export interface UnpauseResponseApi {
  * `linear` - Linear
  * `zendesk` - Zendesk
  * `error_tracking` - Error tracking
+ * `web_analytics` - Web analytics
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -60,6 +61,7 @@ export const SourceProductEnumApi = {
     Linear: 'linear',
     Zendesk: 'zendesk',
     ErrorTracking: 'error_tracking',
+    WebAnalytics: 'web_analytics',
 } as const
 
 /**
@@ -70,6 +72,7 @@ export const SourceProductEnumApi = {
  * `issue_created` - Issue created
  * `issue_reopened` - Issue reopened
  * `issue_spiking` - Issue spiking
+ * `notable_change` - Notable change
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -82,6 +85,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueCreated: 'issue_created',
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
+    NotableChange: 'notable_change',
 } as const
 
 export interface SignalSourceConfigApi {
