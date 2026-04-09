@@ -208,6 +208,47 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
+
+        it('enters seek mode when called before sources load (past-end URL regression #53686)', async () => {
+            // Regression test for the stuck-buffer follow-up to #53686.
+            //
+            // Scenario: a user opens a replay with a `?t=<past-end>` URL.
+            // The player dispatches setTargetTimestamp before the async
+            // snapshot source list has resolved, so the store is still
+            // empty at the point setTargetTimestamp runs.
+            //
+            // Before the fix, an empty store's getSourceIndexForTimestamp
+            // returned 0 for any timestamp. This tripped the "source 0 in
+            // buffer_ahead" optimization and skipped scheduler.seekTo —
+            // leaving the scheduler in buffer_ahead forever. Once sources
+            // then arrived, buffer_ahead only anchored at the target index
+            // (the trailing blob for a past-end timestamp, which is usually
+            // a heartbeat with no full snapshot) and the player got stuck
+            // in the BUFFER state forever.
+            mountLogic()
+
+            // Pre-condition: store is mounted but has no sources yet —
+            // this is the natural state after afterMount runs and before
+            // any loadSnapshotSourcesSuccess has fired.
+            expect(logic.values.snapshotStore!.sourceCount).toBe(0)
+
+            // Simulate the player calling setTargetTimestamp with a
+            // past-end timestamp before sources have loaded.
+            logic.actions.setTargetTimestamp(tsMs(5, 0))
+            await expectLogic(logic).toFinishAllListeners()
+
+            // With the fix: the sourceCount === 0 guard prevents the
+            // optimization from firing, scheduler.seekTo is called, and
+            // the scheduler enters seek mode. canPlayAt is false because
+            // the store has no data, so isWaitingForPlayableFullSnapshot
+            // is true — signalling to the player that it should stay in
+            // the buffering state until seek resolves.
+            //
+            // Without the fix: scheduler stays in buffer_ahead, the
+            // selector returns false, and the player has no signal that
+            // it is waiting on seek completion.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+        })
     })
 
     describe('updatePlaybackPosition', () => {

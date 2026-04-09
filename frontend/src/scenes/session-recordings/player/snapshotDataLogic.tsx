@@ -63,7 +63,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
-        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        // dispatch after any cache mutation (store data or scheduler mode) to
+        // invalidate dependent selectors. Scheduler mode changes happen outside
+        // of Kea's reactivity (they're direct mutations of cache.scheduler), so
+        // we need an explicit action to notify any selectors that depend on
+        // scheduler state.
         storeUpdated: true,
     }),
     reducers(() => ({
@@ -237,9 +241,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
                 // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
-                // buffer_ahead loading already starts from the beginning
-                const targetIndex = cache.store?.getSourceIndexForTimestamp(timestamp) ?? 0
-                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
+                // buffer_ahead loading already starts from the beginning.
+                //
+                // BUT: only apply this optimization once sources have actually loaded.
+                // An empty store's `getSourceIndexForTimestamp` returns 0 for any
+                // timestamp, which would incorrectly skip seek mode for past-end
+                // targets on initial load (e.g. `?t=<past-end>` URLs). When that
+                // happens, the scheduler stays in buffer_ahead, and once sources
+                // do load it only anchors at the target index (e.g. the last blob)
+                // and loads forward — leaving it with a single trailing blob that
+                // has no full snapshot. The player gets stuck in buffering forever
+                // because `isBufferingSegment` stays true and the scheduler has no
+                // more work to do. See #53686.
+                const targetIndex = cache.store.getSourceIndexForTimestamp(timestamp)
+                if (cache.store.sourceCount > 0 && targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
                     actions.loadNextSnapshotSource()
                     return
                 }
@@ -420,7 +435,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (!cache.scheduler || !cache.store) {
                 return
             }
+            // getNextBatch can clear seek mode internally (LoadingScheduler
+            // step 2 when canPlayAt becomes true, or step 5 when backward
+            // search exhausts). Those mutations are direct writes to
+            // cache.scheduler.currentMode — invisible to Kea. If we don't
+            // dispatch storeUpdated after the silent clear, the cached
+            // isWaitingForPlayableFullSnapshot selector keeps returning
+            // a stale `true`, which then poisons the next seekToTimestamp
+            // call (buffer branch fires incorrectly). See #53686.
+            const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
             const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
+                actions.storeUpdated()
+            }
             if (!batch) {
                 actions.maybeStartPolling()
                 return
@@ -486,7 +513,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         isWaitingForPlayableFullSnapshot: [
-            (s) => [s.storeVersion],
+            // storeUpdateCount, not storeVersion: this selector reads
+            // cache.scheduler.currentMode (mutated outside Kea), and
+            // storeVersion only re-emits when cache.store._version actually
+            // changes. When getNextBatch silently clears seek mode without
+            // mutating the store (step 2 or step 5), storeVersion stays
+            // the same and this selector would return a stale `true`.
+            // storeUpdateCount is incremented by the explicit storeUpdated
+            // dispatch in loadNextSnapshotSource whenever mode changes.
+            (s) => [s.storeUpdateCount],
             (): boolean => {
                 if (!cache.scheduler || !cache.store) {
                     return false

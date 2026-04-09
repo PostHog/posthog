@@ -2238,6 +2238,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
+        isWaitingForPlayableFullSnapshot: (value: boolean, oldValue: boolean | undefined) => {
+            // When the scheduler silently clears seek mode (LoadingScheduler
+            // step 2 or step 5), this selector flips true→false. Normally
+            // checkBufferingCompleted is only called when new snapshots
+            // arrive (via syncSnapshotsWithPlayer), but in the silent-clear
+            // case no snapshots actually arrive — just a mode change. So
+            // we hook into the value transition here to force a buffering
+            // re-check. Without this, a player that entered BUFFER state
+            // while waiting for a playable snapshot could stay stuck even
+            // after the scheduler gives up on seeking. See #53686.
+            if (oldValue && !value) {
+                actions.checkBufferingCompleted()
+            }
+        },
         timestampChangeTracking: (value) => {
             if (value.timestampMatchesPrevious < 10) {
                 return
