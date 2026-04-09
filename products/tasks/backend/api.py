@@ -249,6 +249,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
 
         extra_state = None
+        if pending_user_message is not None:
+            extra_state = {"pending_user_message": pending_user_message}
+
         if resume_from_run_id:
             # prevent cross-task resume
             previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -257,11 +260,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Derive snapshot_external_id from the validated previous run
             snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
-            extra_state = {
-                "resume_from_run_id": str(resume_from_run_id),
-            }
-            if pending_user_message is not None:
-                extra_state["pending_user_message"] = pending_user_message
+            extra_state = extra_state or {}
+            extra_state["resume_from_run_id"] = str(resume_from_run_id)
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
 

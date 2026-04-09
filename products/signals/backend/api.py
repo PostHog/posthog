@@ -30,11 +30,10 @@ async def emit_signal(
     extra: dict | None = None,
 ) -> None:
     """
-    Emit a signal for clustering and potential summarization, fire-and-forget.
+    Emit a signal for grouping and potential report generation, fire-and-forget.
 
-    Uses signal-with-start to atomically create the per-team entity workflow
-    if it doesn't exist, or send a signal to the running instance. This serializes
-    all signal grouping for a team, eliminating race conditions.
+    Active path:
+        emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
 
     Args:
         team: The team object

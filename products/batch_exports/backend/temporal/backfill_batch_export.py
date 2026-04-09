@@ -944,6 +944,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
                     maximum_attempts=0,
+                    non_retryable_error_types=["InvalidFilterError"],
                 ),
             )
 

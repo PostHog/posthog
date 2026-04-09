@@ -27,26 +27,12 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import (
-    ActionsNode,
-    BreakdownFilter,
-    CompareFilter,
-    DataWarehouseNode,
-    DateRange,
-    EventsNode,
-    PropertyGroupFilter,
-    TrendsFilter,
-    TrendsQuery,
-)
+from posthog.schema import TrendsQuery
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LINEAR, TRENDS_TABLE
 from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    clean_entity_properties,
-    clean_global_properties,
-    filter_to_query,
-)
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
@@ -85,106 +71,6 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _props(dict: dict):
-    props = dict.get("properties", None)
-    if not props:
-        return None
-
-    if isinstance(props, list):
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": props}],
-        }
-    else:
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": [props]}],
-        }
-
-    return PropertyGroupFilter(**clean_global_properties(raw_properties))
-
-
-def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
-    filter_as_dict = filter.to_dict()
-
-    events: list[EventsNode] = []
-    actions: list[ActionsNode] = []
-
-    for event in filter.events:
-        if isinstance(event._data.get("properties", None), list):
-            properties = clean_entity_properties(event._data.get("properties", None))
-        elif event._data.get("properties", None) is not None:
-            values = event._data.get("properties", None).get("values", None)
-            properties = clean_entity_properties(values)
-        else:
-            properties = None
-
-        events.append(
-            EventsNode(
-                event=event.id,
-                name=event.name,
-                custom_name=event.custom_name,
-                math=event.math,
-                math_property=event.math_property,
-                math_hogql=event.math_hogql,
-                math_group_type_index=event.math_group_type_index,
-                properties=properties,
-            )
-        )
-
-    for action in filter.actions:
-        if isinstance(action._data.get("properties", None), list):
-            properties = clean_entity_properties(action._data.get("properties", None))
-        elif action._data.get("properties", None) is not None:
-            values = action._data.get("properties", None).get("values", None)
-            properties = clean_entity_properties(values)
-        else:
-            properties = None
-
-        actions.append(
-            ActionsNode(
-                id=action.id,
-                name=action.name,
-                custom_name=action.custom_name,
-                math=action.math,
-                math_property=action.math_property,
-                math_hogql=action.math_hogql,
-                math_group_type_index=action.math_group_type_index,
-                properties=properties,
-            )
-        )
-
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
-
-    tq = TrendsQuery(
-        series=series,
-        kind="TrendsQuery",
-        filterTestAccounts=filter.filter_test_accounts,
-        dateRange=DateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
-        samplingFactor=filter.sampling_factor,
-        aggregation_group_type_index=filter.aggregation_group_type_index,
-        breakdownFilter=BreakdownFilter(
-            breakdown=filter.breakdown,
-            breakdown_type=filter.breakdown_type,
-            breakdown_normalize_url=filter.breakdown_normalize_url,
-            breakdowns=filter.breakdowns,
-            breakdown_group_type_index=filter.breakdown_group_type_index,
-            breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            breakdown_limit=filter._breakdown_limit,
-        ),
-        properties=_props(filter.to_dict()),
-        interval=filter.interval,
-        trendsFilter=TrendsFilter(
-            display=filter.display,
-            breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            smoothingIntervals=filter.smoothing_intervals,
-        ),
-        compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
-    )
-
-    return tq
-
-
 @override_settings(IN_UNIT_TESTING=True)
 class TestTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
@@ -192,7 +78,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _run(self, filter: Filter, team: Team):
         flush_persons_and_events()
 
-        trend_query = convert_filter_to_trends_query(filter)
+        trend_query = cast(TrendsQuery, filter_to_query(filter.to_dict()))
+        tqr = TrendsQueryRunner(team=team, query=trend_query)
+        return tqr.calculate().results
+
+    def _run_query(self, trend_query: TrendsQuery, team: Team):
+        flush_persons_and_events()
+
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
 
@@ -2505,7 +2397,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
             interval="month",
-            date_from="2020-6-7",  # rounds labels down to 6-1 but only includes events after date_from
+            date_from="2020-6-7",  # should round down to 6-1
             date_to="2020-7-30",
             result=[
                 {
@@ -2522,8 +2414,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 1.0,
-                    "data": [0.0, 1.0],
+                    "count": 2.0,
+                    "data": [1.0, 1.0],
                     "labels": ["Jun 2020", "Jul 2020"],
                     "days": ["2020-06-01", "2020-07-01"],
                 }

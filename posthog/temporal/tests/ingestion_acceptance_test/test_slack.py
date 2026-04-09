@@ -11,8 +11,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
         slack_webhook_url="https://hooks.slack.com/services/T00/B00/XXX",
     )
 
@@ -37,7 +36,7 @@ def passing_result() -> TestSuiteResult:
             ),
         ],
         total_duration_seconds=3.5,
-        environment={"api_host": "https://test.posthog.com", "project_id": "12345"},
+        environment={"api_host": "https://test.posthog.com", "team_id": "12345"},
         timestamp="2024-01-01T00:00:00Z",
     )
 
@@ -63,7 +62,7 @@ def failing_result() -> TestSuiteResult:
             ),
         ],
         total_duration_seconds=3.0,
-        environment={"api_host": "https://test.posthog.com", "project_id": "12345"},
+        environment={"api_host": "https://test.posthog.com", "team_id": "12345"},
         timestamp="2024-01-01T00:00:00Z",
     )
 
@@ -174,8 +173,7 @@ class TestSendSlackNotification:
         config_no_webhook = Config(
             api_host="https://test.posthog.com",
             project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
+            team_id=12345,
             slack_webhook_url=None,
         )
 
@@ -223,8 +221,7 @@ class TestSendSlackTimeoutNotification:
         config_no_webhook = Config(
             api_host="https://test.posthog.com",
             project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
+            team_id=12345,
             slack_webhook_url=None,
         )
 
