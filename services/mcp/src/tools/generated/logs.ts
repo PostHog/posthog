@@ -18,7 +18,18 @@ const queryLogs = (): ToolBase<typeof QueryLogsSchema, unknown> => ({
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
-            body['query'] = params.query
+            const query = { ...params.query }
+            if (Array.isArray(query.filterGroup)) {
+                if (query.filterGroup.length > 0) {
+                    query.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: query.filterGroup }],
+                    } as unknown as typeof query.filterGroup
+                } else {
+                    delete query.filterGroup
+                }
+            }
+            body['query'] = query
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
