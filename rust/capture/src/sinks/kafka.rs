@@ -1749,6 +1749,5 @@ mod tests {
             assert_eq!(headers.dlq_step, None);
             assert_eq!(headers.dlq_timestamp, None);
         }
-
     }
 }
