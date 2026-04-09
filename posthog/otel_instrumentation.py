@@ -5,6 +5,7 @@ import logging
 import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
@@ -156,10 +157,21 @@ def instrument_aiokafka(provider: TracerProvider):
         )
 
 
+def instrument_aiohttp_client(provider: TracerProvider):
+    try:
+        AioHttpClientInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="AioHttpClientInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="AioHttpClientInstrumentor", status="error", exc_info=e
+        )
+
+
 INSTRUMENTORS: dict[str, typing.Callable[[TracerProvider], None]] = {
     "django": instrument_django,
     "psycopg": instrument_psycopg,
     "redis": instrument_redis,
     "kafka": instrument_kafka,
     "aiokafka": instrument_aiokafka,
+    "aiohttp-client": instrument_aiohttp_client,
 }
