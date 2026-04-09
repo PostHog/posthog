@@ -6,7 +6,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import set_tracer_provider
 from temporalio.contrib.opentelemetry import create_tracer_provider
 
-from posthog.open_telemetry import INSTRUMENTORS
+from posthog.otel_instrumentation import INSTRUMENTORS
 
 
 def initialize_otel(service_name: str, libraries_to_instrument: collections.abc.Iterable[str] = ()) -> None:
