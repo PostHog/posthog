@@ -50,6 +50,12 @@ def get_backfill_bounds(
     Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at].
     The padding on `last_interval_end` uses the export's jitter — wide enough for Temporal
     to recognize the action, but narrow enough to avoid triggering an extra run.
+
+    For example, if we wanted to backfill the data interval from 2026-03-08 10:00:00 to 2026-03-09 10:00:00,
+    we would use the following bounds:
+    - start_at: 2026-03-09 10:00:00
+    - end_at: 2026-03-09 10:00:00 + export.jitter
+    This would trigger a single workflow run in Temporal.
     """
     return (first_interval_end, last_interval_end + export.jitter)
 
@@ -61,23 +67,16 @@ def get_batch_exports(
     model: str | None = None,
 ) -> list[BatchExport]:
     """Fetch batch exports to check, filtering out deleted/paused ones."""
-    if batch_export_id:
-        try:
-            export = BatchExport.objects.select_related("destination", "team").get(id=batch_export_id)
-        except BatchExport.DoesNotExist:
-            return []
-        if export.deleted or export.paused:
-            return []
-        return [export]
-
     filters: dict = {"deleted": False, "paused": False}
+    if batch_export_id:
+        filters["id"] = batch_export_id
     if destination_type:
         filters["destination__type"] = destination_type
     if team_id:
         filters["team_id"] = team_id
     if model:
         filters["model"] = model
-    return list(BatchExport.objects.filter(**filters).select_related("destination", "team"))
+    return list(BatchExport.objects.filter(**filters).select_related("destination"))
 
 
 def find_missing_intervals(
@@ -142,7 +141,7 @@ class Command(BaseCommand):
             "--lookback-hours",
             type=int,
             default=None,
-            help="Hours to look back for missing runs (default: 48, ignored if --start is provided)",
+            help="Hours to look back for missing runs (default: 48, mutually exclusive with --start)",
         )
         parser.add_argument(
             "--start",
@@ -227,6 +226,8 @@ class Command(BaseCommand):
             raise CommandError("--end requires --start")
         if has_start and has_lookback:
             raise CommandError("--start/--end and --lookback-hours are mutually exclusive")
+        if has_lookback and options["lookback_hours"] <= 0:
+            raise CommandError("--lookback-hours must be a positive integer")
 
         now = timezone.now()
 
@@ -264,16 +265,19 @@ class Command(BaseCommand):
             )
             return False
 
-        for interval_start, interval_end in missing_intervals:
-            # Temporal's ScheduleBackfill triggers all schedule actions within [start_at, end_at],
-            # where each action time corresponds to a data_interval_end
-            first_interval_end = next_interval_boundary(interval_start, export)
-            backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, interval_end)
+        for overall_interval_start, overall_interval_end in missing_intervals:
+            # We want to trigger backfills based on the interval_end values
+            first_interval_end = next_interval_boundary(overall_interval_start, export)
+            backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, overall_interval_end)
 
             if dry_run:
-                self.stdout.write(f"        Would backfill {interval_start.isoformat()} -> {interval_end.isoformat()}")
+                self.stdout.write(
+                    f"        Would backfill {overall_interval_start.isoformat()} -> {overall_interval_end.isoformat()}"
+                )
             else:
-                self.stdout.write(f"        Backfilling {interval_start.isoformat()} -> {interval_end.isoformat()}")
+                self.stdout.write(
+                    f"        Backfilling {overall_interval_start.isoformat()} -> {overall_interval_end.isoformat()}"
+                )
                 backfill = temporalio.client.ScheduleBackfill(
                     start_at=backfill_start,
                     end_at=backfill_end,
@@ -311,6 +315,7 @@ class Command(BaseCommand):
             self.stdout.write("\n[DRY RUN] Would trigger backfills for following export(s):")
         else:
             self.stdout.write(f"\nTriggering backfills using {overlap_policy.name} overlap policy...")
+
         for export, missing_intervals in missing_by_export:
             self.stdout.write(f"  - {format_export(export)}: {len(missing_intervals)} interval(s) missing")
 

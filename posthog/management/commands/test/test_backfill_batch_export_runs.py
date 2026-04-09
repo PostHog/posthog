@@ -33,7 +33,9 @@ def team(org):
     return Team.objects.create(organization=org, name="Test Team")
 
 
-def create_export(team, interval="hour", interval_offset=None, paused=False, destination_type="S3", tz="UTC"):
+def create_export(
+    team, interval="hour", interval_offset=None, paused=False, destination_type="S3", tz="UTC", model=None
+):
     destination = BatchExportDestination.objects.create(type=destination_type, config={})
     return BatchExport.objects.create(
         team=team,
@@ -43,6 +45,7 @@ def create_export(team, interval="hour", interval_offset=None, paused=False, des
         interval_offset=interval_offset,
         paused=paused,
         timezone=tz,
+        model=model,
     )
 
 
@@ -95,6 +98,14 @@ class TestGetBatchExports:
         results = get_batch_exports(batch_export_id=str(export1.id))
         assert len(results) == 1
         assert results[0].id == export1.id
+
+    def test_filter_by_model(self, team):
+        events_export = create_export(team, model="events")
+        create_export(team, model="persons")
+
+        results = get_batch_exports(model="events")
+        assert len(results) == 1
+        assert results[0].id == events_export.id
 
     def test_nonexistent_batch_export_id_returns_empty(self, team):
         assert get_batch_exports(batch_export_id=str(uuid4())) == []
@@ -305,8 +316,9 @@ class TestFindMissingIntervals:
         create_run(export, feb16, feb23)
         create_run(export, mar9, mar16)
 
-        start = datetime(2026, 2, 16, 1, 0, tzinfo=UTC)
-        end = datetime(2026, 3, 15, 12, 0, tzinfo=UTC)
+        # choose start and end to cover the whole period, with some buffer
+        start = datetime(2026, 2, 15, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 3, 17, 0, 0, tzinfo=UTC)
         results = find_missing_intervals([export], start, end)
         assert len(results) == 1
         _, missing = results[0]
@@ -318,10 +330,6 @@ class TestFindMissingIntervals:
 
         Before DST: 02:00 PST = 10:00 UTC
         After DST:  02:00 PDT = 09:00 UTC
-
-        The spring-forward day (Mar 8) has 02:00 PST = 10:00 UTC (pre-transition
-        offset for the non-existent local time). The next day shifts to 09:00 UTC.
-        The script must detect gaps at these correct local-time boundaries.
         """
         export = create_export(team, interval="day", interval_offset=7200, tz="US/Pacific")
 
@@ -378,7 +386,7 @@ REFERENCE_TIME = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
 
 
 def hour_window(hours_back: int) -> tuple[datetime, datetime]:
-    """Return a fixed (start, end) window of the given size, aligned to hour boundaries."""
+    """Return a fixed (start, end) window of the given size, relative to REFERENCE_TIME."""
     return REFERENCE_TIME - timedelta(hours=hours_back), REFERENCE_TIME
 
 
@@ -401,6 +409,11 @@ class TestBackfillCommand:
 
     @pytest.fixture(scope="class")
     def temporal_test_worker(self, temporal_client):
+        """
+        Start a Temporal Worker in a separate thread.
+
+        Uses class scoped fixture to save time (stopping the worker takes a while).
+        """
         with start_test_worker(temporal_client):
             yield temporal_client
 
