@@ -28,6 +28,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
@@ -104,6 +105,7 @@ export function Playlist({
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
+    const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
 
     const onScrollListEdge = (edge: 'bottom' | 'top'): void => {
         if (edge === 'top') {
@@ -170,6 +172,29 @@ export function Playlist({
                             'No more results'
                         )}
                     </div>
+                    {!sessionRecordingsResponseLoading && !hasNext && (
+                        <div className="flex flex-col items-center gap-1 pt-2 pb-2">
+                            <span className="text-xs text-secondary">Looking for older recordings?</span>
+                            <div className="flex gap-2">
+                                {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() =>
+                                            setFilters({
+                                                date_from: filters.date_from === '-3d' ? '-7d' : '-30d',
+                                            })
+                                        }
+                                    >
+                                        Search last {filters.date_from === '-3d' ? '7' : '30'} days
+                                    </LemonButton>
+                                )}
+                                <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
+                                    Show filters
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ),
         })

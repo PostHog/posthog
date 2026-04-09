@@ -52,10 +52,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Kolkata'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Kolkata')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Kolkata'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Kolkata')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -125,10 +126,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -198,10 +200,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -271,10 +274,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -344,10 +348,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -417,10 +422,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/New_York'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/New_York'))), lessOrEquals(toTimeZone(events.timestamp, 'America/New_York'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/New_York')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/New_York'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/New_York'))), lessOrEquals(toTimeZone(events.timestamp, 'America/New_York'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/New_York')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -490,10 +496,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Sao_Paulo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Sao_Paulo'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Sao_Paulo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Sao_Paulo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Sao_Paulo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Sao_Paulo'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Sao_Paulo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Sao_Paulo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -563,10 +570,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -636,10 +644,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Europe/Berlin'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Berlin'))), lessOrEquals(toTimeZone(events.timestamp, 'Europe/Berlin'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Berlin')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Europe/Berlin'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Berlin'))), lessOrEquals(toTimeZone(events.timestamp, 'Europe/Berlin'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Berlin')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -709,10 +718,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Africa/Cairo'))), lessOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Africa/Cairo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Africa/Cairo'))), lessOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Africa/Cairo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -782,10 +792,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Europe/Moscow'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Moscow'))), lessOrEquals(toTimeZone(events.timestamp, 'Europe/Moscow'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Moscow')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Europe/Moscow'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Moscow'))), lessOrEquals(toTimeZone(events.timestamp, 'Europe/Moscow'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Moscow')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -855,10 +866,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Karachi'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Karachi'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Karachi'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Karachi')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Karachi'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Karachi'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Karachi'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Karachi')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -928,10 +940,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1001,10 +1014,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Australia/Sydney'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Australia/Sydney'))), lessOrEquals(toTimeZone(events.timestamp, 'Australia/Sydney'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Australia/Sydney')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Australia/Sydney'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Australia/Sydney'))), lessOrEquals(toTimeZone(events.timestamp, 'Australia/Sydney'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Australia/Sydney')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1074,10 +1088,11 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Pacific/Auckland'))), lessOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Pacific/Auckland')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Pacific/Auckland'))), lessOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Pacific/Auckland')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC

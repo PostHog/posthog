@@ -168,6 +168,19 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByText('Connect external data')).toBeInTheDocument()
             })
         })
+
+        it('shows a loading empty state while data warehouse properties are still loading', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouseProperties],
+                schemaColumnsLoading: true,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Loading data warehouse tables')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Connect external data')).not.toBeInTheDocument()
+        })
     })
 
     describe('search', () => {

@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogql-parser",
-    "version": "1.3.35",
+    "version": "1.3.37",
     "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
     "keywords": [
         "antlr4",
@@ -22,6 +22,8 @@
     },
     "files": [
         "dist/hogql_parser_wasm.js",
+        "dist/hogql_parser_wasm_browser.js",
+        "dist/hogql_parser_wasm.cjs",
         "dist/index.cjs",
         "dist/index.d.ts"
     ],
@@ -32,6 +34,7 @@
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",
+            "browser": "./dist/hogql_parser_wasm_browser.js",
             "import": "./dist/hogql_parser_wasm.js",
             "require": "./dist/index.cjs"
         }

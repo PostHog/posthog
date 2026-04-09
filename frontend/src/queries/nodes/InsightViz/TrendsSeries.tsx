@@ -154,7 +154,6 @@ export function TrendsSeries(): JSX.Element | null {
                         : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
-                hideDuplicate={editorPanelsEnabled}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
                 customFooter={formulaFooter}

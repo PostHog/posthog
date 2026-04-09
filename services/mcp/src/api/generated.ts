@@ -5547,6 +5547,22 @@ export namespace Schemas {
       scope?: AnnotationScopeEnum;
     }
 
+    export interface AppMetricSeries {
+      name: string;
+      values: number[];
+    }
+
+    export interface AppMetricsResponse {
+      labels: string[];
+      series: AppMetricSeries[];
+    }
+
+    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
+
+    export interface AppMetricsTotalsResponse {
+      totals: AppMetricsTotalsResponseTotals;
+    }
+
     /**
      * Serializer for individual transcript segments from AssemblyAI
      */
@@ -14318,6 +14334,31 @@ export namespace Schemas {
     export interface EventDefinitionBasic {
       id: string;
       name: string;
+    }
+
+    /**
+     * * `disabled` - Disabled
+    * `dry_run` - Dry Run
+    * `live` - Live
+     */
+    export type EventFilterConfigModeEnum = typeof EventFilterConfigModeEnum[keyof typeof EventFilterConfigModeEnum];
+
+
+    export const EventFilterConfigModeEnum = {
+      Disabled: 'disabled',
+      DryRun: 'dry_run',
+      Live: 'live',
+    } as const;
+
+    export interface EventFilterConfig {
+      readonly id: string;
+      mode?: EventFilterConfigModeEnum;
+      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
+      filter_tree?: unknown | null;
+      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
+      test_cases?: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     /**
