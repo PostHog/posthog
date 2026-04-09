@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
+import pytest
+
 
 def _load_reviewer_module(monkeypatch, *, posthog_query_factory):
     call_order: list[str] = []
@@ -116,25 +118,8 @@ def _load_reviewer_module(monkeypatch, *, posthog_query_factory):
     return module, PRData, call_order
 
 
-def test_reviewer_falls_back_to_plain_sdk_when_posthog_wrapper_requires_api_key(monkeypatch, tmp_path) -> None:
-    def failing_posthog_query_factory(call_order, _result_message_class):
-        async def failing_posthog_query(*, prompt, options, **kwargs):
-            call_order.append("posthog")
-            raise RuntimeError("API key is required")
-            yield
-
-        return failing_posthog_query
-
-    reviewer_module, pr_data_class, call_order = _load_reviewer_module(
-        monkeypatch, posthog_query_factory=failing_posthog_query_factory
-    )
-
-    diff_path = tmp_path / "diff.patch"
-    diff_path.write_text("")
-    monkeypatch.setattr(reviewer_module.Reviewer, "_write_diff_file", lambda self, pr: diff_path)
-
-    reviewer = reviewer_module.Reviewer(tmp_path)
-    pr = pr_data_class(
+def _build_test_pr(pr_data_class) -> object:
+    return pr_data_class(
         number=53945,
         repo="PostHog/posthog",
         title="fix(surveys): default new survey to guided wizard",
@@ -153,18 +138,58 @@ def test_reviewer_falls_back_to_plain_sdk_when_posthog_wrapper_requires_api_key(
         check_runs=[],
     )
 
-    result = reviewer.review(
-        pr,
-        {"tier": "T1-agent", "t1_subclass": "T1b-small", "breadth": "single-area", "commit_type": "fix"},
-        {"gate_verdict": "ALLOWED", "gates": []},
-    )
 
-    assert result["verdict"] == "APPROVE"
-    assert result["reasoning"] == "No showstoppers, low-risk fix."
-    assert result["risk"] == "low"
-    assert result["issues"] == []
-    assert result["fallback_debug_summary"].startswith(
-        "PostHog Claude instrumentation failed before review started; fell back to plain Claude SDK. "
-        "error=RuntimeError: API key is required."
+@pytest.mark.parametrize(
+    ("error_message", "yields_first", "expect_fallback"),
+    [
+        ("API key is required", False, True),
+        ("connection refused", False, False),
+        ("API key is required", True, False),
+    ],
+)
+def test_query_with_fallback_behavior(
+    monkeypatch, tmp_path, error_message: str, yields_first: bool, expect_fallback: bool
+) -> None:
+    def posthog_query_factory(call_order, result_message_class):
+        async def posthog_query(*, prompt, options, **kwargs):
+            call_order.append("posthog")
+            if yields_first:
+                yield result_message_class()
+            raise RuntimeError(error_message)
+
+        return posthog_query
+
+    reviewer_module, pr_data_class, call_order = _load_reviewer_module(
+        monkeypatch, posthog_query_factory=posthog_query_factory
     )
-    assert call_order == ["posthog", "plain"]
+    diff_path = tmp_path / "diff.patch"
+    diff_path.write_text("")
+    monkeypatch.setattr(reviewer_module.Reviewer, "_write_diff_file", lambda self, pr: diff_path)
+
+    reviewer = reviewer_module.Reviewer(tmp_path)
+    pr = _build_test_pr(pr_data_class)
+
+    if expect_fallback:
+        result = reviewer.review(
+            pr,
+            {"tier": "T1-agent", "t1_subclass": "T1b-small", "breadth": "single-area", "commit_type": "fix"},
+            {"gate_verdict": "ALLOWED", "gates": []},
+        )
+
+        assert result["verdict"] == "APPROVE"
+        assert result["reasoning"] == "No showstoppers, low-risk fix."
+        assert result["risk"] == "low"
+        assert result["issues"] == []
+        assert result["fallback_debug_summary"].startswith(
+            "PostHog Claude instrumentation failed before review started; fell back to plain Claude SDK. "
+            "error=RuntimeError: API key is required."
+        )
+        assert call_order == ["posthog", "plain"]
+    else:
+        with pytest.raises(RuntimeError, match=error_message):
+            reviewer.review(
+                pr,
+                {"tier": "T1-agent", "t1_subclass": "T1b-small", "breadth": "single-area", "commit_type": "fix"},
+                {"gate_verdict": "ALLOWED", "gates": []},
+            )
+        assert call_order == ["posthog"]

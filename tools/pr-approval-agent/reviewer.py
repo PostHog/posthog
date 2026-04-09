@@ -209,6 +209,7 @@ class Reviewer:
 
     def review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
         """Claude explores the repo and produces a verdict."""
+        self._fallback_debug_summary = None
         return asyncio.run(self._review(pr, classification, gate_context))
 
     def _should_fallback_to_plain_sdk(self, error: Exception) -> bool:
