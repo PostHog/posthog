@@ -12383,7 +12383,7 @@
             "type": "string"
         },
         "DataWarehouseSyncInterval": {
-            "enum": ["5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
             "type": "string"
         },
         "DataWarehouseViewLink": {
@@ -25609,6 +25609,7 @@
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
+                "subscriptions",
                 "surveys",
                 "tasks",
                 "teams",

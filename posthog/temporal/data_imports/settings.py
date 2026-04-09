@@ -1,3 +1,9 @@
+from posthog.temporal.data_imports.cdc.activities import (
+    cdc_extract_activity,
+    cleanup_orphan_slots_activity,
+    validate_cdc_prerequisites_activity,
+)
+from posthog.temporal.data_imports.cdc.workflows import CDCExtractionWorkflow, CDCSlotCleanupWorkflow
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow, produce_to_cdp_kafka_activity
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
@@ -15,7 +21,7 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     emit_data_import_signals_activity,
 )
 
-WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow]
+WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow, CDCExtractionWorkflow, CDCSlotCleanupWorkflow]
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
@@ -27,6 +33,9 @@ ACTIVITIES = [
     calculate_table_size_activity,
     trigger_schedule_buffer_one_activity,
     produce_to_cdp_kafka_activity,
+    cdc_extract_activity,
+    validate_cdc_prerequisites_activity,
+    cleanup_orphan_slots_activity,
 ]
 
 # Workflow + activities that run on the VIDEO_EXPORT_TASK_QUEUE (signals worker)

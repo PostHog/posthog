@@ -1124,6 +1124,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
 
 
 class DataWarehouseSyncInterval(StrEnum):
+    FIELD_1MIN = "1min"
     FIELD_5MIN = "5min"
     FIELD_15MIN = "15min"
     FIELD_30MIN = "30min"
@@ -3471,6 +3472,7 @@ class ProductKey(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
+    SUBSCRIPTIONS = "subscriptions"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"

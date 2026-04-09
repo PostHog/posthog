@@ -17,24 +17,47 @@ from .test_cases_discovery import TestCase
 logger = structlog.get_logger(__name__)
 
 
+@dataclass
+class RunningTestInfo:
+    """Snapshot of a running test with its current pending poll description."""
+
+    name: str
+    pending_poll: str | None
+
+
 class RunningTests:
-    """Thread-safe tracker for currently running tests."""
+    """Thread-safe tracker for currently running tests, keyed by thread ID for
+    correlation with per-thread pending poll state in PostHogClient."""
 
     def __init__(self) -> None:
-        self._tests: set[str] = set()
+        self._tests: dict[int, str] = {}
         self._lock = threading.Lock()
 
     def add(self, test_name: str) -> None:
         with self._lock:
-            self._tests.add(test_name)
+            self._tests[threading.get_ident()] = test_name
 
     def remove(self, test_name: str) -> None:
         with self._lock:
-            self._tests.discard(test_name)
+            self._tests.pop(threading.get_ident(), None)
 
     def snapshot(self) -> list[str]:
         with self._lock:
-            return sorted(self._tests)
+            return sorted(self._tests.values())
+
+    def snapshot_with_polls(self, client: PostHogClient) -> list[RunningTestInfo]:
+        """Snapshot running tests correlated with their pending poll descriptions.
+
+        Joins by thread ID: each test runs in its own thread, and the client
+        tracks which poll description each thread is currently blocked on.
+        """
+        with self._lock:
+            tests_by_tid = dict(self._tests)
+        polls_by_tid = client.pending_polls_snapshot()
+        return [
+            RunningTestInfo(name=name, pending_poll=polls_by_tid.get(tid))
+            for tid, name in sorted(tests_by_tid.items(), key=lambda x: x[1])
+        ]
 
 
 @dataclass

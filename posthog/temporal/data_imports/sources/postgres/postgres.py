@@ -5,7 +5,7 @@ import math
 import time
 import collections
 from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager
+from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
 from typing import Any, Literal, LiteralString, Optional, cast
 
@@ -69,6 +69,7 @@ def _connect_to_postgres(
     user: str,
     password: str,
     require_ssl: bool = False,
+    **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
     try:
@@ -83,6 +84,7 @@ def _connect_to_postgres(
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
+            **kwargs,
         )
     except psycopg.OperationalError as e:
         if require_ssl and "SSL" in str(e):
@@ -91,6 +93,51 @@ def _connect_to_postgres(
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
             ) from e
         raise
+
+
+@contextmanager
+def pg_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    require_ssl: bool = False,
+) -> Iterator[psycopg.Connection]:
+    """Context manager that opens a postgres connection and ensures it is closed on exit."""
+    conn = _connect_to_postgres(
+        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+    )
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: list[str]) -> dict[str, list[str]]:
+    """Return ordered PK columns per table: {table_name: [col, ...]}."""
+    if not table_names:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+                AND tc.table_schema = %s
+                AND tc.table_name = ANY(%s)
+            ORDER BY kcu.table_name, kcu.ordinal_position
+            """,
+            (schema, table_names),
+        )
+        result: dict[str, list[str]] = {}
+        for row in cur:
+            result.setdefault(row[0], []).append(row[1])
+    return result
 
 
 def _normalize_function_names(function_names: list[Any]) -> list[str]:
@@ -129,60 +176,51 @@ def get_postgres_row_count(
     require_ssl: bool = False,
     names: list[str] | None = None,
 ) -> dict[str, int]:
-    connection = _connect_to_postgres(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        require_ssl=require_ssl,
-    )
-
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 30)  # 30 secs
+        with pg_connection(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 30)  # 30 secs
+                    )
                 )
-            )
 
-            params: dict = {"schema": schema}
-            names_filter_tables = ""
-            names_filter_matviews = ""
-            if names:
-                params["names"] = names
-                names_filter_tables = "AND tablename = ANY(%(names)s)"
-                names_filter_matviews = "AND matviewname = ANY(%(names)s)"
+                params: dict = {"schema": schema}
+                names_filter_tables = ""
+                names_filter_matviews = ""
+                if names:
+                    params["names"] = names
+                    names_filter_tables = "AND tablename = ANY(%(names)s)"
+                    names_filter_matviews = "AND matviewname = ANY(%(names)s)"
 
-            cursor.execute(
-                f"""
-                SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
-                UNION ALL
-                SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
-                """,
-                params,
-            )
-            tables = cursor.fetchall()
-
-            if not tables:
-                return {}
-
-            counts = [
-                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                    table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                cursor.execute(
+                    f"""
+                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
+                    UNION ALL
+                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
+                    """,
+                    params,
                 )
-                for table in tables
-            ]
+                tables = cursor.fetchall()
 
-            union_counts = sql.SQL(" UNION ALL ").join(counts)
-            cursor.execute(union_counts)
-            row_count_result = cursor.fetchall()
-            row_counts = {row[0]: row[1] for row in row_count_result}
-        return row_counts
+                if not tables:
+                    return {}
+
+                counts = [
+                    sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                    )
+                    for table in tables
+                ]
+
+                union_counts = sql.SQL(" UNION ALL ").join(counts)
+                cursor.execute(union_counts)
+                row_count_result = cursor.fetchall()
+                return {row[0]: row[1] for row in row_count_result}
     except:
         return {}
-    finally:
-        connection.close()
 
 
 def get_schemas(
@@ -197,54 +235,46 @@ def get_schemas(
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
-    connection = _connect_to_postgres(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        require_ssl=require_ssl,
-    )
+    with pg_connection(
+        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+    ) as connection:
+        with connection.cursor() as cursor:
+            params: dict = {"schema": schema}
+            names_filter = ""
+            names_filter_pg = ""
+            if names:
+                params["names"] = names
+                names_filter = "AND table_name = ANY(%(names)s)"
+                names_filter_pg = "AND c.relname = ANY(%(names)s)"
 
-    with connection.cursor() as cursor:
-        params: dict = {"schema": schema}
-        names_filter = ""
-        names_filter_pg = ""
-        if names:
-            params["names"] = names
-            names_filter = "AND table_name = ANY(%(names)s)"
-            names_filter_pg = "AND c.relname = ANY(%(names)s)"
-
-        cursor.execute(
-            f"""
-            SELECT * FROM (
-                SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                WHERE table_schema = %(schema)s {names_filter}
-                UNION ALL
-                SELECT
-                    c.relname AS table_name,
-                    a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
-                FROM pg_class c
-                JOIN pg_namespace n ON c.relnamespace = n.oid
-                JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relkind = 'm'  -- materialized view
-                AND n.nspname = %(schema)s
-                AND a.attnum > 0
-                AND NOT a.attisdropped
-                {names_filter_pg}
-            ) t
-            ORDER BY table_name ASC""",
-            params,
-        )
-        result = cursor.fetchall()
+            cursor.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
+                    WHERE table_schema = %(schema)s {names_filter}
+                    UNION ALL
+                    SELECT
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'  -- materialized view
+                    AND n.nspname = %(schema)s
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                    {names_filter_pg}
+                ) t
+                ORDER BY table_name ASC""",
+                params,
+            )
+            result = cursor.fetchall()
 
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
             schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
-
-    connection.close()
 
     return schema_list
 
@@ -261,51 +291,43 @@ def get_foreign_keys(
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
 
-    connection = _connect_to_postgres(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        require_ssl=require_ssl,
-    )
+    with pg_connection(
+        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+    ) as connection:
+        with connection.cursor() as cursor:
+            params: dict = {"schema": schema}
+            names_filter = ""
+            if names:
+                params["names"] = names
+                names_filter = "AND tc.table_name = ANY(%(names)s)"
 
-    with connection.cursor() as cursor:
-        params: dict = {"schema": schema}
-        names_filter = ""
-        if names:
-            params["names"] = names
-            names_filter = "AND tc.table_name = ANY(%(names)s)"
-
-        cursor.execute(
-            f"""
-            SELECT
-                tc.table_name AS table_name,
-                kcu.column_name AS column_name,
-                ccu.table_name AS target_table_name,
-                ccu.column_name AS target_column_name
-            FROM information_schema.table_constraints AS tc
-            JOIN information_schema.key_column_usage AS kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage AS ccu
-                ON ccu.constraint_name = tc.constraint_name
-                AND ccu.table_schema = tc.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema = %(schema)s
-              AND ccu.table_schema = %(schema)s
-              {names_filter}
-            ORDER BY tc.table_name, kcu.ordinal_position
-            """,
-            params,
-        )
-        result = cursor.fetchall()
+            cursor.execute(
+                f"""
+                SELECT
+                    tc.table_name AS table_name,
+                    kcu.column_name AS column_name,
+                    ccu.table_name AS target_table_name,
+                    ccu.column_name AS target_column_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                    AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = %(schema)s
+                  AND ccu.table_schema = %(schema)s
+                  {names_filter}
+                ORDER BY tc.table_name, kcu.ordinal_position
+                """,
+                params,
+            )
+            result = cursor.fetchall()
 
         foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
         for table_name, column_name, target_table_name, target_column_name in result:
             foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
-
-    connection.close()
 
     return foreign_keys_by_table
 
@@ -318,16 +340,9 @@ def get_connection_metadata(
     port: int,
     require_ssl: bool = False,
 ) -> dict[str, Any]:
-    connection = _connect_to_postgres(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        require_ssl=require_ssl,
-    )
-
-    try:
+    with pg_connection(
+        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+    ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
             row = cursor.fetchone()
@@ -354,8 +369,6 @@ def get_connection_metadata(
                 "function_source": function_source,
                 "available_functions": available_functions,
             }
-    finally:
-        connection.close()
 
 
 class JsonAsStringLoader(Loader):

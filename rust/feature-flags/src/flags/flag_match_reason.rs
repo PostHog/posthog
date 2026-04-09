@@ -23,13 +23,19 @@ pub enum FeatureFlagMatchReason {
 
 impl FeatureFlagMatchReason {
     pub fn score(&self) -> i32 {
+        // Higher scores win when multiple conditions report different non-matching reasons.
+        // The intent is to surface the most informative reason for the caller:
+        // a real evaluation result outranks a "this condition wasn't applicable to you"
+        // signal. NoGroupType sits below NoConditionMatch and OutOfRolloutBound so that
+        // mixed-targeting flags don't bury a person-condition's actual result behind a
+        // skipped group condition.
         match self {
             FeatureFlagMatchReason::SuperConditionValue => 6,
             FeatureFlagMatchReason::HoldoutConditionValue => 5,
             FeatureFlagMatchReason::ConditionMatch => 4,
-            FeatureFlagMatchReason::NoGroupType => 3,
-            FeatureFlagMatchReason::OutOfRolloutBound => 2,
-            FeatureFlagMatchReason::NoConditionMatch => 1,
+            FeatureFlagMatchReason::OutOfRolloutBound => 3,
+            FeatureFlagMatchReason::NoConditionMatch => 2,
+            FeatureFlagMatchReason::NoGroupType => 1,
             FeatureFlagMatchReason::FlagDisabled => 0,
             FeatureFlagMatchReason::MissingDependency => -1,
         }
@@ -76,9 +82,9 @@ mod tests {
         let reasons = vec![
             FeatureFlagMatchReason::MissingDependency,     // -1
             FeatureFlagMatchReason::FlagDisabled,          // 0
-            FeatureFlagMatchReason::NoConditionMatch,      // 1
-            FeatureFlagMatchReason::OutOfRolloutBound,     // 2
-            FeatureFlagMatchReason::NoGroupType,           // 3
+            FeatureFlagMatchReason::NoGroupType,           // 1
+            FeatureFlagMatchReason::NoConditionMatch,      // 2
+            FeatureFlagMatchReason::OutOfRolloutBound,     // 3
             FeatureFlagMatchReason::ConditionMatch,        // 4
             FeatureFlagMatchReason::HoldoutConditionValue, // 5
             FeatureFlagMatchReason::SuperConditionValue,   // 6
