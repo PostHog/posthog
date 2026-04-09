@@ -16,10 +16,11 @@ class TestPublish(SimpleTestCase):
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publishes_new_version(self, mock_storage, mock_validate):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publishes_new_version(self, mock_read, mock_write, mock_validate):
         mock_validate.return_value = True
-        mock_storage.read.return_value = None
+        mock_read.return_value = None
 
         call_command("js_snippet_version", "publish", "1.359.0", "--accept")
 
@@ -29,30 +30,31 @@ class TestPublish(SimpleTestCase):
         assert manifest["pointers"]["1"] == "1.359.0"
         assert manifest["pointers"]["1.359"] == "1.359.0"
 
-        assert mock_storage.write.call_count == 2
+        assert mock_write.call_count == 2
         # First write: versions.json (raw entries)
-        versions_call = mock_storage.write.call_args_list[0]
+        versions_call = mock_write.call_args_list[0]
         written = json.loads(versions_call[0][1])
         assert len(written) == 1
         assert written[0]["version"] == "1.359.0"
         assert "timestamp" in written[0]
         # Second write: manifest.json (validated manifest backup)
-        manifest_call = mock_storage.write.call_args_list[1]
+        manifest_call = mock_write.call_args_list[1]
         backup = json.loads(manifest_call[0][1])
         assert backup["pointers"]["1"] == "1.359.0"
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publish_appends_to_existing_manifest(self, mock_storage, mock_validate):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publish_appends_to_existing_manifest(self, mock_read, mock_write, mock_validate):
         mock_validate.return_value = True
         existing = [{"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"}]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         call_command("js_snippet_version", "publish", "1.359.0", "--accept")
 
         # First write is versions.json
-        written = json.loads(mock_storage.write.call_args_list[0][0][1])
+        written = json.loads(mock_write.call_args_list[0][0][1])
         assert len(written) == 2
         assert written[0]["version"] == "1.358.0"
         assert written[1]["version"] == "1.359.0"
@@ -69,11 +71,11 @@ class TestPublish(SimpleTestCase):
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publish_fails_for_duplicate_version(self, mock_storage, mock_validate):
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publish_fails_for_duplicate_version(self, mock_read, mock_validate):
         mock_validate.return_value = True
         existing = [{"version": "1.359.0", "timestamp": "2025-01-15T00:00:00Z"}]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         with self.assertRaises(CommandError) as ctx:
             call_command("js_snippet_version", "publish", "1.359.0")
@@ -90,11 +92,12 @@ class TestPublish(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publish_purges_affected_pins(self, mock_storage, mock_validate, mock_purge):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publish_purges_affected_pins(self, mock_read, mock_write, mock_validate, mock_purge):
         mock_validate.return_value = True
         existing = [{"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"}]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         call_command("js_snippet_version", "publish", "1.359.0", "--accept", "--purge")
 
@@ -106,10 +109,11 @@ class TestPublish(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publish_without_purge_flag_does_not_purge(self, mock_storage, mock_validate, mock_purge):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publish_without_purge_flag_does_not_purge(self, mock_read, _mock_write, mock_validate, mock_purge):
         mock_validate.return_value = True
-        mock_storage.read.return_value = None
+        mock_read.return_value = None
 
         call_command("js_snippet_version", "publish", "1.359.0", "--accept")
 
@@ -117,14 +121,15 @@ class TestPublish(SimpleTestCase):
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.js_snippet_version.validate_version_artifacts")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_publish_dry_run_does_not_write(self, mock_storage, mock_validate):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_publish_dry_run_does_not_write(self, mock_read, mock_write, mock_validate):
         mock_validate.return_value = True
-        mock_storage.read.return_value = None
+        mock_read.return_value = None
 
         call_command("js_snippet_version", "publish", "1.359.0")
 
-        mock_storage.write.assert_not_called()
+        mock_write.assert_not_called()
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
 
@@ -133,18 +138,19 @@ class TestYank(SimpleTestCase):
         cache.delete(REDIS_POINTER_MAP_KEY)
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_yanks_version(self, mock_storage):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_yanks_version(self, mock_read, mock_write):
         existing = [
             {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
             {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
         ]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         call_command("js_snippet_version", "yank", "1.359.0", "--accept")
 
         # First write is versions.json
-        written = json.loads(mock_storage.write.call_args_list[0][0][1])
+        written = json.loads(mock_write.call_args_list[0][0][1])
         assert written[1]["yanked"] is True
         assert "yanked" not in written[0]
 
@@ -156,9 +162,9 @@ class TestYank(SimpleTestCase):
         assert "1.358.0" in manifest["versions"]
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_yank_fails_when_version_not_found(self, mock_storage):
-        mock_storage.read.return_value = json.dumps([])
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_yank_fails_when_version_not_found(self, mock_read):
+        mock_read.return_value = json.dumps([])
 
         with self.assertRaises(CommandError) as ctx:
             call_command("js_snippet_version", "yank", "1.359.0")
@@ -174,13 +180,14 @@ class TestYank(SimpleTestCase):
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.remote_config.RemoteConfig.purge_cdn_by_tag")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_yank_purges_affected_pins(self, mock_storage, mock_purge):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_yank_purges_affected_pins(self, mock_read, _mock_write, mock_purge):
         existing = [
             {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
             {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
         ]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         call_command("js_snippet_version", "yank", "1.359.0", "--accept", "--purge")
 
@@ -190,17 +197,18 @@ class TestYank(SimpleTestCase):
         assert "posthog-js-1.358" not in purged_tags
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
-    @patch("posthog.management.commands.js_snippet_version.object_storage")
-    def test_yank_dry_run_does_not_write(self, mock_storage):
+    @patch("posthog.management.commands.js_snippet_version.s3_write")
+    @patch("posthog.management.commands.js_snippet_version.s3_read")
+    def test_yank_dry_run_does_not_write(self, mock_read, mock_write):
         existing = [
             {"version": "1.358.0", "timestamp": "2025-01-15T00:00:00Z"},
             {"version": "1.359.0", "timestamp": "2025-01-20T00:00:00Z"},
         ]
-        mock_storage.read.return_value = json.dumps(existing)
+        mock_read.return_value = json.dumps(existing)
 
         call_command("js_snippet_version", "yank", "1.359.0")
 
-        mock_storage.write.assert_not_called()
+        mock_write.assert_not_called()
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
 
