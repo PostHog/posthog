@@ -638,13 +638,6 @@ def property_to_expr(
         # of the AnyPropertyFilter union used throughout the codebase.
         # Return a neutral filter that doesn't affect the query.
         return ast.Constant(value=1)
-    elif isinstance(property, WorkflowVariablePropertyFilter):
-        # Workflow variables are evaluated at the workflow execution layer, not in HogQL.
-        # They should never reach this point, but we handle them gracefully
-        # to satisfy type checking since WorkflowVariablePropertyFilter is part
-        # of the AnyPropertyFilter union used throughout the codebase.
-        # Return a neutral filter that doesn't affect the query.
-        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
