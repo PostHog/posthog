@@ -1,4 +1,5 @@
 from django.test import override_settings
+from parameterized import parameterized
 
 from posthog.models.personal_api_key import PersonalAPIKey
 
@@ -146,27 +147,22 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert stripe_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
-    def test_create_resource_with_project_name_renames_team(self):
-        token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics", "configuration": {"project_name": "My SaaS App"}},
-            token=token,
-        )
-        assert res.status_code == 200
-        self.team.refresh_from_db()
-        assert self.team.name == "My SaaS App"
-
-    def test_create_resource_without_project_name_keeps_default(self):
+    @parameterized.expand(
+        [
+            ("with_name", {"project_name": "My SaaS App"}, "My SaaS App"),
+            ("without_name", None, None),
+        ]
+    )
+    def test_create_resource_project_name(self, _name, config, expected_name):
         original_name = self.team.name
         token = self._get_bearer_token()
-        self._post_signed_with_bearer(
-            "/api/agentic/provisioning/resources",
-            data={"service_id": "analytics"},
-            token=token,
-        )
+        data: dict = {"service_id": "analytics"}
+        if config is not None:
+            data["configuration"] = config
+        res = self._post_signed_with_bearer("/api/agentic/provisioning/resources", data=data, token=token)
+        assert res.status_code == 200
         self.team.refresh_from_db()
-        assert self.team.name == original_name
+        assert self.team.name == (expected_name or original_name)
 
     def test_get_resource_does_not_include_personal_api_key(self):
         token = self._get_bearer_token()

@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from parameterized import parameterized
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -123,20 +124,17 @@ class TestAccountRequests(StripeProvisioningTestBase):
         user = User.objects.get(email="jane@example.com")
         assert user.first_name == "Jane"
 
-    def test_new_user_with_organization_name(self):
-        payload = self._account_request_payload(
-            email="orgname@example.com",
-            configuration={"region": "US", "organization_name": "Acme Corp"},
-        )
+    @parameterized.expand(
+        [
+            ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
+            ("without_name", {"region": "US"}, "Stripe (orgname@example.com)"),
+        ]
+    )
+    def test_new_user_organization_name(self, _name, config, expected_org_name):
+        payload = self._account_request_payload(email="orgname@example.com", configuration=config)
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="orgname@example.com")
-        assert user.organization.name == "Acme Corp"
-
-    def test_new_user_without_organization_name_uses_default(self):
-        payload = self._account_request_payload(email="noorg@example.com", configuration={"region": "US"})
-        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
-        user = User.objects.get(email="noorg@example.com")
-        assert user.organization.name == "Stripe (noorg@example.com)"
+        assert user.organization.name == expected_org_name
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")

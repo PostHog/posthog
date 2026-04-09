@@ -347,7 +347,9 @@ def _handle_new_user(
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
-    configuration = data.get("configuration") or {}
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
     org_name = configuration.get("organization_name") or f"Stripe ({email})"
 
     try:
@@ -789,7 +791,9 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    configuration = request.data.get("configuration") or {}
+    configuration = request.data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
     project_name = configuration.get("project_name")
     if project_name:
         team.name = project_name
