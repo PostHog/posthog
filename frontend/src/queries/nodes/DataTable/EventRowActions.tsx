@@ -5,6 +5,7 @@ import { IconAI, IconWarning } from '@posthog/icons'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
@@ -15,7 +16,26 @@ import { urls } from 'scenes/urls'
 
 import { EventType, SurveyEventName } from '~/types'
 
-export function eventRowActionsContent(event: EventType): JSX.Element {
+export function EventRowActions({ event }: { event: EventType }): JSX.Element {
+    return (
+        <div className="flex items-center justify-end gap-1">
+            <ViewRecordingButton
+                iconOnly
+                sessionId={event.properties.$session_id}
+                recordingStatus={event.properties.$recording_status}
+                timestamp={event.timestamp}
+                hasRecording={event.properties.$has_recording as boolean | undefined}
+                openPlayerIn={RecordingPlayerType.NewTab}
+                size="xsmall"
+                type="secondary"
+                data-attr="events-table-inline-recording-button"
+            />
+            <More overlay={<EventRowActionsDropdown event={event} />} />
+        </div>
+    )
+}
+
+function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
     const insightUrl = insightUrlForEvent(event)
 
     return (
@@ -41,15 +61,6 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
                 <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
             ) : null}
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
-            <ViewRecordingButton
-                fullWidth
-                openPlayerIn={RecordingPlayerType.NewTab}
-                sessionId={event.properties.$session_id}
-                recordingStatus={event.properties.$recording_status}
-                timestamp={event.timestamp}
-                hasRecording={event.properties.$has_recording as boolean | undefined}
-                data-attr="events-table-view-recordings"
-            />
             {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                 <LemonButton
                     fullWidth

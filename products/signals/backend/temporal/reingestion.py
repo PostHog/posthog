@@ -13,18 +13,16 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.grouping import (
-    WaitForClickHouseInput,
-    WaitForClickHouseSignal,
-    wait_for_signal_in_clickhouse_activity,
-)
-from products.signals.backend.temporal.summary import (
+from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
     fetch_signals_for_report_activity,
+    soft_delete_report_signals,
+    wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportReingestionWorkflowInputs
-from products.signals.backend.utils import soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
