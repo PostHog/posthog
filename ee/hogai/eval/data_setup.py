@@ -11,8 +11,10 @@ import datetime
 from django.test import override_settings
 
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Insight, Organization, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
+
+from products.dashboards.backend.models import Dashboard, DashboardTile
 
 from ee.models.assistant import CoreMemory
 
