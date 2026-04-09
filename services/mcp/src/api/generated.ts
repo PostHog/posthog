@@ -14072,6 +14072,16 @@ export namespace Schemas {
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
 
+    export interface ErrorTrackingIssueMergeRequest {
+      /** IDs of the issues to merge into the current issue. */
+      ids: string[];
+    }
+
+    export interface ErrorTrackingIssueMergeResponse {
+      /** Whether the merge completed successfully. */
+      success: boolean;
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -31402,6 +31412,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsEndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
+    };
+
     export type EnvironmentsEndpointsVersionsListParams = {
     created_by?: number;
     is_active?: boolean;
@@ -34158,6 +34175,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
     };
 
     export type EndpointsVersionsListParams = {

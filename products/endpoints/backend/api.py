@@ -13,7 +13,7 @@ import structlog
 import posthoganalytics
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import serializers, status, viewsets
@@ -2413,6 +2413,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Specific endpoint version to generate the spec for. Defaults to latest.",
+            ),
+        ],
     )
     @action(methods=["GET"], detail=True, url_path="openapi.json")
     def openapi_spec(self, request: Request, name=None, *args, **kwargs) -> Response:
