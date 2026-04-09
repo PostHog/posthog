@@ -9,11 +9,7 @@ from django.db.models import QuerySet
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.llm_prompt import (
-    LLMPrompt,
-    annotate_llm_prompt_version_history_metadata,
-    normalize_prompt_to_string,
-)
+from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
@@ -170,8 +166,6 @@ def publish_prompt_version(
             resolved_payload = apply_prompt_edits(current_latest.prompt, edits)
         else:
             resolved_payload = prompt_payload
-
-        resolved_payload = normalize_prompt_to_string(resolved_payload)
 
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(

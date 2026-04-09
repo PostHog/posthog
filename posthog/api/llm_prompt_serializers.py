@@ -26,14 +26,14 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
-def validate_prompt_payload_size(prompt_payload: Any) -> str:
-    normalized = normalize_prompt_to_string(prompt_payload)
-    if len(normalized.encode("utf-8")) > MAX_PROMPT_PAYLOAD_BYTES:
+def validate_prompt_payload_size(prompt_payload: Any) -> Any:
+    prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
         raise serializers.ValidationError(
             f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
             code="max_size",
         )
-    return normalized
+    return prompt_payload
 
 
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
@@ -119,7 +119,7 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
     )
 
-    def validate_prompt(self, value: Any) -> str:
+    def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -205,7 +205,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate_name(self, value: str) -> str:
         return validate_prompt_name_value(value)
 
-    def validate_prompt(self, value: Any) -> str:
+    def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
