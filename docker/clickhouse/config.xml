@@ -169,12 +169,10 @@
         <host_regexp>.*</host_regexp>
     </remote_url_allow_hosts>
 
-    <zookeeper>
-        <node>
-            <host>keeper</host>
-            <port>9181</port>
-        </node>
-    </zookeeper>
+    <!-- Zookeeper/Keeper connection is configured per-node via config.d overlays:
+         - config.d/keeper_main.xml  (main cluster nodes -> keeper:9181)
+         - config.d/keeper_logs.xml  (logs cluster node  -> keeper-logs:9181)
+    -->
 
     <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
     <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>

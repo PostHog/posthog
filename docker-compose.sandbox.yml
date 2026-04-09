@@ -215,6 +215,7 @@ services:
             - ${SANDBOX_CODE:-.}/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
             - ${SANDBOX_CODE:-.}/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml:ro
             - ${SANDBOX_CODE:-.}/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml:ro
+            - ${SANDBOX_CODE:-.}/docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml:ro
             - ${SANDBOX_CODE:-.}/docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml:ro
             - ${SANDBOX_CODE:-.}/docker/clickhouse/config.d/sandbox-backup.xml:/etc/clickhouse-server/config.d/sandbox-backup.xml:ro
             - ${SANDBOX_CODE:-.}/docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml:ro
