@@ -135,7 +135,7 @@ class SignupSerializer(serializers.Serializer):
         password = data.get("password")
 
         # Password signup: if a password is provided, use it even if passkey data exists
-        if password and password != "":
+        if password:
             pass
         # Passkey signup: credential in session, no password needed
         elif passkey_credential:
