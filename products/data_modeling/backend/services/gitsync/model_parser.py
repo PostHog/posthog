@@ -186,7 +186,9 @@ def model_name_from_path(file_path: str) -> str:
 def _unquote(value: str) -> str:
     """Remove surrounding single or double quotes from a string value if present."""
     value = value.strip()
-    value = value.strip('"')
-    value = value.strip("'")
+    if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
+        value = value[1:-1]
+    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
     value = value.strip()
     return value
