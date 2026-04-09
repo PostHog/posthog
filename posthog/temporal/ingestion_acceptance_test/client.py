@@ -12,6 +12,7 @@ import requests
 import structlog
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.errors import InternalCHQueryError
 
 from .config import Config
 
@@ -268,7 +269,17 @@ class PostHogClient:
                     elapsed_seconds=round(elapsed, 1),
                     next_interval_seconds=round(current_interval, 1),
                 )
-            result = fetch_fn()
+            try:
+                result = fetch_fn()
+            except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
+                logger.warning(
+                    "Transient error during polling, will retry",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    description=description,
+                    attempt=attempt,
+                )
+                result = None
             if result is not None:
                 elapsed = time.time() - start_time
                 logger.info(
@@ -341,6 +352,7 @@ class PostHogClient:
             WHERE p.team_id = %(team_id)s
               AND pdi.distinct_id = %(distinct_id)s
               AND pdi.is_deleted = 0
+              AND p.is_deleted = 0
             ORDER BY p.version DESC
             LIMIT 1
         """

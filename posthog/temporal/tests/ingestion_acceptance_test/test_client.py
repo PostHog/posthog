@@ -137,6 +137,7 @@ class TestFetchPersonByDistinctId:
         assert "JOIN person_distinct_id2 pdi" in query
         assert "pdi.distinct_id = %(distinct_id)s" in query
         assert "pdi.is_deleted = 0" in query
+        assert "p.is_deleted = 0" in query
         assert params["team_id"] == 12345
         assert params["distinct_id"] == "user_123"
 
@@ -164,6 +165,23 @@ class TestFetchPersonByDistinctId:
         result = client._fetch_person_by_distinct_id("nonexistent-user")
 
         assert result is None
+
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_filters_out_deleted_persons_and_distinct_ids(
+        self, mock_sync_execute: MagicMock, client: PostHogClient
+    ) -> None:
+        """Verify the query includes is_deleted = 0 filters for both person and person_distinct_id2.
+
+        Both tables are ReplacingMergeTree — without these filters, soft-deleted rows
+        can be returned before ClickHouse merges parts.
+        """
+        mock_sync_execute.return_value = []
+
+        client._fetch_person_by_distinct_id("user_123")
+
+        query = mock_sync_execute.call_args[0][0]
+        assert "p.is_deleted = 0" in query, "Missing is_deleted filter on person table"
+        assert "pdi.is_deleted = 0" in query, "Missing is_deleted filter on person_distinct_id2 table"
 
 
 class TestFetchEventsByPersonId:
