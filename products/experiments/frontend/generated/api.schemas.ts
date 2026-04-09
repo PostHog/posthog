@@ -395,6 +395,15 @@ export interface PatchedExperimentApi {
     readonly user_access_level?: string | null
 }
 
+export interface CopyExperimentToProjectApi {
+    /** The team ID to copy the experiment to. */
+    target_team_id: number
+    /** Optional feature flag key to use in the destination team. */
+    feature_flag_key?: string
+    /** Optional name for the copied experiment. */
+    name?: string
+}
+
 /**
  * * `won` - won
  * `lost` - lost
