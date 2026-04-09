@@ -93,9 +93,11 @@ describe('moveBetweenGroups', () => {
         const a = cond('event_name', 'exact', 'a')
         const b = cond('event_name', 'exact', 'b')
         const c = cond('event_name', 'exact', 'c')
-        const tree = or(and(a, b), and(c))
+        const secondAnd = and(c)
+        const tree = or(and(a, b), secondAnd)
+        const nodeIds = indexed(tree)
 
-        const result = moveBetweenGroups(tree, [0], 0, [1], 1)
+        const result = moveBetweenGroups(tree, [0], 0, nodeIds.nidOf(secondAnd), 1, nodeIds)
 
         expect(result).not.toBeNull()
         const resultOr = result as FilterOrNode
@@ -109,17 +111,21 @@ describe('moveBetweenGroups', () => {
     })
 
     it('returns null if source is not a group', () => {
-        expect(moveBetweenGroups(not(cond()), [], 0, [0], 0)).toBeNull()
+        const tree = not(cond())
+        const nodeIds = indexed(tree)
+        expect(moveBetweenGroups(tree, [], 0, 'anything', 0, nodeIds)).toBeNull()
     })
 
     it('does not mutate the original tree', () => {
         const a = cond('event_name', 'exact', 'a')
         const b = cond('event_name', 'exact', 'b')
         const c = cond('event_name', 'exact', 'c')
-        const tree = or(and(a, b), and(c))
+        const secondAnd = and(c)
+        const tree = or(and(a, b), secondAnd)
+        const nodeIds = indexed(tree)
         const original = JSON.parse(JSON.stringify(tree))
 
-        moveBetweenGroups(tree, [0], 0, [1], 1)
+        moveBetweenGroups(tree, [0], 0, nodeIds.nidOf(secondAnd), 1, nodeIds)
 
         expect(tree).toEqual(original)
     })
@@ -127,9 +133,11 @@ describe('moveBetweenGroups', () => {
     it('moves last child out of a group (leaves it empty)', () => {
         const a = cond('event_name', 'exact', 'a')
         const b = cond('event_name', 'exact', 'b')
-        const tree = or(and(a), and(b))
+        const secondAnd = and(b)
+        const tree = or(and(a), secondAnd)
+        const nodeIds = indexed(tree)
 
-        const result = moveBetweenGroups(tree, [0], 0, [1], 1)
+        const result = moveBetweenGroups(tree, [0], 0, nodeIds.nidOf(secondAnd), 1, nodeIds)
 
         expect(result).not.toBeNull()
         const resultOr = result as FilterOrNode
@@ -141,14 +149,39 @@ describe('moveBetweenGroups', () => {
         const a = cond('event_name', 'exact', 'a')
         const b = cond('event_name', 'exact', 'b')
         const tree = or(and(a, b))
+        const nodeIds = indexed(tree)
 
         // Move condA from the inner AND to the root OR at index 1
-        const result = moveBetweenGroups(tree, [0], 0, [], 1)
+        const result = moveBetweenGroups(tree, [0], 0, nodeIds.nidOf(tree), 1, nodeIds)
 
         expect(result).not.toBeNull()
         const resultOr = result as FilterOrNode
         expect(resultOr.children).toHaveLength(2)
         expect((resultOr.children[0] as FilterAndNode).children).toHaveLength(1)
         expect(resultOr.children[1]).toMatchObject({ value: 'a' })
+    })
+
+    it('handles index shift when source and dest share a parent', () => {
+        // OR(condA, AND(condB, condC))
+        // Drag condA (index 0 in root OR) into the AND group (index 1 in root OR)
+        // After removing condA, the AND group shifts from index 1 to index 0
+        // Using nid-based resolution avoids the off-by-one
+        const condA = cond('event_name', 'exact', 'a')
+        const condB = cond('event_name', 'exact', 'b')
+        const condC = cond('event_name', 'exact', 'c')
+        const innerAnd = and(condB, condC)
+        const tree = or(condA, innerAnd)
+        const nodeIds = indexed(tree)
+
+        const result = moveBetweenGroups(tree, [], 0, nodeIds.nidOf(innerAnd), 2, nodeIds)
+
+        expect(result).not.toBeNull()
+        const resultOr = result as FilterOrNode
+        expect(resultOr.children).toHaveLength(1)
+        const andGroup = resultOr.children[0] as FilterAndNode
+        expect(andGroup.children).toHaveLength(3)
+        expect(andGroup.children[0]).toMatchObject({ value: 'b' })
+        expect(andGroup.children[1]).toMatchObject({ value: 'c' })
+        expect(andGroup.children[2]).toMatchObject({ value: 'a' })
     })
 })

@@ -111,18 +111,16 @@ function GroupEditor({
 
     const childNids = node.children.map((child) => nodeIds.nidOf(child))
 
-    // Track whether the drag is over this group or any of its direct children
+    // Track whether the drag is over this group's droppable zone or any
+    // of its direct children (including items dragged from other groups).
+    // useDndMonitor fires on ALL groups simultaneously, so each group checks
+    // if the over target belongs to it and only updates its own state.
     const [isOverGroup, setIsOverGroup] = useState(false)
     useDndMonitor({
         onDragOver(event) {
-            if (!event.over) {
-                setIsOverGroup(false)
-                return
-            }
-            const overId = event.over.id as string
-            const isOverSelf = overId === droppableId
-            const isOverChild = childNids.includes(overId)
-            setIsOverGroup(isOverSelf || isOverChild)
+            const overId = event.over ? String(event.over.id) : undefined
+            const isMatch = overId === droppableId || (!!overId && childNids.includes(overId))
+            setIsOverGroup(isMatch)
         },
         onDragEnd() {
             setIsOverGroup(false)

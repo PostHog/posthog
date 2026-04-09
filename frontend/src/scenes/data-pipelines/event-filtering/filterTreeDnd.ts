@@ -14,6 +14,7 @@
  *
  * All functions are pure: they take a tree and return a new tree.
  */
+import { updateAtPath } from './eventFilterLogic'
 import type { FilterNode, TreePath } from './eventFilterLogic'
 import { getNodeAtPath, splitParentChild } from './filterTreePath'
 import { NodeIdMap } from './NodeIdMap'
@@ -84,49 +85,73 @@ export function reorderWithinGroup(
 }
 
 /**
+ * After removing sourcePath[sourceIndex], any dest path that passes through
+ * the same parent at a later index needs that index decremented.
+ * E.g. removing []:0 shifts dest [1,'child'] to [0,'child'].
+ */
+function adjustDestPath(sourcePath: TreePath, sourceIndex: number, destPath: TreePath): TreePath {
+    if (destPath.length <= sourcePath.length) {
+        return destPath
+    }
+    for (let i = 0; i < sourcePath.length; i++) {
+        if (destPath[i] !== sourcePath[i]) {
+            return destPath
+        }
+    }
+    const siblingStep = destPath[sourcePath.length]
+    if (typeof siblingStep === 'number' && siblingStep > sourceIndex) {
+        const adjusted = [...destPath]
+        adjusted[sourcePath.length] = siblingStep - 1
+        return adjusted
+    }
+    return destPath
+}
+
+/**
  * Move a node from one AND/OR group to another.
  *
- * Deep-clones the tree (can't use immutable updateAtPath since we need to
- * mutate two places), splices the node out of the source group, then
- * splices it into the destination group. Returns the new tree root, or
- * null if either the source or destination can't be resolved.
- *
- * The destination is specified as a group path + insert index. The caller
- * is responsible for resolving the drop target (via resolveDropTarget)
- * before calling this function.
- *
- * Note: if the source and destination are in the same parent and the
- * source index is before the destination index, the caller should adjust
- * destIndex by -1 to account for the removal shifting indices.
+ * Resolves the destination group by nid on the original tree, then applies
+ * the remove and insert as two immutable updateAtPath calls with path
+ * adjustment to account for index shifts from the removal.
  */
 export function moveBetweenGroups(
     tree: FilterNode,
     sourcePath: TreePath,
     sourceIndex: number,
-    destPath: TreePath,
-    destIndex: number
+    destGroupNid: string,
+    destIndex: number,
+    nodeIds: NodeIdMap
 ): FilterNode | null {
     const srcParent = sourcePath.length === 0 ? tree : getNodeAtPath(tree, sourcePath)
     if (!srcParent || (srcParent.type !== 'and' && srcParent.type !== 'or')) {
         return null
     }
-
     const movedNode = srcParent.children[sourceIndex]
-    const newTree: FilterNode = JSON.parse(JSON.stringify(tree))
 
-    // Remove from source
-    const newSrc = sourcePath.length === 0 ? newTree : getNodeAtPath(newTree, sourcePath)
-    if (!newSrc || (newSrc.type !== 'and' && newSrc.type !== 'or')) {
+    // Resolve dest path on the original tree before any mutations
+    const originalDestPath = nodeIds.pathOf(destGroupNid)
+    if (originalDestPath === undefined) {
         return null
     }
-    newSrc.children.splice(sourceIndex, 1)
 
-    // Insert into destination
-    const newDst = destPath.length === 0 ? newTree : getNodeAtPath(newTree, destPath)
-    if (!newDst || (newDst.type !== 'and' && newDst.type !== 'or')) {
-        return null
-    }
-    newDst.children.splice(destIndex, 0, JSON.parse(JSON.stringify(movedNode)))
+    // Step 1: remove from source
+    const afterRemove = updateAtPath(tree, sourcePath, (node) => {
+        if (node.type !== 'and' && node.type !== 'or') {
+            return node
+        }
+        return { ...node, children: node.children.filter((_, i) => i !== sourceIndex) }
+    })
 
-    return newTree
+    // Step 2: adjust dest path for index shift caused by the removal
+    const destPath = adjustDestPath(sourcePath, sourceIndex, originalDestPath)
+
+    // Step 3: insert into destination
+    return updateAtPath(afterRemove, destPath, (node) => {
+        if (node.type !== 'and' && node.type !== 'or') {
+            return node
+        }
+        const newChildren = [...node.children]
+        newChildren.splice(destIndex, 0, movedNode)
+        return { ...node, children: newChildren }
+    })
 }

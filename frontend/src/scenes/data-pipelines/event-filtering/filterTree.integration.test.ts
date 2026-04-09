@@ -90,7 +90,10 @@ describe('reorder and move operations preserve evaluation', () => {
         const condA = cond('event_name', 'exact', '$autocapture')
         const condB = cond('distinct_id', 'contains', 'bot')
         const condC = cond('event_name', 'exact', '$drop_me')
-        const tree = or(and(condA, condB), and(condC))
+        const secondAnd = and(condC)
+        const tree = or(and(condA, condB), secondAnd)
+        const nodeIds = new NodeIdMap()
+        nodeIds.buildIndex(tree)
 
         // Before: drops $autocapture from bots, or $drop_me
         expect(evaluateFilterTree(tree, { event_name: '$autocapture', distinct_id: 'bot-1' })).toBe(true)
@@ -98,7 +101,7 @@ describe('reorder and move operations preserve evaluation', () => {
         expect(evaluateFilterTree(tree, { event_name: '$autocapture', distinct_id: 'user-1' })).toBe(false)
 
         // Move condB (bot check) from first AND to second AND
-        const result = moveBetweenGroups(tree, [0], 1, [1], 1)
+        const result = moveBetweenGroups(tree, [0], 1, nodeIds.nidOf(secondAnd), 1, nodeIds)
         expect(result).not.toBeNull()
 
         // After: first AND only has condA (drops all $autocapture)

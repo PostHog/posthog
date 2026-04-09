@@ -52,7 +52,7 @@ export function EventFilterScene(): JSX.Element {
     )
 
     const handleDragStart = useCallback((event: DragStartEvent) => {
-        setActiveId(event.active.id as string)
+        setActiveId(String(event.active.id))
     }, [])
 
     const handleDragEnd = useCallback(
@@ -63,11 +63,11 @@ export function EventFilterScene(): JSX.Element {
                 return
             }
 
-            const overIdStr = over.id as string
+            const overIdStr = String(over.id)
             const tree = filterForm.filter_tree
             nodeIds.buildIndex(tree)
 
-            const activePath = nodeIds.pathOf(active.id as string)
+            const activePath = nodeIds.pathOf(String(active.id))
             if (!activePath) {
                 return
             }
@@ -98,12 +98,18 @@ export function EventFilterScene(): JSX.Element {
                     updateTreeNode(activeParent.parentPath, reorderedGroup)
                 }
             } else {
+                const destGroup = target.groupPath.length === 0 ? tree : getNodeAtPath(tree, target.groupPath)
+                if (!destGroup) {
+                    return
+                }
+                const destGroupNid = nodeIds.nidOf(destGroup)
                 const newTree = moveBetweenGroups(
                     tree,
                     activeParent.parentPath,
                     activeParent.childIndex,
-                    target.groupPath,
-                    target.insertIndex
+                    destGroupNid,
+                    target.insertIndex,
+                    nodeIds
                 )
                 if (newTree) {
                     setFilterFormValue('filter_tree', newTree)
