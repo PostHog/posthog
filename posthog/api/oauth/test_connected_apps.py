@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 
@@ -56,7 +57,7 @@ class TestConnectedAppsViewSet(APIBaseTest):
             application=app,
             token=f"test-token-{OAuthAccessToken.objects.count()}",
             scope=scope,
-            expires=timezone.now() + timezone.timedelta(hours=expires_hours),
+            expires=timezone.now() + timedelta(hours=expires_hours),
         )
 
     def test_list_returns_apps_with_active_tokens(self):
@@ -156,7 +157,7 @@ class TestConnectedAppsViewSet(APIBaseTest):
             user=self.user,
             application=app,
             redirect_uri="https://example.com/callback",
-            expires=timezone.now() + timezone.timedelta(hours=1),
+            expires=timezone.now() + timedelta(hours=1),
             scope="read",
             code_challenge="test_challenge",
             code_challenge_method="S256",
