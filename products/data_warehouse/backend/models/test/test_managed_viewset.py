@@ -333,3 +333,57 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         customer_query = next(sq for sq in saved_queries if "customer" in sq.name)
         self.assertQueryIsNotEmpty(charge_query)
         self.assertQueryIsEmpty(customer_query)
+
+    def test_sync_views_schedules_after_transaction_commits(self):
+        """schedule_materialization must run AFTER the phase 1 transaction commits,
+        so that row locks on posthog_datawarehousesavedquery are released before
+        synchronous Temporal RPCs and DataWarehouseModelPath updates begin. If
+        schedule_materialization were called from inside the transaction, only the
+        current iteration's saved query would be visible at the call site; after the
+        refactor, all persisted saved queries should be visible at every call site.
+        """
+        schemas = self._create_schemas_without_tables()
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        expected_view_count = 6
+        counts_observed_during_schedule: list[int] = []
+        team = self.team
+        managed_viewset = self.managed_viewset
+
+        def capture_count(*args, **kwargs):
+            count = (
+                DataWarehouseSavedQuery.objects.filter(team=team, managed_viewset=managed_viewset)
+                .exclude(deleted=True)
+                .count()
+            )
+            counts_observed_during_schedule.append(count)
+
+        with patch(SCHEDULE_MATERIALIZATION, side_effect=capture_count):
+            self.managed_viewset.sync_views()
+
+        self.assertEqual(len(counts_observed_during_schedule), expected_view_count)
+        for count in counts_observed_during_schedule:
+            self.assertEqual(
+                count,
+                expected_view_count,
+                f"Expected all {expected_view_count} saved queries to be persisted when "
+                f"schedule_materialization runs (phase 2 after commit), but saw count={count}. "
+                f"This regression indicates schedule_materialization is being called from inside "
+                f"the sync_views transaction.",
+            )
+
+    def test_sync_views_persists_db_changes_when_schedule_materialization_fails(self):
+        """Phase 2 failures (schedule_materialization raising) must not roll back the
+        phase 1 DB changes. Each view's schedule failure is isolated: the saved query
+        row remains committed and the loop continues to the next view.
+        """
+        schemas = self._create_schemas_without_tables()
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        with patch(SCHEDULE_MATERIALIZATION, side_effect=Exception("boom")):
+            self.managed_viewset.sync_views()
+
+        saved_queries = self._get_saved_queries()
+        self.assertEqual(len(saved_queries), 6)

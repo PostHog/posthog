@@ -80,7 +80,14 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         views_created = 0
         views_updated = 0
+        saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
+        orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
+        # Keep this transaction short: persist DB changes only. The post-commit work
+        # (schedule_materialization → Temporal RPCs + DataWarehouseModelPath updates,
+        # and orphan revert_materialization) runs outside the atomic block so row
+        # locks on posthog_datawarehousesavedquery aren't held across synchronous
+        # Temporal RPCs.
         with transaction.atomic():
             for view in expected_views:
                 # Get the one from the DB or create a new one if doesn't exist yet
@@ -106,37 +113,52 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.sync_frequency_interval = timedelta(hours=12)
 
                 saved_query.save()
-                saved_query.schedule_materialization()
+                saved_queries_to_schedule.append(saved_query)
 
                 if created:
                     views_created += 1
                 else:
                     views_updated += 1
 
-            views_deleted = 0
-            orphaned_views = self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
-            for orphaned_view in orphaned_views:
-                try:
-                    orphaned_view.revert_materialization()
-                    orphaned_view.soft_delete()
-                    views_deleted += 1
-                except Exception as e:
-                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": orphaned_view.name})
-                    logger.warning(
-                        "failed_to_delete_orphaned_view",
-                        team_id=self.team_id,
-                        view_name=orphaned_view.name,
-                        error=str(e),
-                    )
-
-            logger.info(
-                "sync_views_completed",
-                team_id=self.team_id,
-                kind=self.kind,
-                views_created=views_created,
-                views_updated=views_updated,
-                views_deleted=views_deleted,
+            orphaned_views_to_revert = list(
+                self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
+
+        for saved_query in saved_queries_to_schedule:
+            try:
+                saved_query.schedule_materialization()
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                logger.warning(
+                    "failed_to_schedule_managed_view",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
+
+        views_deleted = 0
+        for orphaned_view in orphaned_views_to_revert:
+            try:
+                orphaned_view.revert_materialization()
+                orphaned_view.soft_delete()
+                views_deleted += 1
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": orphaned_view.name})
+                logger.warning(
+                    "failed_to_delete_orphaned_view",
+                    team_id=self.team_id,
+                    view_name=orphaned_view.name,
+                    error=str(e),
+                )
+
+        logger.info(
+            "sync_views_completed",
+            team_id=self.team_id,
+            kind=self.kind,
+            views_created=views_created,
+            views_updated=views_updated,
+            views_deleted=views_deleted,
+        )
 
     def delete_with_views(self) -> int:
         """
