@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -84,12 +84,6 @@ let pendingPlaygroundSetup: PlaygroundSetupPayload | null = null
 /** Queue a setup payload and navigate to the playground. */
 export function openInPlayground(payload: PlaygroundSetupPayload): void {
     pendingPlaygroundSetup = payload
-    // Clear if urlToAction never fires (e.g. same-URL push that kea-router deduplicates).
-    setTimeout(() => {
-        if (pendingPlaygroundSetup === payload) {
-            pendingPlaygroundSetup = null
-        }
-    }, 0)
     router.actions.push(urls.llmAnalyticsPlayground())
 }
 
@@ -803,7 +797,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 actions.setMessages(conversationMessages, promptId)
                 actions.setActivePromptId(promptId)
-                router.actions.push(urls.llmAnalyticsPlayground())
             } finally {
                 actions.setSourceSetupLoading(false)
             }
@@ -1001,22 +994,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
     urlToAction(({ actions, values, props }) => ({
         [urls.llmAnalyticsPlayground()]: (_, searchParams) => {
-            // urlToAction fires on ALL mounted instances for the matching URL.
-            // Only process for the active tab to avoid cross-tab state interference.
-            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
-                return
-            }
-
-            // External callers (trace scene, conversation display) queue a setup payload
-            // before navigating here. Consume it and run setupPlaygroundFromEvent on this
-            // tab-keyed instance so all state (model, messages, pendingTargetModel, etc.)
-            // is initialised correctly.
+            // Consume a pending setup payload before the active-tab guard. The payload
+            // is one-shot (set by openInPlayground) and at this point sceneLogic hasn't
+            // updated activeTabId yet, so the guard below would incorrectly reject it.
             if (props.tabId) {
                 const pending = consumePendingPlaygroundSetup()
                 if (pending) {
                     actions.setupPlaygroundFromEvent(pending)
                     return
                 }
+            }
+
+            // urlToAction fires on ALL mounted instances for the matching URL.
+            // Only process URL params for the active tab to avoid cross-tab interference.
+            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+                return
             }
 
             const sourcePromptName =
@@ -1055,4 +1047,17 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
     })),
+
+    // afterMount runs synchronously during logic.mount(), before sceneLogic updates
+    // activeTabId. This ensures the pending payload is consumed even when urlToAction
+    // fires too early (before the active-tab check would pass).
+    afterMount(({ actions, props }) => {
+        if (!props.tabId) {
+            return
+        }
+        const pending = consumePendingPlaygroundSetup()
+        if (pending) {
+            actions.setupPlaygroundFromEvent(pending)
+        }
+    }),
 ])

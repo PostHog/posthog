@@ -5547,6 +5547,22 @@ export namespace Schemas {
       scope?: AnnotationScopeEnum;
     }
 
+    export interface AppMetricSeries {
+      name: string;
+      values: number[];
+    }
+
+    export interface AppMetricsResponse {
+      labels: string[];
+      series: AppMetricSeries[];
+    }
+
+    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
+
+    export interface AppMetricsTotalsResponse {
+      totals: AppMetricsTotalsResponseTotals;
+    }
+
     /**
      * Serializer for individual transcript segments from AssemblyAI
      */
@@ -6665,6 +6681,28 @@ export namespace Schemas {
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
       /** @nullable */
       explicit_datetime?: string | null;
+    }
+
+    export interface BlastRadius {
+      /** Number of users matching the filters */
+      affected: number;
+      /** Total number of users */
+      total: number;
+    }
+
+    /**
+     * Property filters to apply
+     */
+    export type BlastRadiusRequestFilters = {[key: string]: unknown};
+
+    export interface BlastRadiusRequest {
+      /** Property filters to apply */
+      filters: BlastRadiusRequestFilters;
+      /**
+       * Group type index for group-based targeting
+       * @nullable
+       */
+      group_type_index?: number | null;
     }
 
     export interface BooleanScoreDefinitionConfig {
@@ -14318,6 +14356,31 @@ export namespace Schemas {
     export interface EventDefinitionBasic {
       id: string;
       name: string;
+    }
+
+    /**
+     * * `disabled` - Disabled
+    * `dry_run` - Dry Run
+    * `live` - Live
+     */
+    export type EventFilterConfigModeEnum = typeof EventFilterConfigModeEnum[keyof typeof EventFilterConfigModeEnum];
+
+
+    export const EventFilterConfigModeEnum = {
+      Disabled: 'disabled',
+      DryRun: 'dry_run',
+      Live: 'live',
+    } as const;
+
+    export interface EventFilterConfig {
+      readonly id: string;
+      mode?: EventFilterConfigModeEnum;
+      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
+      filter_tree?: unknown | null;
+      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
+      test_cases?: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     /**
@@ -30591,7 +30654,7 @@ export namespace Schemas {
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
-      /** Follow-up user message to include in the resumed run's prompt. */
+      /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;

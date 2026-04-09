@@ -988,7 +988,7 @@ def forward_posthog_code_followup_activity(
         if result.retryable and result.status_code == 504:
             # Agent is still processing. relayAgentResponse fires when it
             # finishes, delivering the correct response to Slack.
-            _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+            _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
             _delete_followup_progress(
                 integration_id=inputs.integration_id,
                 channel=channel,
@@ -1006,7 +1006,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+    _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
 
     _delete_followup_progress(
         integration_id=inputs.integration_id,
