@@ -412,10 +412,10 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
-    def test_deliver_subscription(self, mock_sync):
+    def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
-        mock_sync.return_value = mock_client
+        self.mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
         sub_id = response.json()["id"]
@@ -435,10 +435,10 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.trigger_type == SubscriptionTriggerType.MANUAL
         assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
 
-    def test_deliver_cross_team_returns_404(self, mock_sync):
+    def test_deliver_cross_team_returns_404(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
-        mock_sync.return_value = mock_client
+        self.mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
         sub_id = response.json()["id"]
@@ -447,10 +447,10 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.post(f"/api/projects/{other_team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_deliver_deleted_subscription_returns_404(self, mock_sync):
+    def test_deliver_deleted_subscription_returns_404(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
-        mock_sync.return_value = mock_client
+        self.mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
         sub_id = response.json()["id"]
@@ -459,10 +459,10 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_deliver_temporal_error_returns_500(self, mock_sync):
+    def test_deliver_temporal_error_returns_500(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock(side_effect=[None, RuntimeError("Temporal unavailable")])
-        mock_sync.return_value = mock_client
+        self.mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
         sub_id = response.json()["id"]
@@ -471,7 +471,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json()["detail"] == "Failed to schedule delivery"
 
-    def test_deliver_concurrent_returns_409(self, mock_sync):
+    def test_deliver_concurrent_returns_409(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock(
             side_effect=[
@@ -481,7 +481,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 ),  # test-delivery
             ]
         )
-        mock_sync.return_value = mock_client
+        self.mock_sync.return_value = mock_client
 
         response = self._create_subscription(invite_message=None)
         sub_id = response.json()["id"]
@@ -489,7 +489,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_backfill_picks_same_integration_as_delivery(self, mock_sync):
+    def test_backfill_picks_same_integration_as_delivery(self):
         """The data migration must assign the lowest-id Slack integration
         per team, matching get_slack_integration_for_team behavior."""
         import importlib
