@@ -241,8 +241,8 @@ def parse_dorny_backend_patterns() -> list[str]:
 
 def pattern_is_covered(pattern: str) -> bool:
     """Check if a dorny pattern is covered by LOCAL_PACKAGES, FULL_RUN_PATTERNS, or GATE_ONLY_PATTERNS."""
-    # Strip glob suffixes to get the base path
-    base = re.sub(r"(/?\*\*?/?)+$", "", pattern)
+    # Strip trailing glob characters (*, /, **)
+    base = pattern.rstrip("/*")
 
     # Covered by import graph?
     for pkg in LOCAL_PACKAGES:
