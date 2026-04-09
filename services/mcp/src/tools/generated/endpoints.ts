@@ -7,6 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsOpenapiJsonRetrieveParams,
+    EndpointsOpenapiJsonRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -248,6 +250,26 @@ const endpointMaterializationStatus = (): ToolBase<
     },
 })
 
+const EndpointOpenapiSpecSchema = EndpointsOpenapiJsonRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsOpenapiJsonRetrieveQueryParams.shape
+)
+
+const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
+    name: 'endpoint-openapi-spec',
+    schema: EndpointOpenapiSpecSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointOpenapiSpecSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${projectId}/endpoints/${params.name}/openapi.json/`,
+            query: {
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoints-get-all': endpointsGetAll,
     'endpoint-get': endpointGet,
@@ -257,4 +279,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-run': endpointRun,
     'endpoint-versions': endpointVersions,
     'endpoint-materialization-status': endpointMaterializationStatus,
+    'endpoint-openapi-spec': endpointOpenapiSpec,
 }

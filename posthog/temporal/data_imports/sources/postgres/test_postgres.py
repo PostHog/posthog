@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    _build_count_query,
     _build_query,
     _get_primary_keys,
     _get_sslmode,
@@ -272,6 +274,30 @@ class TestBuildQuery:
         assert "LIMIT 1000" in rendered
 
 
+class TestBuildCountQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_count_query(self):
+        query = _build_count_query("public", "users", False, None, None, None)
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."users"' in rendered
+        assert "WHERE" not in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
+
+    def test_incremental_count_query(self):
+        query = _build_count_query("public", "events", True, "created_at", IncrementalFieldType.Timestamp, "2024-01-01")
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert '"public"."events"' in rendered
+        assert '"created_at"' in rendered
+        assert "'2024-01-01'" in rendered
+        assert "ORDER BY" not in rendered
+        assert "FROM (" not in rendered
+
+
 class TestPostgreSQLColumnToArrowField:
     @pytest.mark.parametrize(
         "data_type,expected_arrow_type",
@@ -444,6 +470,99 @@ class TestGetPrimaryKeys:
             assert len(result) == 2
             assert "org_id" in result
             assert "user_id" in result
+
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk (
+                    id INTEGER,
+                    created_at DATE,
+                    name TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_pk_2026
+                PARTITION OF test_partitioned_parent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_pk", logger)
+            assert result is not None
+            assert result == ["id", "created_at"]
+
+    @pytest.mark.django_db
+    def test_returns_primary_keys_for_partitioned_parent_when_only_children_have_pk(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk (
+                    order_id INTEGER NOT NULL,
+                    created_at DATE NOT NULL,
+                    updated_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q1
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_parent_no_pk_2026_q2
+                PARTITION OF test_partitioned_parent_no_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q1
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q1_pkey PRIMARY KEY (order_id)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_parent_no_pk_2026_q2
+                ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q2_pkey PRIMARY KEY (order_id)
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_no_pk", logger)
+            assert result is not None
+            assert result == ["order_id"]
+
+    @pytest.mark.django_db
+    def test_returns_none_for_partitioned_parent_with_inconsistent_child_pks(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk (
+                    col_a INTEGER NOT NULL,
+                    col_b INTEGER NOT NULL,
+                    created_at DATE NOT NULL
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q1
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_partitioned_inconsistent_pk_q2
+                PARTITION OF test_partitioned_inconsistent_pk
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q1
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q1_pkey PRIMARY KEY (col_a)
+            """)
+            dj_cursor.execute("""
+                ALTER TABLE ONLY test_partitioned_inconsistent_pk_q2
+                ADD CONSTRAINT test_partitioned_inconsistent_pk_q2_pkey PRIMARY KEY (col_b)
+            """)
+
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
+            assert result is None
 
 
 class TestHasDuplicatePrimaryKeys:

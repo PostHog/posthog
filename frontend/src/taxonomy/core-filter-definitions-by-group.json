@@ -1251,6 +1251,15 @@
             ],
             "label": "Timezone"
         },
+        "$go_version": {
+            "description": "The Go version that was used to capture the event.",
+            "examples": [
+                "go1.23.0"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Go version",
+            "system": true
+        },
         "$group_0": {
             "label": "Group 1",
             "system": true
@@ -1473,6 +1482,15 @@
                 "Mac OS X"
             ],
             "label": "OS"
+        },
+        "$os_distro": {
+            "description": "The distribution name in case of Linux.",
+            "examples": [
+                "Ubuntu",
+                "Debian",
+                "Fedora"
+            ],
+            "label": "OS distro"
         },
         "$os_name": {
             "description": "The Operating System name",
@@ -3973,6 +3991,15 @@
             ],
             "label": "Latest timezone"
         },
+        "$go_version": {
+            "description": "The Go version that was used to capture the event.",
+            "examples": [
+                "go1.23.0"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Go version",
+            "system": true
+        },
         "$group_0": {
             "label": "Group 1",
             "system": true
@@ -4599,6 +4626,15 @@
                 "Mac OS X"
             ],
             "label": "Latest OS"
+        },
+        "$os_distro": {
+            "description": "The distribution name in case of Linux.",
+            "examples": [
+                "Ubuntu",
+                "Debian",
+                "Fedora"
+            ],
+            "label": "OS distro"
         },
         "$os_name": {
             "description": "The Operating System name",

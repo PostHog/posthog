@@ -30,5 +30,9 @@ ACTIVITIES = [
 ]
 
 # Workflow + activities that run on the VIDEO_EXPORT_TASK_QUEUE (signals worker)
-EMIT_SIGNALS_WORKFLOWS = [EmitDataImportSignalsWorkflow]
-EMIT_SIGNALS_ACTIVITIES = [emit_data_import_signals_activity]
+EMIT_SIGNALS_WORKFLOWS = [
+    EmitDataImportSignalsWorkflow,
+]
+EMIT_SIGNALS_ACTIVITIES = [
+    emit_data_import_signals_activity,
+]

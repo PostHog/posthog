@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
@@ -25,6 +24,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -649,9 +649,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 })
 
-                return new Fuse(haystack, {
+                return createFuse(haystack, {
                     keys: ['name', 'posthogName', 'recentLabel'],
-                    threshold: 0.3,
                     ignoreLocation: true,
                 })
             },

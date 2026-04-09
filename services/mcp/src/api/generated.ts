@@ -8090,6 +8090,15 @@ export namespace Schemas {
       tileId: number;
     }
 
+    export interface CopyExperimentToProject {
+      /** The team ID to copy the experiment to. */
+      target_team_id: number;
+      /** Optional feature flag key to use in the destination team. */
+      feature_flag_key?: string;
+      /** Optional name for the copied experiment. */
+      name?: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -14072,6 +14081,16 @@ export namespace Schemas {
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
 
+    export interface ErrorTrackingIssueMergeRequest {
+      /** IDs of the issues to merge into the current issue. */
+      ids: string[];
+    }
+
+    export interface ErrorTrackingIssueMergeResponse {
+      /** Whether the merge completed successfully. */
+      success: boolean;
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -17795,6 +17814,13 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    export interface SummaryOutcome {
+      /** @nullable */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface SessionRecordingType {
       /** @nullable */
       active_seconds?: number | null;
@@ -17872,6 +17898,7 @@ export namespace Schemas {
       start_url?: string | null;
       /** @nullable */
       summary?: string | null;
+      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -19730,6 +19757,20 @@ export namespace Schemas {
       SignalReport: 'signal_report',
     } as const;
 
+    /**
+     * Initial goal and session outcome coming from LLM.
+     */
+    export interface Outcome {
+      /**
+       * @minLength 1
+       * @maxLength 10000
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -21174,6 +21215,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score: number | null;
       readonly has_summary: boolean;
+      readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -25027,6 +25069,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score?: number | null;
       readonly has_summary?: boolean;
+      readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }
@@ -26104,22 +26147,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -26515,6 +26542,18 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       homepage?: PinnedSceneTab | null;
     }
+
+    /**
+     * * `user` - user
+    * `bot` - bot
+     */
+    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
+
+
+    export const PrAuthorshipModeEnum = {
+      User: 'user',
+      Bot: 'bot',
+    } as const;
 
     /**
      * Serializer for creating and updating ProductTour.
@@ -29776,6 +29815,18 @@ export namespace Schemas {
       stale: number;
     }
 
+    /**
+     * * `manual` - manual
+    * `signal_report` - signal_report
+     */
+    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
+
+
+    export const RunSourceEnum = {
+      Manual: 'manual',
+      SignalReport: 'signal_report',
+    } as const;
+
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -30658,6 +30709,20 @@ export namespace Schemas {
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -30830,22 +30895,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -31400,6 +31449,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
     };
 
     export type EnvironmentsEndpointsVersionsListParams = {
@@ -34158,6 +34214,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
     };
 
     export type EndpointsVersionsListParams = {

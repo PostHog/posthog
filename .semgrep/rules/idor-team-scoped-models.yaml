@@ -120,6 +120,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
@@ -307,6 +308,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
