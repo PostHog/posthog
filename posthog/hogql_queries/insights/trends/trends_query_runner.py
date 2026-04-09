@@ -63,6 +63,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.utils import should_use_exact_timerange_for_trends_query
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -214,6 +215,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             breakdown_value=breakdown_value if breakdown_value != "all" else None,
             compare_value=compare_value,
             include_recordings=include_recordings,
+            exact_timerange=self.exact_timerange,
         )
 
         return query_builder
@@ -733,8 +735,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return None
 
     @property
-    def exact_timerange(self):
-        return self.query.dateRange and self.query.dateRange.explicitDate
+    def exact_timerange(self) -> bool:
+        return should_use_exact_timerange_for_trends_query(self.query)
 
     @cached_property
     def query_date_range(self):

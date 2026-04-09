@@ -3,13 +3,21 @@ import pytest
 from posthog.schema import (
     BaseMathType,
     BreakdownType,
+    ChartDisplayType,
     CountPerActorMathType,
+    DateRange,
     EventsNode,
     MathGroupTypeIndex,
     PropertyMathType,
+    TrendsFilter,
+    TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain, is_groups_math
+from posthog.hogql_queries.insights.trends.utils import (
+    get_properties_chain,
+    is_groups_math,
+    should_use_exact_timerange_for_trends_query,
+)
 
 
 def test_properties_chain_person():
@@ -177,3 +185,36 @@ def test_is_groups_math_with_additional_properties():
         properties=[],  # Additional properties shouldn't affect result
     )
     assert is_groups_math(series) is True
+
+
+@pytest.mark.parametrize(
+    "date_range,trends_filter,expected",
+    [
+        (DateRange(date_from="-7d", explicitDate=True), None, True),
+        (
+            DateRange(date_from="-24h"),
+            TrendsFilter(display=ChartDisplayType.CHANGE_CHART),
+            True,
+        ),
+        (
+            DateRange(date_to="-15m"),
+            TrendsFilter(display=ChartDisplayType.CHANGE_CHART),
+            True,
+        ),
+        (
+            DateRange(date_from="-7d"),
+            TrendsFilter(display=ChartDisplayType.CHANGE_CHART),
+            False,
+        ),
+        (
+            DateRange(date_from="-24h"),
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            False,
+        ),
+        (None, TrendsFilter(display=ChartDisplayType.CHANGE_CHART), False),
+    ],
+)
+def test_should_use_exact_timerange_for_trends_query(date_range, trends_filter, expected):
+    trends_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=date_range, trendsFilter=trends_filter)
+
+    assert should_use_exact_timerange_for_trends_query(trends_query) is expected

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from posthog.schema import (
     BaseMathType,
     BreakdownAttributionType,
+    ChartDisplayType,
     EventPropertyFilter,
     EventsNode,
     FunnelConversionWindowTimeUnit,
@@ -136,6 +137,16 @@ class TestSchemaHelpers(TestCase):
 
         # total value
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
+        self.assertEqual(
+            to_dict(query),
+            {
+                "kind": "TrendsQuery",
+                "series": [],
+                "trendsFilter": {"display": "ActionsBarValue"},
+            },
+        )
+
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": ChartDisplayType.CHANGE_CHART}})
         self.assertEqual(
             to_dict(query),
             {

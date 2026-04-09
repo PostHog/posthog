@@ -1270,6 +1270,12 @@ export interface VizSpecificOptions {
         disableHoverOffset?: boolean
         hideAggregation?: boolean
     }
+    [ChartDisplayType.ChangeChart]?: {
+        displayMode?: 'relative' | 'absolute'
+        orderBy?: 'change' | 'name' | 'currentValue' | 'previousValue'
+        orderDirection?: 'asc' | 'desc'
+        showCurrentValue?: boolean
+    }
 }
 
 export interface InsightVizNode<T = InsightQueryNode> extends Node<never>, InsightVizNodeViewProps {

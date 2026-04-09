@@ -50,6 +50,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query: TrendsQuery = default_query,
         compare_value: Optional[Compare] = None,
         breakdown_value: Optional[str | int | list[str]] = None,
+        exact_timerange: bool = False,
     ) -> TrendsActorsQueryBuilder:
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
@@ -63,6 +64,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             time_frame=time_frame,
             compare_value=compare_value,
             breakdown_value=breakdown_value,
+            exact_timerange=exact_timerange,
         )
 
     def _print_hogql_expr(self, conditions: list[ast.Expr]):

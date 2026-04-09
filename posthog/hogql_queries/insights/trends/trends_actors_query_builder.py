@@ -44,6 +44,7 @@ class TrendsActorsQueryBuilder:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    exact_timerange: bool
 
     entity: EventsNode | ActionsNode | GroupNode
     time_frame: Optional[datetime]
@@ -59,6 +60,7 @@ class TrendsActorsQueryBuilder:
         modifiers: HogQLQueryModifiers,
         series_index: int,
         time_frame: Optional[str | datetime],
+        exact_timerange: bool,
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
@@ -69,6 +71,7 @@ class TrendsActorsQueryBuilder:
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
+        self.exact_timerange = exact_timerange
 
         entity = trends_query.series[series_index]
 
@@ -91,11 +94,6 @@ class TrendsActorsQueryBuilder:
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
         self.include_recordings = include_recordings
-
-    @property
-    def exact_timerange(self):
-        return self.trends_query.dateRange and self.trends_query.dateRange.explicitDate
-
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
         return QueryDateRange(

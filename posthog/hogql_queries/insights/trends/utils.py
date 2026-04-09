@@ -6,10 +6,14 @@ from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownType,
+    ChartDisplayType,
     DataWarehouseNode,
+    DateRange,
     EventsNode,
     GroupNode,
     MultipleBreakdownType,
+    TrendsFilter,
+    TrendsQuery,
 )
 
 from posthog.hogql import ast
@@ -19,6 +23,24 @@ from posthog.constants import UNIQUE_GROUPS
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+
+def should_use_exact_timerange_for_trends_query(trends_query: TrendsQuery) -> bool:
+    date_range: DateRange | None = trends_query.dateRange
+    if date_range and date_range.explicitDate:
+        return True
+
+    if date_range is None:
+        return False
+
+    trends_filter = trends_query.trendsFilter or TrendsFilter()
+    if trends_filter.display != ChartDisplayType.CHANGE_CHART:
+        return False
+
+    return any(
+        isinstance(value, str) and value.startswith("-") and value[-1:] in {"s", "m", "h"} and value[1:-1].isdigit()
+        for value in (date_range.date_from, date_range.date_to)
+    )
 
 
 def get_properties_chain(
