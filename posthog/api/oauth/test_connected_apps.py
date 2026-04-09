@@ -1,6 +1,7 @@
 import uuid
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -26,6 +27,7 @@ def _generate_rsa_key() -> str:
     return pem.decode("utf-8")
 
 
+@freeze_time("2024-06-15T12:00:00Z")
 @override_settings(
     OAUTH2_PROVIDER={
         **settings.OAUTH2_PROVIDER,
