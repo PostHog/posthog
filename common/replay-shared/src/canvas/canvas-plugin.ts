@@ -62,7 +62,7 @@ const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
     onError: CanvasPluginErrorHandler = noOpErrorHandler
-): ReplayPlugin => {
+): ReplayPlugin & { destroy: () => void } => {
     const canvases = new Map<number, HTMLCanvasElement>([])
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
@@ -392,5 +392,25 @@ export const CanvasReplayerPlugin = (
                 void processMutation(e, replayer).catch(onError)
             }
         },
-    } as ReplayPlugin
+
+        destroy: () => {
+            for (const controller of controllerById.values()) {
+                controller.abort()
+            }
+            controllerById.clear()
+
+            for (const [id] of objectUrlsById) {
+                revokeAllForIdExcept(id)
+            }
+            objectUrlsById.clear()
+
+            canvases.clear()
+            containers.clear()
+            imageMap.clear()
+            canvasEventMap.clear()
+            handleQueue.clear()
+            pruneQueue.length = 0
+            nextPreloadIndex = null
+        },
+    }
 }
