@@ -81,8 +81,10 @@ test.describe('SQL Editor', () => {
             await nameInput.fill(uniqueViewName)
             await page.getByRole('button', { name: 'Submit' }).click()
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-            // Dismiss any popover/toast that might overlay the materialization button
-            await page.keyboard.press('Escape')
+
+            // Reload to ensure the editor picks up the saved view from the URL
+            // (syncUrlWithQuery updates the hash with the view ID after save)
+            await page.reload({ waitUntil: 'networkidle' })
 
             await expect(page.locator('[data-attr=sql-editor-materialization-button]')).toBeVisible()
             await page.locator('[data-attr=sql-editor-materialization-button]').click()
