@@ -185,7 +185,8 @@ export function CopyExperimentToProjectModal({
             <div className="space-y-4">
                 <div className="text-muted max-w-xl">
                     The experiment and its feature flag will be copied as a draft. The feature flag will be disabled by
-                    default in the target project.
+                    default in the target project. If a feature flag with the same key already exists, or you select an
+                    existing flag, the release configuration for that flag will not be changed.
                 </div>
 
                 <div>
