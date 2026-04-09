@@ -54,7 +54,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.'
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
             ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
@@ -117,7 +117,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.'
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
             ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),

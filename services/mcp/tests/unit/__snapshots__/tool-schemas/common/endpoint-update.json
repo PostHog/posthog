@@ -1,17 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "cache_age_seconds": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Cache TTL in seconds (60–86400)."
-        },
         "description": {
             "anyOf": [
                 {

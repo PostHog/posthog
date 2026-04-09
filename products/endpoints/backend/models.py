@@ -114,11 +114,6 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="endpoint_versions_created",
     )
 
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Legacy field; superseded by data_freshness_seconds. Kept for rollback safety until migration 0028 lands.",
-    )
     data_freshness_seconds = models.IntegerField(
         default=86400,
         help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
