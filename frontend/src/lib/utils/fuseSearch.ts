@@ -1,9 +1,21 @@
-import FuseClass from 'fuse.js'
+import FuseClass, { IFuseOptions } from 'fuse.js'
+
+export type Fuse<T> = FuseClass<T>
+export type { IFuseOptions }
+
+const FUSE_DEFAULTS = {
+    threshold: 0.3,
+    useTokenSearch: true,
+}
+
+export function createFuse<T>(items: T[], options: IFuseOptions<T>): FuseClass<T> {
+    return new FuseClass<T>(items, { ...FUSE_DEFAULTS, ...options } as IFuseOptions<T>)
+}
 
 export type FuseSearch<T> = (items: T[], term: string) => T[]
 
-export function createFuseSearch<T>(keys: (keyof T & string)[], threshold = 0.3): FuseSearch<T> {
-    const fuse = new FuseClass<T>([], { keys, threshold })
+export function createFuseSearch<T>(keys: (keyof T & string)[]): FuseSearch<T> {
+    const fuse = createFuse<T>([], { keys })
     return (items: T[], term: string): T[] => {
         if (!term.trim()) {
             return items

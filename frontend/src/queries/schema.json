@@ -13362,6 +13362,26 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                }
+            ],
+            "description": "Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery."
+        },
         "EndpointRefreshMode": {
             "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
             "enum": ["cache", "force", "direct"],
@@ -13406,7 +13426,7 @@
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
-                            "$ref": "#/definitions/InsightQueryNode"
+                            "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
                 },
@@ -13432,10 +13452,6 @@
                     "default": false,
                     "description": "Whether to include debug information (such as the executed HogQL) in the response.",
                     "type": "boolean"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter",
-                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer",
@@ -33313,6 +33329,25 @@
                 },
                 "summary": {
                     "type": "string"
+                },
+                "summary_outcome": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "description": {
+                                    "type": ["string", "null"]
+                                },
+                                "success": {
+                                    "type": ["boolean", "null"]
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",

@@ -63,6 +63,7 @@ from .serializers import (
 from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
+from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
 
 logger = logging.getLogger(__name__)
 
@@ -247,8 +248,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
+        run_source = request.validated_data.get("run_source")
+        signal_report_id = request.validated_data.get("signal_report_id")
+        github_user_token = request.validated_data.get("github_user_token")
 
         extra_state = None
+        if pending_user_message is not None:
+            extra_state = {"pending_user_message": pending_user_message}
+
         if resume_from_run_id:
             # prevent cross-task resume
             previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -256,18 +264,37 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Invalid resume_from_run_id"}, status=400)
 
             # Derive snapshot_external_id from the validated previous run
-            snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
-            extra_state = {
-                "resume_from_run_id": str(resume_from_run_id),
-            }
-            if pending_user_message is not None:
-                extra_state["pending_user_message"] = pending_user_message
-            if snapshot_ext_id:
-                extra_state["snapshot_external_id"] = snapshot_ext_id
+            prev_state = parse_run_state(previous_run.state)
+            extra_state = extra_state or {}
+            extra_state["resume_from_run_id"] = str(resume_from_run_id)
+            if prev_state.snapshot_external_id:
+                extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
 
-            prev_sandbox_env_id = (previous_run.state or {}).get("sandbox_environment_id")
-            if prev_sandbox_env_id and sandbox_environment_id is None:
-                sandbox_environment_id = prev_sandbox_env_id
+            if prev_state.sandbox_environment_id and sandbox_environment_id is None:
+                sandbox_environment_id = prev_state.sandbox_environment_id
+
+            if pr_authorship_mode is None:
+                pr_authorship_mode = prev_state.pr_authorship_mode
+            if run_source is None:
+                run_source = prev_state.run_source
+            if signal_report_id is None:
+                signal_report_id = prev_state.signal_report_id
+            if branch is None and prev_state.pr_base_branch is not None:
+                branch = prev_state.pr_base_branch
+
+        for key, value in {
+            "pr_base_branch": branch,
+            "pr_authorship_mode": pr_authorship_mode,
+            "run_source": run_source,
+            "signal_report_id": signal_report_id,
+        }.items():
+            if value is not None:
+                extra_state = extra_state or {}
+                extra_state[key] = value
+
+        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
+        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
+            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
@@ -290,6 +317,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
+            cache_github_user_token(str(task_run.id), github_user_token)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -379,34 +409,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        old_status = task_run.status
+        has_output_merge = "output" in request.validated_data and isinstance(request.validated_data["output"], dict)
 
-        # Update fields from validated data
-        for key, value in request.validated_data.items():
-            setattr(task_run, key, value)
+        with transaction.atomic():
+            # Re-fetch with row lock when merging output to prevent concurrent
+            # PATCHes (e.g. branch sync + PR URL) from clobbering each other.
+            if has_output_merge:
+                task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
 
-        new_status = request.validated_data.get("status")
-        terminal_statuses = [
-            TaskRun.Status.COMPLETED,
-            TaskRun.Status.FAILED,
-            TaskRun.Status.CANCELLED,
-        ]
+            old_status = task_run.status
+            old_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
 
-        # Auto-set completed_at if status is completed or failed
-        if new_status in terminal_statuses:
-            if not task_run.completed_at:
-                task_run.completed_at = timezone.now()
+            # Update fields from validated data
+            for key, value in request.validated_data.items():
+                if key == "output" and isinstance(value, dict):
+                    existing_output = task_run.output if isinstance(task_run.output, dict) else {}
+                    setattr(task_run, key, {**existing_output, **value})
+                    continue
+                setattr(task_run, key, value)
 
-            # Signal Temporal workflow if status changed to terminal state
-            if old_status != new_status:
-                self._signal_workflow_completion(
-                    task_run,
-                    new_status,
-                    request.validated_data.get("error_message"),
-                )
+            new_status = request.validated_data.get("status")
+            terminal_statuses = [
+                TaskRun.Status.COMPLETED,
+                TaskRun.Status.FAILED,
+                TaskRun.Status.CANCELLED,
+            ]
 
-        task_run.save()
-        self._post_slack_update_for_pr(task_run)
+            # Auto-set completed_at if status is completed or failed
+            if new_status in terminal_statuses:
+                if not task_run.completed_at:
+                    task_run.completed_at = timezone.now()
+
+            task_run.save()
+
+        # Signal Temporal and post Slack updates after commit to avoid
+        # holding the row lock during external calls.
+        if new_status in terminal_statuses and old_status != new_status:
+            self._signal_workflow_completion(
+                task_run,
+                new_status,
+                request.validated_data.get("error_message"),
+            )
+        new_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
+        if new_pr_url and new_pr_url != old_pr_url:
+            self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -812,16 +858,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        state = task_run.state or {}
+        run_state = parse_run_state(task_run.state)
 
-        sandbox_url = state.get("sandbox_url")
-        if not sandbox_url:
+        if not run_state.sandbox_url:
             return Response(
                 ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self._is_valid_sandbox_url(sandbox_url):
+        if not self._is_valid_sandbox_url(run_state.sandbox_url):
             logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
             return Response(
                 ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
@@ -834,8 +879,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             distinct_id=request.user.distinct_id,
         )
 
-        sandbox_connect_token = state.get("sandbox_connect_token")
-
         command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
             "method": request.validated_data["method"],
@@ -847,9 +890,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             agent_response = self._proxy_command_to_agent_server(
-                sandbox_url=sandbox_url,
+                sandbox_url=run_state.sandbox_url,
                 connection_token=connection_token,
-                sandbox_connect_token=sandbox_connect_token,
+                sandbox_connect_token=run_state.sandbox_connect_token,
                 payload=command_payload,
             )
 

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { TagIcon } from 'lucide-react'
 
 import { Chip, ChipClose, ChipGroup } from './chip'

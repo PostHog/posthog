@@ -55,10 +55,10 @@ import type {
     ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
+    EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -736,9 +736,6 @@ export interface TeamType extends TeamBasicType {
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
-    experiment_recalculation_time?: string | null
-    default_experiment_confidence_level?: number | null
-    default_experiment_stats_method?: ExperimentStatsMethod | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -776,6 +773,7 @@ export interface ActionType extends WithAccessControl {
     bytecode_error?: string
     pinned_at: string | null
     _create_in_folder?: string | null
+    reference_count?: number
 }
 
 /** Sync with nodejs/src/types.ts */
@@ -1827,6 +1825,7 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
+    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }
@@ -2330,7 +2329,7 @@ export interface EndpointType extends WithAccessControl {
     name: string
     description: string
     derived_from_insight?: string | null
-    query: HogQLQuery | InsightQueryNode
+    query: HogQLQuery | EndpointQueryNode
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -4920,6 +4919,7 @@ export interface SubscriptionType {
     until_date?: string
     title: string
     summary: string
+    next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
@@ -5150,8 +5150,10 @@ export type APIScopeObject =
     | 'activity_log'
     | 'alert'
     | 'annotation'
+    | 'approvals'
     | 'batch_export'
     | 'cohort'
+    | 'comment'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
@@ -6422,6 +6424,7 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
+    | 'feature-flag-change'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'

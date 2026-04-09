@@ -1831,10 +1831,13 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+/** Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery. */
+export type EndpointQueryNode = TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery
+
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode
+    query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */
@@ -1883,15 +1886,6 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
-    /**
-     * @deprecated Use `variables` instead. Will be removed in a future release.
-     *
-     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
-     * Not allowed for HogQL endpoints.
-     *
-     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-     */
-    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**

@@ -3968,6 +3968,14 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SummaryOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    success: bool | None = None
+
+
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6008,6 +6016,51 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
+    )
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7482,6 +7535,7 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
+    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -12556,52 +12610,6 @@ class ECODDetectorConfig(BaseModel):
         description=(
             "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
         ),
-    )
-
-
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    filters_override: DashboardFilter | None = None
-    limit: int | None = Field(
-        default=None,
-        description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Variables to parameterize the endpoint query. The key is the variable name"
-            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
-            " match a variable `code_name` defined in the query (referenced as"
-            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
-            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
-            " and `date_to` are built-in variables that filter the date range.    "
-            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
-            " materialized insight endpoints:   - Use the breakdown property name as"
-            ' the key to filter by breakdown value.     Example: `{"$browser":'
-            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
-            " insight endpoints.\n\nUnknown variable names will return a 400 error."
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 
@@ -20167,6 +20175,40 @@ class Response24(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
+    cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
+    derived_from_insight: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    is_materialized: bool | None = Field(
+        default=None,
+        description="Whether this endpoint's query results are materialized to S3",
+    )
+    name: str | None = None
+    query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
+        None
+    )
+    sync_frequency: DataWarehouseSyncInterval | None = Field(
+        default=None,
+        description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
+
+
 class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21015,49 +21057,6 @@ class IsExperimentFunnelsQuery(BaseModel):
 
 class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs1 | None = None
-
-
-class EndpointRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket_overrides: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Per-column bucket function overrides for range variable materialization."
-            " Keys are column names, values are bucket keys (hour, day, week, month)."
-        ),
-    )
-    cache_age_seconds: float | None = None
-    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
-    derived_from_insight: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
-    is_materialized: bool | None = Field(
-        default=None,
-        description="Whether this endpoint's query results are materialized to S3",
-    )
-    name: str | None = None
-    query: (
-        HogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | WebStatsTableQuery
-        | WebOverviewQuery
-        | None
-    ) = None
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Target a specific version for updates (optional, defaults to current version)"),
-    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):

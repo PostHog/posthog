@@ -13,18 +13,16 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.grouping import (
-    WaitForClickHouseInput,
-    WaitForClickHouseSignal,
-    wait_for_signal_in_clickhouse_activity,
-)
-from products.signals.backend.temporal.summary import (
+from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
     fetch_signals_for_report_activity,
+    soft_delete_report_signals,
+    wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportReingestionWorkflowInputs
-from products.signals.backend.utils import soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
@@ -84,10 +82,7 @@ class ReingestSignalsInput:
 
 @temporalio.activity.defn
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
-    """
-    Re-emit all signals via emit_signal(), which handles org guards and
-    signal-with-start into the per-team TeamSignalGroupingWorkflow.
-    """
+    """Re-emit all signals via emit_signal() through the active Signals pipeline."""
     team = await Team.objects.aget(pk=input.team_id)
 
     for signal in input.signals:
@@ -110,18 +105,7 @@ async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
 
 @temporalio.workflow.defn(name="signal-report-reingestion")
 class SignalReportReingestionWorkflow:
-    """
-    Workflow that deletes a report and re-ingests its signals through the grouping pipeline.
-
-    Flow:
-    1. Fetch all signals for the report from ClickHouse
-    2. Soft-delete all signals in ClickHouse (re-emit with metadata.deleted=True)
-    3. Delete the report in Postgres (transition to DELETED)
-    4. Re-ingest each signal via the TeamSignalGroupingWorkflow
-
-    The signals will be re-processed through the full grouping pipeline and may end up
-    in different reports based on the current LLM matching decisions.
-    """
+    """Delete a report, soft-delete its signals, then re-emit them through the active Signals pipeline."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SignalReportReingestionWorkflowInputs:
@@ -191,7 +175,7 @@ class SignalReportReingestionWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # 4. Re-ingest all signals via the grouping workflow
+        # 4. Re-ingest all signals
         await workflow.execute_activity(
             reingest_signals_activity,
             ReingestSignalsInput(team_id=inputs.team_id, signals=fetch_result.signals),
