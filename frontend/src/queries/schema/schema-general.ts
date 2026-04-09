@@ -1886,15 +1886,6 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
-    /**
-     * @deprecated Use `variables` instead. Will be removed in a future release.
-     *
-     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
-     * Not allowed for HogQL endpoints.
-     *
-     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-     */
-    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -2585,6 +2576,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     groupTypeIndex?: integer
     /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean
+    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    useQueryV3?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -5944,6 +5937,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
+    SUBSCRIPTIONS = 'subscriptions',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

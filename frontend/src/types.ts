@@ -4907,6 +4907,8 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    insight_short_id?: string | null
+    resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
     target_type: string
@@ -4922,7 +4924,6 @@ export interface SubscriptionType {
     next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
-    updated_at: string
     deleted?: boolean
 }
 

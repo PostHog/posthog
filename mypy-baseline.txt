@@ -839,6 +839,8 @@ products/early_access_features/backend/migrations/0002_alter_earlyaccessfeature_
 products/error_tracking/backend/hogql_queries/error_tracking_query_runner_v2.py:0: error: List item 0 has incompatible type "str | float | bool | None"; expected "str | float | bool"  [list-item]
 products/error_tracking/backend/hogql_queries/error_tracking_query_runner_v2.py:0: error: List item 0 has incompatible type "str | float | bool | None"; expected "str | float | bool"  [list-item]
 products/error_tracking/backend/hogql_queries/error_tracking_query_runner_v2.py:0: error: Name "values" already defined on line 0  [no-redef]
+products/error_tracking/backend/hogql_queries/error_tracking_query_runner_v3.py:0: error: List item 0 has incompatible type "str | float | bool | None"; expected "str | float | bool"  [list-item]
+products/error_tracking/backend/hogql_queries/error_tracking_query_runner_v3.py:0: error: List item 0 has incompatible type "str | float | bool | None"; expected "str | float | bool"  [list-item]
 products/error_tracking/backend/hogql_queries/test/test_error_tracking_query_runner.py:0: error: "setUp" undefined in superclass  [misc]
 products/error_tracking/backend/max_tools.py:0: error: Exception must be derived from BaseException  [misc]
 products/error_tracking/backend/migrations/0001_migrate_error_tracking_models.py:0: error: Need type annotation for "database_operations" (hint: "database_operations: list[<type>] = ...")  [var-annotated]

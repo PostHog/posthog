@@ -7,6 +7,7 @@ import structlog
 
 from .config import Config
 from .results import TestSuiteResult
+from .runner import RunningTestInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -115,12 +116,13 @@ def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, A
     }
 
 
-def send_slack_timeout_notification(config: Config, running_tests: list[str] | None = None) -> bool:
+def send_slack_timeout_notification(config: Config, running_tests: list[RunningTestInfo] | None = None) -> bool:
     """Send a timeout notification to Slack via incoming webhook.
 
     Args:
         config: Configuration containing the Slack webhook URL.
-        running_tests: List of test names that were still running when the timeout occurred.
+        running_tests: List of RunningTestInfo with test names and their pending
+            poll descriptions (what each test was waiting for in ClickHouse).
 
     Returns:
         True if notification was sent successfully or skipped, False on send failure.
@@ -145,7 +147,8 @@ def send_slack_timeout_notification(config: Config, running_tests: list[str] | N
                     "text": (
                         f":globe_with_meridians: Env: {config.api_host} | "
                         f":file_folder: Team: {config.team_id} | "
-                        f":stopwatch: Timeout: {config.activity_timeout_seconds}s"
+                        f":stopwatch: Timeout: {config.activity_timeout_seconds}s | "
+                        f":key: Token: `{config.project_api_key[:10]}...`"
                     ),
                 },
             ],
@@ -153,7 +156,13 @@ def send_slack_timeout_notification(config: Config, running_tests: list[str] | N
     ]
 
     if running_tests:
-        test_list = "\n".join(f"• {name}" for name in running_tests)
+        lines = []
+        for info in running_tests:
+            line = f"• {info.name}"
+            if info.pending_poll:
+                line += f" — waiting for: {info.pending_poll}"
+            lines.append(line)
+        test_list = "\n".join(lines)
         blocks.append(
             {
                 "type": "section",

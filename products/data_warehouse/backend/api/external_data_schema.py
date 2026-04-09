@@ -233,6 +233,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if was_sync_frequency_updated or was_sync_time_of_day_updated:
                 sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
 
+        # When re-enabling a webhook schema, force a full refresh to avoid missing data
+        if (
+            should_sync is True
+            and instance.should_sync is False
+            and instance.is_webhook
+            and instance.initial_sync_complete
+        ):
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
+            validated_data["sync_type_config"]["reset_pipeline"] = True
+            trigger_refresh = True
+
         if source.is_direct_postgres:
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
