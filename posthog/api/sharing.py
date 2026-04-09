@@ -819,9 +819,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
-            ok, err = is_url_allowed(heatmap_url)
-            if not ok:
-                raise ValidationError(f"heatmap_url not allowed: {err}")
+            parsed = urlparse(heatmap_url)
+            # Relative paths (no scheme and no netloc) are resolved by the browser
+            # in the exporter context, not fetched by the server — SSRF validation doesn't apply
+            if parsed.scheme or parsed.netloc:
+                ok, err = is_url_allowed(heatmap_url)
+                if not ok:
+                    raise ValidationError(f"heatmap_url not allowed: {err}")
 
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:

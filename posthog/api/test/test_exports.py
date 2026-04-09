@@ -1059,6 +1059,31 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_accepts_relative_path_heatmap_url(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "heatmap_url": "/api/environments/1/heatmap_screenshots/42/content/?width=1200",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_rejects_protocol_relative_heatmap_url(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "heatmap_url": "//evil.com/steal-data",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:

@@ -1,4 +1,5 @@
 import threading
+import urllib.parse as urlparse
 from datetime import timedelta
 from typing import Any
 
@@ -155,9 +156,14 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 )
 
         if export_context and export_context.get("heatmap_url"):
-            ok, err = is_url_allowed(export_context["heatmap_url"])
-            if not ok:
-                raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
+            heatmap_url = export_context["heatmap_url"]
+            parsed = urlparse.urlparse(heatmap_url)
+            # Relative paths (no scheme and no netloc) are resolved by the browser
+            # in the exporter context, not fetched by the server — SSRF validation doesn't apply
+            if parsed.scheme or parsed.netloc:
+                ok, err = is_url_allowed(heatmap_url)
+                if not ok:
+                    raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
         data["team_id"] = self.context["team_id"]
         return data
