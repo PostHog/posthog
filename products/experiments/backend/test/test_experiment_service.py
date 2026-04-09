@@ -3002,8 +3002,9 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_unknown_event_in_secondary_metrics_raises(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
         service = self._service()
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as ctx:
             service.create_experiment(
                 name="Bad Secondary Event",
                 feature_flag_key="bad-secondary-event-flag",
@@ -3022,6 +3023,7 @@ class TestExperimentService(APIBaseTest):
                     },
                 ],
             )
+        assert "totally_fake" in str(ctx.exception.detail)
 
     def test_funnel_series_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="step_one")

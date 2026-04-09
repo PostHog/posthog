@@ -263,7 +263,7 @@ class ExperimentService:
                 if source := metric.get("source"):
                     nodes.append(source)
             elif metric_type == "funnel":
-                nodes.extend(metric.get("series", []))
+                nodes.extend(metric.get("series") or [])
             elif metric_type == "ratio":
                 if num := metric.get("numerator"):
                     nodes.append(num)
