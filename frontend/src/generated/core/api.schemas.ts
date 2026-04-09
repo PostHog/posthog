@@ -893,8 +893,7 @@ export interface DashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -930,8 +929,7 @@ export interface PatchedDashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at?: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by?: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable

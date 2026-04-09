@@ -8721,8 +8721,7 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @nullable */
       readonly created_at: string | null;
-      /** @nullable */
-      created_by?: number | null;
+      readonly created_by: UserBasic;
       /**
        * @maxLength 8201
        * @nullable
@@ -23011,8 +23010,7 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @nullable */
       readonly created_at?: string | null;
-      /** @nullable */
-      created_by?: number | null;
+      readonly created_by?: UserBasic;
       /**
        * @maxLength 8201
        * @nullable
@@ -34206,10 +34204,23 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
      */
     ordering?: string;
+    /**
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     */
+    scope?: DashboardTemplatesListScope;
     };
+
+    export type DashboardTemplatesListScope = typeof DashboardTemplatesListScope[keyof typeof DashboardTemplatesListScope];
+
+
+    export const DashboardTemplatesListScope = {
+      FeatureFlag: 'feature_flag',
+      Global: 'global',
+      Team: 'team',
+    } as const;
 
     export type DashboardsListParams = {
     format?: DashboardsListFormat;
