@@ -246,6 +246,8 @@ pub async fn evaluate_for_request(
     request_id: Uuid,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
+    detailed_analysis: Option<bool>,
+    only_use_override_person_properties: Option<bool>,
 ) -> Result<FlagsResponse, FlagError> {
     // If flags are disabled, return empty FlagsResponse
     if disable_flags {
@@ -284,12 +286,16 @@ pub async fn evaluate_for_request(
             .0,
         parallel_eval_threshold: state.config.parallel_eval_threshold,
         rayon_dispatcher: state.rayon_dispatcher.clone(),
-        skip_writes: *state.config.skip_writes,
+        skip_writes: detailed_analysis.unwrap_or(false)
+            || only_use_override_person_properties.unwrap_or(false)
+            || *state.config.skip_writes,
         cohort_membership_provider: state.cohort_membership_provider.clone(),
         enable_realtime_cohort_evaluation: state
             .config
             .realtime_cohort_evaluation_team_ids
             .includes_team(team_id),
+        detailed_analysis: detailed_analysis.unwrap_or(false),
+        only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

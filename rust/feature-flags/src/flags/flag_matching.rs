@@ -336,6 +336,10 @@ pub struct FeatureFlagMatcher {
     /// so the matcher skips the CohortCacheManager PG query entirely.
     /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
     preloaded_cohorts: Option<Vec<Cohort>>,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    only_use_override_person_properties: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -385,6 +389,8 @@ impl FeatureFlagMatcher {
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             preloaded_cohorts: None,
+            detailed_analysis: false,
+            only_use_override_person_properties: false,
         }
     }
 
@@ -413,6 +419,16 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_detailed_analysis(mut self, detailed_analysis: bool) -> Self {
+        self.detailed_analysis = detailed_analysis;
+        self
+    }
+
+    pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
+        self.only_use_override_person_properties = only_use_override;
         self
     }
 
@@ -980,8 +996,12 @@ impl FeatureFlagMatcher {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
+                let flag_details = if self.detailed_analysis {
+                    FlagDetails::create_with_analysis(flag, flag_match, true)
+                } else {
+                    FlagDetails::create(flag, flag_match)
+                };
+                level_evaluated_flags_map.insert(flag.key.clone(), flag_details);
             }
             Err(e) => {
                 *errors_while_computing_flags = true;
@@ -1504,6 +1524,7 @@ impl FeatureFlagMatcher {
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
+                tracing::debug!(flag_key = %feature_flag.key, "Condition has no property filters, proceeding to rollout check");
                 return self.check_rollout(
                     feature_flag,
                     rollout_percentage,
@@ -1529,7 +1550,13 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false).unwrap_or(false) {
+                    let match_result = match_property(filter, props, false);
+                    if !match_result.unwrap_or(false) {
+                        tracing::debug!(
+                            flag_key = %feature_flag.key,
+                            filter_key = %filter.key,
+                            "Property filter failed, condition does not match"
+                        );
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
@@ -1548,8 +1575,18 @@ impl FeatureFlagMatcher {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
+        } else {
+            tracing::debug!(
+                flag_key = %feature_flag.key,
+                "Condition has no properties defined, proceeding to rollout check"
+            );
         }
 
+        tracing::debug!(
+            flag_key = %feature_flag.key,
+            rollout_percentage = rollout_percentage,
+            "All property filters passed, proceeding to rollout check"
+        );
         self.check_rollout(
             feature_flag,
             rollout_percentage,
@@ -1642,11 +1679,15 @@ impl FeatureFlagMatcher {
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // Start with DB properties (clone only when we need a mutable copy)
-        let mut merged_properties = self
-            .get_person_properties_from_evaluation_state()
-            .cloned()
-            .unwrap_or_default();
+        let mut merged_properties = if self.only_use_override_person_properties {
+            // When only_use_override_person_properties is true, ignore DB properties entirely
+            HashMap::new()
+        } else {
+            // Start with DB properties (clone only when we need a mutable copy)
+            self.get_person_properties_from_evaluation_state()
+                .cloned()
+                .unwrap_or_default()
+        };
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {

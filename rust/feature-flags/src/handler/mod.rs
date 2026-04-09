@@ -214,6 +214,8 @@ async fn process_request_inner(
                 context.request_id,
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
+                context.meta.detailed_analysis,
+                context.meta.only_use_override_person_properties,
             )
             .await?;
 

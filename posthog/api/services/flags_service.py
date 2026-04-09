@@ -19,6 +19,10 @@ def get_flags_from_service(
     token: str,
     distinct_id: str,
     groups: dict[str, Any] | None = None,
+    detailed_analysis: bool = False,
+    person_properties: dict[str, Any] | None = None,
+    only_use_override_person_properties: bool = False,
+    flag_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -27,6 +31,10 @@ def get_flags_from_service(
         token: The project API token (the public token) for the team
         distinct_id: The distinct ID for the user
         groups: Optional groups for group-based flags (default: None)
+        detailed_analysis: Whether to include detailed condition analysis (default: False)
+        person_properties: Optional person properties for evaluation (default: None)
+        only_use_override_person_properties: Whether to ignore database person properties and only use provided ones (default: False)
+        flag_keys: Optional list of specific flag keys to evaluate (default: None, evaluates all flags)
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -59,7 +67,19 @@ def get_flags_from_service(
     if groups:
         payload["groups"] = groups
 
+    if person_properties:
+        payload["person_properties"] = person_properties
+
+    if flag_keys:
+        payload["flag_keys"] = flag_keys
+
     params: dict[str, str] = {"v": "2"}
+
+    if detailed_analysis:
+        params["detailed_analysis"] = "true"
+
+    if only_use_override_person_properties:
+        params["only_use_override_person_properties"] = "true"
 
     response = _FLAGS_SERVICE_SESSION.post(
         f"{flags_service_url}/flags",

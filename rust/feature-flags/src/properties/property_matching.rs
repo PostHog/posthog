@@ -120,16 +120,25 @@ pub fn match_property(
             };
 
             if let Some(match_value) = match_value {
-                if operator == OperatorType::Exact {
-                    Ok(compute_exact_match(value, match_value))
+                let result = if operator == OperatorType::Exact {
+                    compute_exact_match(value, match_value)
                 } else {
-                    Ok(!compute_exact_match(value, match_value))
-                }
+                    !compute_exact_match(value, match_value)
+                };
+                Ok(result)
             } else {
                 // When value doesn't exist:
                 // - for Exact: it's not a match (false)
                 // - for IsNot: it is a match (true)
-                Ok(operator == OperatorType::IsNot)
+                let result = operator == OperatorType::IsNot;
+                tracing::debug!(
+                    property_key = %property.key,
+                    operator = ?operator,
+                    filter_value = ?value,
+                    match_result = %result,
+                    "Property missing, evaluated based on operator"
+                );
+                Ok(result)
             }
         }
         // IsSet and IsNotSet are handled early (lines 69-83) and return before reaching this match

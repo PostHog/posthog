@@ -97,9 +97,20 @@ pub struct FlagsQueryParams {
     /// e.g. https://us.posthog.com/flags?v=2&config=true
     #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub config: Option<bool>,
+    /// Optional boolean indicating whether to include detailed condition analysis in the response
+    /// When true, returns detailed information about why each condition matched or didn't match
+    /// e.g. https://us.posthog.com/flags?v=2&detailed_analysis=true
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub detailed_analysis: Option<bool>,
+    /// Optional boolean indicating whether to only use person properties from the request payload
+    /// When true, ignores person properties from the database and only uses properties from person_properties field
+    /// Useful for historical evaluation at specific timestamps
+    /// e.g. https://us.posthog.com/flags?v=2&only_use_override_person_properties=true
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub only_use_override_person_properties: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
@@ -175,7 +186,7 @@ impl ConfigResponse {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
     /// Whether any errors occurred while evaluating feature flags.
@@ -350,7 +361,29 @@ pub struct FlagsOptionsResponse {
     pub status: FlagsResponseCode,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PropertyAnalysis {
+    pub key: String,
+    pub operator: String,
+    pub value: Value,
+    pub r#type: String,
+    pub actual_value: Option<Value>,
+    pub matched: bool,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct ConditionAnalysis {
+    pub index: i32,
+    pub properties: Vec<PropertyAnalysis>,
+    pub rollout_percentage: f64,
+    pub variant: Option<String>,
+    pub matched: bool,
+    pub rollout_excluded: bool,
+    pub explanation: String,
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
@@ -359,6 +392,9 @@ pub struct FlagDetails {
     pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
+    /// Optional detailed condition analysis, only included when requested
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<ConditionAnalysis>>,
 }
 
 impl FlagDetails {
@@ -397,12 +433,25 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
+    fn create_with_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        detailed_analysis: bool,
+    ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
+        Self::create_with_analysis(flag, flag_match, false)
+    }
+
+    fn create_with_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        detailed_analysis: bool,
+    ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
@@ -418,6 +467,11 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+            },
+            conditions: if detailed_analysis {
+                Some(Self::build_condition_analysis(flag, flag_match))
+            } else {
+                None
             },
         }
     }
@@ -439,6 +493,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     }
 
@@ -464,6 +519,205 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Flag cannot be evaluated due to missing dependency".to_string())
             }
         }
+    }
+}
+
+impl FlagDetails {
+    fn build_condition_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+    ) -> Vec<ConditionAnalysis> {
+        let mut analyses = Vec::new();
+
+        // Analyze each property group (condition)
+        for (index, group) in flag.filters.groups.iter().enumerate() {
+            let mut property_analyses = Vec::new();
+            let mut condition_matched = false;
+
+            // Determine if this condition matched based on overall flag result and condition index
+            // Only mark as matched if the flag itself matched AND this is the matching condition
+            if flag_match.matches {
+                if let Some(condition_index) = flag_match.condition_index {
+                    condition_matched = index == condition_index;
+                } else if matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch) {
+                    // Fallback: assume first condition matched if we have a condition match but no index
+                    condition_matched = index == 0;
+                }
+            }
+            // If flag_match.matches is false, condition_matched remains false for all conditions
+
+            // Analyze properties within this group
+            if let Some(properties) = &group.properties {
+                for property in properties {
+                    let operator_str = match property.operator {
+                        Some(op) => format!("{:?}", op).to_lowercase(),
+                        None => "exact".to_string(),
+                    };
+
+                    let type_str = match property.prop_type {
+                        crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::Group => "group",
+                        crate::properties::property_models::PropertyType::Cohort => "cohort",
+                        crate::properties::property_models::PropertyType::Flag => "flag",
+                    }
+                    .to_string();
+
+                    let explanation = match property.operator {
+                        Some(crate::properties::property_models::OperatorType::IsSet) => {
+                            format!("Property '{}' is set", property.key)
+                        }
+                        Some(crate::properties::property_models::OperatorType::IsNotSet) => {
+                            format!("Property '{}' is not set", property.key)
+                        }
+                        Some(crate::properties::property_models::OperatorType::Exact) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' equals {}", property.key, value)
+                            } else {
+                                format!("Property '{}' equals (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::IsNot) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' does not equal {}", property.key, value)
+                            } else {
+                                format!("Property '{}' does not equal (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Icontains) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' contains {}", property.key, value)
+                            } else {
+                                format!("Property '{}' contains (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::NotIcontains) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' does not contain {}", property.key, value)
+                            } else {
+                                format!("Property '{}' does not contain (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Gt) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' > {}", property.key, value)
+                            } else {
+                                format!("Property '{}' > (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Lt) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' < {}", property.key, value)
+                            } else {
+                                format!("Property '{}' < (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Gte) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' >= {}", property.key, value)
+                            } else {
+                                format!("Property '{}' >= (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Lte) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' <= {}", property.key, value)
+                            } else {
+                                format!("Property '{}' <= (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::In) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' is in {}", property.key, value)
+                            } else {
+                                format!("Property '{}' is in (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::NotIn) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' is not in {}", property.key, value)
+                            } else {
+                                format!("Property '{}' is not in (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::Regex) => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' matches regex {}", property.key, value)
+                            } else {
+                                format!("Property '{}' matches regex (empty)", property.key)
+                            }
+                        }
+                        Some(crate::properties::property_models::OperatorType::NotRegex) => {
+                            if let Some(value) = &property.value {
+                                format!(
+                                    "Property '{}' does not match regex {}",
+                                    property.key, value
+                                )
+                            } else {
+                                format!("Property '{}' does not match regex (empty)", property.key)
+                            }
+                        }
+                        _ => {
+                            if let Some(value) = &property.value {
+                                format!("Property '{}' {} {}", property.key, operator_str, value)
+                            } else {
+                                format!("Property '{}' {} (empty)", property.key, operator_str)
+                            }
+                        }
+                    };
+
+                    // TODO: To properly determine if each individual property matched, we would need
+                    // access to the evaluation context (person/group properties) and call the
+                    // match_property function for each filter. For now, we use the condition-level
+                    // match result, which means if the overall condition matched, all properties
+                    // within it appear as matched (even if some didn't contribute to the match).
+                    let property_analysis = PropertyAnalysis {
+                        key: property.key.clone(),
+                        operator: operator_str,
+                        value: property.value.clone().unwrap_or(serde_json::Value::Null),
+                        r#type: type_str,
+                        actual_value: None, // Would need evaluation context to provide actual property values
+                        matched: condition_matched, // Note: This is condition-level, not property-level
+                        explanation,
+                    };
+                    property_analyses.push(property_analysis);
+                }
+            }
+
+            // Determine rollout status
+            let rollout_percentage = group.rollout_percentage.unwrap_or(100.0);
+            let rollout_excluded =
+                matches!(flag_match.reason, FeatureFlagMatchReason::OutOfRolloutBound);
+
+            let explanation = if condition_matched {
+                if rollout_excluded {
+                    format!(
+                        "Condition {} matched properties but was excluded by {}% rollout",
+                        index, rollout_percentage
+                    )
+                } else {
+                    format!(
+                        "Condition {} matched and passed {}% rollout",
+                        index, rollout_percentage
+                    )
+                }
+            } else {
+                format!("Condition {} did not match properties", index)
+            };
+
+            let analysis = ConditionAnalysis {
+                index: index as i32,
+                properties: property_analyses,
+                rollout_percentage,
+                variant: group.variant.clone(),
+                matched: condition_matched && !rollout_excluded,
+                rollout_excluded,
+                explanation,
+            };
+
+            analyses.push(analysis);
+        }
+
+        analyses
     }
 }
 

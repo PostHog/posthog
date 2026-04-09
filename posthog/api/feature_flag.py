@@ -78,6 +78,10 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.group.group import Group
+from posthog.models.person.point_in_time_properties import (
+    build_person_properties_at_time,
+    get_person_and_distinct_ids_for_identifier,
+)
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
@@ -1873,6 +1877,78 @@ class DependentFlagSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Feature flag name")
 
 
+class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="User distinct ID to test against (mutually exclusive with person_id)",
+    )
+    person_id = serializers.CharField(
+        required=False, allow_blank=False, help_text="Person ID to test against (mutually exclusive with distinct_id)"
+    )
+    timestamp = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional timestamp to evaluate flag at a specific point in time (ISO format)",
+    )
+    groups = GroupsJSONField(required=False)
+
+    def validate(self, attrs):
+        distinct_id = attrs.get("distinct_id")
+        person_id = attrs.get("person_id")
+
+        if not distinct_id and not person_id:
+            raise serializers.ValidationError("Either distinct_id or person_id must be provided")
+
+        if distinct_id and person_id:
+            raise serializers.ValidationError("Cannot provide both distinct_id and person_id - choose one")
+
+        return attrs
+
+
+class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Property key")
+    operator = serializers.CharField(help_text="Comparison operator")
+    value = serializers.JSONField(help_text="Expected property value")
+    type = serializers.CharField(help_text="Property type (person, group, etc.)")
+    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    matched = serializers.BooleanField(help_text="Whether this property condition matched")
+    explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
+
+
+class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
+    index = serializers.IntegerField(help_text="Index of this condition in the feature flag")
+    matched = serializers.BooleanField(help_text="Whether this condition was the one that matched")
+    result = serializers.CharField(help_text="Overall result for this condition (matches, no_match)")
+    explanation = serializers.CharField(
+        help_text="Human-readable explanation of why this condition matched/didn't match"
+    )
+    rollout_percentage = serializers.IntegerField(help_text="Rollout percentage for this condition")
+    rollout_excluded = serializers.BooleanField(
+        help_text="Whether this condition matched properties but was excluded due to rollout"
+    )
+    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    properties = FeatureFlagConditionPropertyAnalysisSerializer(
+        many=True, help_text="Analysis of each property in this condition"
+    )
+
+
+class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
+    flag_key = serializers.CharField(help_text="Feature flag key")
+    result = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+    payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
+    person_properties = serializers.DictField(
+        help_text="Person properties at the time of evaluation (for historical evaluations)"
+    )
+    conditions = FeatureFlagConditionAnalysisSerializer(
+        many=True, help_text="Detailed analysis of each condition in the feature flag"
+    )
+
+
 class UserBlastRadiusRequestSerializer(serializers.Serializer):
     condition = serializers.DictField(required=True, help_text="The release condition to evaluate")
     group_type_index = serializers.IntegerField(
@@ -3155,6 +3231,489 @@ class FeatureFlagViewSet(
             {"status": flag_status, "reason": reason},
             status=status.HTTP_200_OK,
         )
+
+    @validated_request(
+        request_serializer=FeatureFlagTestEvaluationRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=FeatureFlagTestEvaluationResponseSerializer),
+            400: OpenApiResponse(description="Invalid parameters"),
+            404: OpenApiResponse(description="Person not found"),
+            500: OpenApiResponse(description="Server error"),
+        },
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:read"])
+    def test_evaluation(self, request: request.Request, **kwargs):
+        """
+        Test feature flag evaluation against a specific user at an optional point in time.
+
+        This endpoint allows testing how a feature flag would evaluate for a specific user,
+        optionally at a historical timestamp. It provides detailed reasoning about why the
+        flag matched or didn't match.
+        """
+        feature_flag = self.get_object()
+
+        # Extract validated data
+        distinct_id = request.validated_data.get("distinct_id")
+        person_id = request.validated_data.get("person_id")
+        timestamp = request.validated_data.get("timestamp")
+        groups = request.validated_data.get("groups") or {}
+
+        # Resolve person and distinct_ids
+        try:
+            person, distinct_ids = get_person_and_distinct_ids_for_identifier(
+                team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
+            )
+        except ValueError as e:
+            return Response({"error": f"Invalid parameters: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not person or not distinct_ids:
+            identifier_type = "distinct_id" if distinct_id else "person_id"
+            identifier_value = distinct_id or person_id
+            return Response(
+                {
+                    "error": f"Person not found for {identifier_type}: {identifier_value}. "
+                    "Please verify the identifier exists in your PostHog instance."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Use the primary distinct_id for evaluation
+        evaluation_distinct_id = distinct_ids[0]
+        person_properties = {}
+
+        # Build person properties at timestamp if provided
+        if timestamp:
+            try:
+                person_properties = build_person_properties_at_time(
+                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
+                )
+            except Exception:
+                return Response(
+                    {"error": "Failed to build person properties at specified timestamp"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        else:
+            # Use current person properties
+            person_properties = person.properties or {}
+
+        # Evaluate the flag using Rust service
+        try:
+            # Get the team's API token for the Rust service
+            team_token = self.team.api_token
+
+            # Call the Rust flags service
+            # Note: detailed_analysis=True and only_use_override_person_properties=True (when timestamp provided)
+            # automatically trigger skip_writes=True in Rust to prevent cache pollution
+            rust_response = get_flags_from_service(
+                token=team_token,
+                distinct_id=evaluation_distinct_id,
+                groups=groups,
+                detailed_analysis=True,
+                person_properties=person_properties,
+                only_use_override_person_properties=timestamp is not None,
+                flag_keys=[self.get_object().key],
+            )
+
+            # Extract the flag result from the Rust response
+            flags = rust_response.get("flags", {})
+            flag_result = flags.get(feature_flag.key)
+
+            # Initialize defaults
+            condition_index = None
+            payload = None
+            detailed_conditions = []
+
+            if flag_result is None:
+                result = False
+                reason = "flag_not_found"
+            else:
+                # Extract the detailed flag result data
+                if isinstance(flag_result, dict):
+                    result = flag_result.get("enabled", False)
+                    variant = flag_result.get("variant")
+                    reason_data = flag_result.get("reason", {})
+                    metadata = flag_result.get("metadata", {})
+
+                    # Extract values from the correct nested structures
+                    reason = reason_data.get("code", "unknown") if reason_data else "unknown"
+                    condition_index = reason_data.get("condition_index") if reason_data else None
+                    payload = metadata.get("payload") if metadata else None
+                    detailed_conditions = flag_result.get("conditions", [])
+
+                    logger.info(f"[FeatureFlag Test] Parsed - result: {result}, variant: {variant}, reason: {reason}")
+                    logger.info(f"[FeatureFlag Test] Condition index: {condition_index}, payload: {payload}")
+                    logger.info(f"[FeatureFlag Test] Detailed conditions: {detailed_conditions}")
+                    logger.info(f"[FeatureFlag Test] Reason data: {reason_data}")
+                    logger.info(f"[FeatureFlag Test] Metadata: {metadata}")
+
+                    # If there's a variant, use it as the result
+                    if variant is not None:
+                        result = variant
+                elif isinstance(flag_result, bool):
+                    result = flag_result
+                    reason = "flag_matched" if flag_result else "no_condition_match"
+                elif isinstance(flag_result, str):
+                    result = flag_result
+                    reason = "flag_matched"
+                else:
+                    result = bool(flag_result)
+                    reason = "flag_matched" if result else "no_condition_match"
+
+            return Response(
+                {
+                    "flag_key": feature_flag.key,
+                    "result": result,
+                    "reason": reason,
+                    "condition_index": condition_index,
+                    "payload": payload,
+                    "person_properties": person_properties,
+                    "conditions": detailed_conditions,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(f"Error evaluating flag: {str(e)}")
+            return Response({"error": "Failed to evaluate flag"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _analyze_flag_conditions(self, feature_flag, matcher, flag_match):
+        """
+        Analyze each condition in the feature flag to provide detailed explanations
+        of why each condition matched or didn't match.
+        """
+        from posthog.models.property import Property
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"[FeatureFlag Test] Starting condition analysis for flag '{feature_flag.key}'")
+        logger.info(
+            f"[FeatureFlag Test] Flag aggregation_group_type_index: {feature_flag.aggregation_group_type_index}"
+        )
+        logger.info(
+            f"[FeatureFlag Test] Matcher group_property_value_overrides: {matcher.group_property_value_overrides}"
+        )
+        logger.info(
+            f"[FeatureFlag Test] Matcher cache group_type_index_to_name: {matcher.cache.group_type_index_to_name}"
+        )
+
+        conditions_analysis = []
+
+        # Get the feature flag filters (conditions)
+        filters = feature_flag.filters.get("groups", [])
+
+        for i, condition in enumerate(filters):
+            condition_analysis = {
+                "index": i,
+                "properties": [],
+                "rollout_percentage": condition.get("rollout_percentage", 100),
+                "variant": condition.get("variant"),
+            }
+
+            # Analyze properties in this condition
+            properties = condition.get("properties", [])
+            if properties:
+                for prop_data in properties:
+                    try:
+                        prop = Property(**prop_data)
+                        prop_analysis = self._analyze_property(prop, matcher, feature_flag)
+                        condition_analysis["properties"].append(prop_analysis)
+                    except Exception as e:
+                        condition_analysis["properties"].append(
+                            {"key": prop_data.get("key", "unknown"), "error": f"Failed to analyze property: {str(e)}"}
+                        )
+
+            # Determine if this condition satisfies its property requirements
+            properties_satisfied = True
+            if properties:
+                # Check if all properties match
+                property_matches = [p.get("matched", False) for p in condition_analysis["properties"]]
+                properties_satisfied = all(property_matches)
+
+            # Determine the final status based on evaluation result and property satisfaction
+            is_selected_condition = flag_match.condition_index == i
+
+            if is_selected_condition:
+                # This condition was selected, but check if it was ultimately successful
+                if flag_match.match and not getattr(flag_match, "reason", None) == "out_of_rollout_bound":
+                    # Condition was selected and successful
+                    condition_analysis["matched"] = True
+                    condition_analysis["rollout_excluded"] = False
+                    if not properties:
+                        condition_analysis["explanation"] = "No property filters - matches all users"
+                    else:
+                        condition_analysis["explanation"] = "All property conditions are satisfied"
+                        if condition_analysis["rollout_percentage"] < 100:
+                            condition_analysis["explanation"] += (
+                                f" (selected within {condition_analysis['rollout_percentage']}% rollout)"
+                            )
+                else:
+                    # Condition was selected but user fell outside rollout
+                    condition_analysis["matched"] = False
+                    condition_analysis["rollout_excluded"] = True
+                    if not properties:
+                        condition_analysis["explanation"] = "No property filters - However, not selected due to rollout"
+                    else:
+                        # Check if properties were actually satisfied before saying they were
+                        if properties_satisfied:
+                            condition_analysis["explanation"] = (
+                                "All property conditions are satisfied - However, not selected due to rollout"
+                            )
+                            if condition_analysis["rollout_percentage"] < 100:
+                                condition_analysis["explanation"] += (
+                                    f" ({condition_analysis['rollout_percentage']}% rollout)"
+                                )
+                        else:
+                            # Properties failed, so this should be NOT MATCHED, not ROLLOUT EXCLUDED
+                            condition_analysis["rollout_excluded"] = False
+                            failed_props = [
+                                p["key"] for p in condition_analysis["properties"] if not p.get("matched", False)
+                            ]
+                            condition_analysis["explanation"] = (
+                                f"Property conditions not met: {', '.join(failed_props)}"
+                            )
+
+            elif properties_satisfied:
+                # This condition satisfied properties but wasn't selected (rollout excluded)
+                condition_analysis["matched"] = False
+                condition_analysis["rollout_excluded"] = True
+                if not properties:
+                    condition_analysis["explanation"] = "No property filters - However, not selected due to rollout"
+                else:
+                    condition_analysis["explanation"] = (
+                        "All property conditions are satisfied - However, not selected due to rollout"
+                    )
+                    if condition_analysis["rollout_percentage"] < 100:
+                        condition_analysis["explanation"] += f" ({condition_analysis['rollout_percentage']}% rollout)"
+
+            else:
+                # This condition did not satisfy its property requirements
+                condition_analysis["matched"] = False
+                condition_analysis["rollout_excluded"] = False
+                failed_props = [p["key"] for p in condition_analysis["properties"] if not p.get("matched", False)]
+                condition_analysis["explanation"] = f"Property conditions not met: {', '.join(failed_props)}"
+
+            conditions_analysis.append(condition_analysis)
+
+        return conditions_analysis
+
+    def _analyze_property(self, prop: Property, matcher, feature_flag):
+        """
+        Analyze a single property condition to determine if it matches.
+        """
+        property_analysis = {
+            "key": prop.key,
+            "operator": prop.operator,
+            "value": prop.value,
+            "type": prop.type,
+        }
+
+        try:
+            logger.info(
+                f"[FeatureFlag Test] Analyzing property: key={prop.key}, type={prop.type}, operator={prop.operator}, value={prop.value}"
+            )
+
+            # Get the actual value for comparison
+            if prop.type == "person":
+                actual_value = matcher.property_value_overrides.get(prop.key)
+                logger.info(
+                    f"[FeatureFlag Test] Person property analysis - prop.key: {prop.key}, actual_value: {actual_value}"
+                )
+            elif prop.type == "group":
+                # For group properties, we need to check the property's group type, not necessarily the flag's aggregation group type
+                if hasattr(prop, "group_type_index") and prop.group_type_index is not None:
+                    # Use the property's specific group type index
+                    group_type_name = matcher.cache.group_type_index_to_name.get(prop.group_type_index)
+                elif feature_flag.aggregation_group_type_index is not None:
+                    # Fall back to the flag's aggregation group type
+                    group_type_name = matcher.cache.group_type_index_to_name.get(
+                        feature_flag.aggregation_group_type_index
+                    )
+                else:
+                    # No group type information available
+                    group_type_name = None
+
+                if group_type_name:
+                    group_overrides = matcher.group_property_value_overrides.get(group_type_name, {})
+                    actual_value = group_overrides.get(prop.key)
+                    logger.info(
+                        f"[FeatureFlag Test] Group property analysis - group_type: {group_type_name}, prop.key: {prop.key}, group_overrides: {group_overrides}, actual_value: {actual_value}"
+                    )
+                else:
+                    actual_value = None
+                    logger.info(
+                        f"[FeatureFlag Test] Group property analysis - no group_type_name found for property {prop.key}"
+                    )
+            else:
+                actual_value = None
+
+            property_analysis["actual_value"] = actual_value
+
+            # Determine if property matches
+            if actual_value is None:
+                property_analysis["matched"] = False
+                property_analysis["explanation"] = f"Property '{prop.key}' not found"
+            else:
+                # Simplified matching logic for common operators
+                matched = self._evaluate_property_condition(prop, actual_value)
+                property_analysis["matched"] = matched
+
+                # Generate user-friendly explanations
+                explanation = self._generate_property_explanation(
+                    prop.key, prop.operator, prop.value, actual_value, matched
+                )
+                property_analysis["explanation"] = explanation
+
+        except Exception as e:
+            property_analysis["matched"] = False
+            property_analysis["explanation"] = f"Error evaluating property: {str(e)}"
+
+        return property_analysis
+
+    def _generate_property_explanation(
+        self, property_key: str, operator: str, expected_value, actual_value, matched: bool
+    ) -> str:
+        """
+        Generate a user-friendly explanation for a property condition.
+        """
+        status_icon = "✓" if matched else "✗"
+
+        # Clean up property names for display
+        display_property = property_key.replace("_", " ").title()
+        if display_property.lower() == "email":
+            display_property = "Email"
+
+        # Handle different operators with user-friendly language
+        if operator == "is_set":
+            if matched:
+                return f"{display_property} is set {status_icon}"
+            else:
+                return f"{display_property} is not set {status_icon}"
+
+        elif operator == "is_not_set":
+            if matched:
+                return f"{display_property} is not set {status_icon}"
+            else:
+                return f"{display_property} is set {status_icon}"
+
+        elif operator == "icontains":
+            if matched:
+                return f"{display_property} contains '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} ('{actual_value}') does not contain '{expected_value}' {status_icon}"
+
+        elif operator == "not_icontains":
+            if matched:
+                return f"{display_property} does not contain '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} ('{actual_value}') contains '{expected_value}' {status_icon}"
+
+        elif operator == "regex":
+            if matched:
+                return f"{display_property} matches pattern '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} ('{actual_value}') does not match pattern '{expected_value}' {status_icon}"
+
+        elif operator == "not_regex":
+            if matched:
+                return f"{display_property} does not match pattern '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} ('{actual_value}') matches pattern '{expected_value}' {status_icon}"
+
+        elif operator == "exact":
+            if matched:
+                return f"{display_property} equals '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} is '{actual_value}', not '{expected_value}' {status_icon}"
+
+        elif operator == "is_not":
+            if matched:
+                return f"{display_property} is not '{expected_value}' {status_icon}"
+            else:
+                return f"{display_property} is '{expected_value}' {status_icon}"
+
+        elif operator == "gt":
+            if matched:
+                return f"{display_property} ({actual_value}) is greater than {expected_value} {status_icon}"
+            else:
+                return f"{display_property} ({actual_value}) is not greater than {expected_value} {status_icon}"
+
+        elif operator == "gte":
+            if matched:
+                return f"{display_property} ({actual_value}) is greater than or equal to {expected_value} {status_icon}"
+            else:
+                return f"{display_property} ({actual_value}) is not greater than or equal to {expected_value} {status_icon}"
+
+        elif operator == "lt":
+            if matched:
+                return f"{display_property} ({actual_value}) is less than {expected_value} {status_icon}"
+            else:
+                return f"{display_property} ({actual_value}) is not less than {expected_value} {status_icon}"
+
+        elif operator == "lte":
+            if matched:
+                return f"{display_property} ({actual_value}) is less than or equal to {expected_value} {status_icon}"
+            else:
+                return (
+                    f"{display_property} ({actual_value}) is not less than or equal to {expected_value} {status_icon}"
+                )
+
+        elif operator == "is_date_exact":
+            if matched:
+                return f"{display_property} is exactly {expected_value} {status_icon}"
+            else:
+                return f"{display_property} is {actual_value}, not {expected_value} {status_icon}"
+
+        elif operator == "is_date_after":
+            if matched:
+                return f"{display_property} ({actual_value}) is after {expected_value} {status_icon}"
+            else:
+                return f"{display_property} ({actual_value}) is not after {expected_value} {status_icon}"
+
+        elif operator == "is_date_before":
+            if matched:
+                return f"{display_property} ({actual_value}) is before {expected_value} {status_icon}"
+            else:
+                return f"{display_property} ({actual_value}) is not before {expected_value} {status_icon}"
+
+        else:
+            # Fallback for unknown operators
+            if matched:
+                return f"{display_property} '{actual_value}' {operator} '{expected_value}' {status_icon}"
+            else:
+                return (
+                    f"{display_property} '{actual_value}' does not satisfy '{operator} {expected_value}' {status_icon}"
+                )
+
+    def _evaluate_property_condition(self, prop: Property, actual_value):
+        """
+        Simple property evaluation for common operators.
+        """
+        try:
+            if prop.operator == "exact":
+                return str(actual_value) == str(prop.value)
+            elif prop.operator == "is_not":
+                return str(actual_value) != str(prop.value)
+            elif prop.operator == "icontains":
+                return str(prop.value).lower() in str(actual_value).lower()
+            elif prop.operator == "not_icontains":
+                return str(prop.value).lower() not in str(actual_value).lower()
+            elif prop.operator == "gt":
+                return float(actual_value) > float(prop.value)
+            elif prop.operator == "gte":
+                return float(actual_value) >= float(prop.value)
+            elif prop.operator == "lt":
+                return float(actual_value) < float(prop.value)
+            elif prop.operator == "lte":
+                return float(actual_value) <= float(prop.value)
+            elif prop.operator == "is_set":
+                return actual_value is not None
+            elif prop.operator == "is_not_set":
+                return actual_value is None
+            else:
+                # For complex operators, assume they match for now
+                return True
+        except (ValueError, TypeError):
+            return False
 
     @action(
         methods=["GET"],
