@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -47,10 +48,10 @@ class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     def clean(self) -> None:
         super().clean()
         if not isinstance(self.plan, dict):
-            raise ValueError("plan must be a dict")
+            raise ValidationError({"plan": "plan must be a dict"})
         for key in ("models", "dags"):
             if key not in self.plan:
-                raise ValueError(f"plan must contain '{key}' key")
+                raise ValidationError({"plan": f"plan must contain '{key}' key"})
 
     class Meta:
         app_label = "data_modeling"
