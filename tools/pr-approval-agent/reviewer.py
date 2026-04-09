@@ -12,11 +12,7 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import (
-    ClaudeAgentOptions,
-    ResultMessage,
-    query as _original_query,
-)
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
@@ -24,14 +20,12 @@ try:
     import posthoganalytics
 
     if posthoganalytics.api_key:
-        from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]
+        from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
 
         _POSTHOG_AI_AVAILABLE = True
     else:
-        query = _original_query
         _POSTHOG_AI_AVAILABLE = False
 except ImportError:
-    query = _original_query
     _POSTHOG_AI_AVAILABLE = False
 
 MODEL = "claude-sonnet-4-6"
