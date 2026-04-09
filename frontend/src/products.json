@@ -239,6 +239,13 @@
             "intents": []
         },
         {
+            "path": "Event filtering",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "event_filter",
+            "intents": []
+        },
+        {
             "path": "Destinations",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
