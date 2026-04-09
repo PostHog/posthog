@@ -38,7 +38,6 @@ import {
     BaseMathType,
     EntityTypes,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
