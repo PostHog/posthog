@@ -35,7 +35,7 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-// Reactivity note (#53686): `cache.store` (SnapshotStore) and `cache.scheduler`
+// Reactivity note (#53893): `cache.store` (SnapshotStore) and `cache.scheduler`
 // (LoadingScheduler) live outside Kea. Their mutations are invisible to
 // selectors unless `storeUpdated()` is dispatched. Any listener that
 // mutates either — scheduler.seekTo, scheduler.clearSeek, store.markLoaded,
@@ -241,7 +241,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
                 // If we can already play at this position (data is loaded), no need to seek —
                 // this handles segment transitions during normal forward playback
-                if (cache.store?.canPlayAt(timestamp)) {
+                if (cache.store.canPlayAt(timestamp)) {
                     actions.loadNextSnapshotSource()
                     return
                 }
@@ -249,7 +249,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 // buffer_ahead loading already starts from the beginning. An empty store
                 // returns null here, which naturally falls through to scheduler.seekTo —
                 // that's required for ?t=<past-end> URLs that arrive before sources load
-                // (see #53686).
+                // (see #53893).
                 const targetIndex = cache.store.getSourceIndexForTimestamp(timestamp)
                 if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
                     actions.loadNextSnapshotSource()
@@ -434,7 +434,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
             // getNextBatch may flip the scheduler out of seek mode without
             // mutating the store. Kea can't see that, so dispatch storeUpdated
-            // to invalidate selectors that read scheduler state (#53686).
+            // to invalidate selectors that read scheduler state (#53893).
             const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
             const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
             if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {

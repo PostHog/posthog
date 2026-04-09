@@ -213,7 +213,7 @@ describe('SnapshotStore', () => {
         })
 
         it('returns null for an empty store (not 0, which would be ambiguous with source 0)', () => {
-            // Regression guard for #53686: before this change, an empty store
+            // Regression guard for #53893: before this change, an empty store
             // returned 0 for any timestamp, and callers couldn't distinguish
             // "empty — I don't know" from "timestamp falls in source 0".
             const store = new SnapshotStore()

@@ -120,7 +120,7 @@ export class SnapshotStore {
      * or the nearest source if `ts` falls outside any range. Returns `null`
      * when the store has no sources yet — callers MUST handle this case
      * explicitly rather than conflating it with "source 0", which is a
-     * valid result and hides initial-load races (see #53686).
+     * valid result and hides initial-load races (see #53893).
      */
     getSourceIndexForTimestamp(ts: number): number | null {
         if (this.entries.length === 0) {
@@ -135,7 +135,7 @@ export class SnapshotStore {
                 return Math.max(0, i - 1)
             }
         }
-        return this.entries.length - 1
+        return Math.max(0, this.entries.length - 1)
     }
 
     canPlayAt(ts: number): boolean {

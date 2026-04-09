@@ -209,8 +209,8 @@ describe('snapshotDataLogic (store-based loading)', () => {
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
 
-        it('re-evaluates isWaitingForPlayableFullSnapshot after silent seek clear (#53686 Bug B)', async () => {
-            // Regression test for the stale-selector half of #53686.
+        it('re-evaluates isWaitingForPlayableFullSnapshot after silent seek clear (#53893 Bug B)', async () => {
+            // Regression test for the stale-selector half of #53893.
             //
             // When LoadingScheduler.getSeekBatch silently clears seek mode
             // (step 5: backward search exhausted, no full snapshot found),
@@ -274,8 +274,8 @@ describe('snapshotDataLogic (store-based loading)', () => {
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
 
-        it('enters seek mode when called before sources load (past-end URL regression #53686)', async () => {
-            // Regression test for the stuck-buffer follow-up to #53686.
+        it('enters seek mode when called before sources load (past-end URL regression #53893)', async () => {
+            // Regression test for the stuck-buffer follow-up to #53686, fixed in #53893.
             //
             // Scenario: a user opens a replay with a ?t=<past-end> URL.
             // The player dispatches setTargetTimestamp before the async
