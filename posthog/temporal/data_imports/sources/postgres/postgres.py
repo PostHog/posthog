@@ -598,10 +598,15 @@ def _get_primary_keys(
             child_cls.relname,
             conkey.ordinality
     """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-    _explain_query(cursor, child_partition_pk_query, logger)
-    logger.debug(f"Running child-partition fallback query: {child_partition_pk_query.as_string()}")
-    cursor.execute(child_partition_pk_query)
-    child_pk_rows = cursor.fetchall()
+    child_pk_rows: list[tuple[str, str, int]] = []
+    try:
+        _explain_query(cursor, child_partition_pk_query, logger)
+        logger.debug(f"Running child-partition fallback query: {child_partition_pk_query.as_string()}")
+        cursor.execute(child_partition_pk_query)
+        child_pk_rows = cursor.fetchall()
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")
     if len(child_pk_rows) > 0:
         child_pks: dict[str, list[str]] = {}
         for child_table_name, pk_column_name, _ in child_pk_rows:
