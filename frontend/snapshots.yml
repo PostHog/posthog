@@ -4137,9 +4137,9 @@ snapshots:
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
         hash: v1.k794b7964.e8ecc39024a2ee2aa2a07a0e0cd7c29f3dbf13f4de90d4ae92170e6c130a4874.YED_etlKuXdI4ZWkfohymGMEA81KqCJ2W2UTq8dawdc
     scenes-app-experiments--experiment-with-legacy-trends-query--dark:
-        hash: v1.k794b7964.e8b610053c09af8129cca64e40af2f20c0e8c3ed28298d8758d060cc6d12e49c.yELqfcQX7YQmGO3mYRtMHChS1PCdtqSFzeVKPp5LAmU
+        hash: v1.k794b7964.538df5e44653db157a22124b79e405c7f57a69a8be2004909d47ccfc99e7307a.MEGbJIDt4VWOc6XvDZBK7cdM-GNdZYnQPQAMvNXnU54
     scenes-app-experiments--experiment-with-legacy-trends-query--light:
-        hash: v1.k794b7964.8158091a0f370b5245cb8369751fdf9447e9d58daf69c8440615dce1aa1f941d.hE_89iU0dX8Xj9pCY48UpsWhxKR_YF7NFpQrtNhUBIE
+        hash: v1.k794b7964.5dc3b16c8d58be17204f93366c877e20b8c02fd23c1b06b06496e0cd91450f61.CvpGwKYh_ddbyIkjelmqMN21eYWpWTENgnZAbaSJYzw
     scenes-app-experiments--experiment-with-mean-metric--dark:
         hash: v1.k794b7964.70104fcb8bb0dd10c963e1838579cafe0c6fdf158eb309f5cda1929ff76fe730.voinAd2Cgq8kWvjPYbF0MluL4zF3pV41t5sZrdy695k
     scenes-app-experiments--experiment-with-mean-metric--light:
