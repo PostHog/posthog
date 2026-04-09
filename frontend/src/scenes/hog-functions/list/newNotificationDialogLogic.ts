@@ -77,7 +77,11 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
                 slackIntegrationId:
                     destination === 'slack' && !slackIntegrationId ? 'Please select a Slack workspace' : undefined,
                 slackChannel: destination === 'slack' && !slackChannel ? 'Please select a channel' : undefined,
-                webhookUrl: destination !== 'slack' && !webhookUrl.trim() ? 'Please enter a webhook URL' : undefined,
+                webhookUrl:
+                    destination !== 'slack' &&
+                    !(webhookUrl.trim() && URL.canParse(webhookUrl.trim()) && /^https?:\/\//.test(webhookUrl.trim()))
+                        ? 'Please enter a webhook URL'
+                        : undefined,
             }),
             submit: async ({ destination, slackIntegrationId, slackChannel, webhookUrl }) => {
                 const destinationOption = DESTINATION_OPTIONS.find((d) => d.value === destination)
@@ -145,19 +149,6 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
         selectedSlackIntegration: [
             (s) => [s.integrations, s.notificationForm],
             (integrations, form) => integrations?.find((i) => i.id === form.slackIntegrationId) ?? null,
-        ],
-        isFormValid: [
-            (s) => [s.notificationForm],
-            ({ destination, slackIntegrationId, slackChannel, webhookUrl }: NewNotificationForm): boolean => {
-                switch (destination) {
-                    case 'slack':
-                        return !!slackIntegrationId && !!slackChannel
-                    case 'discord':
-                    case 'microsoft-teams':
-                    case 'webhook':
-                        return webhookUrl.trim().length > 0
-                }
-            },
         ],
     }),
 

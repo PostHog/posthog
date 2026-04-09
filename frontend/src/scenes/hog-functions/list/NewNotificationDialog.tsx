@@ -32,8 +32,13 @@ export function NewNotificationDialog({
     const logicProps: NewNotificationDialogLogicProps = { subTemplateId, onCreated }
     const logic = newNotificationDialogLogic(logicProps)
 
-    const { isOpen, notificationForm, isNotificationFormSubmitting, isFormValid, selectedSlackIntegration } =
-        useValues(logic)
+    const {
+        isOpen,
+        notificationForm,
+        isNotificationFormSubmitting,
+        notificationFormHasErrors,
+        selectedSlackIntegration,
+    } = useValues(logic)
     const { closeDialog, setNotificationFormValue } = useActions(logic)
 
     return (
@@ -50,7 +55,7 @@ export function NewNotificationDialog({
                         type="primary"
                         form="new-notification-form"
                         htmlType="submit"
-                        disabledReason={!isFormValid ? 'Please fill in the required fields' : undefined}
+                        disabledReason={notificationFormHasErrors ? 'Please fill in the required fields' : undefined}
                         loading={isNotificationFormSubmitting}
                     >
                         Create

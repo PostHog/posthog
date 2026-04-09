@@ -1,5 +1,4 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -10,6 +9,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { AvailableFeature, CyclotronJobFiltersType, HogFunctionSubTemplateIdType } from '~/types'
 
 import { HogFunctionList } from './HogFunctionsList'
+import { hogFunctionsListLogic } from './hogFunctionsListLogic'
 import { getFiltersFromSubTemplateId } from './LinkedHogFunctions'
 import { NewNotificationDialog } from './NewNotificationDialog'
 import { newNotificationDialogLogic } from './newNotificationDialogLogic'
@@ -35,22 +35,25 @@ export function NotificationsPane({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
-    // Increment to force HogFunctionList to reload after creating a notification
-    const [listKey, setListKey] = useState(0)
-
-    const logicProps = { subTemplateId, onCreated: () => setListKey((k) => k + 1) }
-    const { openDialog } = useActions(newNotificationDialogLogic(logicProps))
 
     const hogFunctionFilterList = [getFiltersFromSubTemplateId(subTemplateId)].filter(
         (f): f is CyclotronJobFiltersType => !!f
     )
+
+    const listLogicProps = { forceFilterGroups: hogFunctionFilterList, type: 'internal_destination' as const }
+    const { loadHogFunctions } = useActions(hogFunctionsListLogic(listLogicProps))
+    const onCreated = (): void => {
+        loadHogFunctions()
+    }
+
+    const logicProps = { subTemplateId, onCreated }
+    const { openDialog } = useActions(newNotificationDialogLogic(logicProps))
 
     return (
         <PayGateMini feature={requiredFeature}>
             <div>
                 <p>{description}</p>
                 <HogFunctionList
-                    key={listKey}
                     forceFilterGroups={hogFunctionFilterList}
                     type="internal_destination"
                     extraControls={
@@ -64,11 +67,7 @@ export function NotificationsPane({
                         </LemonButton>
                     }
                 />
-                <NewNotificationDialog
-                    subTemplateId={subTemplateId}
-                    onCreated={() => setListKey((k) => k + 1)}
-                    title={dialogTitle}
-                />
+                <NewNotificationDialog subTemplateId={subTemplateId} onCreated={onCreated} title={dialogTitle} />
             </div>
         </PayGateMini>
     )
