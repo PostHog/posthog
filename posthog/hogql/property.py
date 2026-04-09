@@ -34,6 +34,7 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -569,6 +570,7 @@ def property_to_expr(
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
         | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -633,6 +635,13 @@ def property_to_expr(
         # Flag dependencies are evaluated at the API layer, not in HogQL.
         # They should never reach this point, but we handle them gracefully
         # to satisfy type checking since FlagPropertyFilter is part
+        # of the AnyPropertyFilter union used throughout the codebase.
+        # Return a neutral filter that doesn't affect the query.
+        return ast.Constant(value=1)
+    elif isinstance(property, WorkflowVariablePropertyFilter):
+        # Workflow variables are evaluated at the workflow execution layer, not in HogQL.
+        # They should never reach this point, but we handle them gracefully
+        # to satisfy type checking since WorkflowVariablePropertyFilter is part
         # of the AnyPropertyFilter union used throughout the codebase.
         # Return a neutral filter that doesn't affect the query.
         return ast.Constant(value=1)
