@@ -306,7 +306,6 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.destination = Destination::Overflow;
             event.skip_person_processing = true;
             event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
@@ -336,14 +335,14 @@ async fn apply_token_distinct_id_limits(
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
             "limiter" => "token_distinct_id",
-            "outcome" => "rerouted",
+            "outcome" => "limited",
         )
         .increment(limited_count as u64);
 
         crate::ctx_log!(Level::WARN, context,
             limited_count = limited_count,
             distinct_ids = %preview,
-            "events rerouted to overflow by distinct_id rate limit"
+            "events rate limited by distinct_id -- person processing disabled"
         );
     }
 }
@@ -1133,7 +1132,7 @@ mod tests {
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
         assert_eq!(limited_ev.result, EventResult::Ok);
-        assert_eq!(limited_ev.destination, Destination::Overflow);
+        assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
         assert!(limited_ev.skip_person_processing);
         assert_eq!(
             limited_ev.details,
@@ -1169,7 +1168,11 @@ mod tests {
 
         for ev in events.values() {
             assert_eq!(ev.result, EventResult::Ok, "should stay Ok");
-            assert_eq!(ev.destination, Destination::Overflow, "should be Overflow");
+            assert_eq!(
+                ev.destination,
+                Destination::AnalyticsMain,
+                "should stay on main topic"
+            );
             assert!(ev.skip_person_processing, "should skip person processing");
             assert_eq!(
                 ev.details,
@@ -1196,10 +1199,10 @@ mod tests {
         let dropped = find_by_did(&events, "user-1");
         assert_eq!(dropped.result, EventResult::Drop);
         assert_eq!(dropped.destination, Destination::Drop);
-        // Other event rerouted to overflow
+        // Other event rate-limited (person processing disabled, stays on main topic)
         let limited = find_by_did(&events, "user-2");
         assert_eq!(limited.result, EventResult::Ok);
-        assert_eq!(limited.destination, Destination::Overflow);
+        assert_eq!(limited.destination, Destination::AnalyticsMain);
         assert!(limited.skip_person_processing);
         assert_eq!(limited.details, Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID));
     }

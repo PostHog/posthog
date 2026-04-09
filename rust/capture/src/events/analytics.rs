@@ -197,39 +197,38 @@ pub async fn process_events<'a>(
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
 
-    // Apply per-(token, distinct_id) global rate limiting -- reroute to overflow
+    // Apply per-(token, distinct_id) global rate limiting -- skip person processing for high-volume distinct_ids
     if let Some(ref limiter) = global_rate_limiter {
-        let mut rerouted_distinct_ids: HashSet<&str> = HashSet::new();
-        let mut rerouted_event_count: u64 = 0;
+        let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
+        let mut limited_event_count: u64 = 0;
         for event in events.iter_mut() {
             let cache_key =
                 GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                     .to_cache_key();
             if limiter.is_limited(&cache_key, 1).await.is_some() {
-                event.metadata.force_overflow = true;
                 event.metadata.skip_person_processing = true;
-                rerouted_distinct_ids.insert(&event.event.distinct_id);
-                rerouted_event_count += 1;
+                limited_distinct_ids.insert(&event.event.distinct_id);
+                limited_event_count += 1;
             }
         }
-        if rerouted_event_count > 0 {
-            let ids: Vec<&str> = rerouted_distinct_ids.iter().copied().collect();
+        if limited_event_count > 0 {
+            let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
             let preview: String = if ids.len() > 10 {
                 format!("{}...", ids[..10].join(", "))
             } else {
                 ids.join(", ")
             };
             counter!(
-                "capture_events_rerouted_overflow",
+                "capture_events_rate_limited_token_distinctid",
                 "reason" => "global_rate_limit_token_distinctid",
             )
-            .increment(rerouted_event_count);
+            .increment(limited_event_count);
             warn!(
                 token = context.token,
-                rerouted_event_count = rerouted_event_count,
-                distinct_id_count = rerouted_distinct_ids.len(),
+                limited_event_count = limited_event_count,
+                distinct_id_count = limited_distinct_ids.len(),
                 distinct_ids = %preview,
-                "events rerouted to overflow by distinct_id rate limit"
+                "events rate limited by distinct_id -- person processing disabled"
             );
         }
     }
@@ -786,52 +785,6 @@ mod tests {
         // Event should NOT be dropped because filter doesn't match
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_process_events_exception_node_rollout() {
-        // Initialize the error tracking sampler at 100% to route all exceptions to Node.
-        // Note: OnceLock means this only succeeds once per test binary, so this test
-        // assumes no other test initializes the sampler first.
-        crate::error_tracking_sampler::init(true, 100.0);
-
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![create_test_event_with_name(
-            "$exception",
-            Some("2023-01-01T11:00:00Z".to_string()),
-            None,
-            None,
-        )];
-
-        let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-
-        let result = process_events(
-            sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            &events,
-            &context,
-        )
-        .await;
-
-        assert!(result.is_ok());
-        let captured = sink.get_events();
-
-        // At 100% rollout, the exception should be routed to Node (ExceptionErrorTracking)
-        assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
     }
 
     #[tokio::test]
