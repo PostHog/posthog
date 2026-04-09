@@ -14,6 +14,8 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db.models import Prefetch
+from django.db.models.fields.json import KeyTextTransform
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils.html import escape
@@ -35,6 +37,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -244,7 +247,12 @@ class UserSerializer(serializers.ModelSerializer):
     def get_github_login(self, instance: User) -> Optional[str]:
         # Use all() to hit the prefetch cache from get_queryset; filter in Python
         for sa in instance.social_auth.all():
-            if sa.provider == "github" and isinstance(sa.extra_data, dict):
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
                 login = sa.extra_data.get("login")
                 if login:
                     return str(login)
@@ -560,7 +568,14 @@ class UserViewSet(
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
-        return queryset.prefetch_related("social_auth")
+        return queryset.prefetch_related(
+            Prefetch(
+                "social_auth",
+                queryset=UserSocialAuth.objects.annotate(
+                    _prefetched_github_login=KeyTextTransform("login", "extra_data"),
+                ).only("id", "user_id", "provider"),
+            )
+        )
 
     def get_serializer_context(self):
         return {

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -20,6 +20,11 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
+
+if TYPE_CHECKING:
+    from django.db.models.manager import RelatedManager
+
+    from social_django.models import UserSocialAuth
 
 
 class Notifications(TypedDict, total=False):
@@ -218,6 +223,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     username = None
 
     objects: UserManager = UserManager()
+
+    # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
+    if TYPE_CHECKING:
+        social_auth: RelatedManager[UserSocialAuth]
 
     # Snapshot of is_active at load time, used by signal handlers to detect changes.
     # Set in from_db(); not a model field.
