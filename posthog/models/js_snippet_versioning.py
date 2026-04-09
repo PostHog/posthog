@@ -6,7 +6,7 @@ import hashlib
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import NotRequired, Optional, TypedDict
+from typing import Any, NotRequired, Optional, TypedDict
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 # S3 helpers — use IRSA credentials (no static creds) for the posthog-js bucket
 # ---------------------------------------------------------------------------
-_s3_client = None
+_s3_client: Any = None
 
 
 def _get_s3_client():
