@@ -26,7 +26,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.dashboards.backend.api import dashboard, dashboard_templates
-from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
+from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -158,6 +158,7 @@ from . import (
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
+from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
@@ -321,6 +322,13 @@ environments_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "environment_column_configurations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"event_filter",
+    EventFilterConfigViewSet,
+    "environment_event_filter",
     ["team_id"],
 )
 
@@ -567,6 +575,12 @@ environments_router.register(
     r"managed_viewsets",
     managed_viewset.DataWarehouseManagedViewSetViewSet,
     "environment_managed_viewsets",
+    ["team_id"],
+)
+environments_router.register(
+    r"data_modeling_dags",
+    DAGViewSet,
+    "environment_data_modeling_dags",
     ["team_id"],
 )
 environments_router.register(

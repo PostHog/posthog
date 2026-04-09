@@ -24,8 +24,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     Configuration is loaded from environment variables:
     - INGESTION_ACCEPTANCE_TEST_API_HOST
     - INGESTION_ACCEPTANCE_TEST_PROJECT_API_KEY
-    - INGESTION_ACCEPTANCE_TEST_PROJECT_ID
-    - INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY
+    - INGESTION_ACCEPTANCE_TEST_TEAM_ID
     - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 3600)
     - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 10.0)
     - INGESTION_ACCEPTANCE_TEST_ACTIVITY_TIMEOUT_SECONDS (optional, default 3600)
@@ -42,7 +41,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info(
         "Loaded config",
         api_host=config.api_host,
-        project_id=config.project_id,
+        team_id=config.team_id,
     )
 
     posthog_sdk = posthoganalytics.Posthog(

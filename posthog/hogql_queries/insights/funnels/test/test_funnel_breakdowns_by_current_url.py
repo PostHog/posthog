@@ -1,12 +1,10 @@
 from datetime import datetime
-from typing import Optional, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import FunnelsQuery
+from posthog.schema import BreakdownFilter, DateRange, EventsNode, FunnelsFilter, FunnelsQuery
 
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.test.test_journeys import journeys_for
 
 
@@ -114,47 +112,30 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journey, team=self.team, create_people=True)
 
-    def _run(self, extra: Optional[dict] = None, events_extra: Optional[dict] = None):
-        if events_extra is None:
-            events_extra = {}
-        if extra is None:
-            extra = {}
-        filters = {
-            "events": [
-                {
-                    "id": "watched movie",
-                    "name": "watched movie",
-                    "type": "events",
-                    "order": 0,
-                    **events_extra,
-                },
-                {
-                    "id": "terminate funnel",
-                    "name": "terminate funnel",
-                    "type": "events",
-                    "order": 1,
-                    **events_extra,
-                },
-            ],
-            "funnel_viz_type": "steps",
-            "insight": "FUNNELS",
-            "date_from": "2020-01-02T00:00:00Z",
-            "date_to": "2020-01-12T00:00:00Z",
-            "breakdown_limit": 100,  # never have other
-            **extra,
-        }
-        query = cast(FunnelsQuery, filter_to_query(filters))
+    def _run(self, query: FunnelsQuery):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
         return results
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_pathname(self) -> None:
         response = self._run(
-            {
-                "breakdown": "$pathname",
-                "breakdown_type": "event",
-                "breakdown_normalize_url": True,
-            }
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
         )
 
         actual = []
@@ -182,11 +163,23 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_by_current_url(self) -> None:
         response = self._run(
-            {
-                "breakdown": "$current_url",
-                "breakdown_type": "event",
-                "breakdown_normalize_url": True,
-            }
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$current_url",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
         )
 
         actual = []

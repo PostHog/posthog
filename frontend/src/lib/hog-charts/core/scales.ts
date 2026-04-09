@@ -85,7 +85,16 @@ export function createScales(
     return { x, y }
 }
 
-export function computePercentStackData(series: Series[], labels: string[]): Map<string, number[]> {
+export interface StackedBand {
+    top: number[]
+    bottom: number[]
+}
+
+function buildStackData(
+    series: Series[],
+    labels: string[],
+    offset?: typeof d3.stackOffsetNone
+): Map<string, StackedBand> {
     const visibleSeries = series.filter((s) => !s.hidden)
     if (visibleSeries.length === 0) {
         return new Map()
@@ -99,21 +108,29 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
         return row
     })
 
-    const stack = d3
-        .stack<Record<string, number>>()
-        .keys(visibleSeries.map((s) => s.key))
-        .offset(d3.stackOffsetExpand)
+    const stack = d3.stack<Record<string, number>>().keys(visibleSeries.map((s) => s.key))
+    if (offset) {
+        stack.offset(offset)
+    }
 
     const stacked = stack(tableData)
 
-    const result = new Map<string, number[]>()
+    const result = new Map<string, StackedBand>()
     for (const layer of stacked) {
-        result.set(
-            layer.key,
-            layer.map((d) => d[1])
-        )
+        result.set(layer.key, {
+            top: layer.map((d) => d[1]),
+            bottom: layer.map((d) => d[0]),
+        })
     }
     return result
+}
+
+export function computeStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
+    return buildStackData(series, labels)
+}
+
+export function computePercentStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
+    return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
 export function autoFormatYTick(value: number, domainMax: number): string {
@@ -123,5 +140,5 @@ export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 5) {
         return value.toFixed(1)
     }
-    return value.toFixed(0)
+    return value.toLocaleString('en-US', { maximumFractionDigits: 0 })
 }

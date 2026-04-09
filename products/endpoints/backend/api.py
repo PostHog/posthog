@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import serializers, status, viewsets
@@ -42,7 +43,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.utils import print_prepared_ast
@@ -105,6 +106,7 @@ from products.endpoints.backend.serializers import (
     EndpointMaterializationSerializer,
     EndpointRequestSerializer,
     EndpointResponseSerializer,
+    EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
 
@@ -277,6 +279,13 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    partial_update=extend_schema(
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
+        description="Update an existing endpoint.",
+    ),
+)
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -333,10 +342,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None
 
-    def _build_materialization_info(self, version: EndpointVersion) -> dict:
+    def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
         if version.saved_query:
-            return {
+            result = {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
@@ -349,12 +358,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     version.saved_query.sync_frequency_interval
                 ),
             }
+        else:
+            can_mat, reason = version.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
 
-        can_mat, reason = version.can_materialize()
-        return {
-            "can_materialize": can_mat,
-            "reason": reason if not can_mat else None,
-        }
+        if endpoint_name is not None:
+            result["name"] = endpoint_name
+        return result
 
     def _serialize(
         self,
@@ -407,6 +420,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
             result["version_created_at"] = version.created_at.isoformat()
+            result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
@@ -418,6 +432,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            results = [self._serialize(endpoint, request) for endpoint in page]
+            return self.get_paginated_response(results)
         results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
@@ -820,6 +838,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     target_version.is_active = data.is_active
                     update_fields.append("is_active")
                 if update_fields:
+                    update_fields.append("updated_at")
                     target_version.save(update_fields=update_fields)
 
             # Step 4: Handle materialization state (only if endpoint should be active)
@@ -1063,7 +1082,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
         version.saved_query = saved_query
         version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides"])
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -1234,7 +1253,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None, None, False
 
-    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+    # Query types that support user-configurable breakdown filtering
+    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
     def _get_allowed_variables(self, query: dict, is_materialized: bool) -> set[str]:
         """Get the set of allowed variable names for this endpoint."""
@@ -1309,23 +1329,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> ast.Expr | None:
         """Build the appropriate WHERE condition for breakdown filtering based on query type.
 
+        Different insight types store breakdowns in different columns:
+        - TrendsQuery, RetentionQuery: `breakdown_value` Array column
+        - LifecycleQuery: No breakdown support
+
         array_index controls how to access the breakdown column:
         - 0: single breakdown — use has() on the full array
         - 1+: multiple breakdowns — use equality on breakdown_value[N]
         """
-        if query_kind in ("LifecycleQuery", "StickinessQuery", "PathsQuery"):
+        if query_kind not in ("TrendsQuery", "RetentionQuery"):
             logger.warning(
                 "Query type does not support breakdown filtering",
                 query_kind=query_kind,
             )
             return None
 
-        column_name = "final_prop" if query_kind == "FunnelsQuery" else "breakdown_value"
-
         if array_index > 0:
             return ast.CompareOperation(
                 left=ast.ArrayAccess(
-                    array=ast.Field(chain=[column_name]),
+                    array=ast.Field(chain=["breakdown_value"]),
                     property=ast.Constant(value=array_index),
                 ),
                 op=ast.CompareOperationOp.Eq,
@@ -1334,7 +1356,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return ast.Call(
             name="has",
-            args=[ast.Field(chain=[column_name]), ast.Constant(value=value)],
+            args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value=value)],
         )
 
     def _execute_query_and_respond(
@@ -1729,12 +1751,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         properties: list[dict] = []
         for prop_name, prop_type in breakdown_infos or []:
-            if prop_name in variables:
-                value = variables[prop_name]
-                # Empty string means "null/unset" — match events where the property is missing.
-                # This keeps inline execution consistent with the materialized path,
-                # where null breakdown values are stored as '' in S3.
+            if prop_name not in variables:
+                continue
+            value = variables[prop_name]
+            # Any failure to build a filter for a breakdown variable must error the
+            # request — silently skipping would return unfiltered data, which is a
+            # data-leak (same principle that gates materialized endpoints on having
+            # all variables present).
+            try:
+                if prop_type == "hogql":
+                    # HogQLPropertyFilter.key is a full HogQL predicate and doesn't accept
+                    # `operator` (HogQLPropertyFilter has extra="forbid"), so build a
+                    # `<expr> = <value>` (or `isNull(<expr>)`) predicate to filter with.
+                    key_expr = parse_expr(prop_name)
+                    predicate_expr: ast.Expr
+                    if value == "":
+                        predicate_expr = ast.Call(name="isNull", args=[key_expr])
+                    else:
+                        predicate_expr = ast.CompareOperation(
+                            left=key_expr,
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value=value),
+                        )
+                    properties.append({"key": predicate_expr.to_hogql(), "type": "hogql"})
+                    continue
                 if value == "":
+                    # Empty string means "null/unset" — match events where the property is missing.
+                    # This keeps inline execution consistent with the materialized path,
+                    # where null breakdown values are stored as '' in S3.
                     properties.append(
                         {
                             "key": prop_name,
@@ -1751,6 +1795,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             "operator": PropertyOperator.EXACT,
                         }
                     )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": self.kwargs.get("name"),
+                        "prop_name": prop_name,
+                        "prop_type": prop_type,
+                    },
+                )
+                raise ValidationError(
+                    {"variables": f"Could not apply filter for breakdown variable '{prop_name}'"}
+                ) from e
 
         if not date_from and not date_to and not properties:
             return None
@@ -1903,6 +1961,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRunRequest,
+        responses={200: EndpointRunResponseSerializer},
         description="Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.",
     )
     @action(methods=["GET", "POST"], detail=True)
@@ -2045,9 +2104,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
 
-        if version_obj and isinstance(result.data, dict):
-            result.data["endpoint_version"] = version_obj.version
-            result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
+        if isinstance(result.data, dict):
+            result.data["name"] = endpoint.name
+            if version_obj:
+                result.data["endpoint_version"] = version_obj.version
+                result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
         return result
 
@@ -2179,10 +2240,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns versions in descending order (latest first).
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
-        versions = endpoint.versions.all()
-
-        results = [self._serialize(v) for v in versions]
-        return Response(results)
+        versions_qs = endpoint.versions.all()
+        page = self.paginate_queryset(versions_qs)
+        if page is not None:
+            results = [self._serialize(v) for v in page]
+            return self.get_paginated_response(results)
+        results = [self._serialize(v) for v in versions_qs]
+        return Response({"results": results})
 
     @extend_schema(
         responses={200: EndpointMaterializationSerializer},
@@ -2205,7 +2269,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             version = endpoint.get_version()
 
-        return Response(self._build_materialization_info(version))
+        return Response(self._build_materialization_info(version, endpoint_name=endpoint.name))
 
     @validated_request(
         MaterializationPreviewRequestSerializer,
@@ -2349,6 +2413,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Specific endpoint version to generate the spec for. Defaults to latest.",
+            ),
+        ],
     )
     @action(methods=["GET"], detail=True, url_path="openapi.json")
     def openapi_spec(self, request: Request, name=None, *args, **kwargs) -> Response:

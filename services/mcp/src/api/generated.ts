@@ -2384,6 +2384,8 @@ export namespace Schemas {
       detailedResultsAggregationType?: DetailedResultsAggregationType | null;
       display?: ChartDisplayType | null;
       /** @nullable */
+      excludeBoxPlotOutliers?: boolean | null;
+      /** @nullable */
       formula?: string | null;
       /**
        * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
@@ -4032,6 +4034,531 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentActorsQueryKind = typeof ExperimentActorsQueryKind[keyof typeof ExperimentActorsQueryKind];
+
+
+    export const ExperimentActorsQueryKind = {
+      ExperimentActorsQuery: 'ExperimentActorsQuery',
+    } as const;
+
+    export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
+
+
+    export const ExperimentQueryKind = {
+      ExperimentQuery: 'ExperimentQuery',
+    } as const;
+
+    export type ExperimentMetricGoal = typeof ExperimentMetricGoal[keyof typeof ExperimentMetricGoal];
+
+
+    export const ExperimentMetricGoal = {
+      Increase: 'increase',
+      Decrease: 'decrease',
+    } as const;
+
+    export type ExperimentMeanMetricKind = typeof ExperimentMeanMetricKind[keyof typeof ExperimentMeanMetricKind];
+
+
+    export const ExperimentMeanMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
+
+
+    export const ExperimentMeanMetricMetricType = {
+      Mean: 'mean',
+    } as const;
+
+    export type ExperimentDataWarehouseNodeKind = typeof ExperimentDataWarehouseNodeKind[keyof typeof ExperimentDataWarehouseNodeKind];
+
+
+    export const ExperimentDataWarehouseNodeKind = {
+      ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
+    } as const;
+
+    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
+    /**
+     * @nullable
+     */
+    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentDataWarehouseNode {
+      /** @nullable */
+      custom_name?: string | null;
+      data_warehouse_join_key: string;
+      events_join_key: string;
+      /**
+       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+       * @nullable
+       */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      kind?: ExperimentDataWarehouseNodeKind;
+      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_hogql?: string | null;
+      /** @nullable */
+      math_multiplier?: number | null;
+      /** @nullable */
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      /** @nullable */
+      math_property_type?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      optionalInFunnel?: boolean | null;
+      /**
+       * Properties configurable in the interface
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      response?: ExperimentDataWarehouseNodeResponse;
+      table_name: string;
+      timestamp_field: string;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentMeanMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      ignore_zeros?: boolean | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentMeanMetricKind;
+      /** @nullable */
+      lower_bound_percentile?: number | null;
+      metric_type?: ExperimentMeanMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentMeanMetricResponse;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      upper_bound_percentile?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentFunnelMetricKind = typeof ExperimentFunnelMetricKind[keyof typeof ExperimentFunnelMetricKind];
+
+
+    export const ExperimentFunnelMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
+
+
+    export const ExperimentFunnelMetricMetricType = {
+      Funnel: 'funnel',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentFunnelMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      funnel_order_type?: StepOrderValue | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentFunnelMetricKind;
+      metric_type?: ExperimentFunnelMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentFunnelMetricResponse;
+      series: (EventsNode | ActionsNode)[];
+      /** @nullable */
+      sharedMetricId?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentRatioMetricKind = typeof ExperimentRatioMetricKind[keyof typeof ExperimentRatioMetricKind];
+
+
+    export const ExperimentRatioMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
+
+
+    export const ExperimentRatioMetricMetricType = {
+      Ratio: 'ratio',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentRatioMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentRatioMetricKind;
+      metric_type?: ExperimentRatioMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      response?: ExperimentRatioMetricResponse;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export type ExperimentRetentionMetricKind = typeof ExperimentRetentionMetricKind[keyof typeof ExperimentRetentionMetricKind];
+
+
+    export const ExperimentRetentionMetricKind = {
+      ExperimentMetric: 'ExperimentMetric',
+    } as const;
+
+    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
+
+
+    export const ExperimentRetentionMetricMetricType = {
+      Retention: 'retention',
+    } as const;
+
+    export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
+
+
+    export const StartHandling = {
+      FirstSeen: 'first_seen',
+      LastSeen: 'last_seen',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentRetentionMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** @nullable */
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      /** @nullable */
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      /** @nullable */
+      isSharedMetric?: boolean | null;
+      kind?: ExperimentRetentionMetricKind;
+      metric_type?: ExperimentRetentionMetricMetricType;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      response?: ExperimentRetentionMetricResponse;
+      retention_window_end: number;
+      retention_window_start: number;
+      retention_window_unit: FunnelConversionWindowTimeUnit;
+      /** @nullable */
+      sharedMetricId?: number | null;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      start_handling: StartHandling;
+      /** @nullable */
+      uuid?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export interface SessionData {
+      event_uuid: string;
+      person_id: string;
+      session_id: string;
+      timestamp: string;
+    }
+
+    export type ExperimentStatsValidationFailure = typeof ExperimentStatsValidationFailure[keyof typeof ExperimentStatsValidationFailure];
+
+
+    export const ExperimentStatsValidationFailure = {
+      NotEnoughExposures: 'not-enough-exposures',
+      BaselineMeanIsZero: 'baseline-mean-is-zero',
+      NotEnoughMetricData: 'not-enough-metric-data',
+    } as const;
+
+    export interface ExperimentStatsBaseValidated {
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export type ExperimentVariantResultFrequentistMethod = typeof ExperimentVariantResultFrequentistMethod[keyof typeof ExperimentVariantResultFrequentistMethod];
+
+
+    export const ExperimentVariantResultFrequentistMethod = {
+      Frequentist: 'frequentist',
+    } as const;
+
+    export interface ExperimentVariantResultFrequentist {
+      /**
+       * @minItems 2
+       * @maxItems 2
+       * @nullable
+       */
+      confidence_interval?: number[] | null;
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      method?: ExperimentVariantResultFrequentistMethod;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      p_value?: number | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export type ExperimentVariantResultBayesianMethod = typeof ExperimentVariantResultBayesianMethod[keyof typeof ExperimentVariantResultBayesianMethod];
+
+
+    export const ExperimentVariantResultBayesianMethod = {
+      Bayesian: 'bayesian',
+    } as const;
+
+    export interface ExperimentVariantResultBayesian {
+      /** @nullable */
+      chance_to_win?: number | null;
+      /**
+       * @minItems 2
+       * @maxItems 2
+       * @nullable
+       */
+      credible_interval?: number[] | null;
+      /** @nullable */
+      denominator_sum?: number | null;
+      /** @nullable */
+      denominator_sum_squares?: number | null;
+      key: string;
+      method?: ExperimentVariantResultBayesianMethod;
+      number_of_samples: number;
+      /** @nullable */
+      numerator_denominator_sum_product?: number | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      step_counts?: number[] | null;
+      /** @nullable */
+      step_sessions?: SessionData[][] | null;
+      sum: number;
+      sum_squares: number;
+      /** @nullable */
+      validation_failures?: ExperimentStatsValidationFailure[] | null;
+    }
+
+    export interface ExperimentBreakdownResult {
+      /** Control variant stats for this breakdown */
+      baseline: ExperimentStatsBaseValidated;
+      /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
+      breakdown_value: (string | number | number)[];
+      /** Test variant results with statistical comparisons for this breakdown */
+      variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
+    }
+
+    export type ExperimentQueryResponseKind = typeof ExperimentQueryResponseKind[keyof typeof ExperimentQueryResponseKind];
+
+
+    export const ExperimentQueryResponseKind = {
+      ExperimentQuery: 'ExperimentQuery',
+    } as const;
+
+    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
+
+
+    export const ExperimentSignificanceCode = {
+      Significant: 'significant',
+      NotEnoughExposure: 'not_enough_exposure',
+      LowWinProbability: 'low_win_probability',
+      HighLoss: 'high_loss',
+      HighPValue: 'high_p_value',
+    } as const;
+
+    export interface ExperimentVariantTrendsBaseStats {
+      absolute_exposure: number;
+      count: number;
+      exposure: number;
+      key: string;
+    }
+
+    export interface ExperimentVariantFunnelsBaseStats {
+      failure_count: number;
+      key: string;
+      success_count: number;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null | null;
+
+    export type ExperimentQueryResponseInsightItem = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ExperimentQueryResponseProbability = {[key: string]: number} | null | null;
+
+    export interface ExperimentQueryResponse {
+      baseline?: ExperimentStatsBaseValidated | null;
+      /**
+       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
+       * @nullable
+       */
+      breakdown_results?: ExperimentBreakdownResult[] | null;
+      /** @nullable */
+      clickhouse_sql?: string | null;
+      /** @nullable */
+      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
+      /** @nullable */
+      hogql?: string | null;
+      /** @nullable */
+      insight?: ExperimentQueryResponseInsightItem[] | null;
+      /**
+       * Whether exposures were served from the precomputation system
+       * @nullable
+       */
+      is_precomputed?: boolean | null;
+      kind?: ExperimentQueryResponseKind;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
+      /** @nullable */
+      p_value?: number | null;
+      /** @nullable */
+      probability?: ExperimentQueryResponseProbability;
+      significance_code?: ExperimentSignificanceCode | null;
+      /** @nullable */
+      significant?: boolean | null;
+      /** @nullable */
+      stats_version?: number | null;
+      variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
+      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
+    }
+
+    export interface ExperimentQuery {
+      /** @nullable */
+      experiment_id?: number | null;
+      kind?: ExperimentQueryKind;
+      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      name?: string | null;
+      response?: ExperimentQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export interface ExperimentActorsQuery {
+      /**
+       * Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons.
+       * @nullable
+       */
+      funnelStep?: number | null;
+      /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
+      funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
+      /** @nullable */
+      includeRecordings?: boolean | null;
+      kind?: ExperimentActorsQueryKind;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ActorsQueryResponse | null;
+      source: ExperimentQuery;
+      tags?: QueryLogTags | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export type StickinessActorsQueryKind = typeof StickinessActorsQueryKind[keyof typeof StickinessActorsQueryKind];
 
 
@@ -4252,7 +4779,7 @@ export namespace Schemas {
       search?: string | null;
       /** @nullable */
       select?: string[] | null;
-      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery | null;
+      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
       /**
        * version of the node, used for schema migrations
@@ -4800,6 +5327,18 @@ export namespace Schemas {
       Monthly: 'monthly',
     } as const;
 
+    export interface AlertScheduleRestrictionWindow {
+      /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+      start: string;
+      /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+      end: string;
+    }
+
+    export interface AlertScheduleRestriction {
+      /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+      blocked_windows: AlertScheduleRestrictionWindow[];
+    }
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -4842,10 +5381,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable
@@ -5006,6 +5547,22 @@ export namespace Schemas {
       scope?: AnnotationScopeEnum;
     }
 
+    export interface AppMetricSeries {
+      name: string;
+      values: number[];
+    }
+
+    export interface AppMetricsResponse {
+      labels: string[];
+      series: AppMetricSeries[];
+    }
+
+    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
+
+    export interface AppMetricsTotalsResponse {
+      totals: AppMetricsTotalsResponseTotals;
+    }
+
     /**
      * Serializer for individual transcript segments from AssemblyAI
      */
@@ -5081,6 +5638,9 @@ export namespace Schemas {
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
+    * `linear` - Linear
+    * `time_decay` - Time Decay
+    * `position_based` - Position Based
      */
     export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
 
@@ -5088,6 +5648,9 @@ export namespace Schemas {
     export const AttributionModeEnum = {
       FirstTouch: 'first_touch',
       LastTouch: 'last_touch',
+      Linear: 'linear',
+      TimeDecay: 'time_decay',
+      PositionBased: 'position_based',
     } as const;
 
     export interface RunSummary {
@@ -6120,6 +6683,28 @@ export namespace Schemas {
       explicit_datetime?: string | null;
     }
 
+    export interface BlastRadius {
+      /** Number of users matching the filters */
+      affected: number;
+      /** Total number of users */
+      total: number;
+    }
+
+    /**
+     * Property filters to apply
+     */
+    export type BlastRadiusRequestFilters = {[key: string]: unknown};
+
+    export interface BlastRadiusRequest {
+      /** Property filters to apply */
+      filters: BlastRadiusRequestFilters;
+      /**
+       * Group type index for group-based targeting
+       * @nullable
+       */
+      group_type_index?: number | null;
+    }
+
     export interface BooleanScoreDefinitionConfig {
       /** Optional label for a true value. */
       true_label?: string;
@@ -6334,6 +6919,65 @@ export namespace Schemas {
        */
       version?: number | null;
     }
+
+    /**
+     * * `error` - error
+    * `warning` - warning
+     */
+    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+
+
+    export const UtmIssueSeverityEnum = {
+      Error: 'error',
+      Warning: 'warning',
+    } as const;
+
+    export interface UtmIssue {
+      /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
+      field: string;
+      /** Issue severity level
+
+    * `error` - error
+    * `warning` - warning */
+      severity: UtmIssueSeverityEnum;
+      /** Human-readable description of the issue */
+      message: string;
+    }
+
+    export interface CampaignAuditResult {
+      /** Campaign name from the ad platform */
+      campaign_name: string;
+      /** Campaign ID from the ad platform */
+      campaign_id: string;
+      /** Integration source name (e.g. google, meta) */
+      source_name: string;
+      /** Total spend for this campaign in the period */
+      spend: number;
+      /** Total clicks for this campaign */
+      clicks: number;
+      /** Total impressions for this campaign */
+      impressions: number;
+      /** Whether matching UTM pageview events were found */
+      has_utm_events: boolean;
+      /** Number of matching UTM pageview events */
+      event_count: number;
+      /** List of detected UTM configuration issues */
+      issues: UtmIssue[];
+    }
+
+    /**
+     * * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped
+     */
+    export type CampaignMatchEnum = typeof CampaignMatchEnum[keyof typeof CampaignMatchEnum];
+
+
+    export const CampaignMatchEnum = {
+      None: 'none',
+      Auto: 'auto',
+      Mapped: 'mapped',
+    } as const;
 
     /**
      * Supporting evidence
@@ -6703,6 +7347,11 @@ export namespace Schemas {
        * @nullable
        */
       yAxisAtZero?: boolean | null;
+    }
+
+    export interface CheckDatabaseNameResponse {
+      name: string;
+      available: boolean;
     }
 
     export type ClickhouseEventProperties = {[key: string]: unknown};
@@ -7782,6 +8431,26 @@ export namespace Schemas {
       scope: CustomerProfileConfigScopeEnum;
       content?: unknown | null;
       sidebar?: unknown | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface Dag {
+      readonly id: string;
+      /**
+       * Human-readable name for this DAG
+       * @maxLength 2048
+       */
+      name: string;
+      /** Optional description of the DAG's purpose */
+      description?: string;
+      /**
+       * Sync frequency string (e.g. '24hour', '7day')
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -8992,23 +9661,6 @@ export namespace Schemas {
       ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
     } as const;
 
-    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
-
-
-    export const ExperimentSignificanceCode = {
-      Significant: 'significant',
-      NotEnoughExposure: 'not_enough_exposure',
-      LowWinProbability: 'low_win_probability',
-      HighLoss: 'high_loss',
-      HighPValue: 'high_p_value',
-    } as const;
-
-    export interface ExperimentVariantFunnelsBaseStats {
-      failure_count: number;
-      key: string;
-      success_count: number;
-    }
-
     export type Response23CredibleIntervals = {[key: string]: number[]};
 
     export type Response23InsightItemItem = { [key: string]: unknown };
@@ -9035,13 +9687,6 @@ export namespace Schemas {
     export const Response24Kind = {
       ExperimentTrendsQuery: 'ExperimentTrendsQuery',
     } as const;
-
-    export interface ExperimentVariantTrendsBaseStats {
-      absolute_exposure: number;
-      count: number;
-      exposure: number;
-      key: string;
-    }
 
     export type Response24CredibleIntervals = {[key: string]: number[]};
 
@@ -9255,6 +9900,7 @@ export namespace Schemas {
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
       RecentFilters: 'recent_filters',
+      PinnedFilters: 'pinned_filters',
       Empty: 'empty',
     } as const;
 
@@ -11676,6 +12322,11 @@ export namespace Schemas {
        * @nullable
        */
       soft_update?: boolean | null;
+      /**
+       * Optional DAG to place this view into
+       * @nullable
+       */
+      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
@@ -12195,6 +12846,11 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface DeprovisionWarehouseResponse {
+      status: string;
+      team: string;
+    }
+
     /**
      * * `text` - text
     * `html` - html
@@ -12568,6 +13224,7 @@ export namespace Schemas {
       readonly source_id: string;
       readonly target_id: string;
       dag: string;
+      readonly dag_name: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -12645,6 +13302,8 @@ export namespace Schemas {
      * Materialization status for an endpoint version.
      */
     export interface EndpointMaterialization {
+      /** URL-safe endpoint name. */
+      name: string;
       /** Current materialization status (e.g. 'Completed', 'Running'). */
       status?: string;
       /** Whether this endpoint query can be materialized. */
@@ -12872,6 +13531,22 @@ export namespace Schemas {
     }
 
     /**
+     * Response from executing an endpoint query.
+     */
+    export interface EndpointRunResponse {
+      /** URL-safe endpoint name that was executed. */
+      name: string;
+      /** Query result rows. Each row is a list of values matching the columns order. */
+      results?: unknown[];
+      /** Column names from the query SELECT clause. */
+      columns?: string[];
+      /** Whether more results are available beyond the limit. */
+      hasMore?: boolean;
+      /** Version number of the endpoint that was executed. */
+      endpoint_version?: number;
+    }
+
+    /**
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
@@ -12950,6 +13625,11 @@ export namespace Schemas {
       endpoint_is_active: boolean;
       /** ISO 8601 timestamp when this version was created. */
       version_created_at: string;
+      /**
+       * ISO 8601 timestamp when this version was last updated.
+       * @nullable
+       */
+      version_updated_at: string | null;
       /** User who created this version. */
       readonly version_created_by: UserBasic | null;
     }
@@ -13392,6 +14072,16 @@ export namespace Schemas {
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
 
+    export interface ErrorTrackingIssueMergeRequest {
+      /** IDs of the issues to merge into the current issue. */
+      ids: string[];
+    }
+
+    export interface ErrorTrackingIssueMergeResponse {
+      /** Whether the merge completed successfully. */
+      success: boolean;
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -13679,6 +14369,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `disabled` - Disabled
+    * `dry_run` - Dry Run
+    * `live` - Live
+     */
+    export type EventFilterConfigModeEnum = typeof EventFilterConfigModeEnum[keyof typeof EventFilterConfigModeEnum];
+
+
+    export const EventFilterConfigModeEnum = {
+      Disabled: 'disabled',
+      DryRun: 'dry_run',
+      Live: 'live',
+    } as const;
+
+    export interface EventFilterConfig {
+      readonly id: string;
+      mode?: EventFilterConfigModeEnum;
+      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
+      filter_tree?: unknown | null;
+      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
+      test_cases?: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * * `DateTime` - DateTime
     * `String` - String
     * `Numeric` - Numeric
@@ -13748,13 +14463,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -13773,10 +14494,20 @@ export namespace Schemas {
       /** @nullable */
       event?: string | null;
       kind?: EventTaxonomyQueryKind;
+      /**
+       * Number of rows to return
+       * @nullable
+       */
+      limit?: number | null;
       /** @nullable */
       maxPropertyValues?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Number of rows to skip before returning rows
+       * @nullable
+       */
+      offset?: number | null;
       /** @nullable */
       properties?: string[] | null;
       response?: EventTaxonomyQueryResponse | null;
@@ -13985,181 +14716,6 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
-    export interface SessionData {
-      event_uuid: string;
-      person_id: string;
-      session_id: string;
-      timestamp: string;
-    }
-
-    export type ExperimentStatsValidationFailure = typeof ExperimentStatsValidationFailure[keyof typeof ExperimentStatsValidationFailure];
-
-
-    export const ExperimentStatsValidationFailure = {
-      NotEnoughExposures: 'not-enough-exposures',
-      BaselineMeanIsZero: 'baseline-mean-is-zero',
-      NotEnoughMetricData: 'not-enough-metric-data',
-    } as const;
-
-    export interface ExperimentStatsBaseValidated {
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export type ExperimentVariantResultFrequentistMethod = typeof ExperimentVariantResultFrequentistMethod[keyof typeof ExperimentVariantResultFrequentistMethod];
-
-
-    export const ExperimentVariantResultFrequentistMethod = {
-      Frequentist: 'frequentist',
-    } as const;
-
-    export interface ExperimentVariantResultFrequentist {
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
-      confidence_interval?: number[] | null;
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      method?: ExperimentVariantResultFrequentistMethod;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      p_value?: number | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export type ExperimentVariantResultBayesianMethod = typeof ExperimentVariantResultBayesianMethod[keyof typeof ExperimentVariantResultBayesianMethod];
-
-
-    export const ExperimentVariantResultBayesianMethod = {
-      Bayesian: 'bayesian',
-    } as const;
-
-    export interface ExperimentVariantResultBayesian {
-      /** @nullable */
-      chance_to_win?: number | null;
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
-      credible_interval?: number[] | null;
-      /** @nullable */
-      denominator_sum?: number | null;
-      /** @nullable */
-      denominator_sum_squares?: number | null;
-      key: string;
-      method?: ExperimentVariantResultBayesianMethod;
-      number_of_samples: number;
-      /** @nullable */
-      numerator_denominator_sum_product?: number | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      step_counts?: number[] | null;
-      /** @nullable */
-      step_sessions?: SessionData[][] | null;
-      sum: number;
-      sum_squares: number;
-      /** @nullable */
-      validation_failures?: ExperimentStatsValidationFailure[] | null;
-    }
-
-    export interface ExperimentBreakdownResult {
-      /** Control variant stats for this breakdown */
-      baseline: ExperimentStatsBaseValidated;
-      /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-      breakdown_value: (string | number | number)[];
-      /** Test variant results with statistical comparisons for this breakdown */
-      variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
-    }
-
-    export type ExperimentDataWarehouseNodeKind = typeof ExperimentDataWarehouseNodeKind[keyof typeof ExperimentDataWarehouseNodeKind];
-
-
-    export const ExperimentDataWarehouseNodeKind = {
-      ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
-    } as const;
-
-    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentDataWarehouseNode {
-      /** @nullable */
-      custom_name?: string | null;
-      data_warehouse_join_key: string;
-      events_join_key: string;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
-      kind?: ExperimentDataWarehouseNodeKind;
-      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
-      math_hogql?: string | null;
-      /** @nullable */
-      math_multiplier?: number | null;
-      /** @nullable */
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
-      math_property_type?: string | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
-      /** @nullable */
-      response?: ExperimentDataWarehouseNodeResponse;
-      table_name: string;
-      timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
     export type ExperimentEventExposureConfigKind = typeof ExperimentEventExposureConfigKind[keyof typeof ExperimentEventExposureConfigKind];
 
 
@@ -14285,302 +14841,6 @@ export namespace Schemas {
       response?: ExperimentExposureQueryResponse | null;
       /** @nullable */
       start_date?: string | null;
-      tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentFunnelMetricKind = typeof ExperimentFunnelMetricKind[keyof typeof ExperimentFunnelMetricKind];
-
-
-    export const ExperimentFunnelMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
-
-
-    export const ExperimentFunnelMetricMetricType = {
-      Funnel: 'funnel',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null;
-
-    export type ExperimentMetricGoal = typeof ExperimentMetricGoal[keyof typeof ExperimentMetricGoal];
-
-
-    export const ExperimentMetricGoal = {
-      Increase: 'increase',
-      Decrease: 'decrease',
-    } as const;
-
-    export interface ExperimentFunnelMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      funnel_order_type?: StepOrderValue | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentFunnelMetricKind;
-      metric_type?: ExperimentFunnelMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode)[];
-      /** @nullable */
-      sharedMetricId?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentMeanMetricKind = typeof ExperimentMeanMetricKind[keyof typeof ExperimentMeanMetricKind];
-
-
-    export const ExperimentMeanMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
-
-
-    export const ExperimentMeanMetricMetricType = {
-      Mean: 'mean',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentMeanMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      ignore_zeros?: boolean | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentMeanMetricKind;
-      /** @nullable */
-      lower_bound_percentile?: number | null;
-      metric_type?: ExperimentMeanMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentMeanMetricResponse;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      upper_bound_percentile?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
-
-
-    export const ExperimentQueryKind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
-
-    export type ExperimentRatioMetricKind = typeof ExperimentRatioMetricKind[keyof typeof ExperimentRatioMetricKind];
-
-
-    export const ExperimentRatioMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
-
-
-    export const ExperimentRatioMetricMetricType = {
-      Ratio: 'ratio',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentRatioMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentRatioMetricKind;
-      metric_type?: ExperimentRatioMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      response?: ExperimentRatioMetricResponse;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentRetentionMetricKind = typeof ExperimentRetentionMetricKind[keyof typeof ExperimentRetentionMetricKind];
-
-
-    export const ExperimentRetentionMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
-
-
-    export const ExperimentRetentionMetricMetricType = {
-      Retention: 'retention',
-    } as const;
-
-    export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
-
-
-    export const StartHandling = {
-      FirstSeen: 'first_seen',
-      LastSeen: 'last_seen',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentRetentionMetric {
-      breakdownFilter?: BreakdownFilter | null;
-      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
-      conversion_window?: number | null;
-      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
-      fingerprint?: string | null;
-      goal?: ExperimentMetricGoal | null;
-      /** @nullable */
-      isSharedMetric?: boolean | null;
-      kind?: ExperimentRetentionMetricKind;
-      metric_type?: ExperimentRetentionMetricMetricType;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      response?: ExperimentRetentionMetricResponse;
-      retention_window_end: number;
-      retention_window_start: number;
-      retention_window_unit: FunnelConversionWindowTimeUnit;
-      /** @nullable */
-      sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      start_handling: StartHandling;
-      /** @nullable */
-      uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type ExperimentQueryResponseKind = typeof ExperimentQueryResponseKind[keyof typeof ExperimentQueryResponseKind];
-
-
-    export const ExperimentQueryResponseKind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null | null;
-
-    export type ExperimentQueryResponseInsightItem = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseProbability = {[key: string]: number} | null | null;
-
-    export interface ExperimentQueryResponse {
-      baseline?: ExperimentStatsBaseValidated | null;
-      /**
-       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
-       * @nullable
-       */
-      breakdown_results?: ExperimentBreakdownResult[] | null;
-      /** @nullable */
-      clickhouse_sql?: string | null;
-      /** @nullable */
-      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
-      /** @nullable */
-      hogql?: string | null;
-      /** @nullable */
-      insight?: ExperimentQueryResponseInsightItem[] | null;
-      /**
-       * Whether exposures were served from the precomputation system
-       * @nullable
-       */
-      is_precomputed?: boolean | null;
-      kind?: ExperimentQueryResponseKind;
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      /** @nullable */
-      p_value?: number | null;
-      /** @nullable */
-      probability?: ExperimentQueryResponseProbability;
-      significance_code?: ExperimentSignificanceCode | null;
-      /** @nullable */
-      significant?: boolean | null;
-      /** @nullable */
-      stats_version?: number | null;
-      variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
-    }
-
-    export interface ExperimentQuery {
-      /** @nullable */
-      experiment_id?: number | null;
-      kind?: ExperimentQueryKind;
-      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      name?: string | null;
-      response?: ExperimentQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
        * version of the node, used for schema migrations
@@ -15789,10 +16049,10 @@ export namespace Schemas {
     * `warning` - Warning
     * `info` - Info
      */
-    export type SeverityEnum = typeof SeverityEnum[keyof typeof SeverityEnum];
+    export type HealthIssueSeverityEnum = typeof HealthIssueSeverityEnum[keyof typeof HealthIssueSeverityEnum];
 
 
-    export const SeverityEnum = {
+    export const HealthIssueSeverityEnum = {
       Critical: 'critical',
       Warning: 'warning',
       Info: 'info',
@@ -15813,7 +16073,7 @@ export namespace Schemas {
     export interface HealthIssue {
       readonly id: string;
       readonly kind: string;
-      readonly severity: SeverityEnum;
+      readonly severity: HealthIssueSeverityEnum;
       readonly status: HealthIssueStatusEnum;
       dismissed?: boolean;
       readonly payload: unknown;
@@ -16580,7 +16840,7 @@ export namespace Schemas {
     export interface InsightActorsQueryOptions {
       kind?: InsightActorsQueryOptionsKind;
       response?: InsightActorsQueryOptionsResponse | null;
-      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery;
+      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | ExperimentActorsQuery;
       /**
        * version of the node, used for schema migrations
        * @nullable
@@ -17545,6 +17805,13 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    export interface SummaryOutcome {
+      /** @nullable */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface SessionRecordingType {
       /** @nullable */
       active_seconds?: number | null;
@@ -17622,6 +17889,7 @@ export namespace Schemas {
       start_url?: string | null;
       /** @nullable */
       summary?: string | null;
+      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -18299,6 +18567,32 @@ export namespace Schemas {
       new_name: string;
     }
 
+    export interface LLMPromptEditOperation {
+      /** Text to find in the current prompt. Must match exactly once. */
+      old: string;
+      /** Replacement text. */
+      new: string;
+    }
+
+    export interface LLMPromptList {
+      readonly id: string;
+      /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
+      readonly name: string;
+      /** Prompt payload as JSON or string data. */
+      readonly prompt: unknown;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+      readonly prompt_preview: string;
+      readonly prompt_size_bytes: number;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -18482,6 +18776,72 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface LogsAlertSimulateBucket {
+      /** Bucket start timestamp. */
+      timestamp: string;
+      /** Number of matching logs in this bucket. */
+      count: number;
+      /** Whether the count crossed the threshold in this bucket. */
+      threshold_breached: boolean;
+      /** Alert state after evaluating this bucket. */
+      state: string;
+      /** Notification action: none, fire, or resolve. */
+      notification: string;
+      /** Human-readable explanation of the state transition. */
+      reason: string;
+    }
+
+    export interface LogsAlertSimulateRequest {
+      /** Filter criteria — same format as LogsAlertConfiguration.filters. */
+      filters: unknown;
+      /**
+       * Threshold count to evaluate against.
+       * @minimum 1
+       */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator: ThresholdOperatorEnum;
+      /** Window size in minutes — determines bucket interval. */
+      window_minutes: number;
+      /**
+       * Total check periods in the N-of-M evaluation window (M).
+       * @minimum 1
+       * @maximum 10
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods must breach to fire (N in N-of-M).
+       * @minimum 1
+       * @maximum 10
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * Minutes to wait after firing before sending another notification.
+       * @minimum 0
+       */
+      cooldown_minutes?: number;
+      /** Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d'). */
+      date_from: string;
+    }
+
+    export interface LogsAlertSimulateResponse {
+      /** Time-bucketed counts with full state machine evaluation. */
+      buckets: LogsAlertSimulateBucket[];
+      /** Number of times the alert would have sent a fire notification. */
+      fire_count: number;
+      /** Number of times the alert would have sent a resolve notification. */
+      resolve_count: number;
+      /** Total number of buckets in the simulation window. */
+      total_buckets: number;
+      /** Threshold count used for evaluation. */
+      threshold_count: number;
+      /** Threshold operator used for evaluation. */
+      threshold_operator: string;
     }
 
     /**
@@ -18988,6 +19348,7 @@ export namespace Schemas {
       name: string;
       type?: NodeTypeEnum;
       dag: string;
+      readonly dag_name: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -19168,7 +19529,8 @@ export namespace Schemas {
       readonly projects: readonly OrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features: readonly unknown[] | null;
-      is_member_join_email_enabled?: boolean;
+      /** Legacy field; member-join emails are controlled per user in account notification settings. */
+      readonly is_member_join_email_enabled: boolean;
       readonly metadata: OrganizationMetadata;
       /** @nullable */
       readonly customer_id: string | null;
@@ -19386,6 +19748,20 @@ export namespace Schemas {
       SignalReport: 'signal_report',
     } as const;
 
+    /**
+     * Initial goal and session outcome coming from LLM.
+     */
+    export interface Outcome {
+      /**
+       * @minLength 1
+       * @maxLength 10000
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -19542,6 +19918,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
+    }
+
+    export interface PaginatedDAGList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
@@ -20010,13 +20395,13 @@ export namespace Schemas {
       results: Integration[];
     }
 
-    export interface PaginatedLLMPromptList {
+    export interface PaginatedLLMPromptListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: LLMPrompt[];
+      results: LLMPromptList[];
     }
 
     export interface PaginatedLLMProviderKeyList {
@@ -20821,6 +21206,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score: number | null;
       readonly has_summary: boolean;
+      readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -22087,10 +22473,12 @@ export namespace Schemas {
        */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday).
+       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
        * @nullable
        */
       skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
        * The last calculated value from the most recent alert check.
        * @nullable
@@ -22431,6 +22819,26 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export interface PatchedDAG {
+      readonly id?: string;
+      /**
+       * Human-readable name for this DAG
+       * @maxLength 2048
+       */
+      name?: string;
+      /** Optional description of the DAG's purpose */
+      description?: string;
+      /**
+       * Sync frequency string (e.g. '24hour', '7day')
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      readonly node_count?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export type PatchedDashboardFilters = {[key: string]: unknown};
 
     /**
@@ -22628,6 +23036,11 @@ export namespace Schemas {
        * @nullable
        */
       soft_update?: boolean | null;
+      /**
+       * Optional DAG to place this view into
+       * @nullable
+       */
+      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
@@ -22819,6 +23232,7 @@ export namespace Schemas {
       readonly source_id?: string;
       readonly target_id?: string;
       dag?: string;
+      readonly dag_name?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -22867,6 +23281,70 @@ export namespace Schemas {
        * @nullable
        */
       order?: number | null;
+    }
+
+    /**
+     * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+     * @nullable
+     */
+    export type PatchedEndpointRequestBucketOverrides = {[key: string]: unknown} | null | null;
+
+    /**
+     * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
+     */
+    export interface PatchedEndpointRequest {
+      /**
+       * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+       * @nullable
+       */
+      name?: string | null;
+      /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
+      query?: unknown | null;
+      /**
+       * Human-readable description of what this endpoint returns.
+       * @nullable
+       */
+      description?: string | null;
+      /**
+       * Cache TTL in seconds (60–86400).
+       * @nullable
+       */
+      cache_age_seconds?: number | null;
+      /**
+       * Whether this endpoint is available for execution via the API.
+       * @nullable
+       */
+      is_active?: boolean | null;
+      /**
+       * Whether query results are materialized to S3.
+       * @nullable
+       */
+      is_materialized?: boolean | null;
+      /**
+       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      /**
+       * Short ID of the insight this endpoint was derived from.
+       * @nullable
+       */
+      derived_from_insight?: string | null;
+      /**
+       * Target a specific version for updates (defaults to current version).
+       * @nullable
+       */
+      version?: number | null;
+      /**
+       * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+       * @nullable
+       */
+      bucket_overrides?: PatchedEndpointRequestBucketOverrides;
+      /**
+       * Set to true to soft-delete this endpoint.
+       * @nullable
+       */
+      deleted?: boolean | null;
     }
 
     /**
@@ -23358,7 +23836,7 @@ export namespace Schemas {
     export interface PatchedHealthIssue {
       readonly id?: string;
       readonly kind?: string;
-      readonly severity?: SeverityEnum;
+      readonly severity?: HealthIssueSeverityEnum;
       readonly status?: HealthIssueStatusEnum;
       dismissed?: boolean;
       readonly payload?: unknown;
@@ -23689,8 +24167,10 @@ export namespace Schemas {
     }
 
     export interface PatchedLLMPromptPublish {
-      /** Prompt payload to publish as a new version. */
+      /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
       prompt?: unknown;
+      /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
+      edits?: LLMPromptEditOperation[];
       /**
        * Latest version you are editing from. Used for optimistic concurrency checks.
        * @minimum 1
@@ -23880,6 +24360,7 @@ export namespace Schemas {
       name?: string;
       type?: NodeTypeEnum;
       dag?: string;
+      readonly dag_name?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -23976,7 +24457,8 @@ export namespace Schemas {
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features?: readonly unknown[] | null;
-      is_member_join_email_enabled?: boolean;
+      /** Legacy field; member-join emails are controlled per user in account notification settings. */
+      readonly is_member_join_email_enabled?: boolean;
       readonly metadata?: PatchedOrganizationMetadata;
       /** @nullable */
       readonly customer_id?: string | null;
@@ -24578,6 +25060,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score?: number | null;
       readonly has_summary?: boolean;
+      readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }
@@ -25655,22 +26138,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -26408,6 +26875,16 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    export interface ProvisionWarehouseRequest {
+      /** Name for the new database */
+      database_name: string;
+    }
+
+    export interface ProvisionWarehouseResponse {
+      status: string;
+      team: string;
     }
 
     /**
@@ -28950,13 +29427,19 @@ export namespace Schemas {
        * @nullable
        */
       error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
       /**
        * Generated HogQL query.
        * @nullable
        */
       hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
@@ -29281,6 +29764,11 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface ResetPasswordResponse {
+      username: string;
+      password: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
        * Human-readable queue name.
@@ -29460,6 +29948,20 @@ export namespace Schemas {
       /** The key of the variant to ship to 100% of users. */
       variant_key: string;
     }
+
+    /**
+     * * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped
+     */
+    export type SourceMatchEnum = typeof SourceMatchEnum[keyof typeof SourceMatchEnum];
+
+
+    export const SourceMatchEnum = {
+      None: 'none',
+      Auto: 'auto',
+      Mapped: 'mapped',
+    } as const;
 
     export interface SummaryBullet {
       text: string;
@@ -30170,7 +30672,7 @@ export namespace Schemas {
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
-      /** Follow-up user message to include in the resumed run's prompt. */
+      /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
@@ -30346,22 +30848,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -30482,10 +30968,51 @@ export namespace Schemas {
     }
 
     export interface UserBlastRadiusResponse {
-      /** Number of users matching the condition */
-      users_affected: number;
-      /** Total number of users in the project */
-      total_users: number;
+      /** Number of entities matching the condition (users or groups depending on group_type_index) */
+      affected: number;
+      /** Total number of entities of this type in the project */
+      total: number;
+    }
+
+    export interface UtmEvent {
+      /** UTM campaign value from pageview events */
+      utm_campaign: string;
+      /** UTM source value from pageview events */
+      utm_source: string;
+      /** Number of pageview events with this UTM combination */
+      event_count: number;
+      /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
+
+    * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped */
+      campaign_match: CampaignMatchEnum;
+      /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
+
+    * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped */
+      source_match: SourceMatchEnum;
+      /**
+       * Name of the matched campaign, if any
+       * @nullable
+       */
+      matched_campaign: string | null;
+    }
+
+    export interface UtmAuditResponse {
+      /** Total number of campaigns with spend */
+      total_campaigns: number;
+      /** Number of campaigns with UTM issues */
+      campaigns_with_issues: number;
+      /** Number of campaigns without issues */
+      campaigns_without_issues: number;
+      /** Total spend on campaigns with UTM issues */
+      total_spend_at_risk: number;
+      /** Audit results per campaign */
+      results: CampaignAuditResult[];
+      /** All UTM events with match status */
+      all_utm_events: UtmEvent[];
     }
 
     export interface ViewLinkValidation {
@@ -30497,6 +31024,36 @@ export namespace Schemas {
       source_table_name: string;
       /** @maxLength 255 */
       source_table_key: string;
+    }
+
+    /**
+     * * `pending` - pending
+    * `provisioning` - provisioning
+    * `ready` - ready
+    * `failed` - failed
+    * `deleting` - deleting
+    * `deleted` - deleted
+     */
+    export type WarehouseStatusResponseStateEnum = typeof WarehouseStatusResponseStateEnum[keyof typeof WarehouseStatusResponseStateEnum];
+
+
+    export const WarehouseStatusResponseStateEnum = {
+      Pending: 'pending',
+      Provisioning: 'provisioning',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleting: 'deleting',
+      Deleted: 'deleted',
+    } as const;
+
+    export interface WarehouseStatusResponse {
+      team_name: string;
+      state: WarehouseStatusResponseStateEnum;
+      status_message: string;
+      /** @nullable */
+      ready_at: string | null;
+      /** @nullable */
+      failed_at: string | null;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -30772,6 +31329,14 @@ export namespace Schemas {
     saved_query_id?: string | null;
     };
 
+    export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
     export type EnvironmentsDatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -30837,6 +31402,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
     };
 
     export type EnvironmentsEndpointsVersionsListParams = {
@@ -31791,18 +32363,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsStickinessRetrieveParams = {
-    format?: EnvironmentsPersonsStickinessRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsStickinessRetrieveFormat = typeof EnvironmentsPersonsStickinessRetrieveFormat[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat];
-
-
-    export const EnvironmentsPersonsStickinessRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsTrendsRetrieveParams = {
     format?: EnvironmentsPersonsTrendsRetrieveFormat;
     };
@@ -32061,6 +32621,17 @@ export namespace Schemas {
     };
 
     export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataModelingDagsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -32424,6 +32995,15 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
+     * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsListContent;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -32436,6 +33016,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
+
+
+    export const LlmPromptsListContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
 
     export type LlmPromptsNameRetrieveParams = {
     /**
@@ -32482,6 +33071,20 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MarketingAnalyticsUtmAuditRetrieveParams = {
+    /**
+     * Start date for the audit period
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the audit period
+     * @minLength 1
+     * @nullable
+     */
+    date_to?: string | null;
     };
 
     export type MaterializedColumnSlotsListParams = {
@@ -33261,7 +33864,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Sort templates by name when not using `search`. Omit for database default order. Ignored when `search` is set (results stay relevance-ranked). Use `template_name` for A–Z or `-template_name` for Z–A.
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
      */
     ordering?: string;
     };
@@ -33480,6 +34083,14 @@ export namespace Schemas {
     saved_query_id?: string | null;
     };
 
+    export type DataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
     export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -33556,6 +34167,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number;
     };
 
     export type EndpointsVersionsListParams = {
@@ -34911,18 +35529,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat;
-    };
-
-    export type PersonsStickinessRetrieveFormat = typeof PersonsStickinessRetrieveFormat[keyof typeof PersonsStickinessRetrieveFormat];
-
-
-    export const PersonsStickinessRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
