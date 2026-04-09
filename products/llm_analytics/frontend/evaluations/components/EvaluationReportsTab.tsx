@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBadge, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportRun } from '../types'
@@ -14,16 +17,12 @@ interface EvaluationReportsTabProps {
 
 const STATUS_STYLES: Record<
     EvaluationReportRun['delivery_status'],
-    { label: string; status: 'success' | 'warning' | 'danger' | 'muted' }
+    { label: string; type: 'success' | 'warning' | 'danger' | 'muted' }
 > = {
-    delivered: { label: 'Delivered', status: 'success' },
-    pending: { label: 'Pending', status: 'muted' },
-    partial_failure: { label: 'Partial failure', status: 'warning' },
-    failed: { label: 'Failed', status: 'danger' },
-}
-
-function formatPeriod(run: EvaluationReportRun): string {
-    return `${new Date(run.period_start).toLocaleDateString()} – ${new Date(run.period_end).toLocaleDateString()}`
+    delivered: { label: 'Delivered', type: 'success' },
+    pending: { label: 'Pending', type: 'muted' },
+    partial_failure: { label: 'Partial failure', type: 'warning' },
+    failed: { label: 'Failed', type: 'danger' },
 }
 
 export function EvaluationReportsTab({ evaluationId, onConfigureClick }: EvaluationReportsTabProps): JSX.Element {
@@ -89,18 +88,15 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                     {
                         title: 'Generated',
                         key: 'created_at',
-                        render: (_, run: EvaluationReportRun) => new Date(run.created_at).toLocaleString(),
-                    },
-                    {
-                        title: 'Period',
-                        key: 'period',
-                        render: (_, run: EvaluationReportRun) => formatPeriod(run),
+                        render: (_, run: EvaluationReportRun) => <TZLabel time={run.created_at} />,
                     },
                     {
                         title: 'Title',
                         key: 'title',
                         render: (_, run: EvaluationReportRun) => (
-                            <span className="font-medium">{run.content?.title || '–'}</span>
+                            <span className="font-medium truncate block max-w-md" title={run.content?.title}>
+                                {run.content?.title || '–'}
+                            </span>
                         ),
                     },
                     {
@@ -118,15 +114,30 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                             run.content?.metrics?.total_runs ?? run.metadata?.total_runs ?? '–',
                     },
                     {
-                        title: 'Delivery',
+                        title: 'Status',
                         key: 'delivery_status',
                         render: (_, run: EvaluationReportRun) => {
                             const info = STATUS_STYLES[run.delivery_status] || {
                                 label: run.delivery_status,
-                                status: 'muted' as const,
+                                type: 'default' as const,
                             }
-                            return <LemonBadge content={info.label} status={info.status} />
+                            return (
+                                <LemonTag type={info.type} size="small">
+                                    {info.label}
+                                </LemonTag>
+                            )
                         },
+                    },
+                    {
+                        key: 'info',
+                        width: 0,
+                        render: (_, run: EvaluationReportRun) => (
+                            <Tooltip
+                                title={`Period: ${new Date(run.period_start).toLocaleString()} – ${new Date(run.period_end).toLocaleString()}`}
+                            >
+                                <IconInfo className="text-muted text-base" />
+                            </Tooltip>
+                        ),
                     },
                 ]}
                 expandable={{

@@ -14,12 +14,16 @@ import type {
 
 const UUID_REGEX = /`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`/g
 
-// Rewrite `<uuid>` backtick tokens into markdown links so LemonMarkdown renders
-// them as clickable trace links. The generated URL matches the current behaviour
-// of the old renderer — the citation-URL bug is tracked in beads-tracking-17d.
-function linkifyUuids(content: string): string {
-    return content.replace(UUID_REGEX, (_match, uuid: string) => {
-        return `[\`${uuid.slice(0, 8)}...\`](${urls.llmAnalyticsTrace(uuid)})`
+// Rewrite `<uuid>` backtick tokens into markdown links pointing to the correct
+// trace URL. Uses the citations list to map generation_id → trace_id so the link
+// opens the right trace with the generation highlighted.
+function linkifyUuids(content: string, citationMap: Record<string, string>): string {
+    return content.replace(UUID_REGEX, (_match, generationId: string) => {
+        const traceId = citationMap[generationId]
+        const url = traceId
+            ? urls.llmAnalyticsTrace(traceId, { event: generationId })
+            : urls.llmAnalyticsTrace(generationId)
+        return `[\`${generationId.slice(0, 8)}...\`](${url})`
     })
 }
 
@@ -38,8 +42,14 @@ function stripRedundantLeadingHeading(content: string, sectionTitle: string): st
     return content
 }
 
-function ReportSectionContent({ section }: { section: EvaluationReportSection }): JSX.Element {
-    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, section.title))
+function ReportSectionContent({
+    section,
+    citationMap,
+}: {
+    section: EvaluationReportSection
+    citationMap: Record<string, string>
+}): JSX.Element {
+    const markdown = linkifyUuids(stripRedundantLeadingHeading(section.content, section.title), citationMap)
     return (
         <LemonMarkdown lowKeyHeadings className="text-sm">
             {markdown}
@@ -130,6 +140,17 @@ export function EvaluationReportViewer({
     const sections = content.sections ?? []
     const metrics = content.metrics
 
+    // Build generation_id → trace_id lookup from citations for correct trace URLs
+    const citationMap = useMemo(() => {
+        const map: Record<string, string> = {}
+        for (const c of content.citations ?? []) {
+            if (c.generation_id && c.trace_id) {
+                map[c.generation_id] = c.trace_id
+            }
+        }
+        return map
+    }, [content.citations])
+
     // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
     // buttons can set the list deterministically.
     const sectionKeys = useMemo(() => sections.map((_, i) => i.toString()), [sections])
@@ -162,30 +183,58 @@ export function EvaluationReportViewer({
                 </>
             )}
 
-            {compact && content.title && <h3 className="font-semibold text-sm mb-2">{content.title}</h3>}
+            {compact && (
+                <div className="flex items-center justify-between mb-2">
+                    {content.title ? <h3 className="font-semibold text-sm mb-0">{content.title}</h3> : <div />}
+                    {sections.length > 0 && (
+                        <div className="flex gap-2">
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setExpandedKeys(sectionKeys)}
+                                disabledReason={allExpanded ? 'All sections already expanded' : undefined}
+                            >
+                                Expand all
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setExpandedKeys([])}
+                                disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
+                            >
+                                Collapse all
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {!compact && content.title && <h3 className="font-semibold text-sm mb-2">{content.title}</h3>}
 
             {metrics && <MetricsCard metrics={metrics} />}
 
             {sections.length > 0 && (
                 <>
-                    <div className="flex justify-end gap-2 mb-2">
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => setExpandedKeys(sectionKeys)}
-                            disabledReason={allExpanded ? 'All sections already expanded' : undefined}
-                        >
-                            Expand all
-                        </LemonButton>
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => setExpandedKeys([])}
-                            disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
-                        >
-                            Collapse all
-                        </LemonButton>
-                    </div>
+                    {!compact && (
+                        <div className="flex justify-end gap-2 mb-2">
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setExpandedKeys(sectionKeys)}
+                                disabledReason={allExpanded ? 'All sections already expanded' : undefined}
+                            >
+                                Expand all
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setExpandedKeys([])}
+                                disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
+                            >
+                                Collapse all
+                            </LemonButton>
+                        </div>
+                    )}
 
                     <LemonCollapse
                         multiple
@@ -195,7 +244,7 @@ export function EvaluationReportViewer({
                         panels={sections.map((section, idx) => ({
                             key: idx.toString(),
                             header: section.title,
-                            content: <ReportSectionContent section={section} />,
+                            content: <ReportSectionContent section={section} citationMap={citationMap} />,
                         }))}
                     />
                 </>

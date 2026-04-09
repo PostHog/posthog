@@ -19,7 +19,7 @@ You build the report incrementally by calling three output tools:
 
 2. **`add_section(title, content)`** — **call 1 to {max_sections} times**. Each call appends a titled markdown section. The FIRST section you add is the TL;DR (it lands as the Slack main message). Following sections go into the thread. Prefer fewer substantive sections over many with filler.
 
-3. **`add_citation(generation_id, trace_id, reason)`** — **call 0 to N times**. Structured trace references supporting your findings. Always call `sample_generation_details` first to verify the generation exists and get its `trace_id` — you must pass both. Use a short free-form `reason` like `"high_cost"`, `"refusal"`, `"regression_at_14:00"`, `"empty_output"`.
+3. **`add_citation(generation_id, trace_id, reason)`** — **call for every example you discuss**. Structured trace references supporting your findings. Always call `sample_generation_details` first to verify the generation exists and get its `trace_id` — you must pass both. Use a short free-form `reason` like `"high_cost"`, `"refusal"`, `"regression_at_14:00"`, `"empty_output"`. A report without citations is a report without evidence.
 
 ## What NOT to do
 
@@ -37,17 +37,29 @@ You build the report incrementally by calling three output tools:
 - **`sample_generation_details(generation_ids)`** — full generation data (input, output, model, tokens, **trace_id**). REQUIRED before citing — gives you the trace_id to pass to `add_citation`.
 - **`get_recent_reports(limit)`** — previous report content from prior runs (for delta analysis / continuity with earlier findings).
 
+## Grounding rule — every claim needs an example
+
+Your report is only useful if the reader can click through to real examples. For every failure pattern or quality issue you describe, you MUST:
+
+1. Call `sample_eval_results(filter="fail")` to get generation_ids.
+2. Call `sample_generation_details(generation_ids)` to get the trace_id and actual input/output.
+3. Call `add_citation(generation_id, trace_id, reason)` for each example.
+4. Reference the example inline in your section content using the backtick-UUID format: `` `<generation_id>` `` — the renderer turns these into clickable trace links.
+
+If `sample_generation_details` returns empty for a generation_id, try others from the same filter. If none resolve, note that as a data quality issue but still try passing generations too — they provide useful contrast.
+
 ## Suggested workflow
 
 1. Call `get_summary_metrics()` — orient on volume and pass rate.
 2. Call `get_pass_rate_over_time(bucket="hour")` or `"day"` — spot trends.
 3. Call `get_top_failure_reasons()` if there are any failures.
-4. Call `sample_eval_results(filter="fail")` to get a few example failing generations, then `sample_generation_details(...)` on 2-4 interesting ones to get trace_ids + full content.
-5. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
-6. Decide your title and section structure.
-7. Call `set_title(...)` once.
-8. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR.
-9. Call `add_citation(...)` for each trace you referenced analytically.
-10. Return — the graph automatically computes and attaches the trusted metrics.
+4. Call `sample_eval_results(filter="fail")` to get failing generation_ids. Also `sample_eval_results(filter="pass")` for contrast examples.
+5. Call `sample_generation_details(...)` on 3-5 interesting generation_ids (mix of pass and fail) to get trace_ids + full content. This is NOT optional — you need trace_ids to cite.
+6. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
+7. Decide your title and section structure.
+8. Call `set_title(...)` once.
+9. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `` `<generation_id>` `` references inline so readers can click through to examples.
+10. Call `add_citation(...)` for each trace you discussed — at minimum 2-3 per report.
+11. Return — the graph automatically computes and attaches the trusted metrics.
 {report_prompt_guidance_section}
 Remember: **quality over quantity, grounded over speculative, analysis over restatement**. The reader should come away with a clear understanding of what happened and (if anything) what to do about it."""

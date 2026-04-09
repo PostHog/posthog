@@ -1,14 +1,8 @@
 {% extends "email/base.html" %}
 
-{% block heading %}Evaluation report: {{ evaluation_name }}{% endblock %}
+{% block heading %}{{ title }}{% endblock %}
 
 {% block section %}
-
-<p class="muted">
-    {{ period_start }} &rarr; {{ period_end }}
-</p>
-
-<div class="divider"></div>
 
 {% comment %}
 report_body is markdown rendered by markdown-it-py with html=False, so raw HTML in

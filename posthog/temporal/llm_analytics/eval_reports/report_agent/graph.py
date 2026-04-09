@@ -292,6 +292,19 @@ def run_eval_report_agent(
             )
             return _fallback_content(evaluation_name, metrics, validation_error)
 
+        # Auto-append a References section from structured citations so every
+        # delivery surface (UI, email, Slack) gets a clickable bibliography.
+        if content.citations:
+            refs_lines = []
+            for i, c in enumerate(content.citations, 1):
+                refs_lines.append(f"{i}. `{c.generation_id}` — {c.reason}")
+            content.sections.append(
+                ReportSection(
+                    title="References",
+                    content="\n".join(refs_lines),
+                )
+            )
+
         logger.info(
             "eval_report_agent_completed",
             team_id=team_id,

@@ -45,13 +45,6 @@ def _inline_email_styles(html: str) -> str:
     return html
 
 
-def _make_generation_link(project_id: int, trace_id: str) -> str:
-    """Convert a generation/trace ID to a PostHog link."""
-    from posthog.utils import absolute_uri
-
-    return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}")
-
-
 def _format_period_for_display(iso_str: str) -> str:
     """Format an ISO-8601 timestamp string for display in emails and Slack messages.
 
@@ -65,12 +58,28 @@ def _format_period_for_display(iso_str: str) -> str:
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
-def _linkify_uuids(text: str, project_id: int) -> str:
+def _build_citation_map(citations: list) -> dict[str, str]:
+    """Build a generation_id → trace_id lookup from structured citations."""
+    return {c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id}
+
+
+def _make_trace_link(project_id: int, generation_id: str, citation_map: dict[str, str]) -> str:
+    """Build the correct trace URL, using citation map for generation_id → trace_id resolution."""
+    from posthog.utils import absolute_uri
+
+    trace_id = citation_map.get(generation_id, generation_id)
+    if trace_id != generation_id:
+        return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}?event={generation_id}")
+    return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{generation_id}")
+
+
+def _linkify_uuids(text: str, project_id: int, citation_map: dict[str, str] | None = None) -> str:
     """Replace backtick-wrapped UUIDs with clickable links (markdown format)."""
+    cmap = citation_map or {}
 
     def replace_with_md_link(match: re.Match) -> str:
         gen_id = match.group(1)
-        link = _make_generation_link(project_id, gen_id)
+        link = _make_trace_link(project_id, gen_id, cmap)
         return f"[{gen_id[:8]}...]({link})"
 
     return UUID_LINK_PATTERN.sub(replace_with_md_link, text)
@@ -127,35 +136,61 @@ def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
     return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{table}\n'
 
 
-def _render_metrics_block_mrkdwn(metrics: EvalReportMetrics) -> str:
-    """Render the metrics block as Slack mrkdwn (compact)."""
+def _build_pass_rate_bar(pass_rate: float, width: int = 30) -> str:
+    """Build an ASCII bar representing the pass rate percentage."""
+    filled = round(pass_rate / 100 * width)
+    return "█" * filled + "·" * (width - filled)
+
+
+def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
+    """Render the metrics block as a Slack code block with ASCII dashboard style."""
+    W = 36  # inner width between │ pipes
+
     delta = ""
     if metrics.previous_pass_rate is not None:
         diff = metrics.pass_rate - metrics.previous_pass_rate
         arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
-        delta = f" ({arrow} {abs(diff):.2f}pp)"
-    return (
-        f"*Pass rate:* {_format_pass_rate(metrics.pass_rate)}{delta}    "
-        f"*Runs:* {metrics.total_runs}  "
-        f"*Pass:* {metrics.pass_count}  "
-        f"*Fail:* {metrics.fail_count}  "
-        f"*N/A:* {metrics.na_count}"
-    )
+        delta = f"  {arrow} {abs(diff):.2f}pp"
+
+    bar = _build_pass_rate_bar(metrics.pass_rate)
+    rate = _format_pass_rate(metrics.pass_rate)
+    runs_label = f"{metrics.total_runs} runs"
+
+    # Line with rate left-aligned and runs right-aligned
+    rate_str = f"  {rate}{delta}"
+    rate_line = f"{rate_str}{runs_label:>{W - len(rate_str)}}"
+
+    counts = f"  pass {metrics.pass_count} · fail {metrics.fail_count} · n/a {metrics.na_count}"
+
+    top = f"┌─ pass rate {'─' * (W - 12)}┐"
+    bot = f"└{'─' * W}┘"
+
+    code_block = f"{top}\n│{f'  {bar}':<{W}}│\n│{rate_line:<{W}}│\n│{counts:<{W}}│\n{bot}"
+
+    blocks: list[dict] = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"```{code_block}```"},
+        },
+    ]
+    return blocks
 
 
-def _render_section_html(title: str, content: str, project_id: int) -> str:
-    """Render a titled markdown section as HTML with clickable generation ID links."""
+def _render_section_html(title: str, content: str, project_id: int, citation_map: dict[str, str] | None = None) -> str:
+    """Render a titled markdown section as HTML with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
-    # Convert UUIDs to markdown links before rendering so they become <a> tags
-    content_with_links = _linkify_uuids(content, project_id)
+    content_with_links = _linkify_uuids(content, project_id, citation_map)
     html_content = _md.render(content_with_links)
     html_content = _inline_email_styles(html_content)
     return f"<h2>{title}</h2>\n{html_content}\n"
 
 
-def _render_section_mrkdwn(title: str, content: str) -> str:
-    """Render a titled markdown section as Slack mrkdwn."""
+def _render_section_mrkdwn(
+    title: str, content: str, project_id: int, citation_map: dict[str, str] | None = None
+) -> str:
+    """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
+    content = _linkify_uuids(content, project_id, citation_map)
     mrkdwn_content = _slack_converter.convert(content)
     return f"*{title}*\n{mrkdwn_content}"
 
@@ -174,12 +209,13 @@ def deliver_email_report(
     from posthog.utils import absolute_uri
 
     content = EvalReportContent.from_dict(report_run.content)
+    citation_map = _build_citation_map(content.citations)
     errors: list[str] = []
 
     # Metrics block first, then each section
     body_parts = [_render_metrics_block_html(content.metrics)]
     for section in content.sections:
-        body_parts.append(_render_section_html(section.title, section.content, project_id))
+        body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
 
     evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
@@ -236,6 +272,7 @@ def deliver_slack_report(
     from posthog.models.integration import Integration, SlackIntegration
 
     content = EvalReportContent.from_dict(report_run.content)
+    citation_map = _build_citation_map(content.citations)
     errors: list[str] = []
 
     header_text = content.title or f"Evaluation report: {evaluation_name}"
@@ -246,7 +283,6 @@ def deliver_slack_report(
     period_line = (
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
     )
-    metrics_line = _render_metrics_block_mrkdwn(content.metrics)
 
     for target in targets:
         if target.get("type") != "slack":
@@ -261,7 +297,7 @@ def deliver_slack_report(
             integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
             client = SlackIntegration(integration).client
 
-            # Main message: header + context + metrics + first section (if any)
+            # Main message: header + context + metrics grid + first section (if any)
             blocks: list[dict] = [
                 {
                     "type": "header",
@@ -271,14 +307,14 @@ def deliver_slack_report(
                     "type": "context",
                     "elements": [{"type": "mrkdwn", "text": period_line}],
                 },
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": metrics_line}],
-                },
+                *_render_metrics_slack_blocks(content.metrics),
+                {"type": "divider"},
             ]
 
             if content.sections:
-                first_section_mrkdwn = _render_section_mrkdwn(content.sections[0].title, content.sections[0].content)
+                first_section_mrkdwn = _render_section_mrkdwn(
+                    content.sections[0].title, content.sections[0].content, project_id, citation_map
+                )
                 blocks.append(
                     {
                         "type": "section",
@@ -296,7 +332,7 @@ def deliver_slack_report(
             thread_ts = result.get("ts")
             if thread_ts and len(content.sections) > 1:
                 for section in content.sections[1:]:
-                    mrkdwn_text = _render_section_mrkdwn(section.title, section.content)
+                    mrkdwn_text = _render_section_mrkdwn(section.title, section.content, project_id, citation_map)
                     client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
