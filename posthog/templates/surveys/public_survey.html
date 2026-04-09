@@ -27,6 +27,9 @@
             /* Default elevation shadow for light card surfaces. Overridden in JS to a light
                shadow when the card surface is dark (so cards stay grounded on dark themes). */
             --ph-survey-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 2px 8px rgba(17, 17, 17, 0.04);
+            /* Corner branding pill — flipped to a dark translucent fill in JS when the page
+               background is dark, otherwise a white pill reads as a glaring badge. */
+            --ph-survey-pill-background: rgba(255, 255, 255, 0.7);
         }
 
         * {
@@ -441,11 +444,11 @@
             gap: 0.35rem;
             padding: 0.4rem 0.7rem;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.7);
+            background: var(--ph-survey-pill-background);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 4px 14px rgba(17, 17, 17, 0.06);
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            color: var(--ph-survey-page-text-subtle, #6b6b6b);
             font-size: 0.72rem;
             font-weight: 500;
             text-decoration: none;
@@ -666,6 +669,7 @@
 
     {{ survey_data|json_script:"survey-data" }}
     {{ project_config|json_script:"project-config" }}
+    {% include "surveys/_appearance_helpers.html" %}
     <script nonce="{{ request.csp_nonce }}">
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
         const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
@@ -692,48 +696,106 @@
             return { ...HOSTED_SURVEY_DEFAULTS, ...(appearance || {}) };
         }
 
-        // Returns sRGB luminance (0–1) for any CSS color string we can parse, or null when we
-        // can't (e.g. named colors we don't have a hex for, oklch, etc — uncommon in customer
-        // appearance settings since the builder UI emits hex). Used to pick a card shadow that
-        // contrasts with the actual surface color, not just the default light theme.
-        function getLuminance(color) {
-            if (!color) return null
-            let hex = color.trim().toLowerCase()
-            if (hex === 'white') hex = '#ffffff'
-            else if (hex === 'black') hex = '#000000'
-            if (hex[0] !== '#') return null
-            if (hex.length === 4) hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]
-            if (hex.length !== 7) return null
-            const r = parseInt(hex.slice(1, 3), 16) / 255
-            const g = parseInt(hex.slice(3, 5), 16) / 255
-            const b = parseInt(hex.slice(5, 7), 16) / 255
-            // Rec. 709 luma — close enough to perceptual for picking light vs dark shadow.
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b
-        }
+        // getLuminance and getContrastingTextColor are defined in _appearance_helpers.html,
+        // included above. Both return null when a color can't be parsed — callers fall back
+        // to defaults in that case.
 
-        // Page background and progress bar follow the survey appearance so the form
-        // feels like a single document rather than a card floating on a contrasting page.
+        // IMPORTANT: posthog-js's renderSurvey() path does NOT call addSurveyCSSVariablesToElement,
+        // so none of the --ph-survey-* container variables are set by posthog-js on this page.
+        // We have to set them ourselves, replicating what addSurveyCSSVariablesToElement does for
+        // the popup path. Without this, my CSS rules like `var(--ph-survey-input-background, #fff)`
+        // always resolve to the fallback, which means customer appearance customization (input
+        // background, border color, etc.) is silently ignored and dark-theme surveys keep black
+        // text. Set everything on :root so values cascade into the container and its children.
         function applyPageAppearance(appearance) {
-            const root = document.documentElement;
+            const root = document.documentElement
+
+            // --- Page chrome (progress bar, loading spinner, corner branding) ---
             if (appearance.backgroundColor) {
-                root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor);
+                root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor)
             }
             if (appearance.submitButtonColor) {
                 // Tie progress bar to the primary action color for visual coherence.
-                root.style.setProperty('--ph-survey-page-progress-bar', appearance.submitButtonColor);
-            }
-            if (appearance.textSubtleColor) {
-                root.style.setProperty('--ph-survey-page-text-subtle', appearance.textSubtleColor);
+                root.style.setProperty('--ph-survey-page-progress-bar', appearance.submitButtonColor)
             }
 
-            // Pick a card elevation shadow that actually contrasts with the card surface.
-            // Dark surfaces need a light shadow (otherwise dark-on-dark = invisible elevation).
-            const cardLuminance = getLuminance(appearance.inputBackground)
+            // --- Survey content variables that posthog-js would normally set itself ---
+            // Card surface (input background). Falls back to backgroundColor if not explicitly set.
+            const cardBg = appearance.inputBackground || appearance.backgroundColor
+            if (cardBg) {
+                root.style.setProperty('--ph-survey-input-background', cardBg)
+                root.style.setProperty('--ph-survey-background-color', cardBg)
+            }
+            if (appearance.borderColor) {
+                root.style.setProperty('--ph-survey-border-color', appearance.borderColor)
+            }
+            if (appearance.borderRadius) {
+                root.style.setProperty('--ph-survey-border-radius', appearance.borderRadius)
+            }
+
+            // Primary text color. Priority: explicit textColor → explicit inputTextColor →
+            // derived contrast from the card surface → default. Applied to BOTH the container
+            // variable (for question text, choices, etc.) and the page variable (for progress
+            // chrome, loading spinner, corner branding).
+            const explicitText = appearance.textColor || appearance.inputTextColor
+            const derivedText = cardBg ? getContrastingTextColor(cardBg) : null
+            const primaryText = explicitText || derivedText
+            if (primaryText) {
+                root.style.setProperty('--ph-survey-text-primary-color', primaryText)
+                root.style.setProperty('--ph-survey-input-text-color', primaryText)
+                root.style.setProperty('--ph-survey-page-text', primaryText)
+            }
+
+            if (appearance.textSubtleColor) {
+                root.style.setProperty('--ph-survey-text-subtle-color', appearance.textSubtleColor)
+                root.style.setProperty('--ph-survey-page-text-subtle', appearance.textSubtleColor)
+            }
+
+            // Submit button. Text color defaults to the contrast of the button fill.
+            if (appearance.submitButtonColor) {
+                root.style.setProperty('--ph-survey-submit-button-color', appearance.submitButtonColor)
+                const submitText =
+                    appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor) || '#ffffff'
+                root.style.setProperty('--ph-survey-submit-button-text-color', submitText)
+            }
+
+            // Rating buttons. Default bg follows the card surface; active bg defaults to the
+            // submit button color for visual coherence with the primary action.
+            const ratingBg = appearance.ratingButtonColor || cardBg
+            if (ratingBg) {
+                root.style.setProperty('--ph-survey-rating-bg-color', ratingBg)
+                const ratingText = getContrastingTextColor(ratingBg) || primaryText
+                if (ratingText) {
+                    root.style.setProperty('--ph-survey-rating-text-color', ratingText)
+                }
+            }
+            const ratingActive = appearance.ratingButtonActiveColor || appearance.submitButtonColor
+            if (ratingActive) {
+                root.style.setProperty('--ph-survey-rating-active-bg-color', ratingActive)
+                const ratingActiveText = getContrastingTextColor(ratingActive) || '#ffffff'
+                root.style.setProperty('--ph-survey-rating-active-text-color', ratingActiveText)
+            }
+
+            if (appearance.disabledButtonOpacity) {
+                root.style.setProperty('--ph-survey-disabled-button-opacity', appearance.disabledButtonOpacity)
+            }
+
+            // Card elevation shadow contrasts with the card surface — dark cards need a light
+            // shadow so elevation doesn't disappear into the background.
+            const cardLuminance = getLuminance(cardBg)
             if (cardLuminance !== null && cardLuminance < 0.5) {
                 root.style.setProperty(
                     '--ph-survey-card-shadow',
                     '0 1px 2px rgba(255, 255, 255, 0.04), 0 2px 8px rgba(255, 255, 255, 0.04)'
                 )
+            }
+
+            // Corner branding pill adapts to the page background. A white translucent pill
+            // on a dark page looks like a glaring badge — flip it to a dark translucent fill
+            // so it recedes into the surface the same way it does on light backgrounds.
+            const pageLuminance = getLuminance(appearance.backgroundColor)
+            if (pageLuminance !== null && pageLuminance < 0.5) {
+                root.style.setProperty('--ph-survey-pill-background', 'rgba(17, 17, 17, 0.55)')
             }
         }
 

@@ -95,7 +95,7 @@ class TestExternalSurveys(APIBaseTest):
 
         response = self.client.get(f"/external_surveys/{popover_survey.id}/")
         assert response.status_code == 404
-        assert "Survey not receiving responses" in response.content.decode()
+        assert "Feels quiet in here" in response.content.decode()
 
     def test_archived_surveys_not_accessible(self):
         """Test that archived surveys return 404"""
@@ -103,7 +103,7 @@ class TestExternalSurveys(APIBaseTest):
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 404
-        assert "Survey not receiving responses" in response.content.decode()
+        assert "Feels quiet in here" in response.content.decode()
 
     def test_survey_must_be_running(self):
         """Test survey availability based on start/end dates"""
