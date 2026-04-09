@@ -62,7 +62,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["issue_status"], "active")
         self.assertEqual(rows[1]["fingerprint"], "fp_two")
 
-    def test_backfill_includes_assignment(self):
+    def test_backfill_includes_user_assignment(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_assigned")
         ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user, team=self.team)
@@ -73,12 +73,25 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["assigned_user_id"], self.user.pk)
 
+    def test_backfill_includes_role_assignment(self):
+        from ee.models import Role
+
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_assigned")
+        role = Role.objects.create(name="oncall", organization=self.organization)
+        ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role, team=self.team)
+
+        self._run_backfill(team_id=self.team.pk)
+
+        rows = self._get_rows(self.team.pk)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["assigned_role_id"], str(role.id))
+
     def test_dry_run_does_not_produce(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="DryRunError", status="active")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_dry")
 
-        cmd = Command()
-        cmd.handle(live_run=False, team_id=self.team.pk, start_from_team_id=None, batch_size=100)
+        self._run_backfill(team_id=self.team.pk, live_run=False)
 
         self.assertEqual(self._count_rows(self.team.pk), 0)
 
