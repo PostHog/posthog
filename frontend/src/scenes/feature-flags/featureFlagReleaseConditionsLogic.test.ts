@@ -1068,109 +1068,97 @@ describe('the feature flag release conditions logic', () => {
             })
         })
 
-        it('preserves everything when switching from group to mixed', async () => {
+        it.each([
+            {
+                name: 'group → mixed',
+                initialGlobal: 0 as number | null,
+                initialGroups: [
+                    {
+                        properties: groupProperties,
+                        rollout_percentage: 50,
+                        variant: 'control' as string | null,
+                        sort_key: 'cond-1',
+                        description: 'Tech orgs',
+                    },
+                    {
+                        properties: groupProperties,
+                        rollout_percentage: 100,
+                        variant: null as string | null,
+                        sort_key: 'cond-2',
+                        description: 'All orgs',
+                    },
+                ],
+                expectedPerConditionAgg: 0 as number | null,
+            },
+            {
+                name: 'user → mixed',
+                initialGlobal: null,
+                initialGroups: [
+                    {
+                        properties: userProperties,
+                        rollout_percentage: 75,
+                        variant: null as string | null,
+                        sort_key: 'cond-1',
+                    },
+                ],
+                expectedPerConditionAgg: null,
+            },
+        ])(
+            'preserves everything when switching $name',
+            async ({ initialGlobal, initialGroups, expectedPerConditionAgg }) => {
+                logic?.unmount()
+
+                logic = featureFlagReleaseConditionsLogic({
+                    id: `transition-to-mixed`,
+                    filters: {
+                        ...generateFeatureFlagFilters(initialGroups),
+                        aggregation_group_type_index: initialGlobal,
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.switchToMixedTargeting()
+                }).toMatchValues({
+                    isMixedTargeting: true,
+                    filters: expect.objectContaining({
+                        aggregation_group_type_index: null,
+                        groups: initialGroups.map((g) =>
+                            expect.objectContaining({
+                                ...g,
+                                aggregation_group_type_index: expectedPerConditionAgg,
+                            })
+                        ),
+                    }),
+                })
+            }
+        )
+
+        it.each([
+            {
+                name: 'mixed → user',
+                targetAggregation: null as number | null,
+                expectedGroups: [
+                    { sort_key: 'user-cond', rollout_percentage: 50, properties: userProperties },
+                    { sort_key: 'group-cond', rollout_percentage: 30, variant: 'test', properties: [] },
+                ],
+            },
+            {
+                name: 'mixed → group',
+                targetAggregation: 0 as number | null,
+                expectedGroups: [
+                    { sort_key: 'user-cond', rollout_percentage: 50, properties: [] },
+                    { sort_key: 'group-cond', rollout_percentage: 30, properties: groupProperties },
+                ],
+            },
+        ])('selectively clears properties when switching $name', async ({ targetAggregation, expectedGroups }) => {
             logic?.unmount()
 
             logic = featureFlagReleaseConditionsLogic({
-                id: 'transition-group-to-mixed',
-                filters: {
-                    ...generateFeatureFlagFilters([
-                        {
-                            properties: groupProperties,
-                            rollout_percentage: 50,
-                            variant: 'control',
-                            sort_key: 'cond-1',
-                            description: 'Tech orgs',
-                        },
-                        {
-                            properties: groupProperties,
-                            rollout_percentage: 100,
-                            variant: null,
-                            sort_key: 'cond-2',
-                            description: 'All orgs',
-                        },
-                    ]),
-                    aggregation_group_type_index: 0,
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.switchToMixedTargeting()
-            }).toMatchValues({
-                isMixedTargeting: true,
-                filters: expect.objectContaining({
-                    aggregation_group_type_index: null,
-                    groups: [
-                        expect.objectContaining({
-                            sort_key: 'cond-1',
-                            rollout_percentage: 50,
-                            variant: 'control',
-                            description: 'Tech orgs',
-                            properties: groupProperties, // Preserved
-                            aggregation_group_type_index: 0, // Inherited from global
-                        }),
-                        expect.objectContaining({
-                            sort_key: 'cond-2',
-                            rollout_percentage: 100,
-                            variant: null,
-                            description: 'All orgs',
-                            properties: groupProperties, // Preserved
-                            aggregation_group_type_index: 0, // Inherited from global
-                        }),
-                    ],
-                }),
-            })
-        })
-
-        it('preserves everything when switching from user to mixed', async () => {
-            logic?.unmount()
-
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'transition-user-to-mixed',
-                filters: {
-                    ...generateFeatureFlagFilters([
-                        {
-                            properties: userProperties,
-                            rollout_percentage: 75,
-                            variant: null,
-                            sort_key: 'cond-1',
-                        },
-                    ]),
-                    aggregation_group_type_index: null,
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.switchToMixedTargeting()
-            }).toMatchValues({
-                isMixedTargeting: true,
-                filters: expect.objectContaining({
-                    aggregation_group_type_index: null,
-                    groups: [
-                        expect.objectContaining({
-                            sort_key: 'cond-1',
-                            rollout_percentage: 75,
-                            properties: userProperties, // Preserved
-                            aggregation_group_type_index: null, // User-scoped
-                        }),
-                    ],
-                }),
-            })
-        })
-
-        it('selectively clears properties when switching from mixed to user', async () => {
-            logic?.unmount()
-
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'transition-mixed-to-user',
+                id: `transition-from-mixed`,
                 filters: {
                     ...generateFeatureFlagFilters([
                         {
@@ -1196,77 +1184,12 @@ describe('the feature flag release conditions logic', () => {
                 logic.mount()
             })
 
-            // Switch to user-only targeting
             await expectLogic(logic, () => {
-                logic.actions.setAggregationGroupTypeIndex(null)
+                logic.actions.setAggregationGroupTypeIndex(targetAggregation)
             }).toMatchValues({
                 filters: expect.objectContaining({
-                    aggregation_group_type_index: null,
-                    groups: [
-                        expect.objectContaining({
-                            sort_key: 'user-cond',
-                            rollout_percentage: 50,
-                            properties: userProperties, // Preserved: was already user-scoped
-                        }),
-                        expect.objectContaining({
-                            sort_key: 'group-cond',
-                            rollout_percentage: 30,
-                            variant: 'test',
-                            properties: [], // Cleared: was group-scoped
-                        }),
-                    ],
-                }),
-            })
-        })
-
-        it('selectively clears properties when switching from mixed to group', async () => {
-            logic?.unmount()
-
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'transition-mixed-to-group',
-                filters: {
-                    ...generateFeatureFlagFilters([
-                        {
-                            properties: userProperties,
-                            rollout_percentage: 50,
-                            variant: null,
-                            sort_key: 'user-cond',
-                            aggregation_group_type_index: null,
-                        },
-                        {
-                            properties: groupProperties,
-                            rollout_percentage: 30,
-                            variant: null,
-                            sort_key: 'group-cond',
-                            aggregation_group_type_index: 0,
-                        },
-                    ]),
-                    aggregation_group_type_index: null,
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-
-            // Switch to group-only targeting (group type 0)
-            await expectLogic(logic, () => {
-                logic.actions.setAggregationGroupTypeIndex(0)
-            }).toMatchValues({
-                filters: expect.objectContaining({
-                    aggregation_group_type_index: 0,
-                    groups: [
-                        expect.objectContaining({
-                            sort_key: 'user-cond',
-                            rollout_percentage: 50,
-                            properties: [], // Cleared: was user-scoped
-                        }),
-                        expect.objectContaining({
-                            sort_key: 'group-cond',
-                            rollout_percentage: 30,
-                            properties: groupProperties, // Preserved: was already group 0
-                        }),
-                    ],
+                    aggregation_group_type_index: targetAggregation,
+                    groups: expectedGroups.map((g) => expect.objectContaining(g)),
                 }),
             })
         })
