@@ -103,6 +103,7 @@ def parse_model_file(content: str) -> ParsedModelFile:
     - Empty query body
     """
     query_lines: list[str] = []
+    has_query_body = False
     seen_directives: dict[str, int] = {}  # directive -> line number
     model = ParsedModelFile(query="")
 
@@ -126,6 +127,9 @@ def parse_model_file(content: str) -> ParsedModelFile:
                 _NULLARY_DIRECTIVES[directive](model)
             else:
                 _UNARY_DIRECTIVES[directive](model, _parse_unary_value(directive, value, line_num))
+        else:
+            if line.strip():
+                has_query_body = True
         # keep all lines (including annotations) in the query
         query_lines.append(line)
     # validate mutually exclusive directives
@@ -138,7 +142,7 @@ def parse_model_file(content: str) -> ParsedModelFile:
                 f"cannot both be present in the same model"
             )
     query = "\n".join(query_lines).strip()
-    if not query:
+    if not has_query_body:
         raise ValueError("Model file contains no SQL query")
     model.query = query
     return model

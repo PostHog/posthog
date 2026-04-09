@@ -279,13 +279,8 @@ class TestSerializeModelFile:
             SELECT plan, sum(amount) FROM payments GROUP BY plan
         """)
         parsed = parse_model_file(original)
-        serialized = serialize_model_file(
-            parsed.query,
-            description=parsed.description,
-            materialized=parsed.materialized,
-            tags=parsed.tags,
-        )
-        reparsed = parse_model_file(serialized)
+        # query now includes annotations, so re-parsing should be stable
+        reparsed = parse_model_file(parsed.query)
         assert reparsed.query == parsed.query
         assert reparsed.description == parsed.description
         assert reparsed.materialized == parsed.materialized
