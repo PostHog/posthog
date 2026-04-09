@@ -17,6 +17,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -1333,8 +1334,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         fuse: [
             (s) => [s.filteredItems],
             (filteredItems): Fuse =>
-                new FuseClass<InspectorListItem>(filteredItems, {
-                    threshold: 0.3,
+                createFuse<InspectorListItem>(filteredItems, {
                     keys: ['search'],
                     findAllMatches: true,
                     ignoreLocation: true,

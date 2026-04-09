@@ -1609,41 +1609,6 @@ class HedgeboxMatrix(Matrix):
                 description="Daily active users (unique pageview persons) over the last 30 days",
                 created_by=user,
             )
-
-            activation_funnel_endpoint = Endpoint.objects.create(
-                name="activation-funnel",
-                team=team,
-                created_by=user,
-                is_active=True,
-                current_version=1,
-            )
-            EndpointVersion.objects.create(
-                endpoint=activation_funnel_endpoint,
-                version=1,
-                query=FunnelsQuery(
-                    series=[
-                        EventsNode(
-                            event=EVENT_SIGNED_UP,
-                            name=EVENT_SIGNED_UP,
-                            custom_name="Signed up",
-                        ),
-                        EventsNode(
-                            event=EVENT_UPLOADED_FILE,
-                            name=EVENT_UPLOADED_FILE,
-                            custom_name="Uploaded file",
-                        ),
-                        EventsNode(
-                            event=EVENT_UPGRADED_PLAN,
-                            name=EVENT_UPGRADED_PLAN,
-                            custom_name="Upgraded plan",
-                        ),
-                    ],
-                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS),
-                    dateRange=DateRange(date_from="-30d"),
-                ).model_dump(),
-                description="Activation funnel from signup through file upload to plan upgrade",
-                created_by=user,
-            )
         except IntegrityError:
             pass
 

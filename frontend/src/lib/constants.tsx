@@ -285,6 +285,8 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ALERTS_WIZARD: 'error-tracking-alerts-wizard', // owner: @aleks #team-error-tracking
     ERROR_TRACKING_QUERY_V2: 'error-tracking-query-v2', // owner: #team-error-tracking
     ERROR_TRACKING_FORCE_QUERY_V2: 'error-tracking-force-query-v2', // owner: #team-error-tracking
+    ERROR_TRACKING_QUERY_V3: 'error-tracking-query-v3', // owner: #team-error-tracking
+    ERROR_TRACKING_FORCE_QUERY_V3: 'error-tracking-force-query-v3', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_AI_ANALYSIS_TAB: 'experiment-ai-analysis-tab', // owner: @rodrigoi #team-experiments
     EXPERIMENT_FUNNEL_DWH_SUPPORT: 'experiment-funnel-dwh-support', // owner: @rodrigoi #team-experiments
@@ -301,6 +303,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_MIXED_TARGETING: 'feature-flag-mixed-targeting', // owner: @dmarticus #team-feature-flags
+    FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
     FLAG_BUCKETING_IDENTIFIER: 'flag-bucketing-identifier', // owner: @andehen #team-experiments
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags

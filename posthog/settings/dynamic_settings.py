@@ -160,6 +160,11 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "CONVERSATIONS_HMAC_SIGNING_SECRET": (
+        get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
+        "HMAC signing secret for conversations widget identity verification in the support sidebar.",
+        str,
+    ),
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
         get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
         "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
@@ -266,6 +271,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
@@ -290,6 +296,7 @@ SECRET_SETTINGS = [
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",

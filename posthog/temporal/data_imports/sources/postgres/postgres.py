@@ -492,6 +492,34 @@ def _build_query(
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
+def _build_count_query(
+    schema: str,
+    table_name: str,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType],
+    db_incremental_field_last_value: Optional[Any],
+) -> sql.Composed:
+    if not should_use_incremental_field:
+        return sql.SQL("SELECT COUNT(*) FROM {schema}.{table}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+        )
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
@@ -513,7 +541,7 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
-    query = sql.SQL("""
+    info_schema_query = sql.SQL("""
         SELECT
             kcu.column_name
         FROM
@@ -527,12 +555,73 @@ def _get_primary_keys(
             AND tc.table_name = {table}
             AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
-    _explain_query(cursor, query, logger)
-    logger.debug(f"Running query: {query.as_string()}")
-    cursor.execute(query)
+    _explain_query(cursor, info_schema_query, logger)
+    logger.debug(f"Running query: {info_schema_query.as_string()}")
+    cursor.execute(info_schema_query)
     rows = cursor.fetchall()
     if len(rows) > 0:
         return [row[0] for row in rows]
+
+    # Some partitioned setups define PKs on child partitions only.
+    # In that case, infer PK columns from children if they are consistent.
+    child_partition_pk_query = sql.SQL("""
+        SELECT
+            child_cls.relname AS child_table_name,
+            att.attname AS pk_column_name,
+            conkey.ordinality AS pk_ordinality
+        FROM
+            pg_catalog.pg_class parent_cls
+        JOIN
+            pg_catalog.pg_namespace parent_nsp
+            ON parent_nsp.oid = parent_cls.relnamespace
+        JOIN
+            pg_catalog.pg_inherits inh
+            ON inh.inhparent = parent_cls.oid
+        JOIN
+            pg_catalog.pg_class child_cls
+            ON child_cls.oid = inh.inhrelid
+        JOIN
+            pg_catalog.pg_constraint con
+            ON con.conrelid = child_cls.oid
+            AND con.contype = 'p'
+        JOIN LATERAL
+            unnest(con.conkey) WITH ORDINALITY AS conkey(attnum, ordinality)
+            ON TRUE
+        JOIN
+            pg_catalog.pg_attribute att
+            ON att.attrelid = child_cls.oid
+            AND att.attnum = conkey.attnum
+        WHERE
+            parent_nsp.nspname = {schema}
+            AND parent_cls.relname = {table}
+        ORDER BY
+            child_cls.relname,
+            conkey.ordinality
+    """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    child_pk_rows: list[tuple[str, str, int]] = []
+    try:
+        _explain_query(cursor, child_partition_pk_query, logger)
+        logger.debug(f"Running child-partition fallback query: {child_partition_pk_query.as_string()}")
+        cursor.execute(child_partition_pk_query)
+        child_pk_rows = cursor.fetchall()
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")
+    if len(child_pk_rows) > 0:
+        child_pks: dict[str, list[str]] = {}
+        for child_table_name, pk_column_name, _ in child_pk_rows:
+            child_pks.setdefault(child_table_name, []).append(pk_column_name)
+
+        unique_pk_sets = {tuple(pk_cols) for pk_cols in child_pks.values()}
+        if len(unique_pk_sets) == 1:
+            inferred_primary_keys = list(next(iter(unique_pk_sets)))
+            logger.debug(f"Found primary keys for {table_name} via child partitions fallback: {inferred_primary_keys}")
+            return inferred_primary_keys
+
+        logger.warning(
+            f"Found inconsistent child partition primary keys for {table_name}: {child_pks}. Could not infer a stable key for parent."
+        )
+        return None
 
     logger.warning(
         f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
@@ -606,15 +695,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         return DEFAULT_CHUNK_SIZE
 
 
-def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
-        query = sql.SQL("""
-            SELECT COUNT(*) FROM ({}) as t
-        """).format(inner_query)
-
-        _explain_query(cursor, query, logger)
-        logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
+        _explain_query(cursor, count_query, logger)
+        logger.debug(f"Running query: {count_query.as_string()}")
+        cursor.execute(count_query)
         row = cursor.fetchone()
 
         if row is None:
@@ -927,11 +1012,10 @@ def postgres_source(
                     add_sampling=True,
                 )
 
-                inner_query_without_limit = _build_query(
+                count_query = _build_count_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
-                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
@@ -956,7 +1040,7 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)

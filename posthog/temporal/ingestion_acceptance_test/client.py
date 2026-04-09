@@ -1,4 +1,4 @@
-"""PostHog client for acceptance tests using the official SDK."""
+"""PostHog client for acceptance tests using the official SDK and direct ClickHouse queries."""
 
 import json
 import time
@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 import structlog
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from clickhouse_driver.errors import ErrorCodes
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.errors import InternalCHQueryError
 
 from .config import Config
 
@@ -55,18 +57,9 @@ class Person:
 
 
 class PostHogClient:
-    """Client for acceptance tests using the official PostHog SDK.
-
-    Uses the official SDK for event capture and custom code for HogQL queries
-    (since the SDK doesn't support querying).
+    """Client for acceptance tests using the official PostHog SDK for capture
+    and direct ClickHouse queries for verification.
     """
-
-    # HogQL HTTP client configuration
-    HTTP_CONNECT_TIMEOUT_SECONDS = 5
-    HTTP_READ_TIMEOUT_SECONDS = 30
-    HTTP_RETRY_TOTAL = 3
-    HTTP_RETRY_BACKOFF_FACTOR = 0.5
-    HTTP_RETRY_STATUS_FORCELIST = (500, 502, 503, 504)
 
     # SDK capture retry configuration (the SDK's own urllib3 retries don't cover
     # POST read errors because POST is not in urllib3's default allowed_methods)
@@ -77,28 +70,10 @@ class PostHogClient:
     def __init__(self, config: Config, posthog_sdk: "Posthog"):
         self.config = config
         self._posthog = posthog_sdk
-        self._session = self._create_http_session()
         # Store test start date for efficient event queries.
         # ClickHouse ORDER BY uses toDate(timestamp) (day granularity), so filtering by date
         # is sufficient. We subtract 1 day to handle clock skew between test machine and server.
         self._test_start_date = (datetime.now(UTC) - timedelta(days=1)).date()
-
-    def _create_http_session(self) -> requests.Session:
-        """Create an HTTP session with urllib3 retry logic for transient failures."""
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=self.HTTP_RETRY_TOTAL,
-            backoff_factor=self.HTTP_RETRY_BACKOFF_FACTOR,
-            status_forcelist=self.HTTP_RETRY_STATUS_FORCELIST,
-            allowed_methods=["GET", "POST"],
-            raise_on_status=False,  # We handle status codes ourselves
-            connect=self.HTTP_RETRY_TOTAL,
-            read=self.HTTP_RETRY_TOTAL,
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
-        return session
 
     def _retry_on_error(self, fn: Callable[[], T], description: str) -> T:
         """Retry a function on transient errors with exponential backoff.
@@ -264,7 +239,6 @@ class PostHogClient:
     def shutdown(self) -> None:
         """Shutdown the client and flush any pending events."""
         self._posthog.shutdown()
-        self._session.close()
 
     # Polling configuration
     POLL_BACKOFF_FACTOR = 1.5
@@ -278,8 +252,7 @@ class PostHogClient:
         """Poll until fetch_fn returns a non-None result or timeout.
 
         Sleeps before each request with exponential backoff to reduce query pressure
-        and increase likelihood of success on first call. Transient connection errors
-        are caught and logged, allowing polling to continue.
+        and increase likelihood of success on first call.
         """
         start_time = time.time()
         current_interval = self.config.poll_interval_seconds
@@ -299,16 +272,9 @@ class PostHogClient:
                 )
             try:
                 result = fetch_fn()
-                if result is not None:
-                    elapsed = time.time() - start_time
-                    logger.info(
-                        "Polling succeeded",
-                        description=description,
-                        attempt=attempt,
-                        elapsed_seconds=round(elapsed, 1),
-                    )
-                    return result
-            except requests.exceptions.RequestException as e:
+            except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
+                if isinstance(e, InternalCHQueryError) and e.code != ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES:
+                    raise
                 logger.warning(
                     "Transient error during polling, will retry",
                     error=str(e),
@@ -316,6 +282,16 @@ class PostHogClient:
                     description=description,
                     attempt=attempt,
                 )
+                result = None
+            if result is not None:
+                elapsed = time.time() - start_time
+                logger.info(
+                    "Polling succeeded",
+                    description=description,
+                    attempt=attempt,
+                    elapsed_seconds=round(elapsed, 1),
+                )
+                return result
             current_interval = min(
                 current_interval * self.POLL_BACKOFF_FACTOR,
                 self.POLL_MAX_INTERVAL_SECONDS,
@@ -330,46 +306,8 @@ class PostHogClient:
         )
         return None
 
-    def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
-        """Execute a HogQL query and return the first row as a dict, or None if no results."""
-        rows = self._execute_hogql_query_all(query, values)
-        if not rows:
-            return None
-        return rows[0]
-
-    def _execute_hogql_query_all(self, query: str, values: dict[str, Any]) -> list[dict[str, Any]]:
-        """Execute a HogQL query and return all rows as a list of dicts.
-
-        Uses a session with urllib3 retry on transient HTTP errors (5xx, connection, read).
-        """
-        url = f"{self.config.api_host}/api/projects/{self.config.project_id}/query/"
-
-        response = self._session.post(
-            url,
-            json={
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": query,
-                    "values": values,
-                },
-                "refresh": "force_blocking",
-            },
-            headers={"Authorization": f"Bearer {self.config.personal_api_key}"},
-            timeout=(self.HTTP_CONNECT_TIMEOUT_SECONDS, self.HTTP_READ_TIMEOUT_SECONDS),
-        )
-
-        if response.status_code == 404:
-            return []
-
-        response.raise_for_status()
-        data = response.json()
-
-        results = data.get("results", [])
-        columns = data.get("columns", [])
-        return [dict(zip(columns, row, strict=True)) for row in results]
-
     def _fetch_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
-        """Fetch an event by UUID.
+        """Fetch an event by UUID via direct ClickHouse query.
 
         Includes a timestamp filter to benefit from ClickHouse's table partitioning
         (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
@@ -377,55 +315,68 @@ class PostHogClient:
         query = """
             SELECT uuid, event, distinct_id, properties, timestamp
             FROM events
-            WHERE uuid = {event_uuid}
-              AND timestamp >= {min_timestamp}
+            WHERE team_id = %(team_id)s
+              AND uuid = %(event_uuid)s
+              AND timestamp >= %(min_timestamp)s
             LIMIT 1
         """
 
-        row = self._execute_hogql_query(
+        rows = sync_execute(
             query,
             {
+                "team_id": self.config.team_id,
                 "event_uuid": event_uuid,
                 "min_timestamp": self._test_start_date.isoformat(),
             },
+            team_id=self.config.team_id,
         )
-        if not row:
+        if not rows:
             return None
 
-        properties = row.get("properties", {})
+        row = rows[0]
+        properties = row[3]
         if isinstance(properties, str):
             properties = json.loads(properties)
 
         return CapturedEvent(
-            uuid=row.get("uuid", ""),
-            event=row.get("event", ""),
-            distinct_id=row.get("distinct_id", ""),
+            uuid=str(row[0]),
+            event=row[1],
+            distinct_id=row[2],
             properties=properties,
-            timestamp=row.get("timestamp", ""),
+            timestamp=str(row[4]),
         )
 
     def _fetch_person_by_distinct_id(self, distinct_id: str) -> Person | None:
-        """Fetch a person by distinct_id."""
+        """Fetch a person by distinct_id via direct ClickHouse query."""
         query = """
             SELECT p.id, p.properties, p.created_at
-            FROM persons p
-            JOIN person_distinct_ids pdi ON p.id = pdi.person_id
-            WHERE pdi.distinct_id = {distinct_id}
+            FROM person p
+            JOIN person_distinct_id2 pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
+            WHERE p.team_id = %(team_id)s
+              AND pdi.distinct_id = %(distinct_id)s
+              AND pdi.is_deleted = 0
+              AND p.is_deleted = 0
+            ORDER BY p.version DESC
             LIMIT 1
         """
 
-        row = self._execute_hogql_query(query, {"distinct_id": distinct_id})
-        if not row:
+        rows = sync_execute(
+            query,
+            {"team_id": self.config.team_id, "distinct_id": distinct_id},
+            team_id=self.config.team_id,
+        )
+        if not rows:
             return None
 
-        properties = row.get("properties", {})
+        row = rows[0]
+        properties = row[1]
         if isinstance(properties, str):
             properties = json.loads(properties)
 
         return Person(
-            id=row.get("id", ""),
+            id=str(row[0]),
             properties=properties,
-            created_at=row.get("created_at", ""),
+            created_at=str(row[2]),
         )
 
     def _fetch_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
@@ -437,34 +388,37 @@ class PostHogClient:
         query = """
             SELECT uuid, event, distinct_id, properties, timestamp
             FROM events
-            WHERE person_id = {person_id}
-              AND timestamp >= {min_timestamp}
+            WHERE team_id = %(team_id)s
+              AND person_id = %(person_id)s
+              AND timestamp >= %(min_timestamp)s
             ORDER BY timestamp ASC
         """
 
-        rows = self._execute_hogql_query_all(
+        rows = sync_execute(
             query,
             {
+                "team_id": self.config.team_id,
                 "person_id": person_id,
                 "min_timestamp": self._test_start_date.isoformat(),
             },
+            team_id=self.config.team_id,
         )
-        found_uuids = {row.get("uuid", "") for row in rows}
+        found_uuids = {str(row[0]) for row in rows}
         if not expected_event_uuids.issubset(found_uuids):
             return None
 
         events = []
         for row in rows:
-            properties = row.get("properties", {})
+            properties = row[3]
             if isinstance(properties, str):
                 properties = json.loads(properties)
             events.append(
                 CapturedEvent(
-                    uuid=row.get("uuid", ""),
-                    event=row.get("event", ""),
-                    distinct_id=row.get("distinct_id", ""),
+                    uuid=str(row[0]),
+                    event=row[1],
+                    distinct_id=row[2],
                     properties=properties,
-                    timestamp=row.get("timestamp", ""),
+                    timestamp=str(row[4]),
                 )
             )
         return events

@@ -1,25 +1,25 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "attributeType": {
-            "description": "Type of attributes to list: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
+        "attribute_type": {
+            "description": "Type of attributes: \"log\" for log attributes, \"resource\" for resource attributes\n\n* `log` - log\n* `resource` - resource",
             "enum": ["log", "resource"],
             "type": "string"
         },
         "limit": {
-            "description": "Maximum number of results (1-100, default: 100)",
+            "description": "Max results (default: 100)",
             "maximum": 100,
             "minimum": 1,
-            "type": "integer"
+            "type": "number"
         },
         "offset": {
-            "description": "Offset for pagination (default: 0)",
-            "maximum": 9007199254740991,
+            "description": "Pagination offset (default: 0)",
             "minimum": 0,
-            "type": "integer"
+            "type": "number"
         },
         "search": {
             "description": "Search filter for attribute names",
+            "minLength": 1,
             "type": "string"
         }
     },
