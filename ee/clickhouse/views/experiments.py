@@ -280,6 +280,20 @@ class ShipVariantSerializer(EndExperimentSerializer):
     variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
 
 
+class CopyExperimentToProjectSerializer(serializers.Serializer):
+    target_team_id = serializers.IntegerField(help_text="The team ID to copy the experiment to.")
+    feature_flag_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional feature flag key to use in the destination team.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the copied experiment.",
+    )
+
+
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
@@ -556,6 +570,10 @@ class EnterpriseExperimentsViewSet(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
 
+    @extend_schema(
+        request=CopyExperimentToProjectSerializer,
+        responses=ExperimentSerializer,
+    )
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
@@ -566,16 +584,13 @@ class EnterpriseExperimentsViewSet(
                 status=400,
             )
 
-        target_project_id = request.data.get("target_project_id")
-        if not target_project_id:
-            return Response({"detail": "target_project_id is required."}, status=400)
+        request_serializer = CopyExperimentToProjectSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
 
-        target_team = Team.objects.filter(project_id=target_project_id).first()
+        target_team_id = request_serializer.validated_data["target_team_id"]
+        target_team = Team.objects.filter(id=target_team_id, organization_id=self.team.organization_id).first()
         if target_team is None:
-            return Response({"detail": "Target project not found."}, status=404)
-
-        if target_team.organization_id != self.team.organization_id:
-            return Response({"detail": "Target project must be in the same organization."}, status=403)
+            return Response({"detail": "Target team not found."}, status=404)
 
         user_permissions = UserPermissions(user=cast(User, request.user))
         target_team_permissions = user_permissions.team(target_team)
@@ -583,8 +598,8 @@ class EnterpriseExperimentsViewSet(
         if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
             return Response({"detail": "You do not have write access to the target project."}, status=403)
 
-        feature_flag_key = request.data.get("feature_flag_key")
-        name = request.data.get("name")
+        feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
+        name = request_serializer.validated_data.get("name")
 
         service = ExperimentService(team=self.team, user=request.user)
         new_experiment = service.copy_experiment_to_project(

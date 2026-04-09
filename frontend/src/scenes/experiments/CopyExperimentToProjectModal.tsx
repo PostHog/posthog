@@ -34,13 +34,13 @@ export function CopyExperimentToProjectModal({
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const projectOptions =
+    const teamOptions =
         currentOrganization?.teams
-            ?.filter((team) => team.project_id !== currentTeam?.project_id)
-            .map((team) => ({ value: team.project_id, label: team.name }))
+            ?.filter((team) => team.id !== currentTeam?.id)
+            .map((team) => ({ value: team.id, label: team.name }))
             .sort((a, b) => a.label.localeCompare(b.label)) || []
 
-    const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+    const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
     const [experimentName, setExperimentName] = useState('')
     const [flagKey, setFlagKey] = useState('')
     const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
@@ -54,10 +54,11 @@ export function CopyExperimentToProjectModal({
     })
     const [targetFlagsLoading, setTargetFlagsLoading] = useState(false)
     const [targetFlagFilters, setTargetFlagFilters] = useState<Partial<FeatureFlagsFilters>>(DEFAULT_FILTERS)
+    const selectedTeam = currentOrganization?.teams?.find((team) => team.id === selectedTeamId)
 
     useEffect(() => {
-        if (isOpen && projectOptions.length === 1 && selectedProjectId === null) {
-            handleProjectChange(projectOptions[0].value)
+        if (isOpen && teamOptions.length === 1 && selectedTeamId === null) {
+            handleTeamChange(teamOptions[0].value)
         }
     }, [isOpen])
 
@@ -79,13 +80,13 @@ export function CopyExperimentToProjectModal({
     }
 
     useEffect(() => {
-        if (selectedProjectId) {
-            void fetchTargetFlags(selectedProjectId, targetFlagFilters)
+        if (selectedTeam?.project_id) {
+            void fetchTargetFlags(selectedTeam.project_id, targetFlagFilters)
         }
-    }, [selectedProjectId, targetFlagFilters])
+    }, [selectedTeam?.project_id, targetFlagFilters])
 
-    const handleProjectChange = (id: number | null): void => {
-        setSelectedProjectId(id)
+    const handleTeamChange = (id: number | null): void => {
+        setSelectedTeamId(id)
         // Reset flag state when switching projects
         setFlagKey('')
         setFlagKeyManuallyEdited(false)
@@ -115,12 +116,11 @@ export function CopyExperimentToProjectModal({
     }
 
     const handleCopy = (): void => {
-        const targetTeam = currentOrganization?.teams?.find((team) => team.project_id === selectedProjectId)
-        if (selectedProjectId && targetTeam) {
+        if (selectedTeamId && selectedTeam) {
             copyExperimentToProject({
                 id: experiment.id as number,
-                targetProjectId: selectedProjectId,
-                targetTeamId: targetTeam.id,
+                targetProjectId: selectedTeam.project_id,
+                targetTeamId: selectedTeamId,
                 featureFlagKey: flagKey || undefined,
                 name: experimentName.trim() || undefined,
             })
@@ -129,7 +129,7 @@ export function CopyExperimentToProjectModal({
     }
 
     const handleClose = (): void => {
-        setSelectedProjectId(null)
+        setSelectedTeamId(null)
         setExperimentName('')
         setFlagKey('')
         setFlagKeyManuallyEdited(false)
@@ -174,7 +174,7 @@ export function CopyExperimentToProjectModal({
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
-                        disabledReason={!selectedProjectId ? 'Select a project' : undefined}
+                        disabledReason={!selectedTeamId ? 'Select a project' : undefined}
                         onClick={handleCopy}
                     >
                         Copy
@@ -195,13 +195,13 @@ export function CopyExperimentToProjectModal({
                         placeholder="Select a project"
                         fullWidth
                         dropdownMatchSelectWidth={false}
-                        value={selectedProjectId}
-                        onChange={handleProjectChange}
-                        options={projectOptions}
+                        value={selectedTeamId}
+                        onChange={handleTeamChange}
+                        options={teamOptions}
                     />
                 </div>
 
-                {selectedProjectId && (
+                {selectedTeamId && (
                     <>
                         <div>
                             <label className="font-semibold mb-1 block">Experiment name</label>

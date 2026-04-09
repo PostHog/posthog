@@ -3297,7 +3297,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         copy_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
-            {"target_project_id": target_team.project_id},
+            {"target_team_id": target_team.id},
         )
         self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
         copied_experiment = copy_response.json()
@@ -3340,7 +3340,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         copy_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
-            {"target_project_id": target_team.project_id},
+            {"target_team_id": target_team.id},
         )
         self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
 
@@ -3379,7 +3379,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         copy_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
-            {"target_project_id": target_team.project_id},
+            {"target_team_id": target_team.id},
         )
         self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
         copied_experiment = copy_response.json()
@@ -3437,7 +3437,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         copy_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
-            {"target_project_id": target_team.project_id},
+            {"target_team_id": target_team.id},
         )
         self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
         copied_experiment = copy_response.json()
@@ -3462,9 +3462,36 @@ class TestExperimentCRUD(APILicensedTest):
 
         copy_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
-            {"target_project_id": other_team.project_id},
+            {"target_team_id": other_team.id},
         )
         self.assertIn(copy_response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+    def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        secondary_target_team = Team.objects.create(
+            organization=self.organization,
+            project=target_team.project,
+            name="Secondary Target Team",
+        )
+
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Environment selection experiment",
+                "feature_flag_key": "environment-selection-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
+            {"target_team_id": secondary_target_team.id},
+        )
+        self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
+
+        copied_experiment = Experiment.objects.get(id=copy_response.json()["id"])
+        self.assertEqual(copied_experiment.team_id, secondary_target_team.id)
 
     def test_copy_experiment_to_project_missing_target(self) -> None:
         original_response = self.client.post(
