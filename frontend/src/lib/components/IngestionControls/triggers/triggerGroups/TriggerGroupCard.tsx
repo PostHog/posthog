@@ -20,7 +20,7 @@ interface ConditionRowProps {
 function ConditionRow({ type, values, matchType, isFirst }: ConditionRowProps & { isFirst: boolean }): JSX.Element {
     const labels = {
         events: 'Event',
-        urls: 'URL matches pattern',
+        urls: 'User has visited URL matching pattern',
         flag: 'Feature flag',
     }
 
