@@ -631,6 +631,64 @@ class TestPrinter(BaseTest):
             "events.mat_nullable_property",
         )
 
+    def test_json_extract_string_uses_materialized_column_non_nullable(self):
+        with materialized("events", "$browser") as mat_col:
+            self.assertEqual(
+                self._expr("JSONExtractString(properties, '$browser')"),
+                f"events.`{mat_col.name}`",
+            )
+
+    def test_json_extract_string_uses_materialized_column_nullable(self):
+        with materialized("events", "$browser", is_nullable=True) as mat_col:
+            self.assertEqual(
+                self._expr("JSONExtractString(properties, '$browser')"),
+                f"ifNull(events.`{mat_col.name}`, '')",
+            )
+
+    def test_json_extract_string_nested_uses_materialized_column(self):
+        with materialized("events", "withmat") as mat_col:
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            self.assertEqual(
+                self._expr("JSONExtractString(properties, 'withmat', 'nested')", context),
+                f"JSONExtractString(events.{mat_col.name}, %(hogql_val_0)s)",
+            )
+            self.assertEqual(context.values["hogql_val_0"], "nested")
+
+    def test_json_extract_string_nested_does_not_use_nullable_materialized_column(self):
+        with materialized("events", "withmat", is_nullable=True):
+            result = self._expr("JSONExtractString(properties, 'withmat', 'nested')")
+            self.assertIn("JSONExtractString(events.properties", result)
+
+    def test_json_extract_string_no_materialized_column(self):
+        result = self._expr("JSONExtractString(properties, '$nonexistent')")
+        self.assertIn("JSONExtractString(events.properties", result)
+        self.assertNotIn("mat_", result)
+
+    def test_json_extract_string_non_field_first_arg_not_optimized(self):
+        with materialized("events", "$browser"):
+            result = self._expr("JSONExtractString(toString(properties), '$browser')")
+            self.assertNotIn("mat_", result)
+
+    def test_json_extract_string_non_constant_property_not_optimized(self):
+        with materialized("events", "$browser"):
+            result = self._expr("JSONExtractString(properties, event)")
+            self.assertNotIn("mat_", result)
+
+    def test_json_extract_int_not_rewritten_to_materialized(self):
+        with materialized("events", "$browser"):
+            result = self._expr("JSONExtractInt(properties, '$browser')")
+            self.assertNotIn("mat_", result)
+
+    def test_json_extract_string_materialization_disabled(self):
+        with materialized("events", "$browser"):
+            context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            )
+            result = self._expr("JSONExtractString(properties, '$browser')", context)
+            self.assertNotIn("mat_", result)
+
     def test_property_groups(self):
         context = HogQLContext(
             team_id=self.team.pk,

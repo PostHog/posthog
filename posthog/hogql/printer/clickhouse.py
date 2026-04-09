@@ -260,6 +260,69 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
+    def _get_materialized_json_extract_string(self, node: ast.Call) -> str | None:
+        """
+        Rewrites JSONExtractString(properties, '$prop') to use a materialized column
+        when one exists, avoiding expensive JSON parsing.
+
+        JSONExtractString returns '' for missing properties (never NULL), so:
+        - Non-nullable mat cols: raw column value (stores '' for missing — same semantics)
+        - Nullable mat cols: ifNull(mat_col, '') (stores NULL for missing — restore '' semantics)
+
+        For nested access (3+ args), only non-nullable mat cols are used because
+        nullable mat cols may store NULL for non-existent properties, losing the raw
+        JSON needed for sub-path extraction.
+        """
+        if node.name != "JSONExtractString":
+            return None
+
+        if len(node.args) < 2:
+            return None
+
+        # First arg must resolve to a FieldType for properties/person_properties
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        if field is None or not isinstance(field, DatabaseField):
+            return None
+        if field.name not in ("properties", "person_properties"):
+            return None
+
+        # Second arg must be a constant string (the property name)
+        if not isinstance(node.args[1], ast.Constant) or not isinstance(node.args[1].value, str):
+            return None
+        property_name = node.args[1].value
+
+        # Look up materialized column (skip property group sources)
+        mat_source: PrintableMaterializedColumn | None = None
+        for source in self._get_all_materialized_property_sources(field_type, property_name):
+            if isinstance(source, PrintableMaterializedColumn):
+                mat_source = source
+                break
+
+        if mat_source is None:
+            return None
+
+        has_nested_path = len(node.args) > 2
+
+        # For nested access with nullable columns, bail out (semantic mismatch)
+        if has_nested_path and mat_source.is_nullable:
+            return None
+
+        mat_col_sql = str(mat_source)
+
+        if not has_nested_path:
+            if mat_source.is_nullable:
+                return f"ifNull({mat_col_sql}, '')"
+            else:
+                return mat_col_sql
+        else:
+            # Nested: JSONExtractString(properties, '$foo', 'bar') → JSONExtractString(mat_col, 'bar')
+            remaining_args = [self.visit(arg) for arg in node.args[2:]]
+            return f"JSONExtractString({mat_col_sql}, {', '.join(remaining_args)})"
+
     def _get_optimized_materialized_column_equals_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns an optimized printed expression for comparisons involving individually materialized columns.
@@ -895,6 +958,10 @@ class ClickHousePrinter(HogQLPrinter):
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self._get_optimized_property_group_call(node):
             return optimized_property_group_call
+
+        # Rewrite JSONExtractString(properties, '$prop') to use materialized columns when available
+        if materialized_json_extract := self._get_materialized_json_extract_string(node):
+            return materialized_json_extract
 
         return super().visit_call(node)
 
