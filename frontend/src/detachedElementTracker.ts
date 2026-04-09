@@ -50,7 +50,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
     requestIdleCallbackCompat(async () => {
         try {
-            const { createReactMemoryScan } = await import('@memlab/lens')
+            const { createReactMemoryScan } = await import('@memlab/lens/dist/memlens.lib.bundle.js')
 
             state = 'ready'
 
