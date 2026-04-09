@@ -13,7 +13,7 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
-    debug_or_info, error_tracking_sampler,
+    debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
@@ -37,11 +37,7 @@ pub fn process_single_event(
 
     let data_type = match (event.event.as_str(), context.historical_migration) {
         ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
-        ("$exception", _) if error_tracking_sampler::should_route_to_node() => {
-            metrics::counter!("capture_exception_events_routed_to_node").increment(1);
-            DataType::ExceptionErrorTracking
-        }
-        ("$exception", _) => DataType::ExceptionMain,
+        ("$exception", _) => DataType::ExceptionErrorTracking,
         ("$$heatmap", _) => DataType::HeatmapMain,
         (_, true) => DataType::AnalyticsHistorical,
         (_, false) => DataType::AnalyticsMain,
@@ -742,51 +738,6 @@ mod tests {
         // Event should NOT be dropped because filter doesn't match
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_process_events_exception_node_rollout() {
-        // Initialize the error tracking sampler at 100% to route all exceptions to Node.
-        // Note: OnceLock means this only succeeds once per test binary, so this test
-        // assumes no other test initializes the sampler first.
-        crate::error_tracking_sampler::init(true, 100.0);
-
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![create_test_event_with_name(
-            "$exception",
-            Some("2023-01-01T11:00:00Z".to_string()),
-            None,
-            None,
-        )];
-
-        let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-
-        let result = process_events(
-            sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            &events,
-            &context,
-        )
-        .await;
-
-        assert!(result.is_ok());
-        let captured = sink.get_events();
-
-        // At 100% rollout, the exception should be routed to Node (ExceptionErrorTracking)
-        assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
     }
 
     #[tokio::test]
