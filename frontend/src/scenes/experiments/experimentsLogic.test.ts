@@ -381,6 +381,39 @@ describe('experimentsLogic', () => {
             expect(projectSpy).toHaveBeenCalledWith(123, expect.stringContaining('/999'))
         })
 
+        it('runs the copy success callback only after a successful copy', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            const onSuccess = jest.fn()
+            api.create.mockResolvedValue(copiedExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    onSuccess,
+                })
+            }).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not run the copy success callback when the copy fails', async () => {
+            const onSuccess = jest.fn()
+            api.create.mockRejectedValue(new Error('Permission denied'))
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    onSuccess,
+                })
+            }).toFinishAllListeners()
+
+            expect(onSuccess).not.toHaveBeenCalled()
+        })
+
         it('adds experiment to list', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)

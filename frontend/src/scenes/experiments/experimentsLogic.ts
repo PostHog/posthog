@@ -335,6 +335,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     targetTeamId: number
                     featureFlagKey?: string
                     name?: string
+                    onSuccess?: () => void
                 }) => {
                     const data: Record<string, any> = { target_team_id: payload.targetTeamId }
                     if (payload.featureFlagKey) {
@@ -358,6 +359,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                             },
                         },
                     })
+                    payload.onSuccess?.()
                     return values.experiments
                 },
                 addToExperiments: (experiment: Experiment) => {

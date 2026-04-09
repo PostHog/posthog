@@ -31,6 +31,7 @@ export function CopyExperimentToProjectModal({
     experiment,
 }: CopyExperimentToProjectModalProps): JSX.Element {
     const { copyExperimentToProject } = useActions(experimentsLogic)
+    const { experimentsLoading } = useValues(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -60,7 +61,7 @@ export function CopyExperimentToProjectModal({
         if (isOpen && teamOptions.length === 1 && selectedTeamId === null) {
             handleTeamChange(teamOptions[0].value)
         }
-    }, [isOpen])
+    }, [isOpen, selectedTeamId, teamOptions])
 
     const fetchTargetFlags = async (projectId: number, filters: Partial<FeatureFlagsFilters>): Promise<void> => {
         setTargetFlagsLoading(true)
@@ -123,8 +124,8 @@ export function CopyExperimentToProjectModal({
                 targetTeamId: selectedTeamId,
                 featureFlagKey: flagKey || undefined,
                 name: experimentName.trim() || undefined,
+                onSuccess: handleClose,
             })
-            handleClose()
         }
     }
 
@@ -176,6 +177,7 @@ export function CopyExperimentToProjectModal({
                         type="primary"
                         disabledReason={!selectedTeamId ? 'Select a project' : undefined}
                         onClick={handleCopy}
+                        loading={experimentsLoading}
                     >
                         Copy
                     </LemonButton>
