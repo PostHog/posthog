@@ -1074,6 +1074,13 @@ export type EndpointsListParams = {
     offset?: number
 }
 
+export type EndpointsOpenapiJsonRetrieveParams = {
+    /**
+     * Specific endpoint version to generate the spec for. Defaults to latest.
+     */
+    version?: number
+}
+
 export type EndpointsVersionsListParams = {
     created_by?: number
     is_active?: boolean

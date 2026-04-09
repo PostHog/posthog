@@ -45,9 +45,10 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
+import { PropertyValueMathSelector } from './PropertyValueMathSelector'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -134,6 +135,7 @@ export function ActionFilterRow({
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
     const isTrendsContext = trendsDisplayCategory != null
+    const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
@@ -261,6 +263,7 @@ export function ActionFilterRow({
             groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
+            suggestedFiltersLabel={suggestedFiltersLabel}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 if (isQuickFilterItem(item)) {
                     if (item.eventName) {

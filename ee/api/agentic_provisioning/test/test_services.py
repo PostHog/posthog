@@ -71,7 +71,7 @@ class TestProvisioningServices(StripeProvisioningTestBase):
         data = res.json()
         services = data["data"]
         assert len(services) == 3
-        assert data["next_cursor"] == ""
+        assert "next_cursor" not in data
         ids = [s["id"] for s in services]
         assert ids == ["free", "pay_as_you_go", "analytics"]
 

@@ -226,6 +226,7 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -5565,10 +5566,7 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-        ): Promise<{
-            affected: number
-            total: number
-        }> {
+        ): Promise<BlastRadiusApi> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
         async createHogFlowBatchJob(

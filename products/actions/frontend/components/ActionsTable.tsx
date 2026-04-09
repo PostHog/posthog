@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,6 +16,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { stripHTTP } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -37,12 +39,15 @@ import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1&include_reference_count=1' }))
+    // actionsModel is a singleton; params are set on first mount by actionsLogic's connect
+    const { actionsLoading } = useValues(actionsModel)
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const referenceCountEnabled = !!featureFlags[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
 
     const tryInInsightsUrl = (action: ActionType): string => {
         const query: InsightVizNode = {
@@ -180,22 +185,30 @@ export function ActionsTable(): JSX.Element {
                 return <ObjectTags tags={tags} staticOnly />
             },
         } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-        {
-            title: 'Used by',
-            dataIndex: 'reference_count',
-            sorter: (a: ActionType, b: ActionType) => (a.reference_count ?? 0) - (b.reference_count ?? 0),
-            render: function RenderReferenceCount(_, action: ActionType) {
-                const count = action.reference_count
-                if (count === undefined) {
-                    return <LemonSkeleton className="w-12 h-4" />
-                }
-                return (
-                    <span className="text-secondary">
-                        {count > 0 ? `${count} ${count === 1 ? 'reference' : 'references'}` : 'None'}
-                    </span>
-                )
-            },
-        } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+        ...(referenceCountEnabled
+            ? [
+                  {
+                      title: 'Used by',
+                      dataIndex: 'reference_count',
+                      sorter: (a: ActionType, b: ActionType) => (a.reference_count ?? 0) - (b.reference_count ?? 0),
+                      render: function RenderReferenceCount(_, action: ActionType) {
+                          const count = action.reference_count
+                          if (count === undefined) {
+                              return actionsLoading ? (
+                                  <LemonSkeleton className="w-12 h-4" />
+                              ) : (
+                                  <span className="text-secondary">—</span>
+                              )
+                          }
+                          return (
+                              <span className="text-secondary">
+                                  {count > 0 ? `${count} ${count === 1 ? 'reference' : 'references'}` : 'None'}
+                              </span>
+                          )
+                      },
+                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+              ]
+            : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook

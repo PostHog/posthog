@@ -15,10 +15,12 @@ from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 
 from ee.api.test.base import APILicensedTest
@@ -4521,8 +4523,9 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(stats_config["method"], "bayesian")
 
     def test_create_experiment_uses_team_default_confidence_level(self) -> None:
-        self.team.default_experiment_confidence_level = 0.90
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_confidence_level = 0.90
+        config.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
