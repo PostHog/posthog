@@ -466,3 +466,28 @@ class TestEnrichDeleteRows:
         )
         result = enrich_delete_rows(table, ["id"], existing_rows=existing)
         assert result.column("code")[0].as_py() == "ABC"
+
+    def test_enrichment_decimal_in_existing_binary_in_batch(self):
+        """Reproduces the 'Expected bytes, got Decimal' failure.
+
+        DeltaLake stores decimals as fixed-size binary. When the batch column
+        is binary and existing_rows yield Decimal via .as_py(), _safe_pa_array
+        must handle the mixed types without raising.
+        """
+        # Batch has a binary-typed amount column (simulates reading from DeltaLake parquet)
+        events = [
+            _make_event(op="U", columns={"id": 1, "amount": b"\x00" * 16}),
+            _make_event(op="D", columns={"id": 2, "amount": None}),
+        ]
+        table = self._make_raw_table(events)
+
+        # Existing rows return Decimal (as DeltaLake .as_py() does)
+        existing = pa.table(
+            {
+                "id": pa.array([2], type=pa.int64()),
+                "amount": pa.array([decimal.Decimal("150.75")]),
+            }
+        )
+        result = enrich_delete_rows(table, ["id"], existing_rows=existing)
+        # The DELETE row should be enriched — exact type may be coerced to string
+        assert result.column("amount")[1].as_py() is not None
