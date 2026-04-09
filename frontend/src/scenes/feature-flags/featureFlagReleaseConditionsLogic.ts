@@ -190,11 +190,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             const scopeChanged = previousEffective != value
                             return {
                                 ...group,
-                                sort_key: group.sort_key,
                                 aggregation_group_type_index: undefined,
                                 properties: scopeChanged ? [] : group.properties,
                             }
-                        }),
+                        }) as FeatureFlagGroupTypeWithSortKey[],
                     }
                 }
 
@@ -269,9 +268,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     // per-condition value, so properties remain valid
                     groups: state.groups.map((group) => ({
                         ...group,
-                        sort_key: group.sort_key,
                         aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
-                    })),
+                    })) as FeatureFlagGroupTypeWithSortKey[],
                 }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
