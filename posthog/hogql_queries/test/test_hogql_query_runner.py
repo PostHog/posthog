@@ -187,6 +187,59 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
 
+    def test_variable_with_no_value_raises_error(self):
+        variable = InsightVariable.objects.create(team=self.team, name="End", code_name="endtime", type="String")
+        variable_id = str(variable.id)
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count() from events where timestamp <= {variables.endtime}",
+                variables={variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id)},
+            )
+        )
+
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError) as ctx:
+            runner.calculate()
+        self.assertIn("endtime", str(ctx.exception))
+        self.assertIn("no value", str(ctx.exception))
+
+    def test_variable_with_explicit_null_value_raises_error(self):
+        variable = InsightVariable.objects.create(team=self.team, name="Days", code_name="days", type="Number")
+        variable_id = str(variable.id)
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count() from events where timestamp >= now() - toIntervalDay({variables.days})",
+                variables={
+                    variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id, value=None)
+                },
+            )
+        )
+
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError) as ctx:
+            runner.calculate()
+        self.assertIn("days", str(ctx.exception))
+
+    def test_variable_with_default_value_used_when_no_value(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Days", code_name="days", type="Number", default_value=7
+        )
+        variable_id = str(variable.id)
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select {variables.days}",
+                variables={variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id)},
+            )
+        )
+
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], 7)
+
     def test_invalid_connection_id_raises_exposed_hogql_error(self):
         runner = self._create_runner(
             HogQLQuery(

@@ -56,6 +56,12 @@ class ReplaceVariables(CloningVisitor):
                 else matching_insight_variable[0].default_value
             )
 
+            if value is None:
+                raise QueryError(
+                    f"Variable '{variable_code_name}' has no value and no default. "
+                    f"Set a value or define a default for this variable."
+                )
+
             return ast.Constant(value=value)
 
         return super().visit_placeholder(node)
