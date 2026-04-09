@@ -22,7 +22,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { eventFilterLogic, EVENT_FILTER_MAX_CONDITIONS, EVENT_FILTER_MAX_DEPTH, FilterNode } from './eventFilterLogic'
+import {
+    eventFilterLogic,
+    EVENT_FILTER_MAX_CONDITIONS,
+    EVENT_FILTER_MAX_DEPTH,
+    FilterNode,
+    TreePath,
+} from './eventFilterLogic'
 import { EventFilterMetrics } from './EventFilterMetrics'
 import { EventFilterTestCases } from './EventFilterTestCases'
 import { NodeEditor } from './EventFilterTreeEditor'
@@ -87,7 +93,7 @@ export function EventFilterScene(): JSX.Element {
             }
 
             // Determine target
-            let targetGroupPath: (string | number)[]
+            let targetGroupPath: TreePath
             let insertIndex: number
 
             if (overIdStr.startsWith('drop:')) {
@@ -154,7 +160,7 @@ export function EventFilterScene(): JSX.Element {
                 // Recompute target path after removal (indices may have shifted)
                 stampNids(newTree as FilterNode & { _nid?: string })
                 const newIdx = buildNidIndex(newTree)
-                let destGroupPath: (string | number)[]
+                let destGroupPath: TreePath
                 let destIndex: number
 
                 if (overIdStr.startsWith('drop:')) {

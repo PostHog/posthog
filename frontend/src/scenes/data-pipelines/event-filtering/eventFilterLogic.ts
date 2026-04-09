@@ -116,30 +116,35 @@ export function treeHasEmptyValues(node: FilterNode): boolean {
     }
 }
 
-function updateAtPath(node: any, pathKeys: (string | number)[], updater: (node: FilterNode) => FilterNode): any {
-    if (pathKeys.length === 0) {
+/** A path step is either a numeric index into children[] or 'child' for NOT nodes. */
+export type TreePath = ('child' | number)[]
+
+export function updateAtPath(node: FilterNode, path: TreePath, updater: (node: FilterNode) => FilterNode): FilterNode {
+    if (path.length === 0) {
         return updater(node)
     }
-    const [head, ...rest] = pathKeys
-    if (Array.isArray(node)) {
-        const copy = [...node]
-        copy[head as number] = updateAtPath(copy[head as number], rest, updater)
-        return copy
+    const [step, ...rest] = path
+    if (typeof step === 'number' && (node.type === 'and' || node.type === 'or')) {
+        return {
+            ...node,
+            children: node.children.map((child, i) => (i === step ? updateAtPath(child, rest, updater) : child)),
+        }
     }
-    const copy = { ...node }
-    copy[head] = updateAtPath(copy[head], rest, updater)
-    return copy
+    if (step === 'child' && node.type === 'not') {
+        return { ...node, child: updateAtPath(node.child, rest, updater) }
+    }
+    return node
 }
 
 export const eventFilterLogic = kea<eventFilterLogicType>([
     path(['scenes', 'data-pipelines', 'event-filtering', 'eventFilterLogic']),
     actions({
-        updateTreeNode: (pathKeys: (string | number)[], node: FilterNode) => ({ pathKeys, node }),
-        wrapInNot: (pathKeys: (string | number)[]) => ({ pathKeys }),
-        unwrapNot: (pathKeys: (string | number)[]) => ({ pathKeys }),
-        addChild: (pathKeys: (string | number)[]) => ({ pathKeys }),
-        removeChild: (pathKeys: (string | number)[], childIndex: number) => ({ pathKeys, childIndex }),
-        convertToGroup: (pathKeys: (string | number)[], groupType: 'and' | 'or') => ({ pathKeys, groupType }),
+        updateTreeNode: (pathKeys: TreePath, node: FilterNode) => ({ pathKeys, node }),
+        wrapInNot: (pathKeys: TreePath) => ({ pathKeys }),
+        unwrapNot: (pathKeys: TreePath) => ({ pathKeys }),
+        addChild: (pathKeys: TreePath) => ({ pathKeys }),
+        removeChild: (pathKeys: TreePath, childIndex: number) => ({ pathKeys, childIndex }),
+        convertToGroup: (pathKeys: TreePath, groupType: 'and' | 'or') => ({ pathKeys, groupType }),
         addTestCase: true,
         removeTestCase: (index: number) => ({ index }),
         updateTestCase: (index: number, updates: Partial<TestCase>) => ({ index, updates }),

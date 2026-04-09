@@ -1,4 +1,4 @@
-import type { FilterNode } from './eventFilterLogic'
+import type { FilterNode, TreePath } from './eventFilterLogic'
 
 // --- Stable node IDs ---
 // Each node gets a `_nid` property. We stamp them when first seen and preserve
@@ -31,9 +31,9 @@ export function nid(node: FilterNode): string {
 }
 
 /** Build a map from _nid → tree path */
-export type NidIndex = Map<string, (string | number)[]>
+export type NidIndex = Map<string, TreePath>
 
-export function buildNidIndex(node: FilterNode, path: (string | number)[] = []): NidIndex {
+export function buildNidIndex(node: FilterNode, path: TreePath = []): NidIndex {
     const index: NidIndex = new Map()
     const id = nid(node)
     if (id) {
@@ -41,7 +41,7 @@ export function buildNidIndex(node: FilterNode, path: (string | number)[] = []):
     }
     if (node.type === 'and' || node.type === 'or') {
         for (let i = 0; i < node.children.length; i++) {
-            const childIndex = buildNidIndex(node.children[i], [...path, 'children', i])
+            const childIndex = buildNidIndex(node.children[i], [...path, i])
             for (const [k, v] of childIndex) {
                 index.set(k, v)
             }
@@ -55,35 +55,39 @@ export function buildNidIndex(node: FilterNode, path: (string | number)[] = []):
     return index
 }
 
-export function getNodeAtPath(tree: FilterNode, path: (string | number)[]): FilterNode | undefined {
-    let current: unknown = tree
-    for (const key of path) {
-        if (current == null) {
+export function getNodeAtPath(tree: FilterNode, path: TreePath): FilterNode | undefined {
+    let current: FilterNode | undefined = tree
+    for (const step of path) {
+        if (!current) {
             return undefined
         }
-        current = (current as Record<string | number, unknown>)[key]
+        if (typeof step === 'number' && (current.type === 'and' || current.type === 'or')) {
+            current = current.children[step]
+        } else if (step === 'child' && current.type === 'not') {
+            current = current.child
+        } else {
+            return undefined
+        }
     }
-    return current as FilterNode | undefined
+    return current
 }
 
-export function splitParentChild(
-    path: (string | number)[]
-): { parentPath: (string | number)[]; childIndex: number } | null {
-    if (path.length < 2) {
+export function splitParentChild(path: TreePath): { parentPath: TreePath; childIndex: number } | null {
+    if (path.length === 0) {
         return null
     }
-    const childIndex = path[path.length - 1]
-    if (typeof childIndex !== 'number') {
+    const last = path[path.length - 1]
+    if (typeof last !== 'number') {
         return null
     }
-    return { parentPath: path.slice(0, -2), childIndex }
+    return { parentPath: path.slice(0, -1), childIndex: last }
 }
 
-export function isAncestorPath(a: (string | number)[], b: (string | number)[]): boolean {
+export function isAncestorPath(a: TreePath, b: TreePath): boolean {
     if (a.length >= b.length) {
         return false
     }
-    return a.every((seg, i) => String(seg) === String(b[i]))
+    return a.every((seg, i) => seg === b[i])
 }
 
 export function isTreeEmpty(node: FilterNode): boolean {

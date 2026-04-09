@@ -9,7 +9,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
-import { eventFilterLogic, FilterNode } from './eventFilterLogic'
+import { eventFilterLogic, FilterNode, TreePath } from './eventFilterLogic'
 import { nid } from './eventFilterTreeUtils'
 
 const FIELD_OPTIONS = [
@@ -46,7 +46,7 @@ function ConditionEditor({
     showValidation,
 }: {
     node: FilterNode & { type: 'condition' }
-    path: (string | number)[]
+    path: TreePath
     onDelete?: () => void
     showValidation?: boolean
 }): JSX.Element {
@@ -89,7 +89,7 @@ function GroupEditor({
     showValidation,
 }: {
     node: FilterNode & { type: 'and' | 'or' }
-    path: (string | number)[]
+    path: TreePath
     depth: number
     onDelete?: () => void
     showValidation?: boolean
@@ -157,7 +157,7 @@ function GroupEditor({
 
                 <SortableContext items={childNids} strategy={verticalListSortingStrategy}>
                     {node.children.map((child, i) => {
-                        const childPath = [...path, 'children', i]
+                        const childPath: TreePath = [...path, i]
                         const childId = nid(child)
                         return (
                             <SortableItem key={childId} id={childId}>
@@ -205,7 +205,7 @@ export function NodeEditor({
     showValidation,
 }: {
     node: FilterNode
-    path: (string | number)[]
+    path: TreePath
     depth: number
     onDelete?: () => void
     showValidation?: boolean

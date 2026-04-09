@@ -1,4 +1,4 @@
-import { evaluateFilterTree, treeHasConditions, treeHasEmptyValues, FilterNode } from './eventFilterLogic'
+import { evaluateFilterTree, treeHasConditions, treeHasEmptyValues, updateAtPath, FilterNode } from './eventFilterLogic'
 
 function cond(
     field: 'event_name' | 'distinct_id' = 'event_name',
@@ -104,6 +104,137 @@ describe('evaluateFilterTree', () => {
             ['distinct_id missing -> drop', { event_name: '$autocapture' }, true],
         ])('%s', (_name, event, expected) => {
             expect(evaluateFilterTree(tree, event)).toBe(expected)
+        })
+    })
+})
+
+describe('updateAtPath', () => {
+    const replacement = cond('distinct_id', 'exact', 'replaced')
+
+    describe('root updates (empty path)', () => {
+        it('replaces the entire tree', () => {
+            const tree = cond()
+            const result = updateAtPath(tree, [], () => replacement)
+            expect(result).toEqual(replacement)
+        })
+
+        it('wraps root in NOT', () => {
+            const tree = cond()
+            const result = updateAtPath(tree, [], (node) => not(node))
+            expect(result).toEqual(not(cond()))
+        })
+
+        it('converts root condition to a group', () => {
+            const tree = cond()
+            const result = updateAtPath(tree, [], (node) => and(node))
+            expect(result).toEqual(and(cond()))
+        })
+    })
+
+    describe('updating children in AND/OR groups', () => {
+        it('updates first child of an OR group', () => {
+            const tree = or(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
+            const result = updateAtPath(tree, [0], () => replacement)
+            expect(result).toEqual(or(replacement, cond('event_name', 'exact', 'b')))
+        })
+
+        it('updates second child of an AND group', () => {
+            const tree = and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
+            const result = updateAtPath(tree, [1], () => replacement)
+            expect(result).toEqual(and(cond('event_name', 'exact', 'a'), replacement))
+        })
+
+        it('adds a child to a group via updater', () => {
+            const tree = or(cond())
+            const result = updateAtPath(tree, [], (node) => {
+                if (node.type === 'or') {
+                    return { ...node, children: [...node.children, replacement] }
+                }
+                return node
+            })
+            expect(result).toEqual(or(cond(), replacement))
+        })
+
+        it('removes a child from a group via updater', () => {
+            const tree = and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
+            const result = updateAtPath(tree, [], (node) => {
+                if (node.type === 'and') {
+                    return { ...node, children: node.children.filter((_, i) => i !== 0) }
+                }
+                return node
+            })
+            expect(result).toEqual(and(cond('event_name', 'exact', 'b')))
+        })
+    })
+
+    describe('updating through NOT nodes', () => {
+        it('updates the child of a NOT node', () => {
+            const tree = not(cond())
+            const result = updateAtPath(tree, ['child'], () => replacement)
+            expect(result).toEqual(not(replacement))
+        })
+
+        it('unwraps a NOT by returning its child', () => {
+            const inner = cond()
+            const tree = not(inner)
+            const result = updateAtPath(tree, [], (node) => {
+                if (node.type === 'not') {
+                    return node.child
+                }
+                return node
+            })
+            expect(result).toEqual(inner)
+        })
+    })
+
+    describe('deep nested paths', () => {
+        // AND(OR(condA, condB), NOT(condC))
+        const condA = cond('event_name', 'exact', 'a')
+        const condB = cond('event_name', 'exact', 'b')
+        const condC = cond('distinct_id', 'exact', 'c')
+        const tree = and(or(condA, condB), not(condC))
+
+        it('updates condA at [0, 0]', () => {
+            const result = updateAtPath(tree, [0, 0], () => replacement)
+            expect(result).toEqual(and(or(replacement, condB), not(condC)))
+        })
+
+        it('updates condB at [0, 1]', () => {
+            const result = updateAtPath(tree, [0, 1], () => replacement)
+            expect(result).toEqual(and(or(condA, replacement), not(condC)))
+        })
+
+        it('updates condC through NOT at [1, "child"]', () => {
+            const result = updateAtPath(tree, [1, 'child'], () => replacement)
+            expect(result).toEqual(and(or(condA, condB), not(replacement)))
+        })
+
+        it('wraps a nested condition in NOT', () => {
+            const result = updateAtPath(tree, [0, 0], (node) => not(node))
+            expect(result).toEqual(and(or(not(condA), condB), not(condC)))
+        })
+
+        it('replaces the OR subgroup entirely', () => {
+            const result = updateAtPath(tree, [0], () => replacement)
+            expect(result).toEqual(and(replacement, not(condC)))
+        })
+    })
+
+    describe('immutability', () => {
+        it('does not mutate the original tree', () => {
+            const tree = and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b'))
+            const original = JSON.parse(JSON.stringify(tree))
+            updateAtPath(tree, [0], () => replacement)
+            expect(tree).toEqual(original)
+        })
+
+        it('shares unchanged subtrees by reference', () => {
+            const child0 = cond('event_name', 'exact', 'a')
+            const child1 = cond('event_name', 'exact', 'b')
+            const tree = or(child0, child1)
+            const result = updateAtPath(tree, [0], () => replacement)
+            // child1 should be the same reference — not copied
+            expect((result as { type: 'or'; children: FilterNode[] }).children[1]).toBe(child1)
         })
     })
 })
