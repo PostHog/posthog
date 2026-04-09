@@ -4045,6 +4045,7 @@ class SignalSourceProduct(StrEnum):
     LINEAR = "linear"
     ZENDESK = "zendesk"
     ERROR_TRACKING = "error_tracking"
+    WEB_ANALYTICS = "web_analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -4055,6 +4056,7 @@ class SignalSourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+    NOTABLE_CHANGE = "notable_change"
 
 
 class SimilarIssue(BaseModel):
@@ -4561,6 +4563,32 @@ class WebAnalyticsItemKind(StrEnum):
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
     CURRENCY = "currency"
+
+
+class WebAnalyticsNotableChangeExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_value: float
+    dimension_type: str
+    dimension_value: str
+    impact_score: float
+    metric: str
+    percent_change: float
+    previous_value: float
+    week_start: str
+
+
+class WebAnalyticsNotableChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: WebAnalyticsNotableChangeExtra
+    source_id: str
+    source_product: Literal["web_analytics"] = "web_analytics"
+    source_type: Literal["notable_change"] = "notable_change"
+    weight: float
 
 
 class WebAnalyticsOrderByDirection(StrEnum):
@@ -7532,6 +7560,7 @@ class SignalInput(
         | GithubIssueSignalInput
         | LinearIssueSignalInput
         | ErrorTrackingSignalInput
+        | WebAnalyticsNotableChangeSignalInput
     ]
 ):
     root: (
@@ -7541,6 +7570,7 @@ class SignalInput(
         | GithubIssueSignalInput
         | LinearIssueSignalInput
         | ErrorTrackingSignalInput
+        | WebAnalyticsNotableChangeSignalInput
     ) = Field(..., discriminator="source_product")
 
 

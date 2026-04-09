@@ -52,6 +52,8 @@ from posthog.temporal.session_replay.enforce_max_replay_retention.types import E
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.web_analytics.backend.temporal.notable_changes.types import WebNotableChangesCoordinatorInput
+
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
@@ -356,6 +358,39 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
+async def create_web_notable_changes_schedule(client: Client):
+    """Create or update the schedule for the web analytics notable changes workflow.
+
+    This schedule runs weekly at Monday 6 AM UTC.
+    """
+    schedule_id = "web-notable-changes-schedule"
+    web_notable_changes_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "web-notable-changes-coordinator",
+            WebNotableChangesCoordinatorInput(),
+            id=schedule_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, web_notable_changes_schedule)
+    else:
+        await a_create_schedule(client, schedule_id, web_notable_changes_schedule, trigger_immediately=False)
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
@@ -375,6 +410,7 @@ schedules = [
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
     create_logs_alert_check_schedule,
+    create_web_notable_changes_schedule,
 ]
 
 if settings.EE_AVAILABLE:

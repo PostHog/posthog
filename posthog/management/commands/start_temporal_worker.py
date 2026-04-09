@@ -163,6 +163,10 @@ from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.web_analytics.backend.temporal.notable_changes import (
+    ACTIVITIES as WEB_NOTABLE_CHANGES_ACTIVITIES,
+    WORKFLOWS as WEB_NOTABLE_CHANGES_WORKFLOWS,
+)
 
 # When adding modules to a queue, also update the corresponding CI trigger
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
@@ -258,11 +262,13 @@ _task_queue_specs = [
         VIDEO_EXPORT_WORKFLOWS
         + VIDEO_SEGMENT_CLUSTERING_WORKFLOWS
         + SIGNALS_PRODUCT_WORKFLOWS
-        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
+        + WEB_NOTABLE_CHANGES_WORKFLOWS,
         VIDEO_EXPORT_ACTIVITIES
         + VIDEO_SEGMENT_CLUSTERING_ACTIVITIES
         + SIGNALS_PRODUCT_ACTIVITIES
-        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
+        + WEB_NOTABLE_CHANGES_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,

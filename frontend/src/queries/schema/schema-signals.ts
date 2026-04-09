@@ -9,6 +9,7 @@ export enum SignalSourceProduct {
     LINEAR = 'linear',
     ZENDESK = 'zendesk',
     ERROR_TRACKING = 'error_tracking',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 export enum SignalSourceType {
@@ -19,6 +20,7 @@ export enum SignalSourceType {
     ISSUE_CREATED = 'issue_created',
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
+    NOTABLE_CHANGE = 'notable_change',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -156,6 +158,28 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// Web analytics notable changes
+
+export interface WebAnalyticsNotableChangeExtra {
+    dimension_type: string
+    dimension_value: string
+    metric: string
+    current_value: number
+    previous_value: number
+    percent_change: number
+    impact_score: number
+    week_start: string
+}
+
+export interface WebAnalyticsNotableChangeSignalInput {
+    source_type: 'notable_change'
+    source_product: 'web_analytics'
+    source_id: string
+    description: string
+    weight: number
+    extra: WebAnalyticsNotableChangeExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -189,3 +213,4 @@ export type SignalInput =
     | GithubIssueSignalInput
     | LinearIssueSignalInput
     | ErrorTrackingSignalInput
+    | WebAnalyticsNotableChangeSignalInput

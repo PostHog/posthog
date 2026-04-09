@@ -33616,6 +33616,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsNotableChangeSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -33644,7 +33647,15 @@
             "type": "object"
         },
         "SignalSourceProduct": {
-            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "enum": [
+                "session_replay",
+                "llm_analytics",
+                "github",
+                "linear",
+                "zendesk",
+                "error_tracking",
+                "web_analytics"
+            ],
             "type": "string"
         },
         "SignalSourceType": {
@@ -33655,7 +33666,8 @@
                 "ticket",
                 "issue_created",
                 "issue_reopened",
-                "issue_spiking"
+                "issue_spiking",
+                "notable_change"
             ],
             "type": "string"
         },
@@ -36784,6 +36796,73 @@
         "WebAnalyticsItemKind": {
             "enum": ["unit", "duration_s", "percentage", "currency"],
             "type": "string"
+        },
+        "WebAnalyticsNotableChangeExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "current_value": {
+                    "type": "number"
+                },
+                "dimension_type": {
+                    "type": "string"
+                },
+                "dimension_value": {
+                    "type": "string"
+                },
+                "impact_score": {
+                    "type": "number"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "percent_change": {
+                    "type": "number"
+                },
+                "previous_value": {
+                    "type": "number"
+                },
+                "week_start": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "dimension_type",
+                "dimension_value",
+                "metric",
+                "current_value",
+                "previous_value",
+                "percent_change",
+                "impact_score",
+                "week_start"
+            ],
+            "type": "object"
+        },
+        "WebAnalyticsNotableChangeSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/WebAnalyticsNotableChangeExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "web_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "notable_change",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "WebAnalyticsOrderBy": {
             "items": [

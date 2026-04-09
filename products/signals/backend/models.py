@@ -14,6 +14,7 @@ class SignalSourceConfig(UUIDModel):
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        WEB_ANALYTICS = "web_analytics", "Web analytics"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -23,6 +24,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_CREATED = "issue_created", "Issue created"
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        NOTABLE_CHANGE = "notable_change", "Notable change"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
@@ -40,7 +42,7 @@ class SignalSourceConfig(UUIDModel):
         LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         For everything else, the team must have a SignalSourceConfig row with enabled=True.
         """
-        if source_product == cls.SourceProduct.LLM_ANALYTICS:
+        if source_product in (cls.SourceProduct.LLM_ANALYTICS, cls.SourceProduct.WEB_ANALYTICS):
             return True
 
         return cls.objects.filter(
