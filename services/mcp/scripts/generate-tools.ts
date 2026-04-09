@@ -242,7 +242,7 @@ function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
 function operationIdToPascal(operationId: string): string {
     return operationId
-        .split('_')
+        .split(/[_.]/)
         .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
         .join('')
 }
@@ -559,7 +559,7 @@ function generateToolCode(
     }
 
     const composition = composeToolSchema(config, resolved, spec)
-    let responseType = resolveResponseType(resolved.operation, knownTypes)
+    let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
@@ -667,9 +667,11 @@ function generateToolCode(
     const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
+
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 }`
@@ -715,7 +717,7 @@ function generateCustomSchemaToolCode(
     const pathExpr = buildPathExpr(resolved.path, pathParamNames)
 
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
@@ -728,16 +730,18 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
+    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
         if (useBody) {
-            handlerBody += `        const { ${destructured}...body } = params\n`
+            handlerBody += `        const { ${destructured}...body } = parsedParams\n`
         } else {
-            handlerBody += `        const { ${destructured}...query } = params\n`
+            handlerBody += `        const { ${destructured}...query } = parsedParams\n`
         }
     }
 
-    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (pathParamNames.length > 0) {
@@ -747,9 +751,9 @@ function generateCustomSchemaToolCode(
             handlerBody += `            query,\n`
         }
     } else if (useBody) {
-        handlerBody += `            body: params,\n`
+        handlerBody += `            body: parsedParams,\n`
     } else {
-        handlerBody += `            query: params,\n`
+        handlerBody += `            query: parsedParams,\n`
     }
     handlerBody += `        })\n`
 
@@ -760,12 +764,14 @@ function generateCustomSchemaToolCode(
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
     handlerBody += buildEnrichment(config, category, enrichmentVar)
 
+    const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
+
     const code = `
 const ${schemaName} = ${config.input_schema}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
+    schema: ${schemaName},${mcpVersionLine}
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 })
@@ -960,6 +966,9 @@ function generateCategoryFile(
                 }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
+                }
+                if (wrapperConfig.mcp_version !== undefined) {
+                    configParts.push(`mcpVersion: ${wrapperConfig.mcp_version}`)
                 }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
@@ -1194,6 +1203,9 @@ function generateQueryWrapperFile(
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            if (toolConfig.mcp_version !== undefined) {
+                configParts.push(`mcpVersion: ${toolConfig.mcp_version}`)
             }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })

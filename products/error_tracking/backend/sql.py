@@ -5,6 +5,7 @@ from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import (
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
 )
@@ -116,8 +117,134 @@ def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 
+def TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE}"
+
+
 INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
 INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
+"""
+
+#
+# error_tracking_fingerprint_issue_state: Contains issue metadata alongside fingerprint
+# mappings, eliminating the need for Postgres JOINs in the list query.
+#
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE = "error_tracking_fingerprint_issue_state"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE = f"raw_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV = f"{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}_mv"
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    team_id Int64,
+    fingerprint VARCHAR,
+    issue_id UUID,
+    issue_name Nullable(VARCHAR),
+    issue_description Nullable(VARCHAR),
+    issue_status VARCHAR,
+    assigned_user_id Nullable(Int64),
+    assigned_role_id Nullable(UUID),
+    first_seen DateTime64(3, 'UTC'),
+    is_deleted Int8,
+    version Int64
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE, ver="version"
+)
+
+
+def RAW_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return (
+        ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL
+        + """
+    ORDER BY (team_id, fingerprint)
+    SETTINGS index_granularity = 512
+    """
+    ).format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE_ENGINE(),
+        extra_fields=f"""
+    {KAFKA_COLUMNS_WITH_PARTITION}
+    , {index_by_kafka_timestamp(ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE)}
+    """,
+    )
+
+
+def KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            group="clickhouse-error-tracking-fingerprint-issue-state",
+        ),
+        extra_fields="",
+    )
+
+
+def ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV_SQL(
+    target_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE,
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
+AS SELECT
+team_id,
+fingerprint,
+issue_id,
+issue_name,
+issue_description,
+issue_status,
+assigned_user_id,
+assigned_role_id,
+first_seen,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.{kafka_table}
+""".format(
+        mv_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV,
+        target_table=target_table,
+        kafka_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+
+WRITABLE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL = (
+    lambda: ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
+)
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL = lambda: ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+    table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+    engine=Distributed(
+        data_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+        cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+    ),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+
+INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = """
+INSERT INTO error_tracking_fingerprint_issue_state (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 

@@ -20,9 +20,9 @@ export function validateInput(input: RasterizeRecordingInput): void {
             'INVALID_INPUT'
         )
     }
-    if (input.capture_timeout != null && input.capture_timeout <= 0) {
+    if (input.max_virtual_time != null && input.max_virtual_time <= 0) {
         throw new RasterizationError(
-            `capture_timeout must be positive, got: ${input.capture_timeout}`,
+            `max_virtual_time must be positive, got: ${input.max_virtual_time}`,
             false,
             'INVALID_INPUT'
         )
@@ -71,7 +71,7 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
         playbackSpeed,
         trim: input.trim,
         trimFrameLimit: input.trim ? input.trim * outputFps : Infinity,
-        captureTimeoutMs: input.capture_timeout ? input.capture_timeout * 1000 : Infinity,
+        maxVirtualTimeMs: input.max_virtual_time ? input.max_virtual_time * 1000 : Infinity,
         ffmpegOutputOpts,
         ffmpegVideoFilters,
         screenshotFormat: input.screenshot_format || 'jpeg',

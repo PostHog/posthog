@@ -143,6 +143,9 @@ export function loadPostHogJS(): void {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,
             },
+            // @ts-expect-error — posthog-js types will add these fields in the identity verification PR
+            identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
+            identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

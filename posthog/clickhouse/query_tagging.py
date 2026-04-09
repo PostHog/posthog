@@ -170,6 +170,9 @@ class QueryTags(BaseModel):
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None
     experiment_is_data_warehouse_query: Optional[bool] = None
+    experiment_metric_uuid: Optional[str] = None
+    experiment_metric_name: Optional[str] = None
+    experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
 
     feature: Optional[Feature] = None
     filter: Optional[object] = None

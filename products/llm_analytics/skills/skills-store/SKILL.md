@@ -36,6 +36,21 @@ posthog:prompt-list
 { "search": "llm" }
 ```
 
+By default `prompt-list` returns only metadata (name, version, size) and omits prompt bodies,
+so responses stay small even when there are many skills.
+The intended flow is **list to discover the name, then `prompt-get` the one you actually want**.
+
+If you need a snippet to disambiguate between similarly-named skills without a follow-up fetch,
+ask for previews:
+
+```json
+posthog:prompt-list
+{ "content": "preview" }
+```
+
+`content=full` is also available but should be avoided —
+it returns every prompt body in one call and is almost never what you want.
+
 ## Loading and using a skill
 
 ### Step 1 — Fetch the skill by name

@@ -1,6 +1,8 @@
 import {
     AlertCalculationInterval,
     AlertCondition,
+    AlertScheduleRestriction,
+    AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
     InsightThreshold,
@@ -9,6 +11,11 @@ import {
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
+
+export type BlockedWindow = AlertScheduleRestrictionWindow
+
+/** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */
+export type ScheduleRestriction = AlertScheduleRestriction
 
 export interface SubDetectorScores {
     type: string
@@ -55,6 +62,7 @@ export interface AlertTypeBase {
     insight: QueryBasedInsightModel
     config: AlertConfig
     skip_weekend?: boolean
+    schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
 }
 
@@ -87,6 +95,7 @@ export interface AlertType extends AlertTypeBase {
     state: AlertState
     last_notified_at: string
     last_checked_at: string
+    next_check_at?: string | null
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string

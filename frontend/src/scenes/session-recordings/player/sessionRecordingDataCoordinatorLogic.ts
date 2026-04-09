@@ -280,9 +280,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end],
-            (start, end): number => {
-                return !!start && !!end ? end.diff(start) : 0
+            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
+            (start, end, meta: SessionRecordingType | null, fullyLoaded: boolean): number => {
+                if (!start || !end) {
+                    return 0
+                }
+                const snapshotDuration = end.diff(start)
+                if (fullyLoaded && meta?.recording_duration) {
+                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
+                }
+                return snapshotDuration
             },
         ],
 

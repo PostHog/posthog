@@ -22,8 +22,13 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.agentic import resolve_user_id_for_team
+from products.signals.backend.temporal.agentic import (
+    SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    get_or_create_signals_sandbox_env,
+    resolve_user_id_for_team,
+)
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
@@ -230,10 +235,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         async with Heartbeater():
             # 1. Get context for the sandbox
             user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, SandboxEnvironment.NetworkAccessLevel.TRUSTED
+            )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
+                sandbox_environment_id=sandbox_env_id,
+                posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
             )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await database_sync_to_async(_load_previous_research, thread_sensitive=False)(

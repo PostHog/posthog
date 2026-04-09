@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -55,7 +56,6 @@ export type SettingSectionId =
     | 'organization-integrations'
     | 'organization-oauth-apps'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -74,6 +74,12 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-notifications'
+    | 'conversations-slack'
+    | 'conversations-email'
+    | 'conversations-widget'
+    | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
@@ -146,7 +152,6 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'

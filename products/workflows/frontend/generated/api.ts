@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BlastRadiusApi,
+    BlastRadiusRequestApi,
     HogFlowApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
@@ -478,13 +480,13 @@ export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const hogFlowsUserBlastRadiusCreate = async (
     projectId: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    blastRadiusRequestApi: BlastRadiusRequestApi,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsUserBlastRadiusCreateUrl(projectId), {
+): Promise<BlastRadiusApi> => {
+    return apiMutator<BlastRadiusApi>(getHogFlowsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(blastRadiusRequestApi),
     })
 }

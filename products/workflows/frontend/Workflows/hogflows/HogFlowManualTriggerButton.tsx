@@ -32,11 +32,11 @@ const TriggerPopover = ({
     )
 
     const blastRadiusExceeded =
-        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.users_affected > BLAST_RADIUS_LIMIT
+        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.affected > BLAST_RADIUS_LIMIT
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
         }
         return ''
     }

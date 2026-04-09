@@ -101,7 +101,7 @@ def _build_summary_block(result: TestSuiteResult) -> dict[str, Any]:
 def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
     text = (
         f":globe_with_meridians: Env: {config.api_host} | "
-        f":file_folder: Project: {config.project_id} | "
+        f":file_folder: Team: {config.team_id} | "
         f":hourglass: Duration: {result.total_duration_seconds:.2f}s"
     )
     return {
@@ -144,7 +144,7 @@ def send_slack_timeout_notification(config: Config, running_tests: list[str] | N
                     "type": "mrkdwn",
                     "text": (
                         f":globe_with_meridians: Env: {config.api_host} | "
-                        f":file_folder: Project: {config.project_id} | "
+                        f":file_folder: Team: {config.team_id} | "
                         f":stopwatch: Timeout: {config.activity_timeout_seconds}s"
                     ),
                 },
