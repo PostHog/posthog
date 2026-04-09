@@ -352,7 +352,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                             label: 'Go to experiment',
                             action: () => {
                                 window.location.href = urls.project(
-                                    payload.targetTeamId,
+                                    payload.targetProjectId,
                                     urls.experiment(newExperiment.id)
                                 )
                             },

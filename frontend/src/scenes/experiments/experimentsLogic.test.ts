@@ -1,4 +1,5 @@
 import { api } from 'lib/api.mock'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -352,6 +353,32 @@ describe('experimentsLogic', () => {
                 expect.stringContaining(`/experiments/${mockExperiment.id}/copy_to_project`),
                 { target_team_id: 456, feature_flag_key: 'new-flag' }
             )
+        })
+
+        it('uses the target project id in the copy success link', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            api.create.mockResolvedValue(copiedExperiment)
+
+            const toastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
+            const projectSpy = jest.spyOn(urls, 'project').mockImplementation(() => {
+                throw new Error('navigation-called')
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                })
+            }).toFinishAllListeners()
+
+            const toastOptions = toastSpy.mock.calls.at(-1)?.[1] as
+                | { button?: { action?: () => void } }
+                | undefined
+
+            expect(toastOptions?.button?.action).toBeDefined()
+            expect(() => toastOptions?.button?.action?.()).toThrow('navigation-called')
+            expect(projectSpy).toHaveBeenCalledWith(123, expect.stringContaining('/999'))
         })
 
         it('adds experiment to list', () => {
