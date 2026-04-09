@@ -55,7 +55,7 @@ Column | Type | Nullable | Description
 `version` | integer | NOT NULL | Version number (1-based, ascending)
 `description` | text | NOT NULL | Version description
 `query` | jsonb | NOT NULL | Immutable query snapshot
-`cache_age_seconds` | integer | NULL | Cache TTL in seconds
+`data_freshness_seconds` | integer | NOT NULL | How fresh the data should be, in seconds (one of: 900, 1800, 3600, 21600, 43200, 86400, 604800)
 `is_active` | integer | NOT NULL | Whether this version can be executed (0/1)
 `columns` | jsonb | NULL | Column names and types
 `created_at` | timestamp with tz | NOT NULL | When this version was created

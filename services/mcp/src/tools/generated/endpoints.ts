@@ -69,7 +69,6 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
 })
 
 const EndpointCreateSchema = EndpointsCreateBody.omit({
-    data_freshness_seconds: true,
     is_active: true,
     derived_from_insight: true,
     version: true,
@@ -92,6 +91,9 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.data_freshness_seconds !== undefined) {
+            body['data_freshness_seconds'] = params.data_freshness_seconds
+        }
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
         }
@@ -105,13 +107,8 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
 })
 
 const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
-    EndpointsPartialUpdateBody.omit({
-        name: true,
-        data_freshness_seconds: true,
-        derived_from_insight: true,
-        bucket_overrides: true,
-        deleted: true,
-    }).shape
+    EndpointsPartialUpdateBody.omit({ name: true, derived_from_insight: true, bucket_overrides: true, deleted: true })
+        .shape
 )
 
 const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
@@ -125,6 +122,9 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.data_freshness_seconds !== undefined) {
+            body['data_freshness_seconds'] = params.data_freshness_seconds
         }
         if (params.is_active !== undefined) {
             body['is_active'] = params.is_active
