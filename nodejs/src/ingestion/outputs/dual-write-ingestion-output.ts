@@ -102,7 +102,7 @@ export function shouldRouteToSecondary(key: MessageKey | null | undefined, perce
     if (!key) {
         return Math.random() * 100 < percentage
     }
-    return keyHashBucket(key) % 100 < percentage
+    return keyHashBucket(key) < percentage
 }
 
 /** FNV-1a 32-bit hash of a message key, reduced to a 0–99 bucket. */
