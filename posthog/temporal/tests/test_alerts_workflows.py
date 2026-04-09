@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from temporalio.client import Schedule, ScheduleOverlapPolicy, ScheduleSpec
+from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleSpec
 
 from posthog.temporal.alerts.schedule import create_schedule_all_alert_checks_schedule
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleAllAlertChecksWorkflow
@@ -112,11 +112,14 @@ async def test_create_schedule_all_alert_checks_schedule_creates_when_absent():
 
     # Inspect the schedule passed to a_create_schedule
     call_args = mock_create.await_args
+    assert call_args is not None
     schedule_arg = call_args.args[2]
     assert isinstance(schedule_arg, Schedule)
     assert isinstance(schedule_arg.spec, ScheduleSpec)
     assert schedule_arg.spec.cron_expressions == ["*/2 * * * *"]
     assert schedule_arg.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
+    # Narrow from the ScheduleAction base to read execution_timeout.
+    assert isinstance(schedule_arg.action, ScheduleActionStartWorkflow)
     assert schedule_arg.action.execution_timeout == dt.timedelta(minutes=10)
     # trigger_immediately should default to False (kwargs check)
     assert call_args.kwargs.get("trigger_immediately") is False
