@@ -272,19 +272,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 <div className="flex gap-4 items-center flex-wrap">
                                     <AddVariableButton />
 
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-
                                     <TableDisplay />
 
                                     <LemonButton
@@ -320,6 +307,19 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 )}
 
                 {!props.embedded && <VariablesForInsight />}
+
+                {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                    !router.values.location.pathname.includes(urls.sqlEditor()) && (
+                        <DateRange
+                            key="date-range"
+                            query={query.source}
+                            setQuery={(query) => {
+                                if (query.kind === NodeKind.HogQLQuery) {
+                                    setQuerySource(query)
+                                }
+                            }}
+                        />
+                    )}
 
                 <div className="flex flex-1 flex-row gap-4">
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>
