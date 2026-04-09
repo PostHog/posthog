@@ -1,8 +1,10 @@
 use crate::{
-    config_cache::get_cached_data, router::State as AppState, sanitize::sanitize_config_for_client,
+    config_cache::get_cached_data,
+    router::State as AppState,
+    sanitize::sanitize_config_for_client,
+    token::{Token, TokenError},
 };
 use axum::{
-    debug_handler,
     extract::{Path, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
@@ -13,19 +15,6 @@ use tracing::info;
 
 const REMOTE_CONFIG_COUNTER: &str = "remote_config_requests_total";
 
-/// Validate a project API token.
-///
-/// Matches Django's `BaseRemoteConfigAPIView.check_token`:
-/// - Max 200 characters
-/// - Only alphanumeric, underscore, and hyphen
-fn is_valid_token(token: &str) -> bool {
-    token.len() <= 200
-        && !token.is_empty()
-        && token
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
 /// Cache-Control and Vary headers matching Django's `add_config_cache_headers`.
 fn config_cache_headers() -> [(&'static str, &'static str); 2] {
     [
@@ -34,13 +23,14 @@ fn config_cache_headers() -> [(&'static str, &'static str); 2] {
     ]
 }
 
-/// Fetch config from HyperCache, returning the raw value.
-///
-/// Returns `Ok(config)` on hit, or an HTTP error response on failure:
-/// - 400 for invalid tokens
-/// - 404 for unknown tokens (cache miss / explicit missing marker)
-async fn get_validated_config(state: &AppState, token: &str) -> Result<Value, Response> {
-    if !is_valid_token(token) {
+/// Parse and validate a path token, returning the appropriate HTTP error on failure.
+#[allow(clippy::result_large_err)]
+fn parse_token(raw: &str) -> Result<Token, Response> {
+    Token::parse(raw).map_err(|e| {
+        let status = match e {
+            TokenError::Empty => StatusCode::UNAUTHORIZED,
+            TokenError::TooLong | TokenError::InvalidCharacters => StatusCode::BAD_REQUEST,
+        };
         inc(
             REMOTE_CONFIG_COUNTER,
             &[
@@ -49,10 +39,18 @@ async fn get_validated_config(state: &AppState, token: &str) -> Result<Value, Re
             ],
             1,
         );
-        return Err((StatusCode::BAD_REQUEST, "Invalid token").into_response());
-    }
+        (status, e.to_string()).into_response()
+    })
+}
 
-    match get_cached_data(&state.config_hypercache_reader, token).await {
+/// Fetch config from HyperCache, returning the raw value.
+///
+/// Returns `Ok(config)` on hit, or an HTTP error response on failure:
+/// - 404 for unknown tokens (cache miss / explicit missing marker)
+///
+/// The `Token` type guarantees format validity at construction time.
+async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, Response> {
+    match get_cached_data(&state.config_hypercache_reader, token.as_str()).await {
         Some(value) => {
             inc(
                 REMOTE_CONFIG_COUNTER,
@@ -85,10 +83,9 @@ async fn get_validated_config(state: &AppState, token: &str) -> Result<Value, Re
 /// Public endpoint — no auth beyond token validation.
 ///
 /// Response headers: `Cache-Control: public, max-age=300`, `Vary: Origin, Referer`
-#[debug_handler]
 pub async fn config_endpoint(
     State(state): State<AppState>,
-    Path(token): Path<String>,
+    Path(raw_token): Path<String>,
     headers: HeaderMap,
     method: Method,
 ) -> Response {
@@ -104,6 +101,11 @@ pub async fn config_endpoint(
         )
             .into_response();
     }
+
+    let token = match parse_token(&raw_token) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
     let mut config = match get_validated_config(&state, &token).await {
         Ok(c) => c,
@@ -121,10 +123,12 @@ pub async fn config_endpoint(
 /// with the config and site apps. This is what the SDK snippet loads.
 ///
 /// Response headers: same cache headers + `Content-Type: application/javascript`
-#[debug_handler]
+///
+/// Safety: `Token` guarantees `[a-zA-Z0-9_-]` — cannot break out of the
+/// single-quoted JS string interpolation below.
 pub async fn config_js_endpoint(
     State(state): State<AppState>,
-    Path(token): Path<String>,
+    Path(raw_token): Path<String>,
     headers: HeaderMap,
     method: Method,
 ) -> Response {
@@ -143,6 +147,11 @@ pub async fn config_js_endpoint(
         )
             .into_response();
     }
+
+    let token = match parse_token(&raw_token) {
+        Ok(t) => t,
+        Err(r) => return r,
+    };
 
     let mut config = match get_validated_config(&state, &token).await {
         Ok(c) => c,
@@ -179,7 +188,13 @@ pub async fn config_js_endpoint(
 
     sanitize_config_for_client(&mut config, &headers);
 
-    let config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
+    let config_json = match serde_json::to_string(&config) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(token = %token, error = %e, "Failed to serialize config");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
     let site_apps_joined = site_apps_js.join(",");
 
     let js_content = format!(
@@ -211,25 +226,6 @@ mod tests {
     use axum::http::StatusCode;
     use common_redis::MockRedisClient;
     use serde_json::json;
-
-    #[test]
-    fn test_valid_tokens() {
-        assert!(is_valid_token("phc_abc123"));
-        assert!(is_valid_token(
-            "phc_leDMtGUQ1TDiPxotanVngOdEsShwcpDsLFLROFcGK9W"
-        ));
-        assert!(is_valid_token("some-old-token_with-dashes"));
-        assert!(is_valid_token("a"));
-    }
-
-    #[test]
-    fn test_invalid_tokens() {
-        assert!(!is_valid_token(""));
-        assert!(!is_valid_token("token with spaces"));
-        assert!(!is_valid_token("token/with/slashes"));
-        assert!(!is_valid_token("token.with.dots"));
-        assert!(!is_valid_token(&"a".repeat(201)));
-    }
 
     #[test]
     fn test_config_js_template_format() {

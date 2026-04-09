@@ -15,7 +15,8 @@ pub async fn get_cached_data(reader: &Arc<HyperCacheReader>, key: &str) -> Optio
 
     let value = match reader.get(&cache_key).await {
         Ok(v) => v,
-        Err(_) => {
+        Err(e) => {
+            tracing::warn!(key = %key, error = ?e, "HyperCache read failed");
             return None;
         }
     };

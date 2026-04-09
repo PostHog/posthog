@@ -91,6 +91,23 @@ pub mod helpers {
         (status, body_str)
     }
 
+    /// Send a POST request with form-encoded body.
+    pub async fn post_form(router: &Router, uri: &str, form_body: &str) -> (StatusCode, String) {
+        let request = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(form_body.to_owned()))
+            .unwrap();
+
+        let response = router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        (status, body_str)
+    }
+
     /// Send a GET request with custom headers.
     pub async fn get_with_headers(
         router: &Router,

@@ -61,9 +61,14 @@ pub fn on_permitted_domain(recording_domains: &[String], headers: &HeaderMap) ->
     let origin_hostname = parse_domain(origin);
     let referer_hostname = parse_domain(referer);
 
-    let is_authorized_web_client =
-        hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
-            || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
+    // Pre-parse the allowed domain list once per request (not once per hostname check)
+    let permitted_domains: Vec<String> = recording_domains
+        .iter()
+        .filter_map(|url| parse_domain(Some(url)))
+        .collect();
+
+    let is_authorized_web_client = hostname_matches(&permitted_domains, origin_hostname.as_deref())
+        || hostname_matches(&permitted_domains, referer_hostname.as_deref());
 
     let is_authorized_mobile_client =
         user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
@@ -91,17 +96,21 @@ fn strip_www(domain: &str) -> &str {
     domain.strip_prefix("www.").unwrap_or(domain)
 }
 
-fn hostname_in_allowed_url_list(allowed: &[String], hostname: Option<&str>) -> bool {
+/// Global cache for compiled wildcard regexes.
+///
+/// Bounded by the number of unique non-prefix wildcard patterns across all team
+/// configs — tiny in practice (most teams don't use patterns like `app-*.example.com`).
+static REGEX_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, regex::Regex>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Check `hostname` against pre-parsed permitted domains.
+fn hostname_matches(permitted_domains: &[String], hostname: Option<&str>) -> bool {
     let hostname = match hostname {
         Some(h) => h,
         None => return false,
     };
     let hostname_stripped = strip_www(hostname);
-
-    let permitted_domains: Vec<String> = allowed
-        .iter()
-        .filter_map(|url| parse_domain(Some(url)))
-        .collect();
 
     for permitted_domain in permitted_domains {
         if let Some(suffix) = permitted_domain.strip_prefix("*.") {
@@ -112,17 +121,30 @@ fn hostname_in_allowed_url_list(allowed: &[String], hostname: Option<&str>) -> b
                 return true;
             }
         } else if permitted_domain.contains('*') {
-            // Rare: non-prefix wildcards like `app-*.example.com` — fall back to regex
-            let pattern = format!(
-                "^{}$",
-                regex::escape(&permitted_domain).replace("\\*", ".*")
-            );
-            if regex::Regex::new(&pattern)
-                .is_ok_and(|re| re.is_match(hostname) || re.is_match(hostname_stripped))
-            {
+            // Rare: non-prefix wildcards like `app-*.example.com` — fall back to regex.
+            // Regex is cached to avoid re-compilation per request.
+            let pattern = format!("^{}$", regex::escape(permitted_domain).replace("\\*", ".*"));
+            let cache = REGEX_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+            // We can't hold the lock across the match check, but cloning a compiled
+            // Regex is cheap (Arc internally). Look up or insert, then drop the lock.
+            let re = cache.get(&pattern).cloned();
+            drop(cache);
+
+            let re = match re {
+                Some(r) => r,
+                None => {
+                    let compiled = match regex::Regex::new(&pattern) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let mut cache = REGEX_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+                    cache.entry(pattern).or_insert(compiled).clone()
+                }
+            };
+            if re.is_match(hostname) || re.is_match(hostname_stripped) {
                 return true;
             }
-        } else if strip_www(&permitted_domain) == hostname_stripped {
+        } else if strip_www(permitted_domain) == hostname_stripped {
             return true;
         }
     }
