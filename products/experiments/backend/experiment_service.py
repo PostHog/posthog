@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
-ExperimentCreationMode = Literal["scratch", "duplicate", "copy_to_project"]
+ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -280,7 +280,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
-        creation_mode: ExperimentCreationMode = "scratch",
+        creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         self.validate_variant_shapes(parameters)

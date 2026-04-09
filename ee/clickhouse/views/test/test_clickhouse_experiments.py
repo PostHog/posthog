@@ -259,7 +259,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
-                "creation_mode": "scratch",
+                "creation_mode": "new",
             },
         )
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
