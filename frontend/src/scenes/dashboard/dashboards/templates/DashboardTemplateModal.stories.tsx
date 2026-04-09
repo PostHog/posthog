@@ -47,7 +47,7 @@ const withViewerModeMsw: Decorator = (Story, context) => {
     })(Story, context)
 }
 
-const meta = {
+const meta: Meta<ViewerModeStoryArgs> = {
     title: 'Scenes-App/Dashboards/Templates/DashboardTemplateModal',
     decorators: [
         (Story) => (
@@ -76,7 +76,7 @@ const meta = {
             name: 'Viewer mode',
         },
     },
-} satisfies Meta<ViewerModeStoryArgs>
+}
 
 export default meta
 

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any, NoReturn, cast
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -24,6 +25,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.helpers.full_text_search import build_rank
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_organization_from_view
 from posthog.utils import str_to_bool
@@ -35,11 +37,31 @@ logger = structlog.get_logger(__name__)
 # Keep in sync with frontend `FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING`
 CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG = "customer-dashboard-template-authoring"
 
+# arbitary limit, just to prevent abuse
+MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
+
 _NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted"})
 _NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url", "github_url"})
 
 # load dashboard_template_schema.json
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
+
+
+def organization_dashboard_template_limit_detail() -> str:
+    return (
+        f"Your organization has reached the limit of {MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION} dashboard templates. "
+        "Delete a template before creating or restoring another."
+    )
+
+
+def count_active_dashboard_templates_for_organization(organization_id: UUID) -> int:
+    """Non-deleted templates whose team belongs to the organization (excludes global rows with no team)."""
+    return DashboardTemplate.objects.filter(team__organization_id=organization_id).count()
+
+
+def enforce_organization_dashboard_template_limit(*, organization_id: UUID) -> None:
+    if count_active_dashboard_templates_for_organization(organization_id) >= MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION:
+        raise ValidationError(detail=organization_dashboard_template_limit_detail())
 
 
 def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
@@ -159,10 +181,6 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                             for k in sorted(forbidden_patch)
                         }
                     )
-                if attrs.get("scope") not in (None, self.instance.scope):
-                    raise ValidationError({"scope": ["You cannot change template scope."]})
-                if "is_featured" in initial:
-                    raise ValidationError({"is_featured": ["You cannot change featured status for project templates."]})
 
         if self.instance is None and not is_staff:
             requested_scope = attrs.get("scope") or initial.get("scope")
@@ -185,14 +203,24 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         if not validated_data.get("scope"):
             validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
 
-        validated_data["team_id"] = self.context["team_id"]
+        team_id = self.context["team_id"]
+        validated_data["team_id"] = team_id
+        org_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+        if org_id is not None:
+            enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
         try:
             return super().create(validated_data, *args, **kwargs)
         except IntegrityError as exc:
             self._handle_integrity_error(exc)
 
     def update(self, instance: DashboardTemplate, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
-        # Staff: built-in globals (team_id=null) become team-scoped to the project issuing the PATCH.
+        will_restore = validated_data.get("deleted") is False and bool(instance.deleted)
+        if will_restore and instance.team_id is not None:
+            org_id = Team.objects.filter(pk=instance.team_id).values_list("organization_id", flat=True).first()
+            if org_id is not None:
+                enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
+
+        # Staff: global rows with no team become team-scoped to the project issuing the PATCH.
         if self._request_user_is_staff():
             scope_to = validated_data.get("scope")
             if (

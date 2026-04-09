@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
@@ -7,8 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-
-import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 import {
     dashboardTemplateChooserLogic,
@@ -30,34 +27,8 @@ const gridClass = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4
 /** Wider cells — team tiles are horizontal rows, not poster cards. */
 const teamTemplateGridClass = 'grid grid-cols-1 md:grid-cols-2 gap-3'
 
-function isTeamTemplate(template: DashboardTemplateType): boolean {
-    return template.scope === 'team'
-}
-
 /** Single column on small viewports; two columns from `lg` up (modal/tablet often still feels “small” at `md`) */
 const featuredGridClass = 'grid grid-cols-1 lg:grid-cols-2 gap-4'
-
-function filterTemplatesByAvailability(
-    allTemplates: DashboardTemplateType[],
-    availabilityContexts: DashboardTemplateProps['availabilityContexts']
-): DashboardTemplateType[] {
-    if (!availabilityContexts?.length) {
-        return allTemplates
-    }
-    return allTemplates.filter((template) =>
-        availabilityContexts.some((context: TemplateAvailabilityContext) =>
-            template.availability_contexts?.includes(context)
-        )
-    )
-}
-
-function computeShowBlankTile(availabilityContexts: DashboardTemplateProps['availabilityContexts']): boolean {
-    return (
-        !availabilityContexts ||
-        availabilityContexts.length === 0 ||
-        availabilityContexts.includes(TemplateAvailabilityContext.GENERAL)
-    )
-}
 
 function SimpleVariant(
     props: DashboardTemplateProps & { experimentVariant: DashboardTemplateChooserExperimentVariant }
@@ -65,18 +36,16 @@ function SimpleVariant(
     const { experimentVariant, className, availabilityContexts, ...chooserProps } = props
     const logicProps: DashboardTemplateChooserLogicProps = { ...chooserProps, experimentVariant, availabilityContexts }
     const chooser = dashboardTemplateChooserLogic(logicProps)
-    const { allTemplates, allTemplatesLoading, templateFilter } = useValues(chooser)
+    const {
+        allTemplatesLoading,
+        teamTemplates,
+        officialTemplates,
+        hasActiveFilter,
+        showDashedEmptyState,
+        showOfficialGrid,
+        showBlankTile,
+    } = useValues(chooser)
     const { templateTileClicked, blankTileClicked, setTemplateFilter } = useActions(chooser)
-    const filteredTemplates = useMemo(
-        () => filterTemplatesByAvailability(allTemplates, availabilityContexts),
-        [allTemplates, availabilityContexts]
-    )
-    const showBlankTile = computeShowBlankTile(availabilityContexts)
-    const teamTemplates = useMemo(() => filteredTemplates.filter(isTeamTemplate), [filteredTemplates])
-    const officialTemplates = useMemo(() => filteredTemplates.filter((t) => !isTeamTemplate(t)), [filteredTemplates])
-    const hasActiveFilter = templateFilter.trim().length > 0
-    const showDashedEmptyState = !allTemplatesLoading && filteredTemplates.length === 0
-    const showOfficialGrid = allTemplatesLoading || officialTemplates.length > 0
 
     return (
         <div className={cn('flex flex-col gap-6', className)}>
@@ -168,30 +137,18 @@ function NewLayoutVariant(
     const { experimentVariant, className, availabilityContexts, ...chooserProps } = props
     const logicProps: DashboardTemplateChooserLogicProps = { ...chooserProps, experimentVariant, availabilityContexts }
     const chooser = dashboardTemplateChooserLogic(logicProps)
-    const { allTemplates, allTemplatesLoading, templateFilter } = useValues(chooser)
+    const {
+        allTemplatesLoading,
+        teamTemplates,
+        featuredTemplates,
+        nonFeaturedOfficial,
+        hasActiveFilter,
+        showDashedEmptyState,
+        allMatchesInFeaturedSection,
+        showOfficialSection,
+        showBlankTile,
+    } = useValues(chooser)
     const { templateTileClicked, blankTileClicked, setTemplateFilter } = useActions(chooser)
-    const filteredTemplates = useMemo(
-        () => filterTemplatesByAvailability(allTemplates, availabilityContexts),
-        [allTemplates, availabilityContexts]
-    )
-    const showBlankTile = computeShowBlankTile(availabilityContexts)
-
-    const teamTemplates = useMemo(() => filteredTemplates.filter(isTeamTemplate), [filteredTemplates])
-    const officialTemplates = useMemo(() => filteredTemplates.filter((t) => !isTeamTemplate(t)), [filteredTemplates])
-    const featuredTemplates = useMemo(
-        () => officialTemplates.filter((t) => t.is_featured === true),
-        [officialTemplates]
-    )
-    const nonFeaturedOfficial = useMemo(
-        () => officialTemplates.filter((t) => t.is_featured !== true),
-        [officialTemplates]
-    )
-
-    const hasActiveFilter = templateFilter.trim().length > 0
-    const showDashedEmptyState = !allTemplatesLoading && filteredTemplates.length === 0
-    /** All matching official templates are in Popular; main grid has no other official rows */
-    const allMatchesInFeaturedSection = nonFeaturedOfficial.length === 0 && featuredTemplates.length > 0
-    const showOfficialSection = allTemplatesLoading || allMatchesInFeaturedSection || nonFeaturedOfficial.length > 0
 
     return (
         <div className={cn('flex flex-col gap-8', className)}>

@@ -1,10 +1,10 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateType } from '~/types'
+import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 import type { dashboardTemplateChooserLogicType } from './dashboardTemplateChooserLogicType'
 import { runBlankDashboardFlow, runDashboardTemplateClickFlow } from './dashboardTemplateCreationFlows'
@@ -28,6 +28,32 @@ function availabilityContextsKey(contexts: DashboardTemplateProps['availabilityC
         return 'any'
     }
     return [...contexts].sort().join(',')
+}
+
+function isTeamTemplate(template: DashboardTemplateType): boolean {
+    return template.scope === 'team'
+}
+
+function filterTemplatesByAvailability(
+    allTemplates: DashboardTemplateType[],
+    availabilityContexts: DashboardTemplateProps['availabilityContexts']
+): DashboardTemplateType[] {
+    if (!availabilityContexts?.length) {
+        return allTemplates
+    }
+    return allTemplates.filter((template) =>
+        availabilityContexts.some((context: TemplateAvailabilityContext) =>
+            template.availability_contexts?.includes(context)
+        )
+    )
+}
+
+function computeShowBlankTile(availabilityContexts: DashboardTemplateProps['availabilityContexts']): boolean {
+    return (
+        !availabilityContexts ||
+        availabilityContexts.length === 0 ||
+        availabilityContexts.includes(TemplateAvailabilityContext.GENERAL)
+    )
 }
 
 export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicType>([
@@ -67,6 +93,37 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
         }),
         blankTileClicked: (tileLocation: 'main_grid' | 'featured_row' | 'modal_toolbar') => ({ tileLocation }),
     }),
+    selectors(({ props }) => ({
+        filteredTemplates: [
+            (s) => [s.allTemplates],
+            (raw) => filterTemplatesByAvailability(raw, props.availabilityContexts),
+        ],
+        showBlankTile: [() => [], () => computeShowBlankTile(props.availabilityContexts)],
+        teamTemplates: [(s) => [s.filteredTemplates], (visible) => visible.filter(isTeamTemplate)],
+        officialTemplates: [(s) => [s.filteredTemplates], (visible) => visible.filter((t) => !isTeamTemplate(t))],
+        featuredTemplates: [(s) => [s.officialTemplates], (official) => official.filter((t) => t.is_featured === true)],
+        nonFeaturedOfficial: [
+            (s) => [s.officialTemplates],
+            (official) => official.filter((t) => t.is_featured !== true),
+        ],
+        hasActiveFilter: [(s) => [s.templateFilter], (filterText) => filterText.trim().length > 0],
+        showDashedEmptyState: [
+            (s) => [s.allTemplatesLoading, s.filteredTemplates],
+            (loading, visible) => !loading && visible.length === 0,
+        ],
+        showOfficialGrid: [
+            (s) => [s.allTemplatesLoading, s.officialTemplates],
+            (loading, official) => loading || official.length > 0,
+        ],
+        allMatchesInFeaturedSection: [
+            (s) => [s.nonFeaturedOfficial, s.featuredTemplates],
+            (nonFeatured, featured) => nonFeatured.length === 0 && featured.length > 0,
+        ],
+        showOfficialSection: [
+            (s) => [s.allTemplatesLoading, s.allMatchesInFeaturedSection, s.nonFeaturedOfficial],
+            (loading, allMatchesPopular, nonFeatured) => loading || allMatchesPopular || nonFeatured.length > 0,
+        ],
+    })),
     listeners(({ actions, values, props }) => ({
         templateTileClicked: ({ template, tileLocation }) => {
             if (values.isLoading) {

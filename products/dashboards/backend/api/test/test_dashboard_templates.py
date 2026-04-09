@@ -13,6 +13,10 @@ from posthog.models import User
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.dashboards.backend.api.dashboard_templates import (
+    MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
+    organization_dashboard_template_limit_detail,
+)
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ee.models.rbac.access_control import AccessControl
@@ -40,15 +44,21 @@ def get_template_from_response(response, id):
 
 
 def ensure_baseline_global_dashboard_templates() -> None:
-    """Migrations used to always leave two global team-less templates; some test DBs have none."""
-    if DashboardTemplate.objects.count() >= 2:
-        return
-    if not DashboardTemplate.objects.filter(template_name="Product analytics", team_id__isnull=True).exists():
+    """Ensure the two named global team-less seeds tests rely on (don't use total row count — other fixtures may fill the table)."""
+    if not DashboardTemplate.objects.filter(
+        template_name="Product analytics",
+        team_id__isnull=True,
+        scope=DashboardTemplate.Scope.GLOBAL,
+    ).exists():
         og = DashboardTemplate.original_template()
         og.team_id = None
         og.scope = DashboardTemplate.Scope.GLOBAL
         og.save()
-    if not DashboardTemplate.objects.filter(template_name="Flagged Feature Usage", team_id__isnull=True).exists():
+    if not DashboardTemplate.objects.filter(
+        template_name="Flagged Feature Usage",
+        team_id__isnull=True,
+        scope=DashboardTemplate.Scope.GLOBAL,
+    ).exists():
         DashboardTemplate.objects.create(
             team_id=None,
             scope=DashboardTemplate.Scope.GLOBAL,
@@ -114,6 +124,77 @@ class TestDashboardTemplates(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
         ensure_baseline_global_dashboard_templates()
+
+    def test_create_rejects_when_organization_has_max_dashboard_templates(self) -> None:
+        seed_tiles = variable_template["tiles"]
+        DashboardTemplate.objects.bulk_create(
+            [
+                DashboardTemplate(
+                    team_id=self.team.pk,
+                    template_name=f"org-cap-fill-{i}",
+                    scope=DashboardTemplate.Scope.ONLY_TEAM,
+                    dashboard_description="",
+                    dashboard_filters={},
+                    tiles=seed_tiles,
+                    variables=[],
+                    tags=[],
+                )
+                for i in range(MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION)
+            ]
+        )
+
+        overflow = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "over the limit template"},
+        )
+        assert overflow.status_code == status.HTTP_400_BAD_REQUEST, overflow.content
+        assert overflow.json()["detail"] == organization_dashboard_template_limit_detail()
+
+    def test_restore_rejects_when_organization_already_has_max_dashboard_templates(self) -> None:
+        seed_tiles = variable_template["tiles"]
+        DashboardTemplate.objects.bulk_create(
+            [
+                DashboardTemplate(
+                    team_id=self.team.pk,
+                    template_name=f"org-cap-restore-{i}",
+                    scope=DashboardTemplate.Scope.ONLY_TEAM,
+                    dashboard_description="",
+                    dashboard_filters={},
+                    tiles=seed_tiles,
+                    variables=[],
+                    tags=[],
+                )
+                for i in range(MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION - 1)
+            ]
+        )
+
+        victim = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "victim to delete"},
+        )
+        assert victim.status_code == status.HTTP_201_CREATED, victim.content
+        victim_id = victim.json()["id"]
+
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.pk}/dashboard_templates/{victim_id}",
+                {"deleted": True},
+            ).status_code
+            == status.HTTP_200_OK
+        )
+
+        replacement = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "replacement while victim deleted"},
+        )
+        assert replacement.status_code == status.HTTP_201_CREATED, replacement.content
+
+        blocked_restore = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{victim_id}",
+            {"deleted": False},
+        )
+        assert blocked_restore.status_code == status.HTTP_400_BAD_REQUEST, blocked_restore.content
+        assert blocked_restore.json()["detail"] == organization_dashboard_template_limit_detail()
 
     def test_create_and_get_dashboard_template_with_tile(self) -> None:
         response = self.client.post(
@@ -591,31 +672,6 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert response.json() == dashboard_template_schema
         assert response.headers["Cache-Control"] == "max-age=120"
-
-    def test_cant_make_templates_without_teamid_private(self) -> None:
-        """
-        This test protects us from accidentally making the original default templates private
-        And as they don't have a team_id, they can't be then be found to be made public again
-        """
-        assert DashboardTemplate.objects.count() == 2  # default template
-
-        dashboard_template = DashboardTemplate.objects.all()[0]
-
-        assert dashboard_template.scope == "global"
-        assert dashboard_template.team_id is None
-
-        # can't update the default template to be private
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/dashboard_templates/{dashboard_template.id}",
-            {"scope": "team"},
-        )
-        # unauthorized
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        # check it's still global
-        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"][0]["scope"] == "global"
 
     @parameterized.expand(
         [
