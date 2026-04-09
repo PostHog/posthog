@@ -351,12 +351,12 @@ export const SessionRecordingPreview = memo(
 
                         <div className="flex items-center justify-between">
                             <FirstURL startUrl={recording.start_url} />
-                            {recording.summary_outcome && (
+                            {recording.summary_outcome?.description && (
                                 <Tooltip title={recording.summary_outcome.description}>
                                     <IconAIText
                                         className={clsx(
                                             'shrink-0 text-lg',
-                                            recording.summary_outcome.success ? 'text-success' : 'text-danger'
+                                            recording.summary_outcome.success === false ? 'text-danger' : 'text-success'
                                         )}
                                     />
                                 </Tooltip>
