@@ -162,12 +162,12 @@ def _copy_directory_contents(source: Path, destination: Path) -> None:
 
 def _populate_local_skills_directory(destination: Path) -> None:
     built_skills_dir = Path(settings.BASE_DIR) / LOCAL_BUILT_SKILLS_PATH
-    if built_skills_dir.exists():
+    if built_skills_dir.exists() and any(built_skills_dir.iterdir()):
         logger.info(f"Using pre-built skills from {built_skills_dir} for local Modal sandbox builds")
         _copy_directory_contents(built_skills_dir, destination)
         return
 
-    logger.info("Built skills directory missing; falling back to local skill sources for Modal sandbox builds")
+    logger.info("Built skills directory empty or missing; falling back to local skill sources for Modal sandbox builds")
     for relative_path in LOCAL_SOURCE_SKILLS_PATHS:
         _copy_directory_contents(Path(settings.BASE_DIR) / relative_path, destination)
 

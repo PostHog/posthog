@@ -8,6 +8,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -157,9 +158,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         fuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards): DashboardFuse => {
-                return new Fuse<DashboardBasicType>(dashboards, {
+                return createFuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
                     // Without this, Fuse favors matches near the start of each field; tail tokens on long titles often miss `threshold`.
                     ignoreLocation: true,
                 })

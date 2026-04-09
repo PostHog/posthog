@@ -8104,6 +8104,15 @@ export namespace Schemas {
       tileId: number;
     }
 
+    export interface CopyExperimentToProject {
+      /** The team ID to copy the experiment to. */
+      target_team_id: number;
+      /** Optional feature flag key to use in the destination team. */
+      feature_flag_key?: string;
+      /** Optional name for the copied experiment. */
+      name?: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -11596,6 +11605,11 @@ export namespace Schemas {
        */
       useQueryV2?: boolean | null;
       /**
+       * Use V3 query path (denormalized ClickHouse table, no Postgres joins)
+       * @nullable
+       */
+      useQueryV3?: boolean | null;
+      /**
        * version of the node, used for schema migrations
        * @nullable
        */
@@ -13512,7 +13526,6 @@ export namespace Schemas {
        * @nullable
        */
       debug?: boolean | null;
-      filters_override?: DashboardFilter | null;
       /**
        * Maximum number of results to return. If not provided, returns all results.
        * @nullable
@@ -19507,6 +19520,18 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    /**
+     * * `latest` - latest
+    * `earliest` - earliest
+     */
+    export type OrderByEnum = typeof OrderByEnum[keyof typeof OrderByEnum];
+
+
+    export const OrderByEnum = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
     export type OrganizationTeamsItem = {[key: string]: unknown};
 
     export type OrganizationProjectsItem = {[key: string]: unknown};
@@ -21419,6 +21444,10 @@ export namespace Schemas {
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
+      /** @nullable */
+      readonly insight_short_id: string | null;
+      /** @nullable */
+      readonly resource_name: string | null;
       dashboard_export_insights?: number[];
       target_type: TargetTypeEnum;
       target_value: string;
@@ -25165,6 +25194,10 @@ export namespace Schemas {
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
+      /** @nullable */
+      readonly insight_short_id?: string | null;
+      /** @nullable */
+      readonly resource_name?: string | null;
       dashboard_export_insights?: number[];
       target_type?: TargetTypeEnum;
       target_value?: string;
@@ -26155,22 +26188,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -26566,6 +26583,18 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       homepage?: PinnedSceneTab | null;
     }
+
+    /**
+     * * `user` - user
+    * `bot` - bot
+     */
+    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
+
+
+    export const PrAuthorshipModeEnum = {
+      User: 'user',
+      Bot: 'bot',
+    } as const;
 
     /**
      * Serializer for creating and updating ProductTour.
@@ -29827,6 +29856,18 @@ export namespace Schemas {
       stale: number;
     }
 
+    /**
+     * * `manual` - manual
+    * `signal_report` - signal_report
+     */
+    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
+
+
+    export const RunSourceEnum = {
+      Manual: 'manual',
+      SignalReport: 'signal_report',
+    } as const;
+
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -29941,6 +29982,26 @@ export namespace Schemas {
        */
       focus_area?: string;
     }
+
+    /**
+     * * `trace` - trace
+    * `debug` - debug
+    * `info` - info
+    * `warn` - warn
+    * `error` - error
+    * `fatal` - fatal
+     */
+    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
+
+
+    export const SeverityLevelsEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
 
     export interface SharePassword {
       readonly id: number;
@@ -30709,6 +30770,20 @@ export namespace Schemas {
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -30881,22 +30956,6 @@ export namespace Schemas {
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /**
-       * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
-       * @nullable
-       */
-      experiment_recalculation_time?: string | null;
-      /**
-       * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
-      default_experiment_confidence_level?: string | null;
-      /** Default statistical method for new experiments in this environment.
-
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
@@ -31103,6 +31162,123 @@ export namespace Schemas {
       ready_at: string | null;
       /** @nullable */
       failed_at: string | null;
+    }
+
+    export interface _DateRange {
+      /**
+       * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of the date range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    /**
+     * * `log` - log
+    * `log_attribute` - log_attribute
+    * `log_resource_attribute` - log_resource_attribute
+     */
+    export type _LogPropertyFilterTypeEnum = typeof _LogPropertyFilterTypeEnum[keyof typeof _LogPropertyFilterTypeEnum];
+
+
+    export const _LogPropertyFilterTypeEnum = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_date_exact` - is_date_exact
+    * `is_date_before` - is_date_before
+    * `is_date_after` - is_date_after
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set
+     */
+    export type _LogPropertyFilterOperatorEnum = typeof _LogPropertyFilterOperatorEnum[keyof typeof _LogPropertyFilterOperatorEnum];
+
+
+    export const _LogPropertyFilterOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface _LogPropertyFilter {
+      /** Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
+      key: string;
+      /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
+
+    * `log` - log
+    * `log_attribute` - log_attribute
+    * `log_resource_attribute` - log_resource_attribute */
+      type: _LogPropertyFilterTypeEnum;
+      /** Comparison operator.
+
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_date_exact` - is_date_exact
+    * `is_date_before` - is_date_before
+    * `is_date_after` - is_date_after
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set */
+      operator: _LogPropertyFilterOperatorEnum;
+      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
+      value?: unknown | null;
+    }
+
+    export interface _LogsQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Order results by timestamp.
+
+    * `latest` - latest
+    * `earliest` - earliest */
+      orderBy?: OrderByEnum;
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Max results (1-1000). */
+      limit?: number;
+      /** Pagination cursor from previous response. */
+      after?: string;
+    }
+
+    export interface _LogsQueryRequest {
+      /** The logs query to execute. */
+      query: _LogsQueryBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32101,6 +32277,70 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsLogsAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+
+    * `log` - log
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100)
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0)
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
+
+
+    export const EnvironmentsLogsAttributesRetrieveAttributeType = {
+      Log: 'log',
+      Resource: 'resource',
+    } as const;
+
+    export type EnvironmentsLogsValuesRetrieveParams = {
+    /**
+     * Type of attribute: "log" or "resource"
+
+    * `log` - log
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
+    /**
+     * The attribute key to get values for
+     * @minLength 1
+     */
+    key: string;
+    /**
+     * Search filter for attribute values
+     * @minLength 1
+     */
+    value?: string;
+    };
+
+    export type EnvironmentsLogsValuesRetrieveAttributeType = typeof EnvironmentsLogsValuesRetrieveAttributeType[keyof typeof EnvironmentsLogsValuesRetrieveAttributeType];
+
+
+    export const EnvironmentsLogsValuesRetrieveAttributeType = {
+      Log: 'log',
+      Resource: 'resource',
+    } as const;
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -32508,6 +32748,10 @@ export namespace Schemas {
 
     export type EnvironmentsSubscriptionsListParams = {
     /**
+     * Filter by creator user UUID.
+     */
+    created_by?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -32515,7 +32759,40 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * Filter by subscription resource: insight vs dashboard export.
+     */
+    resource_type?: EnvironmentsSubscriptionsListResourceType;
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Filter by delivery channel (email, Slack, or webhook).
+     */
+    target_type?: EnvironmentsSubscriptionsListTargetType;
     };
+
+    export type EnvironmentsSubscriptionsListResourceType = typeof EnvironmentsSubscriptionsListResourceType[keyof typeof EnvironmentsSubscriptionsListResourceType];
+
+
+    export const EnvironmentsSubscriptionsListResourceType = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+    } as const;
+
+    export type EnvironmentsSubscriptionsListTargetType = typeof EnvironmentsSubscriptionsListTargetType[keyof typeof EnvironmentsSubscriptionsListTargetType];
+
+
+    export const EnvironmentsSubscriptionsListTargetType = {
+      Email: 'email',
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
 
     export type EnvironmentsUserProductListListParams = {
     /**
@@ -35191,6 +35468,70 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type LogsAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes
+
+    * `log` - log
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: LogsAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100)
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0)
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
+
+
+    export const LogsAttributesRetrieveAttributeType = {
+      Log: 'log',
+      Resource: 'resource',
+    } as const;
+
+    export type LogsValuesRetrieveParams = {
+    /**
+     * Type of attribute: "log" or "resource"
+
+    * `log` - log
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: LogsValuesRetrieveAttributeType;
+    /**
+     * The attribute key to get values for
+     * @minLength 1
+     */
+    key: string;
+    /**
+     * Search filter for attribute values
+     * @minLength 1
+     */
+    value?: string;
+    };
+
+    export type LogsValuesRetrieveAttributeType = typeof LogsValuesRetrieveAttributeType[keyof typeof LogsValuesRetrieveAttributeType];
+
+
+    export const LogsValuesRetrieveAttributeType = {
+      Log: 'log',
+      Resource: 'resource',
+    } as const;
+
     export type ManagedMigrationsListParams = {
     /**
      * Number of results to return per page.
@@ -35860,6 +36201,10 @@ export namespace Schemas {
 
     export type SubscriptionsListParams = {
     /**
+     * Filter by creator user UUID.
+     */
+    created_by?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -35867,7 +36212,40 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * Filter by subscription resource: insight vs dashboard export.
+     */
+    resource_type?: SubscriptionsListResourceType;
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Filter by delivery channel (email, Slack, or webhook).
+     */
+    target_type?: SubscriptionsListTargetType;
     };
+
+    export type SubscriptionsListResourceType = typeof SubscriptionsListResourceType[keyof typeof SubscriptionsListResourceType];
+
+
+    export const SubscriptionsListResourceType = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+    } as const;
+
+    export type SubscriptionsListTargetType = typeof SubscriptionsListTargetType[keyof typeof SubscriptionsListTargetType];
+
+
+    export const SubscriptionsListTargetType = {
+      Email: 'email',
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
 
     export type SurveysListParams = {
     archived?: boolean;

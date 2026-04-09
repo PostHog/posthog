@@ -15,6 +15,7 @@ from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v1 import ErrorTrackingQueryV1Builder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v2 import ErrorTrackingQueryV2Builder
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v3 import ErrorTrackingQueryV3Builder
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +49,9 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             self.query.withLastEvent = False
 
     @cached_property
-    def _builder(self) -> ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder:
+    def _builder(self) -> ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder | ErrorTrackingQueryV3Builder:
+        if self.query.useQueryV3:
+            return ErrorTrackingQueryV3Builder(self.query, self.date_from, self.date_to)
         if self.query.useQueryV2:
             return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to)
         return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to)

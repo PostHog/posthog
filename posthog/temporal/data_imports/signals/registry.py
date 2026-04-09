@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import dataclasses
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @dataclasses.dataclass(frozen=True)
@@ -20,6 +23,11 @@ class SignalEmitterOutput:
 # Type for signal emitter functions (None if the source has not enough meaningful data)
 SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 
+# Type for record fetcher functions: (team, config, runtime_context) -> records
+# Each source defines its own fetcher (data warehouse sources use HogQL on warehouse tables).
+# Uses Any for Team to avoid forward-reference issues with Pydantic model resolution.
+RecordFetcher = Callable[[Any, "SignalSourceTableConfig", dict[str, Any]], list[dict[str, Any]]]
+
 
 class SignalSourceTableConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -28,17 +36,19 @@ class SignalSourceTableConfig(BaseModel):
     source_product: str
     source_type: str
     emitter: SignalEmitter
-    # Should match the source table's partition field for efficient ClickHouse queries
+    # Each source defines how to fetch records — no default, must be explicit
+    record_fetcher: RecordFetcher
+    # Field used to filter records by time window (e.g. "created_at")
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need
     fields: tuple[str, ...]
-    # Optional HogQL WHERE clause, e.g. "status NOT IN ('closed', 'solved')"
+    # Optional filter clause (interpreted by the fetcher — HogQL for data warehouse, ORM for Postgres sources)
     where_clause: str | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
     partition_field_is_datetime_string: bool = False
-    # How far back to look for new records
+    # How far back to look for new records on the first sync
     first_sync_lookback_days: int = 7
     # LLM prompt to check if a record is actionable before emitting. If None, all records == actionable.
     actionability_prompt: str | None = None
@@ -48,7 +58,7 @@ class SignalSourceTableConfig(BaseModel):
     description_summarization_threshold_chars: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
-    def _validate_prompt_placeholders(self) -> "SignalSourceTableConfig":
+    def _validate_prompt_placeholders(self) -> SignalSourceTableConfig:
         for field_name in ("actionability_prompt", "summarization_prompt"):
             value = getattr(self, field_name)
             if value is not None and "{description}" not in value:
@@ -56,7 +66,7 @@ class SignalSourceTableConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_summarization_pair(self) -> "SignalSourceTableConfig":
+    def _validate_summarization_pair(self) -> SignalSourceTableConfig:
         has_prompt = self.summarization_prompt is not None
         has_threshold = self.description_summarization_threshold_chars is not None
         if has_prompt != has_threshold:
@@ -70,8 +80,10 @@ class SignalSourceTableConfig(BaseModel):
 _SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
 
 
-def register_signal_source_table(
-    source_type: ExternalDataSourceType, schema_name: str, config: SignalSourceTableConfig
+def register_signal_source(
+    source_type: ExternalDataSourceType,
+    schema_name: str,
+    config: SignalSourceTableConfig,
 ) -> None:
     _SIGNAL_TABLE_CONFIGS[(source_type.value, schema_name)] = config
 
@@ -94,9 +106,11 @@ def _register_all_emitters() -> None:
     from posthog.temporal.data_imports.signals.linear_issues import LINEAR_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_TICKETS_CONFIG
 
-    register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
-    register_signal_source_table(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
-    register_signal_source_table(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
 
 
 _register_all_emitters()

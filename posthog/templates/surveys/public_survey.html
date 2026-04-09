@@ -14,8 +14,6 @@
     <title>{{ name }}</title>
     <meta name="description" content="{{ name }}">
     <style>
-        /* Page-level vars only — survey-card vars are managed by posthog-js (set inline
-           on the survey container based on the merged appearance object). */
         :root {
             --ph-survey-page-background: #ffffff;
             --ph-survey-page-text: #111111;
@@ -24,9 +22,8 @@
             --ph-survey-page-progress-bar: #111111;
             --ph-survey-progress-value: 0%;
             --ph-survey-page-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
-            /* Default elevation shadow for light card surfaces. Overridden in JS to a light
-               shadow when the card surface is dark (so cards stay grounded on dark themes). */
             --ph-survey-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 2px 8px rgba(17, 17, 17, 0.04);
+            --ph-survey-pill-background: rgba(255, 255, 255, 0.7);
         }
 
         * {
@@ -65,17 +62,12 @@
             padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 4vw, 2.5rem);
         }
 
-        /* Progress bar lives at the top of the page, NOT inside the centered content group.
-           It represents progress through the whole survey (page chrome), not the current
-           question's state — so it should stay anchored regardless of how much content sits below. */
         .survey-progress-wrap {
             width: 100%;
             max-width: 44rem;
             margin: 0 auto;
         }
 
-        /* Centers content vertically when it fits, falls back to top-aligned natural scroll
-           when it doesn't (margin: auto collapses to 0 once content exceeds available space). */
         .survey-stage {
             width: 100%;
             max-width: 44rem;
@@ -100,12 +92,6 @@
             transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
         }
 
-        /* === Survey rendered by posthog-js into #posthog-survey-container ===
-           When rendered via the API path, posthog-js sets CSS variables inline on
-           this element but does NOT inject its own stylesheet, so we own all the
-           styling. Customer customization flows through via mergeHostedAppearance
-           below — the CSS variable names here MUST match what posthog-js sets. */
-
         #posthog-survey-container {
             display: flex;
             flex-direction: column;
@@ -119,8 +105,6 @@
             gap: 1.5rem;
         }
 
-        /* Thank-you screen is celebratory — center the text. Question screens stay
-           left-aligned because reading left-to-right is faster while answering. */
         #posthog-survey-container .thank-you-message {
             display: flex;
             flex-direction: column;
@@ -198,9 +182,6 @@
             opacity: 0.65;
         }
 
-        /* :focus-visible is enough for text inputs — per spec, mouse-clicking into a text
-           field counts as visible focus (the user might be about to type), so we don't need
-           a separate :focus rule. */
         #posthog-survey-container textarea:focus-visible,
         #posthog-survey-container input[type='text']:focus-visible {
             outline: none;
@@ -238,16 +219,11 @@
             transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
         }
 
-        /* Selected state: dark border + a 1px inset to make it read as a "double-stroke" without
-           a layout-shifting border-width change. No background tint — on gray/dark pages tinting
-           darker makes selected cards appear dimmer than unselected ones, which reads backwards. */
         #posthog-survey-container .multiple-choice-options label:has(input:checked) {
             border-color: var(--ph-survey-rating-active-bg-color, #111);
             box-shadow: inset 0 0 0 1px var(--ph-survey-rating-active-bg-color, #111), var(--ph-survey-card-shadow);
         }
 
-        /* Focus ring on the whole label when its input has keyboard focus, so arrow-key
-           navigation has a clear target instead of just the small native radio dot. */
         #posthog-survey-container .multiple-choice-options label:has(input:focus-visible) {
             outline: none;
             box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
@@ -419,8 +395,6 @@
             box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
         }
 
-        /* Disabled state: outlined treatment instead of a flat gray block, so the unanswered
-           form doesn't feel like it's shouting at the respondent. */
         #posthog-survey-container .form-submit[disabled] {
             background: transparent;
             color: var(--ph-survey-text-subtle-color, #6b6b6b);
@@ -429,9 +403,6 @@
             opacity: 1;
         }
 
-        /* Pin "Survey by PostHog" to the page corner instead of stacking it under the submit button.
-           posthog-js still renders the element (and respects whiteLabel for paid customers); we
-           just relocate it visually. Hidden on small screens to keep the form unobstructed. */
         #posthog-survey-container .footer-branding {
             position: fixed;
             bottom: 1.25rem;
@@ -441,11 +412,11 @@
             gap: 0.35rem;
             padding: 0.4rem 0.7rem;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.7);
+            background: var(--ph-survey-pill-background);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 4px 14px rgba(17, 17, 17, 0.06);
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            color: var(--ph-survey-page-text-subtle, #6b6b6b);
             font-size: 0.72rem;
             font-weight: 500;
             text-decoration: none;
@@ -513,15 +484,13 @@
             border: 0;
         }
 
-        /* Keyboard hint chips. Hidden by default; turned on inside the hover-capable query
-           below. The default-hidden + override pattern means touch devices skip the chips
-           naturally without needing a separate "hide on touch" rule. */
+        /* Hidden by default; shown on hover-capable devices via media query below. */
         #posthog-survey-container .survey-keyhint {
             display: none;
             align-items: center;
             gap: 1rem;
             color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            font-size: 0.78rem;
+            font-size: 0.84rem;
             pointer-events: none;
             user-select: none;
         }
@@ -536,20 +505,25 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 1.5rem;
-            height: 1.5rem;
-            padding: 0 0.4rem;
+            min-width: 1.7rem;
+            height: 1.7rem;
+            padding: 0 0.45rem;
             border-radius: 6px;
-            background: rgba(17, 17, 17, 0.05);
+            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
+            background: var(--ph-survey-rating-bg-color, var(--ph-survey-input-background, rgba(17, 17, 17, 0.06)));
             color: var(--ph-survey-text-primary-color, #111);
             font-family: inherit;
-            font-size: 0.78rem;
-            font-weight: 600;
+            font-size: 0.88rem;
+            font-weight: 500;
             line-height: 1;
+            font-variant-numeric: tabular-nums;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 1px 2px rgba(17, 17, 17, 0.12);
         }
 
         #posthog-survey-container .survey-keyhint-label {
-            opacity: 0.7;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            font-weight: 400;
+            letter-spacing: 0.01em;
         }
 
         @media (hover: hover) and (pointer: fine) {
@@ -666,6 +640,7 @@
 
     {{ survey_data|json_script:"survey-data" }}
     {{ project_config|json_script:"project-config" }}
+    {% include "surveys/_appearance_helpers.html" %}
     <script nonce="{{ request.csp_nonce }}">
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
         const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
@@ -679,9 +654,6 @@
             borderRadius: '10px',
             submitButtonColor: '#111111',
             submitButtonTextColor: '#ffffff',
-            // Rating buttons default to the same surface as choice cards and text inputs.
-            // Visual hierarchy should come from selection state, not control type. Customers
-            // can still override ratingButtonColor independently in their appearance settings.
             ratingButtonColor: '#ffffff',
             ratingButtonActiveColor: '#111111',
             inputBackground: '#ffffff',
@@ -692,54 +664,83 @@
             return { ...HOSTED_SURVEY_DEFAULTS, ...(appearance || {}) };
         }
 
-        // Returns sRGB luminance (0–1) for any CSS color string we can parse, or null when we
-        // can't (e.g. named colors we don't have a hex for, oklch, etc — uncommon in customer
-        // appearance settings since the builder UI emits hex). Used to pick a card shadow that
-        // contrasts with the actual surface color, not just the default light theme.
-        function getLuminance(color) {
-            if (!color) return null
-            let hex = color.trim().toLowerCase()
-            if (hex === 'white') hex = '#ffffff'
-            else if (hex === 'black') hex = '#000000'
-            if (hex[0] !== '#') return null
-            if (hex.length === 4) hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]
-            if (hex.length !== 7) return null
-            const r = parseInt(hex.slice(1, 3), 16) / 255
-            const g = parseInt(hex.slice(3, 5), 16) / 255
-            const b = parseInt(hex.slice(5, 7), 16) / 255
-            // Rec. 709 luma — close enough to perceptual for picking light vs dark shadow.
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b
-        }
-
-        // Page background and progress bar follow the survey appearance so the form
-        // feels like a single document rather than a card floating on a contrasting page.
+        // posthog-js doesn't set --ph-survey-* vars on the hosted page path,
+        // so we replicate them on :root from the merged appearance object.
         function applyPageAppearance(appearance) {
-            const root = document.documentElement;
+            const root = document.documentElement
+
             if (appearance.backgroundColor) {
-                root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor);
-            }
-            if (appearance.submitButtonColor) {
-                // Tie progress bar to the primary action color for visual coherence.
-                root.style.setProperty('--ph-survey-page-progress-bar', appearance.submitButtonColor);
-            }
-            if (appearance.textSubtleColor) {
-                root.style.setProperty('--ph-survey-page-text-subtle', appearance.textSubtleColor);
+                root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor)
             }
 
-            // Pick a card elevation shadow that actually contrasts with the card surface.
-            // Dark surfaces need a light shadow (otherwise dark-on-dark = invisible elevation).
-            const cardLuminance = getLuminance(appearance.inputBackground)
+            const cardBg = appearance.inputBackground || appearance.backgroundColor
+            if (cardBg) {
+                root.style.setProperty('--ph-survey-input-background', cardBg)
+                root.style.setProperty('--ph-survey-background-color', cardBg)
+            }
+            if (appearance.borderColor) {
+                root.style.setProperty('--ph-survey-border-color', appearance.borderColor)
+            }
+            if (appearance.borderRadius) {
+                root.style.setProperty('--ph-survey-border-radius', appearance.borderRadius)
+            }
+
+            const explicitText = appearance.textColor || appearance.inputTextColor
+            const derivedText = cardBg ? getContrastingTextColor(cardBg) : null
+            const primaryText = explicitText || derivedText
+            if (primaryText) {
+                root.style.setProperty('--ph-survey-text-primary-color', primaryText)
+                root.style.setProperty('--ph-survey-input-text-color', primaryText)
+                root.style.setProperty('--ph-survey-page-text', primaryText)
+            }
+
+            if (appearance.textSubtleColor) {
+                root.style.setProperty('--ph-survey-text-subtle-color', appearance.textSubtleColor)
+                root.style.setProperty('--ph-survey-page-text-subtle', appearance.textSubtleColor)
+            }
+
+            if (appearance.submitButtonColor) {
+                root.style.setProperty('--ph-survey-submit-button-color', appearance.submitButtonColor)
+                root.style.setProperty('--ph-survey-page-progress-bar', appearance.submitButtonColor)
+                const submitText =
+                    appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor) || '#ffffff'
+                root.style.setProperty('--ph-survey-submit-button-text-color', submitText)
+            }
+
+            const ratingBg = appearance.ratingButtonColor || cardBg
+            if (ratingBg) {
+                root.style.setProperty('--ph-survey-rating-bg-color', ratingBg)
+                const ratingText = getContrastingTextColor(ratingBg) || primaryText
+                if (ratingText) {
+                    root.style.setProperty('--ph-survey-rating-text-color', ratingText)
+                }
+            }
+            const ratingActive = appearance.ratingButtonActiveColor || appearance.submitButtonColor
+            if (ratingActive) {
+                root.style.setProperty('--ph-survey-rating-active-bg-color', ratingActive)
+                const ratingActiveText = getContrastingTextColor(ratingActive) || '#ffffff'
+                root.style.setProperty('--ph-survey-rating-active-text-color', ratingActiveText)
+            }
+
+            if (appearance.disabledButtonOpacity) {
+                root.style.setProperty('--ph-survey-disabled-button-opacity', appearance.disabledButtonOpacity)
+            }
+
+            const cardLuminance = getLuminance(cardBg)
             if (cardLuminance !== null && cardLuminance < 0.5) {
                 root.style.setProperty(
                     '--ph-survey-card-shadow',
                     '0 1px 2px rgba(255, 255, 255, 0.04), 0 2px 8px rgba(255, 255, 255, 0.04)'
                 )
             }
+
+            const pageLuminance = getLuminance(appearance.backgroundColor)
+            if (pageLuminance !== null && pageLuminance < 0.5) {
+                root.style.setProperty('--ph-survey-pill-background', 'rgba(17, 17, 17, 0.55)')
+            }
         }
 
         function inferCurrentQuestionIndex(container) {
-            // posthog-js exposes the current question index as a data attribute on .survey-box.
-            // Works for every question type (open text, multiple choice, rating, link).
             const surveyBox = container.querySelector('.survey-box[data-question-index]')
             if (surveyBox) {
                 const parsed = Number(surveyBox.getAttribute('data-question-index'))
@@ -748,8 +749,7 @@
                 }
             }
 
-            // Fallback for older posthog-js versions that don't expose the index yet.
-            // Match the displayed question text against survey.questions[].
+            // Fallback: match displayed question text against survey.questions[].
             const displayedQuestion = container.querySelector('.survey-question')?.textContent?.trim()
             if (displayedQuestion && Array.isArray(survey.questions)) {
                 const matchedIndex = survey.questions.findIndex((q) => (q?.question || '').trim() === displayedQuestion)
@@ -770,19 +770,8 @@
             }
         }
 
-        // Single keyboard handler bound once on document.
-        //
-        // Convention (matches iMessage, Linear, Slack, Typeform, ChatGPT):
-        //   - Enter           → submit current question
-        //   - Shift+Enter     → newline inside a textarea (default browser behavior)
-        //   - ↑/↓ or ←/→      → cycle focus through choices and rating buttons
-        //
-        // Bound on DOCUMENT (not the container) because link/announcement questions have
-        // no focusable input — focus stays on <body>, so a container-scoped listener would
-        // never fire. Document-scoped works for every question type uniformly.
-        //
-        // CAPTURE PHASE is required: posthog-js's OpenTextQuestion calls e.stopPropagation()
-        // on every textarea keydown, which kills the bubble phase before our handler can run.
+        // Bound on document (capture phase) because posthog-js stops propagation
+        // on textarea keydown and link questions leave focus on <body>.
         let keyboardShortcutsBound = false
         function bindKeyboardShortcuts(container) {
             if (keyboardShortcutsBound) return
@@ -790,12 +779,7 @@
             document.addEventListener('keydown', (event) => {
                 if (event.metaKey || event.ctrlKey || event.altKey) return
 
-                // Swallow Enter and Escape on the thank-you screen. posthog-js's
-                // ConfirmationMessage binds its own window keydown listener that calls
-                // onClose() on either key — fine inside a popup, but on the hosted page
-                // there's nothing to close, so it unmounts the survey and leaves an empty
-                // container behind. Stopping the event in capture phase prevents posthog-js's
-                // bubble-phase handler from firing.
+                // Prevent posthog-js's ConfirmationMessage from unmounting the survey on Enter/Escape.
                 if ((event.key === 'Enter' || event.key === 'Escape') && container.querySelector('.thank-you-message')) {
                     event.preventDefault()
                     event.stopPropagation()
@@ -811,8 +795,6 @@
                     return
                 }
 
-                // Arrow keys → cycle through focusable options. Skipped while focus is in a
-                // text input or textarea so users can move the cursor through their answer.
                 if (isArrowKey(event.key)) {
                     const target = event.target
                     if (target instanceof HTMLElement) {
@@ -832,9 +814,6 @@
             return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'
         }
 
-        // Returns the focusable options for the currently displayed question, in DOM order.
-        // Multiple choice → the underlying inputs (radio/checkbox).
-        // Rating          → the rating buttons.
         function getNavigableOptions(container) {
             const choices = container.querySelectorAll('.multiple-choice-options input[type="radio"], .multiple-choice-options input[type="checkbox"]')
             if (choices.length > 0) {
@@ -855,8 +834,6 @@
             const currentIdx = nav.elements.indexOf(active)
             const goingForward = key === 'ArrowDown' || key === 'ArrowRight'
 
-            // If nothing in the group is focused yet, the first arrow press lands on the
-            // first or last option depending on direction. Subsequent presses cycle.
             let nextIdx
             if (currentIdx === -1) {
                 nextIdx = goingForward ? 0 : nav.elements.length - 1
@@ -867,8 +844,6 @@
             const next = nav.elements[nextIdx]
             next.focus()
 
-            // Auto-select on focus for single-select groups (radios + ratings), matching
-            // native radio group behavior. Checkboxes only move focus — Space toggles.
             const shouldAutoSelect = nav.kind === 'rating' || (next.type === 'radio')
             if (shouldAutoSelect) {
                 next.click()
@@ -900,10 +875,6 @@
             updateKeyboardHint(container, currentType)
         }
 
-        // Localized labels for the keyboard hint chips. Covers languages we're confident on;
-        // anything else falls through to English. Region variants fall through to the base
-        // language (pt-BR → pt). Asian and RTL languages need a native-speaker pass before
-        // we add them — for now they'll just see the English fallback.
         const KEYBOARD_HINT_I18N = {
             en: { submit: 'submit', newline: 'new line', select: 'select', toggle: 'toggle' },
             es: { submit: 'enviar', newline: 'nueva línea', select: 'seleccionar', toggle: 'alternar' },
@@ -924,35 +895,10 @@
             return KEYBOARD_HINT_I18N[lang] || KEYBOARD_HINT_I18N.en
         }
 
-        // Renders kbd-style chips next to the submit button explaining the keyboard shortcuts.
-        // Touch devices are handled purely via CSS (`@media (hover: hover)`) — that re-evaluates
-        // when the input device changes, which the JS check wouldn't, and is more accurate on
-        // touchscreen laptops where 'ontouchstart' is true but a real keyboard exists.
-        // Each question type gets only the chips that are actually relevant to it:
-        //   - open                  → ↵ submit  ⇧↵ new line
-        //   - single_choice         → ↵ submit  ↑↓ select
-        //   - multiple_choice       → ↵ submit  ↑↓ select  ␣ toggle
-        //   - rating                → ↵ submit  ←→ select
-        //   - link                  → ↵ submit
-        //   - thank-you / unknown   → no hint
-        function updateKeyboardHint(container, currentType) {
-            const bottomSection = container.querySelector('.bottom-section')
-            const submitButton = bottomSection?.querySelector('.form-submit')
-            if (!bottomSection || !submitButton) return
-
-            let hint = bottomSection.querySelector('.survey-keyhint')
-
-            if (!currentType) {
-                hint?.remove()
-                return
-            }
-
-            if (!hint) {
-                hint = document.createElement('span')
-                hint.className = 'survey-keyhint'
-                bottomSection.appendChild(hint)
-            }
-
+        // Memoized by question type to skip redundant innerHTML writes.
+        const _hintHtmlCache = {}
+        function getHintHtml(currentType) {
+            if (_hintHtmlCache[currentType]) return _hintHtmlCache[currentType]
             const labels = getKeyboardHintLabels()
             const chip = (kbd, label) =>
                 `<span class="survey-keyhint-row"><kbd class="survey-kbd">${kbd}</kbd><span class="survey-keyhint-label">${label}</span></span>`
@@ -969,7 +915,33 @@
                 chips.push(chip('← →', labels.select))
             }
 
-            hint.innerHTML = chips.join('')
+            _hintHtmlCache[currentType] = chips.join('')
+            return _hintHtmlCache[currentType]
+        }
+
+        function updateKeyboardHint(container, currentType) {
+            const bottomSection = container.querySelector('.bottom-section')
+            const submitButton = bottomSection?.querySelector('.form-submit')
+            if (!bottomSection || !submitButton) return
+
+            let hint = bottomSection.querySelector('.survey-keyhint')
+
+            if (!currentType) {
+                hint?.remove()
+                return
+            }
+
+            const html = getHintHtml(currentType)
+
+            if (!hint) {
+                hint = document.createElement('span')
+                hint.className = 'survey-keyhint'
+                bottomSection.appendChild(hint)
+            }
+
+            if (hint.innerHTML !== html) {
+                hint.innerHTML = html
+            }
         }
 
         function setupSurveyShell() {
@@ -990,14 +962,11 @@
             new MutationObserver(scheduleRefresh).observe(container, {
                 childList: true,
                 subtree: true,
-                attributes: true,
             })
 
             refreshSurveyState()
         }
 
-        // Merge our hosted-page defaults into the survey appearance before posthog-js renders.
-        // Customer customization (survey.appearance.*) wins; we only fill the gaps.
         survey.appearance = mergeHostedAppearance(survey.appearance);
         applyPageAppearance(survey.appearance);
 

@@ -15,6 +15,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -24,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 class TestExperimentService(APIBaseTest):
@@ -135,9 +137,10 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "bayesian"
 
     def test_stats_config_defaults_from_team(self):
-        self.team.default_experiment_stats_method = "frequentist"
-        self.team.default_experiment_confidence_level = Decimal("0.90")
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_stats_method = "frequentist"
+        config.default_experiment_confidence_level = Decimal("0.90")
+        config.save()
 
         self._create_flag(key="team-defaults")
         service = self._service()
@@ -150,8 +153,9 @@ class TestExperimentService(APIBaseTest):
         assert abs(experiment.stats_config["frequentist"]["alpha"] - 0.10) < 1e-10
 
     def test_stats_config_preserves_provided_method(self):
-        self.team.default_experiment_stats_method = "bayesian"
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_stats_method = "bayesian"
+        config.save()
 
         self._create_flag(key="preserve-method")
         service = self._service()
@@ -166,8 +170,9 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "frequentist"
 
     def test_stats_config_preserves_provided_confidence(self):
-        self.team.default_experiment_confidence_level = Decimal("0.90")
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_confidence_level = Decimal("0.90")
+        config.save()
 
         self._create_flag(key="preserve-confidence")
         service = self._service()

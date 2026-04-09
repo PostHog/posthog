@@ -2,12 +2,13 @@ import pytest
 
 from pydantic import ValidationError
 
+from posthog.temporal.data_imports.signals.fetchers.data_warehouse import data_warehouse_record_fetcher
 from posthog.temporal.data_imports.signals.registry import (
     _SIGNAL_TABLE_CONFIGS,
     SignalSourceTableConfig,
     get_signal_config,
     is_signal_emission_registered,
-    register_signal_source_table,
+    register_signal_source,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -16,6 +17,7 @@ _BASE_FIELDS = {
     "source_product": "test_product",
     "source_type": "test",
     "emitter": lambda tid, r: None,
+    "record_fetcher": data_warehouse_record_fetcher,
     "partition_field": "created_at",
     "fields": ("id",),
 }
@@ -32,15 +34,15 @@ def _clean_registry():
 class TestRegisterSignalSourceTable:
     def test_registers_and_retrieves_config(self):
         config = SignalSourceTableConfig(**_BASE_FIELDS)
-        register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config)
+        register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", config)
 
         assert get_signal_config("Zendesk", "tickets") is config
 
     def test_overwrites_existing_registration(self):
         config_a = SignalSourceTableConfig(**_BASE_FIELDS)
         config_b = SignalSourceTableConfig(**{**_BASE_FIELDS, "partition_field": "updated_at"})
-        register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_a)
-        register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_b)
+        register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", config_a)
+        register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", config_b)
 
         assert get_signal_config("Zendesk", "tickets") is config_b
 
@@ -61,7 +63,7 @@ class TestGetSignalConfig:
 class TestIsSignalEmissionRegistered:
     def test_true_when_registered(self):
         config = SignalSourceTableConfig(**{**_BASE_FIELDS, "partition_field": "time"})
-        register_signal_source_table(ExternalDataSourceType.ZENDESK, "ticket_metric_events", config)
+        register_signal_source(ExternalDataSourceType.ZENDESK, "ticket_metric_events", config)
 
         assert is_signal_emission_registered("Zendesk", "ticket_metric_events") is True
 
@@ -151,3 +153,4 @@ class TestAutoRegistered:
         config = get_signal_config(source_type, schema_name)
         assert config is not None
         assert config.partition_field is not None
+        assert config.record_fetcher is not None

@@ -2006,6 +2006,70 @@ function getDistinctId(): string | undefined {
     return posthog.get_distinct_id()
 }
 
+// TEMPORARY DEBUG — remove once livestream 401 root cause is identified.
+// Decodes the (unverified) JWT payload from an Authorization header and captures
+// a PostHog event so we can aggregate which claim shape is causing 401s. Sensitive
+// fields are masked.
+function captureLivestream401Debug(url: string, authHeader: string | undefined, serverErrorData: any): void {
+    try {
+        const props: Record<string, any> = {
+            url,
+            server_message: serverErrorData?.message || serverErrorData?.error,
+        }
+        if (!authHeader) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'no_auth_header' })
+            return
+        }
+        const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/)
+        if (!bearerMatch) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'not_bearer' })
+            return
+        }
+        const parts = bearerMatch[1].split('.')
+        if (parts.length !== 3) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'malformed_jwt',
+                jwt_parts: parts.length,
+            })
+            return
+        }
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '==='.slice((b64.length + 3) % 4)
+        const payload = JSON.parse(atob(padded))
+        const now = Math.floor(Date.now() / 1000)
+        const apiTokenMasked =
+            typeof payload.api_token === 'string'
+                ? payload.api_token.slice(0, 4) + `***(len=${payload.api_token.length})`
+                : `<${typeof payload.api_token}>`
+        posthog.capture('livestream_401_debug', {
+            ...props,
+            decode_status: 'ok',
+            team_id: payload.team_id,
+            team_id_type: typeof payload.team_id,
+            user_id: payload.user_id,
+            user_id_type: typeof payload.user_id,
+            organization_id: payload.organization_id,
+            organization_id_type: typeof payload.organization_id,
+            api_token_masked: apiTokenMasked,
+            api_token_type: typeof payload.api_token,
+            aud: payload.aud,
+            aud_type: Array.isArray(payload.aud) ? 'array' : typeof payload.aud,
+            exp: payload.exp,
+            now_epoch: now,
+            exp_seconds_remaining: typeof payload.exp === 'number' ? payload.exp - now : null,
+            token_is_expired: typeof payload.exp === 'number' ? payload.exp < now : null,
+            claim_keys: Object.keys(payload).sort(),
+        })
+    } catch (e) {
+        posthog.capture('livestream_401_debug', {
+            url,
+            decode_status: 'exception',
+            decode_error: String(e),
+        })
+    }
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -6134,6 +6198,12 @@ const api = {
                         errorData = await response.json()
                     } catch {
                         // If JSON parsing fails, leave errorData empty
+                    }
+                    // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
+                    // identify which failure mode is producing the livestream auth baseline.
+                    // Remove once root cause is known.
+                    if (response.status === 401) {
+                        captureLivestream401Debug(url, headers?.Authorization, errorData)
                     }
                     onError(
                         new ApiError(
