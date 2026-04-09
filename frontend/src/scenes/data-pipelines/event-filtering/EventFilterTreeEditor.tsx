@@ -82,6 +82,7 @@ function ConditionEditor({
                     onClick={onDelete}
                     tooltip="Remove"
                     aria-label="Remove"
+                    data-attr={`remove-${path.length === 0 ? 'root' : path.join('-')}`}
                 />
             )}
         </div>
@@ -105,6 +106,7 @@ function GroupEditor({
 }): JSX.Element {
     const { updateTreeNode, removeChild, wrapInNot, addChild } = useActions(eventFilterLogic)
 
+    const pathAttr = path.length === 0 ? 'root' : path.join('-')
     const droppableId = `drop:${nodeIds.nidOf(node)}`
     const { setNodeRef, isOver } = useDroppable({ id: droppableId })
     const borderColor = node.type === 'and' ? 'bg-[#2563EB]' : 'bg-[#F59E0B]'
@@ -148,7 +150,12 @@ function GroupEditor({
                             updateTreeNode(path, { type: value as 'and' | 'or', children: node.children })
                         }
                     />
-                    <LemonButton size="xsmall" type="secondary" onClick={() => wrapInNot(path)}>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        data-attr={`negate-${pathAttr}`}
+                        onClick={() => wrapInNot(path)}
+                    >
                         Negate
                     </LemonButton>
                     {onDelete && (
@@ -158,6 +165,8 @@ function GroupEditor({
                             status="danger"
                             onClick={onDelete}
                             tooltip="Remove"
+                            aria-label="Remove"
+                            data-attr={`remove-${pathAttr}`}
                         />
                     )}
                 </div>
@@ -182,13 +191,20 @@ function GroupEditor({
                 </SortableContext>
 
                 <div className="flex gap-2">
-                    <LemonButton size="xsmall" type="secondary" icon={<IconPlusSmall />} onClick={() => addChild(path)}>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPlusSmall />}
+                        data-attr={`add-condition-${pathAttr}`}
+                        onClick={() => addChild(path)}
+                    >
                         Add condition
                     </LemonButton>
                     <LemonButton
                         size="xsmall"
                         type="secondary"
                         icon={<IconPlusSmall />}
+                        data-attr={`add-group-${pathAttr}`}
                         onClick={() => {
                             const newGroup: FilterNode = {
                                 type: 'and',
