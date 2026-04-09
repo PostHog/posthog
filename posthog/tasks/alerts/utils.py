@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.utils import timezone
 
@@ -11,6 +11,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    AlertState,
     ChartDisplayType,
     InsightThreshold,
     InsightThresholdType,
@@ -23,7 +24,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
-from posthog.models.alert import derive_detector_event_fields
+from posthog.models.alert import AlertCheck, derive_detector_event_fields
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
 
@@ -331,6 +332,34 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #     message.add_recipient(email=target)
 
     # message.send()
+
+
+def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
+    """Disable an alert whose config failed validation and persist an errored AlertCheck.
+
+    Relocated here from posthog/tasks/alerts/checks.py so it can be shared
+    between the legacy Celery code path (during cutover) and the new
+    prepare_alert_activity in posthog/temporal/alerts/activities.py.
+    """
+    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    AlertConfiguration.objects.filter(pk=alert.pk).update(
+        enabled=False,
+        state=AlertState.ERRORED,
+        last_checked_at=datetime.now(UTC),
+    )
+    alert.refresh_from_db()
+
+    targets_to_notify = alert.get_subscribed_users_emails()
+    AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=None,
+        condition=alert.condition,
+        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        state=AlertState.ERRORED,
+        error={"message": reason},
+    )
+    if targets_to_notify:
+        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
