@@ -14,6 +14,7 @@ from typing import Any, NoReturn
 import click
 from hogli.core.cli import cli
 
+from . import keychain
 from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
@@ -43,6 +44,8 @@ from .coder import (
     update_workspace_parameters,
 )
 from .config import load_config, save_git_identity
+
+_CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -193,9 +196,40 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
     _print_connection_info(name)
 
 
+def _prompt_for_claude_token() -> str | None:
+    """Prompt for a Claude OAuth token and save it to Keychain."""
+    click.echo("Run `claude setup-token` in another terminal to generate a token.")
+    click.pause("Press Enter when you have the token ready...")
+    token = click.prompt(
+        "Claude OAuth token",
+        default="",
+        hide_input=True,
+        show_default=False,
+    ).strip()
+    if not token:
+        return None
+
+    if keychain.write(_CLAUDE_TOKEN_SERVICE, token):
+        click.echo("Saved to Keychain for future workspaces.")
+    return token
+
+
 def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
-    """Prompt for a Claude token when the user wants workspace auth configured."""
+    """Resolve a Claude OAuth token from env, Keychain, or interactive prompt.
+
+    When configure_claude is True (explicit --configure-claude), the user is
+    asked for a fresh token even if one exists in Keychain. This lets users
+    replace an expired token without a separate ``devbox:auth --set`` call.
+    """
     if token := os.environ.get("CLAUDE_OAUTH_TOKEN"):
+        return token
+
+    # Explicit --configure-claude: skip cached token, prompt for a fresh one
+    if configure_claude is True:
+        return _prompt_for_claude_token()
+
+    if token := keychain.read(_CLAUDE_TOKEN_SERVICE):
+        click.echo("Using Claude token from Keychain. Pass --configure-claude to replace it.")
         return token
 
     if configure_claude is None:
@@ -207,14 +241,7 @@ def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str |
     if not configure_claude:
         return None
 
-    click.echo("Run `claude setup-token` in another terminal and paste the token below.")
-    token = click.prompt(
-        "Claude OAuth token",
-        default="",
-        hide_input=True,
-        show_default=False,
-    ).strip()
-    return token or None
+    return _prompt_for_claude_token()
 
 
 def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
@@ -278,6 +305,53 @@ def devbox_help() -> None:
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
 
+def maybe_configure_claude_token(configure_claude: bool | None) -> None:
+    """Optionally prompt for a Claude OAuth token and store it in Keychain."""
+    if keychain.read(_CLAUDE_TOKEN_SERVICE) and configure_claude is not True:
+        click.echo("Claude token: configured (stored in Keychain).")
+        click.echo("Run `hogli devbox:setup --configure-claude` to replace.")
+        return
+
+    if not keychain.is_supported():
+        click.echo("Claude token: set CLAUDE_OAUTH_TOKEN env var (Keychain not available on this platform).")
+        return
+
+    if configure_claude is False:
+        click.echo("Skipping Claude token setup.")
+        return
+
+    click.echo()
+    click.echo(click.style("Claude Code (optional)", bold=True))
+    click.echo("  Workspaces can run Claude Code if you provide an OAuth token.")
+    click.echo("  The token will be stored in your macOS Keychain and reused for future workspaces.")
+    click.echo("  To generate one, run `claude setup-token` in another terminal.")
+    click.echo("  You can also skip this and pass --claude-oauth-token later, or set CLAUDE_OAUTH_TOKEN.")
+    click.echo()
+
+    if configure_claude is None:
+        configure_claude = click.confirm("Set up Claude Code now?", default=True)
+
+    if not configure_claude:
+        return
+
+    click.pause("Press Enter when you have the token ready...")
+    token = click.prompt(
+        "Claude OAuth token",
+        default="",
+        hide_input=True,
+        show_default=False,
+    ).strip()
+
+    if not token:
+        click.echo("No token provided. Skipping.")
+        return
+
+    if keychain.write(_CLAUDE_TOKEN_SERVICE, token):
+        click.echo("Saved to Keychain.")
+    else:
+        click.echo(click.style("Failed to save to Keychain.", fg="red"))
+
+
 @cli.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",
@@ -289,13 +363,24 @@ def devbox_help() -> None:
     default=None,
     help="Prompt for Git name/email defaults for new Coder workspaces",
 )
-def devbox_setup(configure_ssh: bool | None, configure_git_identity: bool | None) -> None:
+@click.option(
+    "--configure-claude/--skip-configure-claude",
+    "configure_claude_setup",
+    default=None,
+    help="Prompt for a Claude OAuth token to store in Keychain",
+)
+def devbox_setup(
+    configure_ssh: bool | None,
+    configure_git_identity: bool | None,
+    configure_claude_setup: bool | None,
+) -> None:
     """Prepare this machine for Coder workspaces."""
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_coder_installed()
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh)
     maybe_configure_git_identity(configure_git_identity)
+    maybe_configure_claude_token(configure_claude_setup)
     print_setup_summary()
 
 
