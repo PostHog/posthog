@@ -332,6 +332,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 copyExperimentToProject: async (payload: {
                     id: number
                     targetProjectId: number
+                    targetTeamId: number
                     featureFlagKey?: string
                     name?: string
                 }) => {
@@ -342,11 +343,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (payload.name) {
                         data.name = payload.name
                     }
-                    await api.create(
+                    const newExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
                         data
                     )
-                    lemonToast.success('Experiment copied to project successfully')
+                    lemonToast.success('Experiment copied to project', {
+                        button: {
+                            label: 'Go to experiment',
+                            action: () => {
+                                window.location.href = urls.project(
+                                    payload.targetTeamId,
+                                    urls.experiment(newExperiment.id)
+                                )
+                            },
+                        },
+                    })
                     return values.experiments
                 },
                 addToExperiments: (experiment: Experiment) => {

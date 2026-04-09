@@ -115,10 +115,12 @@ export function CopyExperimentToProjectModal({
     }
 
     const handleCopy = (): void => {
-        if (selectedProjectId) {
+        const targetTeam = currentOrganization?.teams?.find((team) => team.project_id === selectedProjectId)
+        if (selectedProjectId && targetTeam) {
             copyExperimentToProject({
                 id: experiment.id as number,
                 targetProjectId: selectedProjectId,
+                targetTeamId: targetTeam.id,
                 featureFlagKey: flagKey || undefined,
                 name: experimentName.trim() || undefined,
             })
