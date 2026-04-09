@@ -1,5 +1,3 @@
-const MEMLENS_LIB_URL = 'https://unpkg.com/@memlab/lens@2.0.0/dist/memlens.lib.bundle.min.js'
-const MEMLENS_SRI_HASH = 'sha384-PA+YVbkTq6LI9YptlQGiwfhoU51jAIy+Zw2WlQC0skMgNRcitwcre8cXriq7P6NN'
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
@@ -24,16 +22,6 @@ interface MemLensScanner {
     dispose: () => void
 }
 
-interface MemLensGlobal {
-    createReactMemoryScan: (options: { scanIntervalMs?: number; trackEventListenerLeaks?: boolean }) => MemLensScanner
-}
-
-declare global {
-    interface Window {
-        MemLens?: MemLensGlobal
-    }
-}
-
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
     const entries = Array.from(map.entries())
     entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -44,27 +32,7 @@ export function mapToTopN(map: Map<string, number>, limit: number): Record<strin
     return result
 }
 
-function getPageNonce(): string | undefined {
-    return (document.querySelector('script[nonce]') as HTMLElement | null)?.nonce || undefined
-}
-
-function loadMemLensScript(): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script')
-        script.src = MEMLENS_LIB_URL
-        script.integrity = MEMLENS_SRI_HASH
-        script.crossOrigin = 'anonymous'
-        const nonce = getPageNonce()
-        if (nonce) {
-            script.nonce = nonce
-        }
-        script.onload = () => resolve()
-        script.onerror = () => reject(new Error('Failed to load MemLens script'))
-        document.head.appendChild(script)
-    })
-}
-
-function requestIdleCallbackCompat(callback: () => void, timeout: number): void {
+function requestIdleCallbackCompat(callback: () => void | Promise<void>, timeout: number): void {
     if ('requestIdleCallback' in window) {
         window.requestIdleCallback(callback, { timeout })
     } else {
@@ -80,56 +48,50 @@ export function startDetachedElementTracking(posthog: Capturable): void {
     }
     state = 'loading'
 
-    requestIdleCallbackCompat(() => {
-        loadMemLensScript()
-            .then(() => {
-                if (!window.MemLens) {
-                    console.warn('[detachedElementTracker] MemLens global not found after script load')
-                    state = 'idle'
-                    return
-                }
+    requestIdleCallbackCompat(async () => {
+        try {
+            const { createReactMemoryScan } = await import('@memlab/lens')
 
-                state = 'ready'
+            state = 'ready'
 
-                const scan = window.MemLens.createReactMemoryScan({
-                    scanIntervalMs: SCAN_INTERVAL_MS,
-                    trackEventListenerLeaks: false,
+            const scan: MemLensScanner = createReactMemoryScan({
+                scanIntervalMs: SCAN_INTERVAL_MS,
+                trackEventListenerLeaks: false,
+            })
+
+            scan.subscribe((result) => {
+                posthog.capture('detached_elements', {
+                    total_elements: result.totalElements,
+                    detached_elements: result.totalDetachedElements,
+                    detached_components: mapToTopN(result.detachedComponentToFiberNodeCount, TOP_N),
+                    all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
+                    scan_duration_ms: Math.round(result.end - result.start),
+                    current_path: window.location.pathname,
                 })
+            })
 
-                scan.subscribe((result) => {
-                    posthog.capture('detached_elements', {
-                        total_elements: result.totalElements,
-                        detached_elements: result.totalDetachedElements,
-                        detached_components: mapToTopN(result.detachedComponentToFiberNodeCount, TOP_N),
-                        all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
-                        scan_duration_ms: Math.round(result.end - result.start),
-                        current_path: window.location.pathname,
-                    })
-                })
-
-                function onVisibilityChange(): void {
-                    if (document.hidden) {
-                        scan.stop()
-                    } else {
-                        scan.start()
-                    }
-                }
-
-                document.addEventListener('visibilitychange', onVisibilityChange)
-
-                if (!document.hidden) {
+            function onVisibilityChange(): void {
+                if (document.hidden) {
+                    scan.stop()
+                } else {
                     scan.start()
                 }
+            }
 
-                window.addEventListener('beforeunload', () => {
-                    scan.stop()
-                    scan.dispose()
-                    document.removeEventListener('visibilitychange', onVisibilityChange)
-                })
+            document.addEventListener('visibilitychange', onVisibilityChange)
+
+            if (!document.hidden) {
+                scan.start()
+            }
+
+            window.addEventListener('beforeunload', () => {
+                scan.stop()
+                scan.dispose()
+                document.removeEventListener('visibilitychange', onVisibilityChange)
             })
-            .catch(() => {
-                state = 'idle'
-                console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
-            })
+        } catch {
+            state = 'idle'
+            console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
+        }
     }, IDLE_TIMEOUT_MS)
 }
