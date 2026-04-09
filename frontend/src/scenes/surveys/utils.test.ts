@@ -33,6 +33,7 @@ import {
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
+    supportsSurveyCustomization,
     validateCSSProperty,
 } from './utils'
 
@@ -134,6 +135,15 @@ describe('survey utils', () => {
 
         it('returns undefined for undefined input', () => {
             expect(validateCSSProperty('color', undefined)).toBeUndefined()
+        })
+    })
+
+    describe('supportsSurveyCustomization', () => {
+        it('keeps customization enabled for API surveys', () => {
+            expect(supportsSurveyCustomization(SurveyType.API)).toBe(true)
+            expect(supportsSurveyCustomization(SurveyType.Popover)).toBe(true)
+            expect(supportsSurveyCustomization(SurveyType.Widget)).toBe(true)
+            expect(supportsSurveyCustomization(SurveyType.ExternalSurvey)).toBe(false)
         })
     })
 

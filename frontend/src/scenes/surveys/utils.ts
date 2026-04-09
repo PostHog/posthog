@@ -440,6 +440,10 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
     return true
 }
 
+export function supportsSurveyCustomization(surveyType: SurveyType): boolean {
+    return surveyType !== SurveyType.ExternalSurvey
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {

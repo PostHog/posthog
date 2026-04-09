@@ -5,7 +5,6 @@ import { Survey } from '~/types'
 import { NewSurvey } from './constants'
 
 export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
-    // Make sure this is synced to SurveyAPISerializer
     const apiSurvey = {
         id: survey.id,
         name: survey.name,
@@ -15,6 +14,7 @@ export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX
         targeting_flag_key: survey.targeting_flag ? survey.targeting_flag.key : null,
         questions: survey.questions,
         conditions: survey.conditions,
+        appearance: survey.appearance,
         start_date: survey.start_date,
         end_date: survey.end_date,
     }

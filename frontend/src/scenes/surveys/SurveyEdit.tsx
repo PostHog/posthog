@@ -72,7 +72,7 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { canUseSurveyWizard } from './utils'
+import { canUseSurveyWizard, supportsSurveyCustomization } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -764,7 +764,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     </>
                                 ),
                             },
-                            ...(survey.type !== SurveyType.API
+                            ...(supportsSurveyCustomization(survey.type)
                                 ? [
                                       {
                                           key: SurveyEditSection.Customization,
