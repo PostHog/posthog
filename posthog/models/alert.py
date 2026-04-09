@@ -159,7 +159,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
-            "schedule_restriction_count": blocked_window_count,
+            "schedule_restriction_blocked_window_count": blocked_window_count,
         }
 
     def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
