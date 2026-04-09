@@ -70,7 +70,7 @@ export function evaluateFilterTree(node: FilterNode, event: Record<string, strin
     switch (node.type) {
         case 'condition': {
             const fieldValue = event[node.field]
-            if (fieldValue === undefined || fieldValue === '') {
+            if (fieldValue === undefined) {
                 return false
             }
             switch (node.operator) {
