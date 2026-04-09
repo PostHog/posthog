@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 import structlog
+from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
@@ -272,6 +273,8 @@ class PostHogClient:
             try:
                 result = fetch_fn()
             except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
+                if isinstance(e, InternalCHQueryError) and e.code != ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES:
+                    raise
                 logger.warning(
                     "Transient error during polling, will retry",
                     error=str(e),
