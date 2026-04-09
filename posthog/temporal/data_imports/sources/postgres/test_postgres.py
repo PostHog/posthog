@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -489,7 +490,7 @@ class TestGetPrimaryKeys:
                 FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
             """)
 
-            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_parent_pk", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_pk", logger)
             assert result is not None
             assert result == ["id", "created_at"]
 
@@ -525,7 +526,7 @@ class TestGetPrimaryKeys:
                 ADD CONSTRAINT test_partitioned_parent_no_pk_2026_q2_pkey PRIMARY KEY (order_id)
             """)
 
-            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_parent_no_pk", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_parent_no_pk", logger)
             assert result is not None
             assert result == ["order_id"]
 
@@ -560,7 +561,7 @@ class TestGetPrimaryKeys:
                 ADD CONSTRAINT test_partitioned_inconsistent_pk_q2_pkey PRIMARY KEY (col_b)
             """)
 
-            result = _get_primary_keys(dj_cursor, "public", "test_partitioned_inconsistent_pk", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
 
