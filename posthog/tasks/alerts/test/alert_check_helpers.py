@@ -54,6 +54,7 @@ def run_alert_check(alert_id: str) -> None:
         return
 
     if alert_check.state == AlertState.ERRORED:
+        assert alert_check.error is not None
         send_notifications_for_errors(alert, alert_check.error)
     elif alert_check.state == AlertState.FIRING:
         assert result is not None and result.breaches is not None
