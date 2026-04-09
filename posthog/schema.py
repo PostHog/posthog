@@ -4740,6 +4740,17 @@ class WebsiteBrowsingHistoryProdInterest(StrEnum):
     ENDPOINTS = "endpoints"
 
 
+class WorkflowVariablePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["workflow_variable"] = "workflow_variable"
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -11550,6 +11561,7 @@ class ConversionGoalFilter1(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11599,6 +11611,7 @@ class ConversionGoalFilter1(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11635,6 +11648,7 @@ class ConversionGoalFilter2(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11683,6 +11697,7 @@ class ConversionGoalFilter2(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11721,6 +11736,7 @@ class ConversionGoalFilter3(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11770,6 +11786,7 @@ class ConversionGoalFilter3(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11809,6 +11826,7 @@ class DashboardFilter(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -12438,6 +12456,7 @@ class DataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12487,6 +12506,7 @@ class DataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12723,6 +12743,7 @@ class EntityNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12770,6 +12791,7 @@ class EntityNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12860,6 +12882,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13006,6 +13029,7 @@ class EventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13055,6 +13079,7 @@ class EventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13090,6 +13115,7 @@ class EventsQueryActionStep(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13183,6 +13209,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13230,6 +13257,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13265,6 +13293,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | LogPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -13297,6 +13326,7 @@ class FeatureFlagGroupType(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13363,6 +13393,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13413,6 +13444,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13447,6 +13479,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13498,6 +13531,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13533,6 +13567,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13582,6 +13617,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13716,6 +13752,7 @@ class HogQLFilters(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13886,6 +13923,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13934,6 +13972,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -14319,6 +14358,7 @@ class PersonsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -14350,6 +14390,7 @@ class PersonsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -14395,6 +14436,7 @@ class PropertyGroupFilterValue(BaseModel):
         | LogPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
 
 
@@ -16430,6 +16472,7 @@ class RetentionEntity(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="filters on the event")
@@ -16813,6 +16856,7 @@ class TileFilters(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -16848,6 +16892,7 @@ class TraceNeighborsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16886,6 +16931,7 @@ class TraceQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16930,6 +16976,7 @@ class TracesQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -17370,6 +17417,7 @@ class ActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -17418,6 +17466,7 @@ class ActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -18618,6 +18667,7 @@ class RecordingsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -18660,6 +18710,7 @@ class RecordingsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -18712,6 +18763,7 @@ class RetentionQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18765,6 +18817,7 @@ class StickinessQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18994,6 +19047,7 @@ class CalendarHeatmapQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19339,6 +19393,7 @@ class GroupNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19392,6 +19447,7 @@ class GroupNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -19433,6 +19489,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19477,6 +19534,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19521,6 +19579,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19565,6 +19624,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19609,6 +19669,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19653,6 +19714,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19727,6 +19789,7 @@ class LifecycleQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19878,6 +19941,7 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19908,6 +19972,7 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19941,6 +20006,7 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -20012,6 +20078,7 @@ class TrendsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -20297,6 +20364,7 @@ class FunnelsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -20822,6 +20890,7 @@ class PathsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -21087,6 +21156,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -21189,6 +21259,7 @@ class SessionBatchEventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -21226,6 +21297,7 @@ class SessionBatchEventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -21329,6 +21401,7 @@ class EventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -21362,6 +21435,7 @@ class EventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
