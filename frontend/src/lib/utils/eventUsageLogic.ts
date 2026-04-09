@@ -17,7 +17,13 @@ import {
     Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentMetricSource,
+    ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+    isExperimentRetentionMetric,
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -106,14 +112,85 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
+    const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
+    const multiplier = unitToDays[metric.retention_window_unit]
+    return multiplier ? (metric.retention_window_end - metric.retention_window_start) * multiplier : undefined
+}
+
+function getSourceProperties(source: ExperimentMetricSource): {
+    source_kind: string
+    is_data_warehouse: boolean
+    property_filter_count: number
+    math_type: string | undefined
+    has_math_hogql: boolean
+} {
+    return {
+        source_kind: source.kind,
+        is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,
+        property_filter_count: (source.properties?.length ?? 0) + (source.fixedProperties?.length ?? 0),
+        math_type: source.math,
+        has_math_hogql: !!source.math_hogql,
+    }
+}
+
 export function getEventPropertiesForMetric(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
 ): object {
     if (metric.kind === NodeKind.ExperimentMetric) {
-        return {
+        const base = {
             kind: NodeKind.ExperimentMetric,
             metric_type: metric.metric_type,
+            has_breakdown: !!metric.breakdownFilter,
         }
+
+        if (isExperimentFunnelMetric(metric)) {
+            const totalFilterCount = metric.series.reduce(
+                (sum, step) => sum + (step.properties?.length ?? 0) + (step.fixedProperties?.length ?? 0),
+                0
+            )
+            return {
+                ...base,
+                funnel_steps_count: metric.series.length,
+                funnel_order_type: metric.funnel_order_type,
+                property_filter_count: totalFilterCount,
+            }
+        }
+
+        if (isExperimentMeanMetric(metric)) {
+            return {
+                ...base,
+                ...getSourceProperties(metric.source),
+            }
+        }
+
+        if (isExperimentRatioMetric(metric)) {
+            const numeratorProps = getSourceProperties(metric.numerator)
+            const denominatorProps = getSourceProperties(metric.denominator)
+            return {
+                ...base,
+                numerator_source_kind: numeratorProps.source_kind,
+                denominator_source_kind: denominatorProps.source_kind,
+                is_data_warehouse: numeratorProps.is_data_warehouse || denominatorProps.is_data_warehouse,
+                property_filter_count: numeratorProps.property_filter_count + denominatorProps.property_filter_count,
+                numerator_math_type: numeratorProps.math_type,
+                denominator_math_type: denominatorProps.math_type,
+                has_math_hogql: numeratorProps.has_math_hogql || denominatorProps.has_math_hogql,
+            }
+        }
+
+        if (isExperimentRetentionMetric(metric)) {
+            const startProps = getSourceProperties(metric.start_event)
+            const completionProps = getSourceProperties(metric.completion_event)
+            return {
+                ...base,
+                is_data_warehouse: startProps.is_data_warehouse || completionProps.is_data_warehouse,
+                property_filter_count: startProps.property_filter_count + completionProps.property_filter_count,
+                retention_window_days: retentionWindowDays(metric),
+            }
+        }
+
+        return base
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,

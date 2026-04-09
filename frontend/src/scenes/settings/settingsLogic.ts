@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -458,7 +459,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     searchValue: getSettingStringValue(setting),
                 }))
 
-                return new FuseClass(settingsWithSearchValues || [], {
+                return createFuse(settingsWithSearchValues || [], {
                     keys: ['searchValue', 'id'],
                     threshold: FUSE_THRESHOLD,
                 })
@@ -474,7 +475,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
                 }))
 
-                return new FuseClass(sectionsWithSearchValues || [], {
+                return createFuse(sectionsWithSearchValues || [], {
                     keys: ['searchValue', 'settingsSearchValues', 'id'],
                     threshold: FUSE_THRESHOLD,
                 })
@@ -538,7 +539,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                 }
 
-                return new FuseClass(entries, {
+                return createFuse(entries, {
                     keys: [
                         { name: 'settingTitle', weight: 2 },
                         { name: 'keywords', weight: 1.5 },

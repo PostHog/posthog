@@ -1436,6 +1436,96 @@
                   "table": null,
                   "type": "expression"
               },
+              "fingerprint_issue_state": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id",
+                      "issue_name",
+                      "issue_description",
+                      "issue_status",
+                      "assigned_user_id",
+                      "assigned_role_id",
+                      "first_seen"
+                  ],
+                  "hogql_value": "fingerprint_issue_state",
+                  "id": "fingerprint_issue_state",
+                  "name": "fingerprint_issue_state",
+                  "schema_valid": true,
+                  "table": "error_tracking_fingerprint_issue_state",
+                  "type": "lazy_table"
+              },
+              "issue_id_v2": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id_v2",
+                  "id": null,
+                  "name": "issue_id_v2",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_name",
+                  "id": null,
+                  "name": "issue_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_description",
+                  "id": null,
+                  "name": "issue_description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_status",
+                  "id": null,
+                  "name": "issue_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_assigned_user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_assigned_user_id",
+                  "id": null,
+                  "name": "issue_assigned_user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "issue_assigned_role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_assigned_role_id",
+                  "id": null,
+                  "name": "issue_assigned_role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_first_seen": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_first_seen",
+                  "id": null,
+                  "name": "issue_first_seen",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "$virt_is_bot": {
                   "chain": null,
                   "fields": null,
@@ -6631,6 +6721,96 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "fingerprint_issue_state": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "fingerprint",
+                      "issue_id",
+                      "issue_name",
+                      "issue_description",
+                      "issue_status",
+                      "assigned_user_id",
+                      "assigned_role_id",
+                      "first_seen"
+                  ],
+                  "hogql_value": "fingerprint_issue_state",
+                  "id": "fingerprint_issue_state",
+                  "name": "fingerprint_issue_state",
+                  "schema_valid": true,
+                  "table": "error_tracking_fingerprint_issue_state",
+                  "type": "lazy_table"
+              },
+              "issue_id_v2": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id_v2",
+                  "id": null,
+                  "name": "issue_id_v2",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_name",
+                  "id": null,
+                  "name": "issue_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_description",
+                  "id": null,
+                  "name": "issue_description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_status",
+                  "id": null,
+                  "name": "issue_status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_assigned_user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_assigned_user_id",
+                  "id": null,
+                  "name": "issue_assigned_user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "issue_assigned_role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_assigned_role_id",
+                  "id": null,
+                  "name": "issue_assigned_role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_first_seen": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_first_seen",
+                  "id": null,
+                  "name": "issue_first_seen",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "$virt_is_bot": {
                   "chain": null,

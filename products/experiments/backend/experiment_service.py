@@ -529,14 +529,19 @@ class ExperimentService:
 
     def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
         """Apply team-level defaults to stats_config."""
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
         result = dict(stats_config or {})
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
         if not result.get("method"):
-            default_method = self.team.default_experiment_stats_method or "bayesian"
+            default_method = config.default_experiment_stats_method or "bayesian"
             result["method"] = default_method
 
-        if self.team.default_experiment_confidence_level is not None:
-            confidence_level = float(self.team.default_experiment_confidence_level)
+        if config.default_experiment_confidence_level is not None:
+            confidence_level = float(config.default_experiment_confidence_level)
             bayesian_config = result.get("bayesian") or {}
             frequentist_config = result.get("frequentist") or {}
             if bayesian_config.get("ci_level") is None:

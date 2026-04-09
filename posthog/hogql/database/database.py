@@ -67,6 +67,11 @@ from posthog.hogql.database.schema.document_embeddings import (
     RawDocumentEmbeddingsTable,
 )
 from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, RangeTable
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+    ErrorTrackingFingerprintIssueStateTable,
+    RawErrorTrackingFingerprintIssueStateTable,
+    join_with_error_tracking_fingerprint_issue_state_table,
+)
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -227,6 +232,10 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "raw_error_tracking_issue_fingerprint_overrides": TableNode(
         name="raw_error_tracking_issue_fingerprint_overrides",
         table=RawErrorTrackingIssueFingerprintOverridesTable(),
+    ),
+    "raw_error_tracking_fingerprint_issue_state": TableNode(
+        name="raw_error_tracking_fingerprint_issue_state",
+        table=RawErrorTrackingFingerprintIssueStateTable(),
     ),
     "raw_sessions": TableNode(name="raw_sessions", table=RawSessionsTableV1()),
     "raw_sessions_v3": TableNode(name="raw_sessions_v3", table=RawSessionsTableV3()),
@@ -1417,6 +1426,41 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
             "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
             start=None,
         ),
+    )
+
+    # Issue metadata from the fingerprint_issue_state table
+    table.fields["fingerprint_issue_state"] = LazyJoin(
+        from_field=["fingerprint"],
+        join_table=ErrorTrackingFingerprintIssueStateTable(),
+        join_function=join_with_error_tracking_fingerprint_issue_state_table,
+    )
+    table.fields["issue_id_v2"] = ExpressionField(
+        name="issue_id_v2",
+        expr=parse_expr("fingerprint_issue_state.issue_id", start=None),
+    )
+    table.fields["issue_name"] = ExpressionField(
+        name="issue_name",
+        expr=parse_expr("fingerprint_issue_state.issue_name", start=None),
+    )
+    table.fields["issue_description"] = ExpressionField(
+        name="issue_description",
+        expr=parse_expr("fingerprint_issue_state.issue_description", start=None),
+    )
+    table.fields["issue_status"] = ExpressionField(
+        name="issue_status",
+        expr=parse_expr("fingerprint_issue_state.issue_status", start=None),
+    )
+    table.fields["issue_assigned_user_id"] = ExpressionField(
+        name="issue_assigned_user_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+    )
+    table.fields["issue_assigned_role_id"] = ExpressionField(
+        name="issue_assigned_role_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+    )
+    table.fields["issue_first_seen"] = ExpressionField(
+        name="issue_first_seen",
+        expr=parse_expr("fingerprint_issue_state.first_seen", start=None),
     )
 
 
