@@ -1,5 +1,5 @@
-const MEMLENS_LIB_URL = 'https://unpkg.com/@memlab/lens@2.0.1/dist/memlens.lib.bundle.min.js'
-const MEMLENS_SRI_HASH = 'sha384-X+xkQgJKrxSJJHXfLZ2rZ5dEiybkHcMfqbNRa9YHq3JCFqkg/KY8UJJRcaQqPk03'
+const MEMLENS_LIB_URL = 'https://unpkg.com/@memlab/lens@2.0.0/dist/memlens.lib.bundle.min.js'
+const MEMLENS_SRI_HASH = 'sha384-PA+YVbkTq6LI9YptlQGiwfhoU51jAIy+Zw2WlQC0skMgNRcitwcre8cXriq7P6NN'
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
