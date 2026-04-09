@@ -44,12 +44,20 @@ export function mapToTopN(map: Map<string, number>, limit: number): Record<strin
     return result
 }
 
+function getPageNonce(): string | undefined {
+    return document.querySelector('script[nonce]')?.nonce || undefined
+}
+
 function loadMemLensScript(): Promise<void> {
     return new Promise((resolve, reject) => {
         const script = document.createElement('script')
         script.src = MEMLENS_LIB_URL
         script.integrity = MEMLENS_SRI_HASH
         script.crossOrigin = 'anonymous'
+        const nonce = getPageNonce()
+        if (nonce) {
+            script.nonce = nonce
+        }
         script.onload = () => resolve()
         script.onerror = () => reject(new Error('Failed to load MemLens script'))
         document.head.appendChild(script)
