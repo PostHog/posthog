@@ -17,7 +17,12 @@ from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
 try:
+    import os
+
     import posthoganalytics
+
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
 
     if posthoganalytics.api_key:
         from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
