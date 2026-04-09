@@ -493,6 +493,7 @@ export function BatchExportRunIcon({
             title={
                 <>
                     Run status: {status}
+                    {latestRun.records_failed != null && latestRun.records_failed > 0 ? ' (with failures)' : ''}
                     {runs.length > 1 && (
                         <>
                             <br />
