@@ -24,6 +24,7 @@ import json
 import time
 import argparse
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from gates import (
@@ -81,6 +82,22 @@ def _bold(msg: str) -> str:
 
 def _dim(msg: str) -> str:
     return f"\033[2m{msg}\033[0m"
+
+
+def _package_version(package_name: str) -> str:
+    try:
+        return version(package_name)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _build_reviewer_error_summary(error: Exception) -> str:
+    return (
+        "Reviewer failed before producing a verdict. "
+        f"error={type(error).__name__}: {error}. "
+        f"posthoganalytics={_package_version('posthoganalytics')}, "
+        f"claude-agent-sdk={_package_version('claude-agent-sdk')}"
+    )
 
 
 # ── Gate result ──────────────────────────────────────────────────
@@ -305,6 +322,7 @@ class Pipeline:
 
         print(_dim("  Calling reviewer..."))
         max_retries = 3
+        last_error_summary: str | None = None
         for attempt in range(max_retries):
             try:
                 self.reviewer_output = reviewer.review(
@@ -314,6 +332,7 @@ class Pipeline:
                 )
                 break
             except Exception as e:
+                last_error_summary = _build_reviewer_error_summary(e)
                 if attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
                     print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
@@ -326,6 +345,7 @@ class Pipeline:
                         "reasoning": f"Review agent failed after {max_retries} attempts — needs human review.",
                         "risk": "unknown",
                         "issues": [str(e)],
+                        "debug_summary": last_error_summary,
                     }
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")

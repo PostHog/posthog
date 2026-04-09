@@ -314,6 +314,7 @@ class Reviewer:
             raise RuntimeError("Reviewer agent returned no structured output")
         validated_output = _validate_verdict(structured_output)
         if self._fallback_debug_summary:
+            validated_output["debug_summary"] = self._fallback_debug_summary
             validated_output["fallback_debug_summary"] = self._fallback_debug_summary
         return validated_output
 
