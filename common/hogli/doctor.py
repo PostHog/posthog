@@ -1263,13 +1263,10 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
 
 def _is_excluded(args: str) -> bool:
     """Check if the executable basename is in the exclusion set."""
-
-
     if not args or not args.strip():
         return False
     basename = args.split()[0].rsplit("/", 1)[-1]
     return basename in _EXCLUDED_EXECUTABLES
-
 
 
 def _has_known_executable(args: str) -> bool:
