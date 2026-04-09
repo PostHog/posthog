@@ -1,5 +1,8 @@
 name: Mirror Playwright container image to GHCR
 
+# When bumping the Playwright version, also update:
+#   - .github/workflows/ci-storybook.yml (container image, 2 occurrences)
+#   - Dockerfile.playwright (FROM line)
 on:
     workflow_dispatch:
         inputs:
