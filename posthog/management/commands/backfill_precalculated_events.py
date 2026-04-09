@@ -1,4 +1,3 @@
-import asyncio
 import dataclasses
 import datetime as dt
 from typing import Any
@@ -383,29 +382,22 @@ class Command(BaseCommand):
         """Run the Temporal coordinator workflow for the team."""
         import time
 
-        async def _run_workflow():
-            filter_storage_key = store_event_filters(filters, team_id)
-            self.stdout.write(
-                self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")
+        filter_storage_key = store_event_filters(filters, team_id)
+        self.stdout.write(
+            self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")
+        )
+
+        # TODO(Stage 3): Replace with BackfillPrecalculatedEventsCoordinatorInputs
+        # and the actual coordinator workflow once they exist.
+        # For now, just store filters and return a placeholder workflow ID.
+        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
+
+        self.stdout.write(
+            self.style.WARNING(
+                f"Coordinator workflow not yet implemented. "
+                f"Filters stored at: {filter_storage_key} "
+                f"(days={effective_days}, concurrent={concurrent_workflows})"
             )
+        )
 
-            # TODO(Stage 3): Replace with BackfillPrecalculatedEventsCoordinatorInputs
-            # and the actual coordinator workflow once they exist.
-            # For now, just store filters and return a placeholder workflow ID.
-            workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
-
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Coordinator workflow not yet implemented. "
-                    f"Filters stored at: {filter_storage_key} "
-                    f"(days={effective_days}, concurrent={concurrent_workflows})"
-                )
-            )
-
-            return workflow_id
-
-        try:
-            return asyncio.run(_run_workflow())
-        except Exception as e:
-            logger.exception(f"Failed to execute Temporal workflow: {e}")
-            raise
+        return workflow_id
