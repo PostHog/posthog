@@ -55,6 +55,41 @@ describe('query-logs filterGroup wrapping', () => {
         expect(query.filterGroup).toBeUndefined()
     })
 
+    it('sends no filterGroup when default empty array is used', async () => {
+        const tool = GENERATED_TOOLS['query-logs']()
+        const { context, getRequestBody } = createMockContext()
+
+        await tool.handler(context, {
+            query: {
+                dateRange: { date_from: '-1h' },
+                filterGroup: [], // this is the default
+            },
+        })
+
+        const body = getRequestBody()
+        const query = body?.query as Record<string, unknown>
+        // Empty array should be removed, not sent as []
+        expect(query.filterGroup).toBeUndefined()
+    })
+
+    it('would have sent raw array without the fix (regression check)', async () => {
+        // Simulates the old broken behavior to document what was wrong
+        const filters = [{ key: 'message', operator: 'icontains', type: 'log', value: 'test' }]
+        // Old code: body['query'] = params.query (passes array as-is)
+        const oldPayload = { filterGroup: filters }
+        // Backend expects a dict, not an array
+        expect(Array.isArray(oldPayload.filterGroup)).toBe(true) // this is what broke it
+
+        // New code wraps it
+        const tool = GENERATED_TOOLS['query-logs']()
+        const { context, getRequestBody } = createMockContext()
+        await tool.handler(context, { query: { filterGroup: filters } })
+        const query = getRequestBody()?.query as Record<string, unknown>
+        // Fixed: now a dict, not an array
+        expect(Array.isArray(query.filterGroup)).toBe(false)
+        expect(query.filterGroup).toHaveProperty('type', 'AND')
+    })
+
     it('passes through when no filterGroup is provided', async () => {
         const tool = GENERATED_TOOLS['query-logs']()
         const { context, getRequestBody } = createMockContext()
