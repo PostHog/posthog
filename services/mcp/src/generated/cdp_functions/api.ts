@@ -934,6 +934,29 @@ export const HogFunctionsLogsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const hogFunctionsLogsRetrieveQueryLimitDefault = 50
+export const hogFunctionsLogsRetrieveQueryLimitMax = 500
+
+export const HogFunctionsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod.iso.datetime({}).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso.datetime({}).optional().describe('Only return entries before this ISO 8601 timestamp.'),
+    instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
+    level: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(hogFunctionsLogsRetrieveQueryLimitMax)
+        .default(hogFunctionsLogsRetrieveQueryLimitDefault)
+        .describe('Maximum number of log entries to return (1-500, default 50).'),
+    search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
+})
+
 export const HogFunctionsMetricsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -941,6 +964,37 @@ export const HogFunctionsMetricsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const hogFunctionsMetricsRetrieveQueryAfterDefault = `-7d`
+
+export const hogFunctionsMetricsRetrieveQueryBreakdownByDefault = `kind`
+export const hogFunctionsMetricsRetrieveQueryIntervalDefault = `day`
+
+export const HogFunctionsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFunctionsMetricsRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'."
+        ),
+    before: zod.string().min(1).optional().describe("End of the time range. Same format as 'after'. Defaults to now."),
+    breakdown_by: zod
+        .enum(['name', 'kind'])
+        .default(hogFunctionsMetricsRetrieveQueryBreakdownByDefault)
+        .describe(
+            "Group the series by metric 'name' or 'kind'. Defaults to 'kind'.\n\n* `name` - name\n* `kind` - kind"
+        ),
+    instance_id: zod.string().min(1).optional().describe('Filter metrics to a specific execution instance.'),
+    interval: zod
+        .enum(['hour', 'day', 'week'])
+        .default(hogFunctionsMetricsRetrieveQueryIntervalDefault)
+        .describe(
+            "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n* `hour` - hour\n* `day` - day\n* `week` - week"
+        ),
+    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
+    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
 })
 
 /**

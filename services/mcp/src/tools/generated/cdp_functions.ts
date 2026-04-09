@@ -9,7 +9,9 @@ import {
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
     HogFunctionsLogsRetrieveParams,
+    HogFunctionsLogsRetrieveQueryParams,
     HogFunctionsMetricsRetrieveParams,
+    HogFunctionsMetricsRetrieveQueryParams,
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
     HogFunctionsRearrangePartialUpdateBody,
@@ -266,7 +268,9 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
     },
 })
 
-const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(
+    HogFunctionsLogsRetrieveQueryParams.shape
+)
 
 const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSchema, unknown> => ({
     name: 'cdp-functions-logs-retrieve',
@@ -276,21 +280,43 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSch
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_functions/${params.id}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
         })
         return result
     },
 })
 
-const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(
+    HogFunctionsMetricsRetrieveQueryParams.shape
+)
 
-const cdpFunctionsMetricsRetrieve = (): ToolBase<typeof CdpFunctionsMetricsRetrieveSchema, unknown> => ({
+const cdpFunctionsMetricsRetrieve = (): ToolBase<
+    typeof CdpFunctionsMetricsRetrieveSchema,
+    Schemas.AppMetricsResponse
+> => ({
     name: 'cdp-functions-metrics-retrieve',
     schema: CdpFunctionsMetricsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsMetricsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_functions/${params.id}/metrics/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
+            },
         })
         return result
     },
