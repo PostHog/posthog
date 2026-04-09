@@ -25,6 +25,14 @@ logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
+RETRYABLE_CH_ERROR_CODES: frozenset[int] = frozenset(
+    {
+        ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+        ErrorCodes.TIMEOUT_EXCEEDED,
+        ErrorCodes.MEMORY_LIMIT_EXCEEDED,
+    }
+)
+
 
 def _person_has_min_version(person: "Person | None", min_version: int | None) -> "Person | None":
     """Return the person only if it exists and meets the minimum version requirement."""
@@ -286,16 +294,31 @@ class PostHogClient:
                 try:
                     result = fetch_fn()
                 except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
-                    if isinstance(e, InternalCHQueryError) and e.code != ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES:
+                    is_retryable = not isinstance(e, InternalCHQueryError) or e.code in RETRYABLE_CH_ERROR_CODES
+                    if is_retryable:
+                        logger.warning(
+                            "Transient error during polling, will retry",
+                            retry_action="retrying",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            error_code=getattr(e, "code", None),
+                            error_code_name=getattr(e, "code_name", None),
+                            description=description,
+                            attempt=attempt,
+                        )
+                        result = None
+                    else:
+                        logger.exception(
+                            "Fatal ClickHouse error, aborting poll",
+                            retry_action="fatal",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            error_code=getattr(e, "code", None),
+                            error_code_name=getattr(e, "code_name", None),
+                            description=description,
+                            attempt=attempt,
+                        )
                         raise
-                    logger.warning(
-                        "Transient error during polling, will retry",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        description=description,
-                        attempt=attempt,
-                    )
-                    result = None
                 if result is not None:
                     elapsed = time.time() - start_time
                     logger.info(
@@ -363,11 +386,15 @@ class PostHogClient:
         )
 
     def _fetch_person_by_distinct_id(self, distinct_id: str) -> Person | None:
-        """Fetch a person by distinct_id via direct ClickHouse query."""
+        """Fetch a person by distinct_id via direct ClickHouse query.
+
+        Uses FINAL on both ReplacingMergeTree tables to ensure correct deduplication
+        after merges/aliases without waiting for background merges.
+        """
         query = """
             SELECT p.id, p.properties, p.created_at
-            FROM person p
-            JOIN person_distinct_id2 pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
+            FROM person FINAL AS p
+            JOIN person_distinct_id2 FINAL AS pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
             WHERE p.team_id = %(team_id)s
               AND pdi.distinct_id = %(distinct_id)s
               AND pdi.is_deleted = 0
@@ -398,14 +425,22 @@ class PostHogClient:
     def _fetch_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
         """Fetch events by person_id. Returns None if not all expected UUIDs are found.
 
-        Includes a timestamp filter to benefit from ClickHouse's table partitioning
-        (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
+        Resolves the person's distinct_ids via person_distinct_id2 FINAL rather than
+        filtering on events.person_id directly. After merges/aliases, person_distinct_id2
+        is updated immediately, while events.person_id is only rewritten by async
+        background mutations that may lag significantly.
         """
         query = """
             SELECT uuid, event, distinct_id, properties, timestamp
             FROM events
             WHERE team_id = %(team_id)s
-              AND person_id = %(person_id)s
+              AND distinct_id IN (
+                SELECT distinct_id
+                FROM person_distinct_id2 FINAL
+                WHERE team_id = %(team_id)s
+                  AND person_id = %(person_id)s
+                  AND is_deleted = 0
+              )
               AND timestamp >= %(min_timestamp)s
             ORDER BY timestamp ASC
         """
