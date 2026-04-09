@@ -298,20 +298,25 @@ function NaturalLanguageScheduleInput({
     const displayText = isFocused ? text : currentText
 
     return (
-        <LemonInput
-            value={displayText}
-            onChange={handleChange}
-            onFocus={() => {
-                setIsFocused(true)
-                setText(currentText)
-                setHasError(false)
-            }}
-            onBlur={() => setIsFocused(false)}
-            placeholder='e.g. "every week on Monday and Wednesday"'
-            fullWidth
-            size="small"
-            status={hasError && isFocused ? 'danger' : undefined}
-        />
+        <div className="flex flex-col gap-1">
+            <LemonInput
+                value={displayText}
+                onChange={handleChange}
+                onFocus={() => {
+                    setIsFocused(true)
+                    setText(currentText)
+                    setHasError(false)
+                }}
+                onBlur={() => setIsFocused(false)}
+                placeholder='e.g. "every week on Monday and Wednesday"'
+                fullWidth
+                size="small"
+                status={hasError && isFocused ? 'danger' : undefined}
+            />
+            <span className="text-xs text-muted">
+                Type a schedule in plain English to update the picker below, or use the controls directly.
+            </span>
+        </div>
     )
 }
 
@@ -408,7 +413,7 @@ export function RecurringSchedulePicker(): JSX.Element {
                 <NaturalLanguageScheduleInput
                     state={scheduleState}
                     startsAt={scheduleStartsAt}
-                    onStateChange={setScheduleState}
+                    onStateChange={(newState) => setScheduleState(newState, 'natural_language')}
                 />
             )}
 
