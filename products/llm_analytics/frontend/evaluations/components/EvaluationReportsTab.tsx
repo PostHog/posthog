@@ -130,6 +130,7 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                     },
                 ]}
                 expandable={{
+                    noIndent: true,
                     expandedRowRender: (run: EvaluationReportRun) => (
                         <div className="p-4 bg-bg-light">
                             <EvaluationReportViewer reportRun={run} compact />
