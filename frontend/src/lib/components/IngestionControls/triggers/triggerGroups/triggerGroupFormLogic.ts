@@ -49,7 +49,6 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
         addFlag: (_id: number, key: string) => ({ key }),
         removeFlag: true,
         setEventProperties: (eventName: string, properties: TriggerPropertyFilter[]) => ({ eventName, properties }),
-        setGroupProperties: (properties: TriggerPropertyFilter[]) => ({ properties }),
         setExpandedEvent: (eventName: string | null) => ({ eventName }),
     }),
     reducers({
@@ -176,9 +175,6 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
                 'events',
                 values.triggerGroup.events.map((e) => (e.name === eventName ? { ...e, properties } : e))
             )
-        },
-        setGroupProperties: ({ properties }) => {
-            actions.setTriggerGroupValue('properties', properties)
         },
     })),
 ])

@@ -2,6 +2,9 @@ import { IconFilter, IconTrash, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonSnack, Tooltip } from '@posthog/lemon-ui'
 
 import { IconSubArrowRight } from 'lib/lemon-ui/icons'
+
+import { EventTriggerConfig, SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
+
 /** Short display labels for trigger property operators */
 const OPERATOR_DISPLAY: Record<string, string> = {
     exact: 'equals',
@@ -13,9 +16,6 @@ const OPERATOR_DISPLAY: Record<string, string> = {
     gt: '>',
     lt: '<',
 }
-
-import { EventTriggerConfig, SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
-
 export interface TriggerGroupCardProps {
     group: SessionRecordingTriggerGroup
     onEdit?: () => void
