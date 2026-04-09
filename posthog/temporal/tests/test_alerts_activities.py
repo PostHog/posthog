@@ -147,3 +147,24 @@ async def test_notify_alert_activity_stub_raises_not_implemented():
     env = ActivityEnvironment()
     with pytest.raises(NotImplementedError, match="follow-up PR"):
         await env.run(notify_alert_activity, NotifyAlertActivityInputs(alert_id="abc", alert_check_id=1))
+
+
+def test_alerts_module_exports_workflows_and_activities():
+    from posthog.temporal.alerts import ACTIVITIES, WORKFLOWS
+    from posthog.temporal.alerts.activities import (
+        enumerate_due_alerts_activity,
+        evaluate_alert_activity,
+        notify_alert_activity,
+        prepare_alert_activity,
+    )
+    from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleAllAlertChecksWorkflow
+
+    assert ScheduleAllAlertChecksWorkflow in WORKFLOWS
+    assert CheckAlertWorkflow in WORKFLOWS
+    assert len(WORKFLOWS) == 2
+
+    assert enumerate_due_alerts_activity in ACTIVITIES
+    assert prepare_alert_activity in ACTIVITIES
+    assert evaluate_alert_activity in ACTIVITIES
+    assert notify_alert_activity in ACTIVITIES
+    assert len(ACTIVITIES) == 4
