@@ -105,12 +105,25 @@ class TestExternalSurveys(APIBaseTest):
         assert response.status_code == 404
         assert "Feels quiet in here" in response.content.decode()
 
+    def test_error_page_includes_survey_appearance(self):
+        survey = self.create_external_survey(
+            archived=True,
+            appearance={"backgroundColor": "#1a1a2e", "textColor": "#e0e0e0"},
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 404
+        content = response.content.decode()
+        assert "#1a1a2e" in content
+        assert "#e0e0e0" in content
+
     def test_survey_must_be_running(self):
         """Test survey availability based on start/end dates"""
         # Survey not started yet
         future_survey = self.create_external_survey(start_date=datetime.now(UTC) + timedelta(days=1))
         response = self.client.get(f"/external_surveys/{future_survey.id}/")
         assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
 
         # Survey ended
         ended_survey = self.create_external_survey(
@@ -118,11 +131,13 @@ class TestExternalSurveys(APIBaseTest):
         )
         response = self.client.get(f"/external_surveys/{ended_survey.id}/")
         assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
 
         # Survey never started
         never_started_survey = self.create_external_survey(start_date=None)
         response = self.client.get(f"/external_surveys/{never_started_survey.id}/")
         assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
 
     def test_security_headers_present(self):
         """Test that proper security headers are set"""

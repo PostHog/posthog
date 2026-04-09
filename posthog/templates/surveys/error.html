@@ -126,18 +126,9 @@
     {{ appearance|json_script:"survey-appearance" }}
     {% include "surveys/_appearance_helpers.html" %}
     <script nonce="{{ request.csp_nonce }}">
-        // Apply the customer's survey appearance to the error page so a respondent hitting
-        // a closed survey link still sees the customer's brand (background, text colors,
-        // font). Only fields that affect the page chrome are applied — no card / input /
-        // button styling since the error page has none of those surfaces.
-        //
-        // Text color falls back to contrast-derived when the customer hasn't set an
-        // explicit override. getLuminance and getContrastingTextColor come from
-        // _appearance_helpers.html (included above).
         (function () {
             var appearance = JSON.parse(document.getElementById('survey-appearance').textContent) || {}
             var root = document.documentElement
-            var pageLuminance = getLuminance(appearance.backgroundColor)
 
             if (appearance.backgroundColor) {
                 root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor)
@@ -149,9 +140,8 @@
                 root.style.setProperty('--ph-survey-page-text', explicitText || derivedText)
             }
 
-            // Flip the corner branding pill to a dark translucent fill on dark backgrounds,
-            // matching the hosted page. White pills on dark backgrounds read as glaring badges.
-            if (pageLuminance !== null && pageLuminance < 0.5) {
+            var bgLuminance = getLuminance(appearance.backgroundColor)
+            if (bgLuminance !== null && bgLuminance < 0.5) {
                 root.style.setProperty('--ph-survey-pill-background', 'rgba(17, 17, 17, 0.55)')
             }
 

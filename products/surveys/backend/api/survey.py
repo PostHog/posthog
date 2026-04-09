@@ -2792,10 +2792,7 @@ def public_survey_page(request, survey_id: str):
             archived=survey.archived,
             survey_type=survey.type,
         )
-        # Pass survey appearance through so the error page can still wear the customer's
-        # brand (background color, fonts, etc.) even when the survey isn't accepting
-        # responses. A respondent hitting a closed survey link should see the same
-        # visual language they'd have seen if the survey were still live.
+        # Pass appearance so the error page still shows the customer's brand.
         return render(
             request,
             "surveys/error.html",
