@@ -36,6 +36,7 @@ import re
 import sys
 import json
 import time
+import argparse
 from collections import defaultdict
 from pathlib import Path
 
@@ -45,10 +46,6 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
 
 LOCAL_PACKAGES = ("posthog", "ee", "products", "common")
-
-# Source files affecting more tests than this are excluded from the map.
-# Changing them effectively requires a full run anyway.
-MAX_FANOUT = 100
 
 # Patterns that identify test files
 TEST_FILE_RE = re.compile(r"(^|/)test_[^/]*\.py$")
@@ -177,16 +174,10 @@ def build_reverse_map() -> tuple[dict[str, list[str]], int]:
         if processed % 100 == 0:
             sys.stderr.write(f"  Processed {processed}/{len(test_modules)} test modules...\n")
 
-    # Exclude high-fan-out entries (core/shared modules that affect too many tests)
-    # excluded = {k for k, v in reverse_map.items() if len(v) > MAX_FANOUT}
-    # Also drop entries where a test file only references itself — that's implicit
-    self_only = {k for k, v in reverse_map.items() if v == {k}}
-    filtered_map = {k: v for k, v in reverse_map.items() if k not in self_only}
-
     elapsed_total = time.monotonic() - start
-    sys.stderr.write(f"Map covers {len(filtered_map)} source files (built in {elapsed_total:.1f}s)\n")
+    sys.stderr.write(f"Map covers {len(reverse_map)} source files (built in {elapsed_total:.1f}s)\n")
 
-    return {k: sorted(v) for k, v in sorted(filtered_map.items())}, len(test_modules)
+    return {k: sorted(v) for k, v in sorted(reverse_map.items())}, len(test_modules)
 
 
 def output_full(reason: str) -> None:
@@ -306,8 +297,6 @@ def estimate_duration(test_files: list[str]) -> float:
 
 
 def main():
-    import argparse
-
     os.chdir(REPO_ROOT)
 
     parser = argparse.ArgumentParser(
