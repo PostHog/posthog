@@ -1113,6 +1113,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // save — so it may skip this tab when it already has a different view.
                 if (savedQuery && values.activeTab) {
                     actions.updateTab({ ...values.activeTab, view: savedQuery })
+                    actions.syncUrlWithQuery()
                 }
 
                 if (materializeAfterSave && savedQuery) {

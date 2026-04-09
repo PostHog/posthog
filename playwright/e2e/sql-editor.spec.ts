@@ -9,7 +9,9 @@ test.describe('SQL Editor', () => {
         test('See SQL Editor', async ({ page }) => {
             await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
             await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
-            await expect(page.locator('.scene-name h1 span').getByText('New SQL query', { exact: true })).toBeVisible()
+            await expect(
+                page.locator('[data-attr=scene-name]').getByText('New SQL query', { exact: true })
+            ).toBeVisible()
         })
 
         test('Add source link', async ({ page }) => {
@@ -57,7 +59,9 @@ test.describe('SQL Editor', () => {
 
             // Wait for the success message which confirms the API call completed
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible()
+            await expect(
+                page.locator('[data-attr=scene-name]').getByText(uniqueViewName, { exact: true })
+            ).toBeVisible()
         })
 
         test('Materialize view pane', async ({ page }) => {
