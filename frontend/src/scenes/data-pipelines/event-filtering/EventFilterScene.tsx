@@ -293,8 +293,8 @@ export function EventFilterScene(): JSX.Element {
                                     showValidation={showFilterFormErrors}
                                 />
                             </div>
-                            {showFilterFormErrors && filterFormErrors.filter_tree && (
-                                <div className="text-danger text-sm mt-1">{filterFormErrors.filter_tree}</div>
+                            {showFilterFormErrors && filterFormErrors.mode && (
+                                <div className="text-danger text-sm mt-1">{filterFormErrors.mode}</div>
                             )}
                             <DragOverlay>
                                 {activeNode ? (

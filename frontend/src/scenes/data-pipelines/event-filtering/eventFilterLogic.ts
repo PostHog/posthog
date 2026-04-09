@@ -1,3 +1,56 @@
+/**
+ * Kea logic for the event filtering scene.
+ *
+ * Manages a singleton per-team event filter config: a boolean expression tree
+ * that determines which events to drop at ingestion time.
+ *
+ * ## User actions → logic flow
+ *
+ * ### Filter tree editor
+ *
+ * The tree editor renders the filter as nested AND/OR groups with condition
+ * rows. Each group and condition receives a `path` prop (TreePath) that
+ * identifies its position in the tree.
+ *
+ *   - Change field/operator/value → `updateTreeNode(path, newNode)`
+ *   - Toggle AND ↔ OR → `updateTreeNode(path, { type: newType, children })`
+ *   - "Add condition" → `addChild(path)`
+ *   - "Add group" → `updateTreeNode(path, { ...node, children: [..., newGroup] })`
+ *   - Trash icon → `removeChild(parentPath, childIndex)`
+ *   - "Negate" → `wrapInNot(path)`
+ *   - "Remove NOT" → `unwrapNot(path)`
+ *
+ * ### Drag and drop
+ *
+ * Users can drag conditions and groups to reorder or move between groups.
+ * DnD is handled in the scene component using @dnd-kit, not through kea actions:
+ *   - Reorder within same group → arrayMove + `updateTreeNode`
+ *   - Move between groups → deep-clone, splice, `setFilterFormValue`
+ *   - Drop into own descendant is blocked
+ *
+ * ### Mode selector
+ *
+ *   - Change disabled/dry_run/live → `setFilterFormValue('mode', value)`
+ *   - Blocked from 'live' if test cases are failing
+ *
+ * ### Test cases
+ *
+ *   - "Add test case" → `addTestCase()`
+ *   - Edit fields → `updateTestCase(index, updates)`
+ *   - Trash → `removeTestCase(index)`
+ *   - Pass/fail badges update via `testResults` selector (client-side evaluation)
+ *
+ * ### Save
+ *
+ *   - "Save" → `submitFilterForm()` → validation → POST to event_filter/ (upsert)
+ *   - If 'live' but tests fail, auto-downgrades to 'dry_run'
+ *
+ * ## Evaluation parity
+ *
+ * evaluateFilterTree runs client-side for test case preview. Equivalent
+ * implementations exist in the Django model (validation on save) and
+ * the Node.js ingestion pipeline (runtime filtering).
+ */
 import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
@@ -13,7 +66,10 @@ import type { eventFilterLogicType } from './eventFilterLogicType'
 export const EVENT_FILTER_MAX_CONDITIONS = 20
 export const EVENT_FILTER_MAX_DEPTH = 5
 
-// Tree node types
+// --- Filter tree types ---
+// Recursive discriminated union. Mirrors the JSON schema stored in Postgres
+// and the Zod schema in nodejs/src/ingestion/common/event-filters/schema.ts.
+
 export type FilterNode = FilterConditionNode | FilterAndNode | FilterOrNode | FilterNotNode
 
 export interface FilterConditionNode {
@@ -65,7 +121,14 @@ const DEFAULT_FORM: EventFilterFormValues = {
     test_cases: [],
 }
 
-/** Evaluate a filter tree against a test event. Returns true if the event should be dropped. */
+// --- Pure functions (shared across 3 implementations) ---
+
+/**
+ * Evaluate a filter tree against a test event. Returns true if the event should be dropped.
+ *
+ * Safety: empty AND/OR groups return false (never drop). This is intentional —
+ * dropping is irreversible, so we err on the side of not dropping.
+ */
 export function evaluateFilterTree(node: FilterNode, event: Record<string, string>): boolean {
     switch (node.type) {
         case 'condition': {
@@ -82,6 +145,7 @@ export function evaluateFilterTree(node: FilterNode, event: Record<string, strin
             return false
         }
         case 'and':
+            // Guard: [].every() is true in JS, which would drop everything
             return node.children.length > 0 && node.children.every((child) => evaluateFilterTree(child, event))
         case 'or':
             return node.children.some((child) => evaluateFilterTree(child, event))
@@ -90,7 +154,7 @@ export function evaluateFilterTree(node: FilterNode, event: Record<string, strin
     }
 }
 
-/** Check if a filter tree contains at least one condition leaf */
+/** Returns true if the tree contains at least one condition leaf. */
 export function treeHasConditions(node: FilterNode): boolean {
     switch (node.type) {
         case 'condition':
@@ -103,7 +167,7 @@ export function treeHasConditions(node: FilterNode): boolean {
     }
 }
 
-/** Check that all condition leaves have non-empty values */
+/** Returns true if any condition leaf has an empty or whitespace-only value. */
 export function treeHasEmptyValues(node: FilterNode): boolean {
     switch (node.type) {
         case 'condition':
@@ -116,9 +180,21 @@ export function treeHasEmptyValues(node: FilterNode): boolean {
     }
 }
 
-/** A path step is either a numeric index into children[] or 'child' for NOT nodes. */
+// --- Immutable tree updates ---
+
+/**
+ * Path into a filter tree. Numbers index into AND/OR children arrays,
+ * 'child' navigates into a NOT node's inner child.
+ * E.g. [0, 'child', 1] = "root.children[0].child.children[1]"
+ */
 export type TreePath = ('child' | number)[]
 
+/**
+ * Immutable deep update of a filter tree node at the given path.
+ * Shallow-copies only the nodes along the path; unchanged subtrees
+ * are shared by reference. Returns the node unchanged if the path
+ * doesn't match the tree structure (e.g. numeric step on a NOT node).
+ */
 export function updateAtPath(node: FilterNode, path: TreePath, updater: (node: FilterNode) => FilterNode): FilterNode {
     if (path.length === 0) {
         return updater(node)
@@ -136,24 +212,32 @@ export function updateAtPath(node: FilterNode, path: TreePath, updater: (node: F
     return node
 }
 
+// --- Kea logic ---
+
 export const eventFilterLogic = kea<eventFilterLogicType>([
     path(['scenes', 'data-pipelines', 'event-filtering', 'eventFilterLogic']),
+
     actions({
+        // Tree manipulation — each takes a path to the target node
         updateTreeNode: (pathKeys: TreePath, node: FilterNode) => ({ pathKeys, node }),
         wrapInNot: (pathKeys: TreePath) => ({ pathKeys }),
         unwrapNot: (pathKeys: TreePath) => ({ pathKeys }),
         addChild: (pathKeys: TreePath) => ({ pathKeys }),
         removeChild: (pathKeys: TreePath, childIndex: number) => ({ pathKeys, childIndex }),
         convertToGroup: (pathKeys: TreePath, groupType: 'and' | 'or') => ({ pathKeys, groupType }),
+        // Test case management
         addTestCase: true,
         removeTestCase: (index: number) => ({ index }),
         updateTestCase: (index: number, updates: Partial<TestCase>) => ({ index, updates }),
     }),
+
     forms(({ values }) => ({
         filterForm: {
             defaults: DEFAULT_FORM,
             errors: ({ filter_tree, mode }: EventFilterFormValues) => ({
-                filter_tree: (() => {
+                // Validation errors go on `mode` (a string field) rather than `filter_tree`
+                // because kea-forms expects errors on object fields to be DeepPartialMap, not strings.
+                mode: (() => {
                     if (mode !== 'disabled' && !treeHasConditions(filter_tree)) {
                         return 'Filter must have at least one condition to be activated'
                     }
@@ -166,7 +250,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             submit: async (formValues) => {
                 const { currentTeamId } = values
 
-                // Force-disable if tests are failing
+                // Safety: downgrade to dry_run if tests are failing
                 if (formValues.mode === 'live' && !values.allTestsPass && formValues.test_cases.length > 0) {
                     formValues = { ...formValues, mode: 'dry_run' }
                 }
@@ -176,8 +260,11 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             },
         },
     })),
+
     selectors({
         currentTeamId: [() => [teamLogic.selectors.currentTeamId], (id: number) => id],
+
+        /** Run each test case against the current tree client-side for live preview. */
         testResults: [
             (s) => [s.filterForm],
             (form: EventFilterFormValues): TestResult[] =>
@@ -190,11 +277,14 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     return { actual, pass: actual === tc.expected_result }
                 }),
         ],
+
+        /** True if there are no test cases or all pass. Gates the live mode toggle. */
         allTestsPass: [
             (s) => [s.testResults, s.filterForm],
             (results: TestResult[], form: EventFilterFormValues): boolean =>
                 form.test_cases.length === 0 || results.every((r) => r.pass),
         ],
+
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -206,6 +296,9 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             ],
         ],
     }),
+
+    // Each listener produces a new immutable tree and updates the form.
+    // All tree mutations go through updateAtPath to preserve structural sharing.
     listeners(({ actions, values }) => ({
         updateTreeNode: ({ pathKeys, node }) => {
             const newTree = updateAtPath(values.filterForm.filter_tree, pathKeys, () => node)
@@ -284,6 +377,8 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             actions.setFilterFormValue('test_cases', newCases)
         },
     })),
+
+    // Load existing config from the API on mount
     afterMount(({ actions, values }) => {
         const { currentTeamId } = values
         api.get(`api/environments/${currentTeamId}/event_filter/`).then((data) => {
