@@ -96,32 +96,43 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
     selectors(({ props }) => ({
         filteredTemplates: [
             (s) => [s.allTemplates],
-            (raw) => filterTemplatesByAvailability(raw, props.availabilityContexts),
+            (raw: DashboardTemplateType[]) => filterTemplatesByAvailability(raw, props.availabilityContexts),
         ],
         showBlankTile: [() => [], () => computeShowBlankTile(props.availabilityContexts)],
-        teamTemplates: [(s) => [s.filteredTemplates], (visible) => visible.filter(isTeamTemplate)],
-        officialTemplates: [(s) => [s.filteredTemplates], (visible) => visible.filter((t) => !isTeamTemplate(t))],
-        featuredTemplates: [(s) => [s.officialTemplates], (official) => official.filter((t) => t.is_featured === true)],
+        teamTemplates: [
+            (s) => [s.filteredTemplates],
+            (visible: DashboardTemplateType[]) => visible.filter(isTeamTemplate),
+        ],
+        officialTemplates: [
+            (s) => [s.filteredTemplates],
+            (visible: DashboardTemplateType[]) => visible.filter((t) => !isTeamTemplate(t)),
+        ],
+        featuredTemplates: [
+            (s) => [s.officialTemplates],
+            (official: DashboardTemplateType[]) => official.filter((t) => t.is_featured === true),
+        ],
         nonFeaturedOfficial: [
             (s) => [s.officialTemplates],
-            (official) => official.filter((t) => t.is_featured !== true),
+            (official: DashboardTemplateType[]) => official.filter((t) => t.is_featured !== true),
         ],
-        hasActiveFilter: [(s) => [s.templateFilter], (filterText) => filterText.trim().length > 0],
+        hasActiveFilter: [(s) => [s.templateFilter], (filterText: string) => filterText.trim().length > 0],
         showDashedEmptyState: [
             (s) => [s.allTemplatesLoading, s.filteredTemplates],
-            (loading, visible) => !loading && visible.length === 0,
+            (loading: boolean, visible: DashboardTemplateType[]) => !loading && visible.length === 0,
         ],
         showOfficialGrid: [
             (s) => [s.allTemplatesLoading, s.officialTemplates],
-            (loading, official) => loading || official.length > 0,
+            (loading: boolean, official: DashboardTemplateType[]) => loading || official.length > 0,
         ],
         allMatchesInFeaturedSection: [
             (s) => [s.nonFeaturedOfficial, s.featuredTemplates],
-            (nonFeatured, featured) => nonFeatured.length === 0 && featured.length > 0,
+            (nonFeatured: DashboardTemplateType[], featured: DashboardTemplateType[]) =>
+                nonFeatured.length === 0 && featured.length > 0,
         ],
         showOfficialSection: [
             (s) => [s.allTemplatesLoading, s.allMatchesInFeaturedSection, s.nonFeaturedOfficial],
-            (loading, allMatchesPopular, nonFeatured) => loading || allMatchesPopular || nonFeatured.length > 0,
+            (loading: boolean, allMatchesPopular: boolean, nonFeatured: DashboardTemplateType[]) =>
+                loading || allMatchesPopular || nonFeatured.length > 0,
         ],
     })),
     listeners(({ actions, values, props }) => ({

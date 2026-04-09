@@ -92,9 +92,11 @@ class CustomerDashboardTemplateWritePermission(BasePermission):
             return True
         organization = get_organization_from_view(view)
         org_id = str(organization.id)
+        user_orm = cast(User, user)
+        distinct_id = user_orm.distinct_id or str(user_orm.uuid)
         if not posthoganalytics.feature_enabled(
             CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG,
-            cast(User, user).distinct_id,
+            distinct_id,
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
             only_evaluate_locally=False,
