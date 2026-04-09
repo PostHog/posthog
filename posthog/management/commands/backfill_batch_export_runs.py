@@ -22,6 +22,13 @@ COVERED_STATUSES = [
 ]
 
 
+def ensure_aware(dt: datetime) -> datetime:
+    """Treat naive datetimes as UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def format_export(export: BatchExport) -> str:
     return f"{export.id} (interval={export.interval}, destination={export.destination.type}, team_id={export.team_id})"
 
@@ -210,13 +217,6 @@ class Command(BaseCommand):
             ),
         )
 
-    @staticmethod
-    def _ensure_aware(dt: datetime) -> datetime:
-        """Treat naive datetimes as UTC."""
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=UTC)
-        return dt
-
     def _resolve_window(self, options: dict) -> tuple[datetime, datetime]:
         has_start = options["start"] is not None
         has_end = options["end"] is not None
@@ -232,8 +232,8 @@ class Command(BaseCommand):
         now = timezone.now()
 
         if has_start:
-            start = self._ensure_aware(options["start"])
-            end = self._ensure_aware(options["end"]) if has_end else now
+            start = ensure_aware(options["start"])
+            end = ensure_aware(options["end"]) if has_end else now
             if start >= end:
                 raise CommandError("--start must be before --end")
             return start, end
@@ -349,7 +349,8 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(
-            f"\nChecking {len(exports)} batch export(s) for missing runs ({start.isoformat()} to {end.isoformat()})"
+            f"\nChecking {len(exports)} batch export(s) for missing runs ({start.isoformat()} to {end.isoformat()})",
+            ending="\n\n",
         )
 
         missing_by_export = find_missing_intervals(exports, start, end)
@@ -359,7 +360,7 @@ class Command(BaseCommand):
             return
 
         total_missing = sum(len(m) for _, m in missing_by_export)
-        self.stdout.write(f"\nFound {total_missing} missing interval(s) across {len(missing_by_export)} export(s):")
+        self.stdout.write(f"Found {total_missing} missing interval(s) across {len(missing_by_export)} export(s):")
         preview_limit = 10
         for export, intervals in missing_by_export[:preview_limit]:
             first_start = intervals[0][0].isoformat()
@@ -387,5 +388,5 @@ class Command(BaseCommand):
 
         if not options["dry_run"]:
             self.stdout.write(
-                self.style.SUCCESS(f"Backfill complete: {total_backfills} backfills, {failures} failures")
+                self.style.SUCCESS(f"\nBackfill complete: {total_backfills} backfills, {failures} failures")
             )
