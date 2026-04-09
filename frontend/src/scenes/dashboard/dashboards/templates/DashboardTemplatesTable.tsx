@@ -130,20 +130,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             ),
         },
         {
-            title: 'Insight count',
-            key: 'insight_tile_count',
-            align: 'right',
-            width: '6rem',
-            render: (_, record) => humanFriendlyNumber(countTemplateInsightTiles(record.tiles)),
-        },
-        {
-            title: 'Type',
-            dataIndex: 'team_id',
-            render: (_, { scope }) => (scope === 'global' ? 'Official' : 'Team'),
-        },
-        {
             title: 'Tags',
             key: 'tags',
+            className: 'min-w-48',
             render: (_, { tags }) => {
                 const sortedTags = tags?.length ? [...tags].sort() : []
                 if (sortedTags.length === 0) {
@@ -170,6 +159,18 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     </div>
                 )
             },
+        },
+        {
+            title: 'Insight count',
+            key: 'insight_tile_count',
+            align: 'right',
+            width: '6rem',
+            render: (_, record) => humanFriendlyNumber(countTemplateInsightTiles(record.tiles)),
+        },
+        {
+            title: 'Type',
+            dataIndex: 'team_id',
+            render: (_, { scope }) => (scope === 'global' ? 'Official' : 'Team'),
         },
         {
             title: 'Created by',
