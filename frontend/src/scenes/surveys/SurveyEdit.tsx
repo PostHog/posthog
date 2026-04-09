@@ -44,7 +44,7 @@ import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/Sur
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
-import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
+import { sanitizeSurveyAppearance } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -254,7 +254,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         deleteBranchingLogic,
-        setSurveyManualErrors,
         editingSurvey,
         loadSurvey,
     } = useActions(surveyLogic)
@@ -789,15 +788,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                   ...appearance,
                                                               })
                                                               onChange(newAppearance)
-                                                              if (newAppearance) {
-                                                                  setSurveyManualErrors(
-                                                                      validateSurveyAppearance(
-                                                                          newAppearance,
-                                                                          true,
-                                                                          survey.type
-                                                                      )
-                                                                  )
-                                                              }
                                                               if (
                                                                   'surveyPopupDelaySeconds' in appearance &&
                                                                   !appearance.surveyPopupDelaySeconds &&

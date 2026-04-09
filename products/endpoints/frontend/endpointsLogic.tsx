@@ -1,9 +1,9 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 
 import { EndpointType } from '~/types'
@@ -65,7 +65,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
                     return allEndpoints
                 }
 
-                const fuse = new Fuse<EndpointType>(allEndpoints, {
+                const fuse = createFuse<EndpointType>(allEndpoints, {
                     keys: ['name', 'description', 'query.query'],
                     threshold: 0.3,
                 })

@@ -110,7 +110,7 @@ class TeamSignalGroupingV2Input:
 
 @dataclass
 class ReadSignalsFromS3Input:
-    """Activity input: read a batch of signals from S3."""
+    """Activity input for reading a signal batch."""
 
     object_key: str
 
