@@ -524,22 +524,6 @@
             "readOnlyHint": false
         }
     },
-    "conversations-tickets-suggest-reply-create": {
-        "description": "Use AI to generate a suggested reply for a support ticket based on the conversation history. Requires AI data processing to be approved for the organization.",
-        "category": "Conversations",
-        "feature": "conversations",
-        "summary": "Suggest a reply for a support ticket",
-        "title": "Suggest a reply for a support ticket",
-        "required_scopes": ["ticket:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "requires_ai_consent": true
-    },
     "dashboards-get-all": {
         "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
         "category": "Dashboards",

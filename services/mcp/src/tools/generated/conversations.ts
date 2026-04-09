@@ -7,7 +7,6 @@ import {
     ConversationsTicketsPartialUpdateBody,
     ConversationsTicketsPartialUpdateParams,
     ConversationsTicketsRetrieveParams,
-    ConversationsTicketsSuggestReplyCreateParams,
 } from '@/generated/conversations/api'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -107,29 +106,8 @@ const conversationsTicketsPartialUpdate = (): ToolBase<
     },
 })
 
-const ConversationsTicketsSuggestReplyCreateSchema = ConversationsTicketsSuggestReplyCreateParams.omit({
-    project_id: true,
-})
-
-const conversationsTicketsSuggestReplyCreate = (): ToolBase<
-    typeof ConversationsTicketsSuggestReplyCreateSchema,
-    Schemas.SuggestReplyResponse
-> => ({
-    name: 'conversations-tickets-suggest-reply-create',
-    schema: ConversationsTicketsSuggestReplyCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsSuggestReplyCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SuggestReplyResponse>({
-            method: 'POST',
-            path: `/api/projects/${projectId}/conversations/tickets/${params.id}/suggest_reply/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-partial-update': conversationsTicketsPartialUpdate,
-    'conversations-tickets-suggest-reply-create': conversationsTicketsSuggestReplyCreate,
 }

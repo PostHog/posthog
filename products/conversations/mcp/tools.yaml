@@ -72,18 +72,7 @@ tools:
             - ai_resolved
     conversations-tickets-suggest-reply-create:
         operation: conversations_tickets_suggest_reply_create
-        enabled: true
-        scopes:
-            - ticket:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Suggest a reply for a support ticket
-        description: >
-            Use AI to generate a suggested reply for a support ticket based on the conversation history. Requires AI
-            data processing to be approved for the organization.
-        requires_ai_consent: true
+        enabled: false
     conversations-tickets-create:
         operation: conversations_tickets_create
         enabled: false
