@@ -66,7 +66,7 @@ import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getVariantColor } from '../utils'
+import { getVariantColor, isLegacyExperiment } from '../utils'
 
 export function VariantTag({
     variantKey,
@@ -322,7 +322,15 @@ export function PageHeaderCustom(): JSX.Element {
                         </ButtonPrimitive>
 
                         {hasMultipleProjects && (
-                            <ButtonPrimitive menuItem onClick={() => setCopyToProjectModalOpen(true)}>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => setCopyToProjectModalOpen(true)}
+                                disabledReason={
+                                    isLegacyExperiment(experiment)
+                                        ? 'Copying is not supported for experiments using legacy metrics.'
+                                        : undefined
+                                }
+                            >
                                 <IconCopy />
                                 Copy to project
                             </ButtonPrimitive>
