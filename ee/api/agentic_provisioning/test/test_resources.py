@@ -146,6 +146,28 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert stripe_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
+    def test_create_resource_with_project_name_renames_team(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "configuration": {"project_name": "My SaaS App"}},
+            token=token,
+        )
+        assert res.status_code == 200
+        self.team.refresh_from_db()
+        assert self.team.name == "My SaaS App"
+
+    def test_create_resource_without_project_name_keeps_default(self):
+        original_name = self.team.name
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        self.team.refresh_from_db()
+        assert self.team.name == original_name
+
     def test_get_resource_does_not_include_personal_api_key(self):
         token = self._get_bearer_token()
         res = self._get_signed_with_bearer(
