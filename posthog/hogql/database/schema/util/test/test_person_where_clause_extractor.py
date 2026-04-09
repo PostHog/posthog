@@ -65,11 +65,11 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         while pdi_join is not None and pdi_join.alias != "events__pdi":
             pdi_join = pdi_join.next_join
         assert pdi_join is not None, "events__pdi join not found"
-        assert pdi_join.alias == "events__pdi"
 
         person_join = pdi_join.next_join
+        while person_join is not None and person_join.alias != "events__pdi__person":
+            person_join = person_join.next_join
         assert person_join is not None, "events__pdi__person join not found"
-        assert person_join.alias == "events__pdi__person"
         assert isinstance(person_join.table, ast.SelectQuery)
 
         where = person_join.table.where

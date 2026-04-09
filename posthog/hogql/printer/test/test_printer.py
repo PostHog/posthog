@@ -2353,7 +2353,7 @@ class TestPrinter(BaseTest):
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
-        assert trace_param_key is not None, "Expected 'trace123' to be recorded as a parameter value"
+        self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
         self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
