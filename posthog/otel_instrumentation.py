@@ -1,4 +1,5 @@
 import os
+import typing
 import logging
 
 import structlog
@@ -85,54 +86,11 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        try:
-            DjangoInstrumentor().instrument(
-                tracer_provider=provider,
-                request_hook=_otel_django_request_hook,
-                response_hook=_otel_django_response_hook,
-            )
-            logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            RedisInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
-            logger.info(
-                "otel_instrumentation_attempt",
-                instrumentor="PsycopgInstrumentor",
-                status="success",
-                note="SQLCommenter enabled for diagnostics",
-            )
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            KafkaInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            AIOKafkaInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
-            )
+        instrument_django(provider)
+        instrument_redis(provider)
+        instrument_psycopg(provider)
+        instrument_kafka(provider)
+        instrument_aiokafka(provider)
 
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
@@ -145,3 +103,63 @@ def initialize_otel():
             status="disabled",
             reason="OTEL_SDK_DISABLED environment variable is set to true",
         )
+
+
+def instrument_django(provider: TracerProvider):
+    try:
+        DjangoInstrumentor().instrument(
+            tracer_provider=provider,
+            request_hook=_otel_django_request_hook,
+            response_hook=_otel_django_response_hook,
+        )
+        logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_redis(provider: TracerProvider):
+    try:
+        RedisInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)
+
+
+def instrument_psycopg(provider: TracerProvider):
+    try:
+        PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
+        logger.info(
+            "otel_instrumentation_attempt",
+            instrumentor="PsycopgInstrumentor",
+            status="success",
+            note="SQLCommenter enabled for diagnostics",
+        )
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e)
+
+
+def instrument_kafka(provider: TracerProvider):
+    try:
+        KafkaInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e)
+
+
+def instrument_aiokafka(provider: TracerProvider):
+    try:
+        AIOKafkaInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
+        )
+
+
+INSTRUMENTORS: dict[str, typing.Callable[[TracerProvider], None]] = {
+    "django": instrument_django,
+    "psycopg": instrument_psycopg,
+    "redis": instrument_redis,
+    "kafka": instrument_kafka,
+    "aiokafka": instrument_aiokafka,
+}
