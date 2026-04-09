@@ -2399,8 +2399,8 @@ export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags
     search?: string
-    /** When set, sort by template name (not searching). Omit for server default order. Ignored when `search` is set. */
-    ordering?: 'template_name' | '-template_name'
+    /** When set, sort (not searching). Omit for server default order. Ignored when `search` is set. */
+    ordering?: 'template_name' | '-template_name' | 'created_at' | '-created_at'
     /** When true, only curated featured templates. When false, only non-featured. */
     is_featured?: boolean
 }

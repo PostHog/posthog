@@ -5,6 +5,7 @@ import { actionToUrl } from 'kea-router'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -33,13 +34,16 @@ export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
 
 export type DashboardTemplatesTabVisibility = 'all' | 'official' | 'project'
 
+/** List sort for the templates table (passed through to API when not searching). */
+export type DashboardTemplateTableOrdering = '' | 'template_name' | '-template_name' | 'created_at' | '-created_at'
+
 /**
  * Mixed template lists (project + official): project-scoped rows first, then global/official.
- * Respects name column order when set; otherwise featured first, then A–Z by name (matches API defaults within each bucket).
+ * Respects active table ordering when set; otherwise featured first, then A–Z by name (matches API defaults within each bucket).
  */
 function sortTemplatesTeamScopeBeforeOfficial(
     templates: DashboardTemplateType[],
-    nameOrdering: '' | 'template_name' | '-template_name'
+    ordering: DashboardTemplateTableOrdering
 ): DashboardTemplateType[] {
     const officialRank = (t: DashboardTemplateType): number => (t.scope === 'global' ? 1 : 0)
 
@@ -48,10 +52,15 @@ function sortTemplatesTeamScopeBeforeOfficial(
         if (scopeDiff !== 0) {
             return scopeDiff
         }
-        if (nameOrdering === 'template_name' || nameOrdering === '-template_name') {
+        if (ordering === 'template_name' || ordering === '-template_name') {
             const na = (a.template_name || '').toLowerCase()
             const nb = (b.template_name || '').toLowerCase()
-            return nameOrdering === '-template_name' ? nb.localeCompare(na) : na.localeCompare(nb)
+            return ordering === '-template_name' ? nb.localeCompare(na) : na.localeCompare(nb)
+        }
+        if (ordering === 'created_at' || ordering === '-created_at') {
+            const ta = dayjs(a.created_at || 0).valueOf()
+            const tb = dayjs(b.created_at || 0).valueOf()
+            return ordering === '-created_at' ? tb - ta : ta - tb
         }
         const fa = a.is_featured === true ? 1 : 0
         const fb = b.is_featured === true ? 1 : 0
@@ -88,7 +97,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
         setTemplateFilter: (search: string) => ({ search }),
-        setTemplateNameOrdering: (ordering: '' | 'template_name' | '-template_name') => ({ ordering }),
+        setTemplateNameOrdering: (ordering: DashboardTemplateTableOrdering) => ({ ordering }),
         setTemplatesTabVisibility: (visibility: DashboardTemplatesTabVisibility) => ({ visibility }),
     }),
     reducers({
@@ -101,7 +110,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             },
         ],
         templateNameOrdering: [
-            '' as '' | 'template_name' | '-template_name',
+            '' as DashboardTemplateTableOrdering,
             {
                 setTemplateNameOrdering: (_, { ordering }) => ordering,
             },

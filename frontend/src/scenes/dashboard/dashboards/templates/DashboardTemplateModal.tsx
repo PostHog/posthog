@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -136,11 +136,13 @@ export function DashboardTemplateModal(): JSX.Element | null {
                     </div>
                     <div>
                         <label className="font-semibold text-sm">Description</label>
-                        <LemonInput
+                        <LemonTextArea
                             value={dashboardDescription}
                             onChange={setDashboardDescription}
                             placeholder="What this template is for"
-                            fullWidth
+                            minRows={3}
+                            maxRows={8}
+                            maxLength={400}
                             disabled={saving}
                             data-attr="dashboard-template-description"
                         />

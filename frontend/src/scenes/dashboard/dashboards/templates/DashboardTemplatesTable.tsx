@@ -7,8 +7,9 @@ import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@pos
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
+import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -25,7 +26,7 @@ const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default', template
 
 const POPULAR_TEMPLATE_TOOLTIP = 'One of our most popular templates'
 
-/** Matches backend: global scope + no team means the template is org-wide only and cannot be made team-private. */
+/** Global template with no owning team (PostHog built-ins). Staff may still narrow to the current team via API; used here for delete restrictions. */
 function isBuiltInOfficialTemplate(record: Pick<DashboardTemplateType, 'scope' | 'team_id'>): boolean {
     return record.scope === 'global' && record.team_id == null
 }
@@ -67,16 +68,24 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         useValues(templatesTableLogic)
     const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility } = useActions(templatesTableLogic)
 
-    const nameSorting: Sorting | null = useMemo(
-        () =>
-            !templateNameOrdering
-                ? null
-                : {
-                      columnKey: 'template_name',
-                      order: templateNameOrdering === '-template_name' ? -1 : 1,
-                  },
-        [templateNameOrdering]
-    )
+    const tableSorting: Sorting | null = useMemo(() => {
+        if (!templateNameOrdering) {
+            return null
+        }
+        if (templateNameOrdering === 'template_name' || templateNameOrdering === '-template_name') {
+            return {
+                columnKey: 'template_name',
+                order: templateNameOrdering === '-template_name' ? -1 : 1,
+            }
+        }
+        if (templateNameOrdering === 'created_at' || templateNameOrdering === '-created_at') {
+            return {
+                columnKey: 'created_at',
+                order: templateNameOrdering === '-created_at' ? -1 : 1,
+            }
+        }
+        return null
+    }, [templateNameOrdering])
 
     const { deleteDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
     const { openEdit: openDashboardTemplateModalEdit } = useActions(dashboardTemplateModalLogic)
@@ -115,9 +124,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Description',
             dataIndex: 'dashboard_description',
-            render: (_, { dashboard_description }) => {
-                return <>{dashboard_description}</>
-            },
+            className: 'min-w-[400px] align-top',
+            render: (_, { dashboard_description }) => (
+                <div className="max-w-3xl break-words">{dashboard_description}</div>
+            ),
         },
         {
             title: 'Insight count',
@@ -125,6 +135,11 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             align: 'right',
             width: '6rem',
             render: (_, record) => humanFriendlyNumber(countTemplateInsightTiles(record.tiles)),
+        },
+        {
+            title: 'Type',
+            dataIndex: 'team_id',
+            render: (_, { scope }) => (scope === 'global' ? 'Official' : 'Team'),
         },
         {
             title: 'Tags',
@@ -157,16 +172,18 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             },
         },
         {
-            title: 'Type',
-            dataIndex: 'team_id',
-            render: (_, { scope }) => (scope === 'global' ? 'Official' : 'Team'),
-        },
-        {
             title: 'Created by',
             key: 'created_by',
             render: (_, record) => {
                 if (record.scope === 'global') {
-                    return <span>PostHog</span>
+                    return (
+                        <div className="flex flex-row flex-nowrap items-center gap-1.5">
+                            <span aria-hidden className="text-base leading-none">
+                                🦔
+                            </span>
+                            <span>PostHog</span>
+                        </div>
+                    )
                 }
                 const { created_by } = record
                 return (
@@ -181,14 +198,16 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             },
             sorter: (a, b) => createdBySortKey(a).localeCompare(createdBySortKey(b)),
         },
+        atColumn<DashboardTemplateType>(
+            'created_at',
+            'Created',
+            (record) => record.created_at ?? undefined
+        ) as LemonTableColumn<DashboardTemplateType, keyof DashboardTemplateType | undefined>,
         {
             width: 0,
             render: (_, record: DashboardTemplateType) => {
                 const { id, scope } = record
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
-                const makePrivateDisabledReason = builtInOfficial
-                    ? 'Built-in official templates cannot be made team-only'
-                    : undefined
 
                 if (user?.is_staff) {
                     return (
@@ -221,7 +240,6 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                             })
                                         }}
                                         fullWidth
-                                        disabledReason={makePrivateDisabledReason}
                                     >
                                         Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                     </LemonButton>
@@ -348,13 +366,18 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 dataSource={Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}
-                sorting={nameSorting}
+                sorting={tableSorting}
                 onSort={(newSorting) => {
                     if (!newSorting) {
                         setTemplateNameOrdering('')
                         return
                     }
-                    setTemplateNameOrdering(newSorting.order === 1 ? 'template_name' : '-template_name')
+                    const ascending = newSorting.order === 1
+                    if (newSorting.columnKey === 'template_name') {
+                        setTemplateNameOrdering(ascending ? 'template_name' : '-template_name')
+                    } else if (newSorting.columnKey === 'created_at') {
+                        setTemplateNameOrdering(ascending ? 'created_at' : '-created_at')
+                    }
                 }}
                 useURLForSorting={false}
                 emptyState={<>There are no dashboard templates.</>}

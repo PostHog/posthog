@@ -43,9 +43,13 @@ dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_templ
 
 
 def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
-    """Featured rows first, then case-insensitive alphabetical by `template_name` (or Z–A when `ordering=-template_name`)."""
+    """Featured rows first, then order by `template_name` or `created_at` (when `ordering` requests it)."""
     if ordering == "-template_name":
         return ["-is_featured", OrderBy(Lower("template_name"), descending=True)]
+    if ordering == "created_at":
+        return ["-is_featured", "created_at"]
+    if ordering == "-created_at":
+        return ["-is_featured", "-created_at"]
     return ["-is_featured", Lower("template_name")]
 
 
@@ -188,9 +192,18 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             self._handle_integrity_error(exc)
 
     def update(self, instance: DashboardTemplate, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
-        # if the original request was to make the template scope to team only, and the template is none then deny the request
-        if validated_data.get("scope") == "team" and instance.scope == "global" and not instance.team_id:
-            raise ValidationError(detail="The original templates cannot be made private as they would be lost.")
+        # Staff: built-in globals (team_id=null) become team-scoped to the project issuing the PATCH.
+        if self._request_user_is_staff():
+            scope_to = validated_data.get("scope")
+            if (
+                scope_to in (DashboardTemplate.Scope.ONLY_TEAM, "team")
+                and instance.scope == DashboardTemplate.Scope.GLOBAL
+                and instance.team_id is None
+            ):
+                context_team_id = self.context.get("team_id")
+                if context_team_id is None:
+                    raise ValidationError(detail="Cannot set team scope without a project context.")
+                validated_data["team_id"] = context_team_id
 
         if not self._request_user_is_staff():
             validated_data.pop("scope", None)
@@ -218,11 +231,12 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Optional. When not using `search`, results are sorted with featured templates first "
-                    "(`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). "
+                    "(`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) "
+                    "or by `created_at` (`-created_at` for newest first). "
                     "When `search` is set, order is featured first, then relevance rank, then case-insensitive name "
                     "for ties."
                 ),
-                enum=["template_name", "-template_name"],
+                enum=["template_name", "-template_name", "created_at", "-created_at"],
             ),
             OpenApiParameter(
                 "is_featured",

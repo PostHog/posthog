@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest
@@ -269,6 +270,31 @@ class TestDashboardTemplates(APIBaseTest):
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
         assert get_template_from_response(get_updated_response, id)["scope"] == "team"
+
+    def test_staff_can_narrow_built_in_style_global_template_to_current_team(self) -> None:
+        tpl = DashboardTemplate.objects.create(
+            team_id=None,
+            scope=DashboardTemplate.Scope.GLOBAL,
+            template_name="Staff narrow global null-team fixture",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tpl.id}",
+            {"scope": "team"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response
+        body = response.json()
+        assert body["scope"] == "team"
+        assert body["team_id"] == self.team.pk
+
+        tpl.refresh_from_db()
+        assert tpl.scope == DashboardTemplate.Scope.ONLY_TEAM
+        assert tpl.team_id == self.team.pk
 
     def test_non_staff_cannot_make_dashboard_template_public(self) -> None:
         response = self.client.post(
@@ -608,6 +634,26 @@ class TestDashboardTemplates(APIBaseTest):
         results = response.json()["results"]
         assert len(results) == 2
         assert [r["template_name"] for r in results] == expected_names
+
+    def test_ordering_by_created_at_when_listing_templates_without_search(self) -> None:
+        DashboardTemplate.objects.all().delete()
+
+        older_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Older", "is_featured": False}
+        )
+        newer_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "Newer", "is_featured": False}
+        )
+        DashboardTemplate.objects.filter(id=older_id).update(created_at=datetime(2020, 6, 1, 12, 0, 0, tzinfo=UTC))
+        DashboardTemplate.objects.filter(id=newer_id).update(created_at=datetime(2021, 6, 1, 12, 0, 0, tzinfo=UTC))
+
+        asc_resp = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering=created_at")
+        assert asc_resp.status_code == status.HTTP_200_OK
+        assert [r["template_name"] for r in asc_resp.json()["results"]] == ["Older", "Newer"]
+
+        desc_resp = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?ordering=-created_at")
+        assert desc_resp.status_code == status.HTTP_200_OK
+        assert [r["template_name"] for r in desc_resp.json()["results"]] == ["Newer", "Older"]
 
     def test_default_ordering_when_listing_templates(self) -> None:
         DashboardTemplate.objects.all().delete()
