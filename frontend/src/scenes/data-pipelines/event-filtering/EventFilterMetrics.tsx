@@ -1,55 +1,24 @@
 import { useValues } from 'kea'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
-
+import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
-import { appMetricsLogic, AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
-
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { ChartDisplayType } from '~/types'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 const EVENT_FILTER_METRIC_KEYS = ['dropped', 'would_be_dropped'] as const
 
-function CompactMetricsChart({
-    data,
-    loading,
-}: {
-    data: AppMetricsTimeSeriesResponse | null
-    loading: boolean
-}): JSX.Element {
-    return (
-        <div className="relative border rounded h-52">
-            {loading ? (
-                <SpinnerOverlay />
-            ) : !data ? (
-                <div className="flex-1 flex items-center justify-center text-muted text-sm">No data</div>
-            ) : (
-                <LineGraph
-                    className="p-2"
-                    xData={{
-                        column: {
-                            name: 'date',
-                            type: { name: 'DATE', isNumerical: false },
-                            label: 'Date',
-                            dataIndex: 0,
-                        },
-                        data: data.labels,
-                    }}
-                    yData={data.series.map((x) => ({
-                        column: {
-                            name: x.name,
-                            type: { name: 'INTEGER', isNumerical: true },
-                            label: x.name,
-                            dataIndex: 0,
-                        },
-                        data: x.values,
-                    }))}
-                    visualizationType={ChartDisplayType.ActionsLineGraph}
-                    chartSettings={{ showLegend: true, showTotalRow: false }}
-                />
-            )}
-        </div>
-    )
+const EVENT_FILTER_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    dropped: {
+        name: 'Dropped',
+        description: 'Approximate number of events dropped by the filter in live mode',
+        color: getColorVar('danger'),
+    },
+    would_be_dropped: {
+        name: 'Would be dropped',
+        description: 'Approximate number of events that matched the filter in dry run mode (not actually dropped)',
+        color: getColorVar('warning'),
+    },
 }
 
 export function EventFilterMetrics({ filterId }: { filterId: string | null }): JSX.Element | null {
@@ -69,19 +38,34 @@ export function EventFilterMetrics({ filterId }: { filterId: string | null }): J
           })
         : null
 
-    const { appMetricsTrends, appMetricsTrendsLoading } = useValues(logic ?? appMetricsLogic({ logicKey: 'noop' }))
+    const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(
+        logic ?? appMetricsLogic({ logicKey: 'noop' })
+    )
 
     if (!filterId) {
         return null
     }
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between">
-                <label className="font-semibold">Metrics</label>
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row gap-2 flex-wrap justify-end">
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
-            <CompactMetricsChart data={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <div className="flex flex-row gap-2 flex-wrap justify-center">
+                {EVENT_FILTER_METRIC_KEYS.map((key) => (
+                    <AppMetricSummary
+                        key={key}
+                        name={EVENT_FILTER_METRICS_INFO[key].name}
+                        description={EVENT_FILTER_METRICS_INFO[key].description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={EVENT_FILTER_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
+                    />
+                ))}
+            </div>
+            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
             <p className="text-muted text-xs">
                 These counts are approximate. The actual number of dropped events may differ by a small percentage.
             </p>
