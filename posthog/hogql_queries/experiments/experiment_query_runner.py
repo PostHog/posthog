@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
@@ -22,7 +23,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -40,7 +40,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
-    get_experiment_query_sql,
+    get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
@@ -54,6 +54,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
@@ -73,6 +74,7 @@ MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
+    actors_query: Optional[ExperimentActorsQuery] = None
 
     def __init__(
         self,
@@ -215,9 +217,12 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             force_precomputation=self.force_precomputation,
+            only_count_matured_users=self.experiment.only_count_matured_users,
         )
 
-        if self.experiment.exposure_preaggregation_enabled:
+        # Skip precomputation for data warehouse metrics because the precomputed table
+        # doesn't include the join keys needed to link exposures to data warehouse tables
+        if self.experiment.exposure_preaggregation_enabled and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
@@ -235,17 +240,26 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> list[tuple]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
+        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+            experiment_metric_uuid=self.metric.uuid,
+            experiment_metric_name=metric_name,
         )
 
         experiment_query_ast = self._get_experiment_query()
-        self.hogql = to_printed_hogql(experiment_query_ast, self.team)
-        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+
+        # Tag after _get_experiment_query() which sets _is_precomputed
+        tag_queries(
+            experiment_execution_path="precomputed" if self._is_precomputed else "direct_scan",
+        )
+        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        self.hogql = experiment_query_debug[0]
+        self.clickhouse_sql = experiment_query_debug[1]
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
@@ -408,6 +422,158 @@ class ExperimentQueryRunner(QueryRunner):
                     )
 
         return variants + variants_missing
+
+    def to_actors_query(self) -> ast.SelectQuery:
+        """
+        Generate actors query for experiment funnels.
+
+        This method reuses the existing funnel actors query infrastructure by:
+        1. Creating a FunnelsQuery-like structure from the ExperimentFunnelMetric
+        2. Building a FunnelQueryContext with the experiment parameters
+        3. Delegating to FunnelUDF.actor_query() which handles all the complexity
+
+        This ensures we get the same behavior as regular funnel actors queries,
+        including proper conversion/dropoff filtering and recording support.
+
+        IMPORTANT: Exposure step exclusion
+        --------------------------------------
+        The actors query funnel does NOT include the exposure step, only metric events.
+
+        Main experiment query (calculates conversion rates):
+            - Structure: Exposure (step 0) → Metric 1 (step 1) → Metric 2 (step 2)
+            - Includes exposure to enforce temporal ordering (only count events AFTER exposure)
+            - Returns highest step reached for each exposed user
+
+        Actors query (retrieves individual users):
+            - Structure: Metric 1 (step 1) → Metric 2 (step 2) - NO exposure
+            - Queries WITHIN the already-filtered exposed population
+            - Exposure filtering is inherited through variant breakdown
+
+        Frontend-to-backend step mapping:
+            - Frontend shows: Step 0 (Exposure), Step 1 (Metric 1), Step 2 (Metric 2)
+            - Backend actors query: Step 1 (Metric 1), Step 2 (Metric 2)
+            - Frontend step index maps directly to backend step number (stepIndex = backendStepNo)
+        """
+        # Ensure actors_query is set (should be set by InsightActorsQueryRunner before calling this)
+        if self.actors_query is None:
+            raise ValidationError("actors_query must be set before calling to_actors_query()")
+
+        # Only support funnel metrics for now
+        if not isinstance(self.metric, ExperimentFunnelMetric):
+            raise ValidationError("Actors query only supported for funnel experiment metrics")
+
+        # Validate funnelStep for experiment funnels
+        # Experiment funnels have a unique structure: Exposure → Metric Events
+        # The actors query excludes exposure and only queries metric events
+        funnel_step = self.actors_query.funnelStep
+        if funnel_step is None:
+            raise ValidationError("funnelStep is required for experiment actors query")
+
+        num_metric_steps = len(self.metric.series)
+
+        if funnel_step == -1:
+            # -1 would mean "dropped before first metric step" which is invalid
+            # because we only query exposed users who are already past the exposure checkpoint
+            # Build event names string (handle both EventsNode and ActionsNode)
+            from posthog.schema import EventsNode
+
+            event_names: list[str] = []
+            for step in self.metric.series[:2]:  # Show first 2 for brevity
+                if isinstance(step, EventsNode):
+                    event_names.append(step.event or "All events")
+                else:  # ActionsNode
+                    event_names.append(f"Action {step.id}")
+
+            metric_events_str = " → ".join(event_names)
+            if len(self.metric.series) > 2:
+                metric_events_str += " → ..."
+
+            raise ValidationError(
+                f"Cannot query drop-offs before the first metric step in experiment funnels. "
+                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
+                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
+                f"which cannot be queried through the actors API. "
+                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
+            )
+
+        if funnel_step == 0:
+            raise ValidationError(
+                "Funnel steps are 1-indexed. Step 0 does not exist. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
+
+        if funnel_step < -1:
+            # Check if drop-off step is out of range
+            max_drop_off = -(num_metric_steps + 1)
+            if funnel_step < max_drop_off:
+                raise ValidationError(
+                    f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                )
+
+        if funnel_step > num_metric_steps:
+            raise ValidationError(
+                f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
+
+        # Import here to avoid circular dependencies
+        from posthog.schema import BreakdownFilter, BreakdownType, FunnelsActorsQuery, FunnelsFilter, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels import FunnelUDF
+        from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
+        # Build a FunnelsQuery from the experiment configuration
+        # This allows us to reuse all the existing funnel query infrastructure
+        # Note: We add breakdown by feature flag to enable variant filtering via funnelStepBreakdown
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            series=self.metric.series,
+            dateRange=self.date_range,
+            filterTestAccounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
+            if self.experiment.exposure_criteria
+            else False,
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=self.metric.funnel_order_type,
+                funnelWindowInterval=self.metric.conversion_window or 14,
+                funnelWindowIntervalUnit=self.metric.conversion_window_unit,
+            ),
+            # Set aggregation group type if experiment uses groups
+            aggregation_group_type_index=self.group_type_index,
+            # CRITICAL: Add breakdown by feature flag to enable filtering by variant
+            # Without this, funnelStepBreakdown won't work to filter actors by variant
+            breakdownFilter=BreakdownFilter(
+                breakdown=f"$feature/{self.feature_flag.key}",
+                breakdown_type=BreakdownType.EVENT,
+            ),
+        )
+
+        # Create a FunnelQueryContext
+        funnel_context = FunnelQueryContext(
+            query=funnels_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+        # Adapt the ExperimentActorsQuery to FunnelsActorsQuery format
+        # This maps variant filtering (funnelStepBreakdown) to the breakdown system
+        funnel_actors_query = FunnelsActorsQuery(
+            kind="FunnelsActorsQuery",
+            source=funnels_query,
+            funnelStep=self.actors_query.funnelStep,
+            funnelStepBreakdown=self.actors_query.funnelStepBreakdown,  # Variant key
+            includeRecordings=self.actors_query.includeRecordings,
+        )
+
+        # Set the actors query on the context
+        funnel_context.actorsQuery = funnel_actors_query
+
+        # Use FunnelUDF to generate the actors query
+        # This is the same code path used by regular funnel actors queries
+        funnel_udf = FunnelUDF(context=funnel_context)
+        return funnel_udf.actor_query()
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

@@ -29,11 +29,11 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
-export const LOG_GROUP_TOTAL_LOGS_LIMIT = 500
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
@@ -52,18 +52,21 @@ export type LogEntry = {
     instanceId: string
     level: LogEntryLevel
     timestamp: Dayjs
+    rawTimestamp: string
 }
 
 export type GroupedLogEntry = {
     instanceId: string
     maxTimestamp: Dayjs
+    maxRawTimestamp: string
     minTimestamp: Dayjs
+    minRawTimestamp: string
     logLevel: LogEntryLevel
     entries: LogEntry[]
 }
 
 export type LogEntryParams = {
-    sourceType: 'hog_function' | 'hog_flow'
+    sourceType: 'hog_function' | 'hog_flow' | 'data_modeling_run'
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]
@@ -75,13 +78,15 @@ export type LogEntryParams = {
 }
 
 const toKey = (log: LogEntry): string => {
-    return `${log.instanceId}-${log.level}-${log.timestamp.toISOString()}`
+    return `${log.instanceId}-${log.level}-${log.rawTimestamp}`
 }
 
 export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // TRICKY: CH query is timezone aware so we dont send iso, and we need to convert to UTC
+    // TRICKY: HogQL interprets bare timestamps as being in the team's timezone,
+    // so we must format in the team timezone (not UTC).
     // See https://github.com/PostHog/posthog/pull/45651
-    return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
+    const teamTimezone = teamLogic.findMounted()?.values.currentTeam?.timezone ?? 'UTC'
+    return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {
@@ -135,25 +140,31 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         (result): LogEntry => ({
             instanceId: result[0],
             timestamp: dayjs(result[1]),
+            rawTimestamp: result[1],
             level: result[2].toUpperCase(),
             message: result[3],
         })
     )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
+    const excludeFilter =
+        excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
+
     const query = hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1
         ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
-            SELECT DISTINCT instance_id
+            SELECT instance_id
             FROM log_entries
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ORDER BY timestamp ${hogql.raw(request.order)}
+            ${hogql.raw(excludeFilter as string)}
+            GROUP BY instance_id
+            ORDER BY max(timestamp) ${hogql.raw(request.order)}
             LIMIT ${LOG_GROUP_LIMIT}
         )
         ORDER BY timestamp DESC
@@ -175,42 +186,44 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
         (result): LogEntry => ({
             instanceId: result[0],
             timestamp: dayjs(result[1]),
+            rawTimestamp: result[1],
             level: result[2].toUpperCase(),
             message: result[3],
         })
     )
 }
 
-const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+    const sorted = [...logs].sort((a, b) =>
+        a.rawTimestamp < b.rawTimestamp ? -1 : a.rawTimestamp > b.rawTimestamp ? 1 : 0
+    )
+
     const byId: Record<string, GroupedLogEntry> = {}
     const dedupeCache = new Set<string>()
 
-    for (const log of logs) {
+    for (const log of sorted) {
         const key = toKey(log)
         if (dedupeCache.has(key)) {
             continue
         }
         dedupeCache.add(key)
-        const group = byId[log.instanceId] ?? {
+        const group = (byId[log.instanceId] ??= {
             instanceId: log.instanceId,
             maxTimestamp: log.timestamp,
+            maxRawTimestamp: log.rawTimestamp,
             minTimestamp: log.timestamp,
+            minRawTimestamp: log.rawTimestamp,
             logLevel: log.level,
             entries: [],
-        }
-        byId[log.instanceId] = group
+        })
         group.entries.push(log)
-        group.maxTimestamp = log.timestamp.isAfter(group.maxTimestamp) ? log.timestamp : group.maxTimestamp
-        group.minTimestamp = log.timestamp.isBefore(group.minTimestamp) ? log.timestamp : group.minTimestamp
-        if (ALL_LOG_LEVELS.indexOf(log.level) > ALL_LOG_LEVELS.indexOf(group.logLevel)) {
-            group.logLevel = log.level
-        }
+        // Since logs are sorted ascending, the last entry always has the max timestamp
+        group.maxTimestamp = log.timestamp
+        group.maxRawTimestamp = log.rawTimestamp
+        group.logLevel = log.level
     }
 
-    return Object.values(byId).map((group) => ({
-        ...group,
-        entries: group.entries.sort((a, b) => a.timestamp.diff(b.timestamp)),
-    }))
+    return Object.values(byId)
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
@@ -338,10 +351,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
-                        limit: values.groupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
-                    const results = await loadGroupedLogs(logParams)
+                    const existingInstanceIds = values.groupedLogs.map((group) => group.instanceId)
+                    const results = await loadGroupedLogs(logParams, existingInstanceIds)
 
                     if (!results.length) {
                         actions.markLogsEnd()

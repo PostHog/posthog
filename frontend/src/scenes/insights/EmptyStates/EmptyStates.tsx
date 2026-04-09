@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -30,6 +30,7 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
+import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -67,6 +68,23 @@ export function InsightEmptyState({
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
+        </div>
+    )
+}
+
+/** Shown when the chart area would otherwise be blank (e.g. cache miss + aborted refresh). */
+export function InsightRefreshDataHint({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div
+            data-attr="insight-refresh-data-hint"
+            className="flex flex-col flex-1 rounded px-4 py-6 w-full items-center justify-center text-center text-balance gap-3"
+        >
+            <IconInfo className="text-5xl mb-2 text-tertiary" />
+            <h2 className="text-xl leading-tight">Chart data didn&apos;t load</h2>
+            <p className="text-sm text-tertiary max-w-md">Refresh to get the latest data.</p>
+            <LemonButton type="primary" size="small" onClick={onRetry} icon={<IconRefresh />}>
+                Refresh
+            </LemonButton>
         </div>
     )
 }
@@ -652,6 +670,81 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
+export function FunnelDataWarehouseStepIncompleteState(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { series } = useValues(funnelDataLogic(insightProps))
+
+    const incompleteSteps = (series || [])
+        .map((step, index) => {
+            if (!isFunnelsDataWarehouseNode(step)) {
+                return null
+            }
+
+            const missingFields = [
+                !step.table_name ? 'Table' : null,
+                !step.id_field ? 'Unique ID' : null,
+                !step.timestamp_field ? 'Timestamp' : null,
+                !step.aggregation_target_field ? 'Aggregation target' : null,
+            ].filter((field): field is string => field !== null)
+
+            if (missingFields.length === 0) {
+                return null
+            }
+
+            const stepName = step.custom_name || step.name || step.table_name
+            const stepLabel = `Step ${index + 1}`
+
+            return {
+                index,
+                label: stepName ? `${stepLabel} — ` + stepName : stepLabel,
+                missingFields,
+            }
+        })
+        .filter((step): step is NonNullable<typeof step> => step !== null)
+
+    return (
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
+        >
+            <IconFunnels className="text-4xl shrink-0 text-muted mb-2" />
+
+            <h2 className="text-xl leading-tight font-medium mb-0">
+                Complete your data warehouse step{incompleteSteps.length === 1 ? '' : 's'}!
+            </h2>
+            <p className="text-sm text-muted mb-1">
+                {incompleteSteps.length > 1
+                    ? 'These funnel steps are missing required fields:'
+                    : 'This funnel step is missing required fields:'}
+            </p>
+            {incompleteSteps.length > 0 && (
+                <ul className="text-sm text-muted mb-1 list-disc list-inside text-left">
+                    {incompleteSteps.map((step) => (
+                        <li key={step.index}>
+                            <span className="font-medium text-primary">{step.label}</span>:{' '}
+                            {step.missingFields.join(', ')}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            <p className="text-sm text-muted mb-1">
+                Click on the step to open it and fill in the missing fields to run this funnel.
+            </p>
+            <div className="mt-3">
+                <Link
+                    data-attr="funnels-incomplete-warehouse-step-help"
+                    to="https://posthog.com/docs/data-warehouse/insights#funnel-insights"
+                    target="_blank"
+                    className="flex items-center justify-center"
+                    targetBlankIcon
+                >
+                    Learn more about data warehouse funnels in PostHog docs
+                </Link>
+            </div>
+        </div>
+    )
+}
+
 export function BoxPlotMissingPropertyState(): JSX.Element {
     return (
         <div
@@ -671,6 +764,10 @@ export function BoxPlotMissingPropertyState(): JSX.Element {
 const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
         title: 'There are no insights $CONDITION.',
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Yours}`]: {
+        title: 'You have no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
 }

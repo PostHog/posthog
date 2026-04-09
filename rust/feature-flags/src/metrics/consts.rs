@@ -13,18 +13,23 @@ pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
 pub const TEAM_NEGATIVE_CACHE_HIT_COUNTER: &str = "flags_team_negative_cache_hit_total";
+pub const PG_TEAM_FALLBACK_SKIPPED_COUNTER: &str = "flags_pg_team_fallback_skipped_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Cohort source for flag evaluation
+// Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
+pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
 // Performance monitoring
@@ -76,6 +81,8 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
+pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
 // Flag definitions cache metrics
@@ -101,12 +108,9 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 
-// Dependency graph build path
-// Labels: path (FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED or FLAG_DEPENDENCY_GRAPH_PATH_GRAPH)
+// Dependency graph build metrics
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
-pub const FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED: &str = "precomputed";
-pub const FLAG_DEPENDENCY_GRAPH_PATH_GRAPH: &str = "graph";
 pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production

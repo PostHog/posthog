@@ -11,11 +11,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertSimulateRequestApi,
+    LogsAlertSimulateResponseApi,
     LogsAlertsListParams,
+    LogsAttributesRetrieveParams,
+    LogsValuesRetrieveParams,
+    LogsViewApi,
+    LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
+    PaginatedLogsViewListApi,
     PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
+    PatchedLogsViewApi,
     PluginConfigsLogsListParams,
+    _LogsQueryRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -54,6 +63,112 @@ export const logsExplainLogWithAICreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(explainRequestApi),
+    })
+}
+
+export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/logs/views/?${stringifiedParams}`
+        : `/api/environments/${projectId}/logs/views/`
+}
+
+export const logsViewsList = async (
+    projectId: string,
+    params?: LogsViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsViewListApi> => {
+    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/logs/views/`
+}
+
+export const logsViewsCreate = async (
+    projectId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsUpdate = async (
+    projectId: string,
+    shortId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedLogsViewApi: NonReadonly<PatchedLogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsViewApi),
+    })
+}
+
+export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -178,12 +293,48 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
     })
 }
 
-export const getLogsAttributesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/attributes/`
+/**
+ * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
+ */
+export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/simulate/`
 }
 
-export const logsAttributesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId), {
+export const logsAlertsSimulateCreate = async (
+    projectId: string,
+    logsAlertSimulateRequestApi: LogsAlertSimulateRequestApi,
+    options?: RequestInit
+): Promise<LogsAlertSimulateResponseApi> => {
+    return apiMutator<LogsAlertSimulateResponseApi>(getLogsAlertsSimulateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAttributesRetrieveUrl = (projectId: string, params?: LogsAttributesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/attributes/`
+}
+
+export const logsAttributesRetrieve = async (
+    projectId: string,
+    params?: LogsAttributesRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -215,8 +366,25 @@ export const getLogsQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/query/`
 }
 
-export const logsQueryCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const logsQueryCreate = async (
+    projectId: string,
+    _logsQueryRequestApi: _LogsQueryRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getLogsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsQueryRequestApi),
+    })
+}
+
+export const getLogsServicesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/services/`
+}
+
+export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsServicesCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -233,12 +401,28 @@ export const logsSparklineCreate = async (projectId: string, options?: RequestIn
     })
 }
 
-export const getLogsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/values/`
+export const getLogsValuesRetrieveUrl = (projectId: string, params: LogsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/values/`
 }
 
-export const logsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsValuesRetrieveUrl(projectId), {
+export const logsValuesRetrieve = async (
+    projectId: string,
+    params: LogsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

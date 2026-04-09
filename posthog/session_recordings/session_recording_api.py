@@ -22,7 +22,7 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -58,12 +58,13 @@ from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
+    ExportRendererAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
 )
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
@@ -72,7 +73,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -93,9 +94,10 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
+from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
@@ -262,6 +264,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
+    summary_outcome = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -299,6 +302,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             # Keep this aligned with summarize() default behavior (no extra context).
             extra_summary_context__isnull=True,
         ).exists()
+
+    @extend_schema_field(OutcomeSerializer(allow_null=True))
+    def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
+        return getattr(obj, "summary_outcome", None)
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -352,6 +359,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "ongoing",
             "activity_score",
             "has_summary",
+            "summary_outcome",
             "external_references",
         ]
 
@@ -702,6 +710,7 @@ def clean_referer_url(current_url: str | None) -> str:
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -726,7 +735,7 @@ class SessionRecordingViewSet(
         return super().get_throttles()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
         auth_type = _request_auth_type(request)
 
@@ -802,7 +811,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
@@ -839,7 +848,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["GET"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording: SessionRecording = self.get_object()
 
         if not request.user.is_anonymous:
@@ -853,7 +862,7 @@ class SessionRecordingViewSet(
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
             with tracer.start_as_current_span("get_recording_object"):
@@ -880,7 +889,7 @@ class SessionRecordingViewSet(
                 return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording = self.get_object()
         loaded = recording.load_metadata()
 
@@ -1154,7 +1163,7 @@ class SessionRecordingViewSet(
         And then once for each source in the returned list to get the actual snapshots.
         """
 
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         timer = ServerTimingsGathered()
 
         with timer("get_recording"):
@@ -1408,10 +1417,9 @@ class SessionRecordingViewSet(
         except Exception as e:
             # Capture detailed exception server-side while returning a generic error to the client
             capture_exception(e)
-            error_payload = {"status": "error", "message": "Failed to generate session summary."}
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
-                event_data=json.dumps(error_payload),
+                event_data="Something went wrong while generating the summary. Please try again.",
             )
 
     @extend_schema(exclude=True)
@@ -1419,17 +1427,17 @@ class SessionRecordingViewSet(
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         user = cast(User, request.user)
 
-        cache_key = f"summarize_recording_{self.team.pk}_{self.kwargs['pk']}"
+        recording = self.get_object()
+
+        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
             return Response(cached_response)
-
-        recording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
@@ -1872,6 +1880,7 @@ def list_recordings_from_query(
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
     default_summary_session_ids: set[str] = set()
+    summary_outcomes: dict[str, dict] = {}
     if recording_ids_in_list:
         try:
             from ee.models.session_summaries import SingleSessionSummary
@@ -1879,49 +1888,35 @@ def list_recordings_from_query(
             default_summary_session_ids = set()
         else:
             with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                default_summary_session_ids = set(
+                summaries = (
                     SingleSessionSummary.objects.filter(
                         team_id=team.id,
                         session_id__in=recording_ids_in_list,
                         # Keep this aligned with summarize() default behavior (no extra context).
                         extra_summary_context__isnull=True,
-                    ).values_list("session_id", flat=True)
+                    )
+                    .order_by("session_id", "-created_at")
+                    .distinct("session_id")
+                    .values_list("session_id", "summary__session_outcome")
                 )
+                for session_id, outcome in summaries:
+                    default_summary_session_ids.add(session_id)
+                    if outcome and isinstance(outcome, dict):
+                        summary_outcomes[session_id] = outcome
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
-        # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        # Use prefetch_related with explicit Person filter to include team_id in Person query
-        from django.db.models import Prefetch
-
-        from posthog.models.person.person import Person
-
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team=team)
-            .prefetch_related(
-                Prefetch(
-                    "person",
-                    queryset=Person.objects.filter(team_id=team.id),
-                )
-            )
-        )
+        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            person_distinct_id.person._distinct_ids = [
-                person_distinct_id.distinct_id
-            ]  # Stop the person from loading all distinct ids
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
             recording.has_summary = recording.session_id in default_summary_session_ids
-            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
-            if person:
-                recording.person = person
+            recording.summary_outcome = summary_outcomes.get(recording.session_id)
+            matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
+            if matched_person:
+                recording.person = matched_person
 
     return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
 

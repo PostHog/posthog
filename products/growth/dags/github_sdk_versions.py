@@ -13,9 +13,10 @@ from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
 
+from products.growth.backend.constants import SDK_CACHE_EXPIRY, github_sdk_versions_key
+
 logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
 
@@ -346,9 +347,9 @@ def cache_github_sdk_versions_op(
             skipped_count += 1
             continue
 
-        cache_key = f"github:sdk_versions:{lib_name}"
+        cache_key = github_sdk_versions_key(lib_name)
         try:
-            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(github_data))
+            redis_client.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(github_data))
             cached_count += 1
             context.log.info(f"Successfully cached {lib_name} SDK data")
         except Exception as e:

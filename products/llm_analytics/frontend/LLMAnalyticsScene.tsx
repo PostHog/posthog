@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -104,7 +104,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                     </LemonButton>
                 </AccessControlAction>
             )}
-            <LLMAnalyticsReloadAction />
+            {activeTab !== 'sentiment' && <LLMAnalyticsReloadAction />}
         </div>
     )
 }
@@ -163,7 +163,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
                     <div className="text-center p-8">
-                        <Spinner />
+                        <Spinner captureTime />
                     </div>
                 ) : (
                     <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
@@ -383,7 +383,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
     traces: 'https://posthog.com/docs/llm-analytics/traces',
-    reviews: 'https://posthog.com/docs/llm-analytics',
+    reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
@@ -394,7 +394,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
-    reviews: 'Organize pending traces into queues and manage the scoring setup for human reviews.',
+    reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -464,7 +464,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     useAppShortcut({
         name: 'LLMAnalyticsTab3',
         keybind: [keyBinds.tab3],
-        intent: isTraceReviewEnabled ? 'Go to Human reviews' : 'Go to Generations',
+        intent: isTraceReviewEnabled ? 'Go to Reviews' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
@@ -522,14 +522,14 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ? [
                   {
                       key: 'reviews',
-                      label: 'Human reviews',
+                      label: 'Reviews',
                       content: (
                           <LLMAnalyticsSetupPrompt thing="trace">
                               <LLMAnalyticsHumanReviews />
                           </LLMAnalyticsSetupPrompt>
                       ),
                       link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
-                      'data-attr': 'reviews-tab',
+                      'data-attr': 'llma-reviews-tab',
                   } as LemonTab<string>,
               ]
             : []),
@@ -589,9 +589,17 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
-            label: 'Sentiment',
+            label: (
+                <>
+                    Sentiment
+                    <LemonTag type="warning" className="ml-1.5 uppercase">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: (
                 <LLMAnalyticsSetupPrompt>
+                    <Filters />
                     <LLMAnalyticsSentiment />
                 </LLMAnalyticsSetupPrompt>
             ),

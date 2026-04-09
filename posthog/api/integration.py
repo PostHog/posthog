@@ -42,6 +42,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     SlackIntegration,
+    StripeIntegration,
     TwilioIntegration,
 )
 from posthog.permissions import TeamMemberStrictManagementPermission
@@ -71,6 +72,9 @@ class GitHubBranchesQuerySerializer(serializers.Serializer):
 
 class GitHubBranchesResponseSerializer(serializers.Serializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+    default_branch = serializers.CharField(
+        help_text="The default branch of the repository", required=False, allow_null=True
+    )
 
 
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -259,12 +263,19 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
+            if validated_data["kind"] == "stripe":
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                except Exception as e:
+                    capture_exception(e)
+
             return instance
 
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -278,6 +289,16 @@ class IntegrationViewSet(
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
+
+    def perform_destroy(self, instance) -> None:
+        if instance.kind == "stripe":
+            try:
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        super().perform_destroy(instance)
 
     def safely_get_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
@@ -561,7 +582,18 @@ class IntegrationViewSet(
         ):
             raise ValidationError("repo must be in owner/repo format")
         github = GitHubIntegration(self.get_object())
-        return Response({"branches": github.list_branches(repo)})
+        branches = github.list_branches(repo)
+        try:
+            default_branch = github.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        # Default branch first
+        if default_branch and default_branch in branches:
+            branches.remove(default_branch)
+            branches.insert(0, default_branch)
+
+        return Response({"branches": branches, "default_branch": default_branch})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:

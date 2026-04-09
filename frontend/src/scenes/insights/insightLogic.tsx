@@ -7,6 +7,12 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import {
+    canToggleDisplayLabelsInInsightQuery,
+    getDisplayLabelsToggleText,
+    isDisplayLabelsEnabledInInsightQuery,
+} from 'lib/components/Cards/InsightCard/displayLabelsToggle'
+import { canToggleLegendInInsightQuery, getLegendToggleText } from 'lib/components/Cards/InsightCard/legendToggle'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,6 +22,7 @@ import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -36,6 +43,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
+    convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
     isLifecycleQuery,
     isNodeWithSource,
@@ -185,7 +193,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
-                        return insight
+                        const convertedQuery = convertDataTableNodeToDataVisualizationNode(insight.query ?? null)
+
+                        return {
+                            ...insight,
+                            query: convertedQuery,
+                        }
                     } catch (error: any) {
                         if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToInsight()
@@ -295,14 +308,25 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             // Note: setInsightMetadata state updates are handled by the loader
             setInsightMetadataLocal: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
-            [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
+            [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                state,
+                { insight, extraDashboardIds, sourceDashboardId }
+            ) => {
+                // Dashboard refresh responses merge that dashboard's filters into `query`; only the embedded
+                // insight for that dashboard (`props.dashboardId`) should apply them. Other dashboards or
+                // non-dashboard views should ignore this action when `sourceDashboardId` is set.
+                if (sourceDashboardId != null) {
+                    if (props.dashboardId !== sourceDashboardId) {
+                        return state
+                    }
+                }
+                const targetDashboards = (insight?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
-                    item?.short_id === state.short_id &&
+                    insight?.short_id === state.short_id &&
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
-                    return { ...state, ...item }
+                    return { ...state, ...insight }
                 }
                 return state
             },
@@ -441,6 +465,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                       )
                     : true,
         ],
+        canToggleDisplayLabelsForInsight: [
+            (s) => [s.query],
+            (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
+        ],
+        canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
+        displayLabelsShownForInsight: [
+            (s) => [s.query],
+            (query) => !!query && isDisplayLabelsEnabledInInsightQuery(query),
+        ],
+        displayLabelsToggleTextForInsight: [
+            (s) => [s.query],
+            (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
+        ],
+        legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
             (insight, savedInsight): boolean => {
@@ -490,9 +528,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 tileFiltersOverride: TileFilters | null
             ) => {
                 return (
-                    (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                    !isDashboardFilterEmpty(filtersOverride) ||
                     (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                    (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride))
+                    !isDashboardFilterEmpty(tileFiltersOverride)
                 )
             },
         ],
@@ -558,7 +596,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
-            eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
+            eventUsageLogic.actions.reportInsightSaved(
+                savedInsight,
+                values.query,
+                insightNumericId === undefined,
+                'save'
+            )
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -654,7 +697,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 )
             }
 
-            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+            if (persist) {
+                actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+                eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
+            }
             actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {

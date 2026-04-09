@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArchive, IconCode, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -15,6 +15,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -26,6 +27,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -48,9 +50,10 @@ import {
     Survey,
     SurveyEventName,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
+import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
+import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
@@ -59,16 +62,21 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { push } = useActions(router)
     const { location, searchParams, hashParams } = useValues(router)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
-    const [tabKey, setTabKey] = useState('summary')
+    const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
+    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
@@ -195,7 +203,7 @@ export function SurveyViewRedesign(): JSX.Element {
         validPanelTabKeys,
     ])
 
-    if (surveyLoading) {
+    if (isInitialSurveyLoad) {
         return <LemonSkeleton />
     }
 
@@ -218,6 +226,17 @@ export function SurveyViewRedesign(): JSX.Element {
                             }
                         }}
                     />
+                    {canCopyToProject && surveyIdForTransfer && (
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => push(urls.resourceTransfer('Survey', surveyIdForTransfer))}
+                            data-attr="survey-copy-to-project"
+                            tooltip="Copy this survey to another project"
+                        >
+                            <IconCopy />
+                            Copy to another project
+                        </ButtonPrimitive>
+                    )}
                     {!isDraft && (
                         <ButtonPrimitive menuItem onClick={() => setSqlHelperOpen(true)}>
                             <IconCode />
@@ -288,8 +307,16 @@ export function SurveyViewRedesign(): JSX.Element {
                         >
                             <LemonButton
                                 data-attr="edit-survey"
-                                onClick={survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)}
-                                to={survey.type === SurveyType.Popover ? urls.surveyWizard(survey.id) : undefined}
+                                onClick={
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                        ? undefined
+                                        : () => editingSurvey(true)
+                                }
+                                to={
+                                    canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                        ? urls.surveyWizard(survey.id)
+                                        : undefined
+                                }
                                 type="secondary"
                                 size="small"
                             >
@@ -439,6 +466,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     const {
         survey,
         isAnyResultsLoading,
+        resultsRequeryInProgress,
         processedSurveyStats,
         isSurveyHeadlineEnabled,
         hasActiveFilters,
@@ -449,8 +477,9 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     const { clearFilters } = useActions(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
 
-    if (!isAnyResultsLoading && !atLeastOneResponse) {
+    if (!isRefreshingResults && !atLeastOneResponse) {
         return (
             <div className="px-4 pb-4">
                 <div className="mx-auto w-full max-w-[1200px] space-y-4">
@@ -475,45 +504,72 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
         <div className="px-4 pb-4">
             <div className="mx-auto w-full max-w-[1200px] space-y-4">
                 <SurveyResultsFiltersBar />
-                <SurveyStatsSummary />
-                {isSurveyHeadlineEnabled && <SurveyHeadline />}
-
-                <div className="flex flex-col gap-2">
-                    {survey.questions.map((question, i) => {
-                        if (!question.id || question.type === SurveyQuestionType.Link) {
-                            return null
-                        }
-                        return (
-                            <div key={question.id} className="flex flex-col gap-2">
-                                <SurveyQuestionVisualization question={question} questionIndex={i} />
-                                <LemonDivider />
-                            </div>
-                        )
-                    })}
-                </div>
-                <LemonButton
-                    type="tertiary"
-                    data-attr="survey-results-view-responses"
-                    onClick={onViewResponses}
-                    size="small"
+                <SurveyResultsRefreshStatus visible={isRefreshingResults} />
+                <div
+                    aria-busy={isRefreshingResults}
+                    className={
+                        isRefreshingResults
+                            ? 'space-y-4 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'space-y-4 opacity-100 transition-opacity duration-200 ease-out'
+                    }
                 >
-                    Looking for all responses?
-                </LemonButton>
+                    <SurveyStatsSummary />
+                    {isSurveyHeadlineEnabled && <SurveyHeadline />}
+
+                    <div className="flex flex-col gap-2">
+                        {survey.questions.map((question, i) => {
+                            if (!question.id || question.type === SurveyQuestionType.Link) {
+                                return null
+                            }
+                            return (
+                                <div key={question.id} className="flex flex-col gap-2">
+                                    <SurveyQuestionVisualization question={question} questionIndex={i} />
+                                    <LemonDivider />
+                                </div>
+                            )
+                        })}
+                    </div>
+                    <LemonButton
+                        type="tertiary"
+                        data-attr="survey-results-view-responses"
+                        onClick={onViewResponses}
+                        size="small"
+                    >
+                        Looking for all responses?
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )
 }
 
 function SurveyResponsesContent(): JSX.Element {
-    const { dataTableQuery, surveyLoading, archivedResponseUuids } = useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        survey,
+        surveyLoading,
+        archivedResponseUuids,
+        isAnyResultsLoading,
+        resultsRequeryInProgress,
+    } = useValues(surveyLogic)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
 
     return (
         <div className="px-4 pb-4 space-y-4">
             <SurveyResultsFiltersBar />
-            {surveyLoading ? (
+            <SurveyResultsRefreshStatus visible={isRefreshingResults} />
+            {isInitialSurveyLoad ? (
                 <LemonSkeleton />
             ) : (
-                <div className="survey-table-results">
+                <div
+                    aria-busy={isRefreshingResults}
+                    className={
+                        isRefreshingResults
+                            ? 'survey-table-results opacity-75 transition-opacity duration-200 ease-out'
+                            : 'survey-table-results opacity-100 transition-opacity duration-200 ease-out'
+                    }
+                >
                     <Query
                         query={dataTableQuery}
                         context={{

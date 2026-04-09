@@ -216,6 +216,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_serialize_database_warehouse_table_s3_with_legacy_column_shape(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": "Nullable(String)"},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.name == "id"
+        assert field.type == "string"
+        assert field.schema_valid is True
+
     def test_warehouse_table_names_do_not_leak_between_database_instances(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -2088,6 +2111,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "raw_cohort_people",
             "raw_person_distinct_id_overrides",
             "raw_error_tracking_issue_fingerprint_overrides",
+            "raw_error_tracking_fingerprint_issue_state",
             "raw_sessions",
             "raw_sessions_v3",
             "raw_query_log",

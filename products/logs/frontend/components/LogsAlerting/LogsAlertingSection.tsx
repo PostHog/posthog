@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconTestTube } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,6 +12,8 @@ import { LogsAlertForm } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertList } from './LogsAlertList'
+import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
+import { LogsAlertSimulation } from './LogsAlertSimulation'
 
 export function LogsAlertingSection(): JSX.Element {
     return (
@@ -46,30 +49,66 @@ function LogsAlertingSectionInner(): JSX.Element {
 }
 
 function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfigurationApi | null }): JSX.Element {
+    const notifLogicProps = { alertId: editingAlert?.id }
     const formLogicProps = { alert: editingAlert }
-    const { isAlertFormSubmitting } = useValues(logsAlertFormLogic(formLogicProps))
+    const { isAlertFormSubmitting, alertFormChanged, isSimulationPanelOpen } = useValues(
+        logsAlertFormLogic(formLogicProps)
+    )
+    const { openSimulationPanel, closeSimulationPanel } = useActions(logsAlertFormLogic(formLogicProps))
+    const { pendingNotifications } = useValues(logsAlertNotificationLogic(notifLogicProps))
+    const hasPendingNotifications = pendingNotifications.length > 0
 
     return (
-        <Form
-            logic={logsAlertFormLogic}
-            props={formLogicProps}
-            formKey="alertForm"
-            enableFormOnSubmit
-            className="LemonModal__layout"
-        >
-            <LemonModal.Header>
-                <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
-                <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
-            </LemonModal.Header>
-            <LemonModal.Content>
-                <LogsAlertForm />
-            </LemonModal.Content>
-            <LemonModal.Footer>
-                <div className="flex-1" />
-                <LemonButton type="primary" htmlType="submit" loading={isAlertFormSubmitting}>
-                    {editingAlert ? 'Save' : 'Create alert'}
-                </LemonButton>
-            </LemonModal.Footer>
-        </Form>
+        <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
+            <BindLogic logic={logsAlertNotificationLogic} props={notifLogicProps}>
+                <Form
+                    logic={logsAlertFormLogic}
+                    props={formLogicProps}
+                    formKey="alertForm"
+                    enableFormOnSubmit
+                    className="LemonModal__layout"
+                >
+                    <LemonModal.Header>
+                        <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
+                        <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
+                    </LemonModal.Header>
+                    <LemonModal.Content>
+                        <LogsAlertForm />
+                    </LemonModal.Content>
+                    <LemonModal.Footer>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconTestTube />}
+                            onClick={openSimulationPanel}
+                            tooltip="Run this alert against historical data to see when it would have fired"
+                        >
+                            Simulate
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isAlertFormSubmitting}
+                            disabledReason={
+                                editingAlert && !alertFormChanged && !hasPendingNotifications
+                                    ? 'No changes to save'
+                                    : undefined
+                            }
+                        >
+                            {editingAlert ? 'Save' : 'Create alert'}
+                        </LemonButton>
+                    </LemonModal.Footer>
+                </Form>
+
+                <LemonModal
+                    isOpen={isSimulationPanelOpen}
+                    onClose={closeSimulationPanel}
+                    title="Alert simulation"
+                    description="Run the alert against historical data to preview when it would have fired. Includes threshold evaluation, N-of-M noise reduction, and cooldown."
+                    width={960}
+                >
+                    <LogsAlertSimulation />
+                </LemonModal>
+            </BindLogic>
+        </BindLogic>
     )
 }

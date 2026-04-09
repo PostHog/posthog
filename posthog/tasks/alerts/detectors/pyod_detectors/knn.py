@@ -19,4 +19,9 @@ class KNNDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.KNN.value, "threshold": 0.9, "n_neighbors": 5, "method": "largest"}
+        return {
+            "type": DetectorType.KNN.value,
+            "threshold": cls.DEFAULT_THRESHOLD,
+            "n_neighbors": 5,
+            "method": "largest",
+        }

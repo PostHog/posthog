@@ -1,3 +1,4 @@
+// Loads and manages batch export backfills — listing, cancellation, and polling for estimates.
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -10,10 +11,12 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
+import { BatchExportContext } from './types'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
@@ -24,11 +27,8 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         values: [
             teamLogic(),
             ['currentTeamId'],
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
+            batchExportDataLogic({ id: props.id }),
+            ['batchExportConfig', 'batchExportConfigLoading'],
         ],
         actions: [
             batchExportBackfillModalLogic(props),
@@ -73,6 +73,10 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         ],
     })),
     selectors({
+        recordLabel: [
+            () => [(_, props) => props],
+            (props: BatchExportBackfillsLogicProps): string => (props.context === 'hog_function' ? 'events' : 'rows'),
+        ],
         hasMoreBackfillsToLoad: [
             (s) => [s.backfillsPaginatedResponse],
             (backfillsPaginatedResponse) => !!backfillsPaginatedResponse?.next,
@@ -105,7 +109,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         cancelBackfill: async ({ backfill }) => {
             try {
                 await api.batchExports.cancelBackfill(props.id, backfill.id)
@@ -135,11 +139,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                     if (backfill?.total_records_count != null) {
                         if (backfill.total_records_count === 0) {
                             lemonToast.warning(
-                                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+                                `No ${values.recordLabel} found to export for the selected time range. The backfill will finish with nothing to export.`
                             )
                         } else {
                             lemonToast.info(
-                                `Estimated ~${backfill.total_records_count.toLocaleString()} rows to export`,
+                                `Estimated ~${backfill.total_records_count.toLocaleString()} ${values.recordLabel} to export`,
                                 {
                                     button: {
                                         label: 'Cancel backfill',

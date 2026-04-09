@@ -59,6 +59,13 @@ class SnowflakeAuthTypeConfig(config.Config):
 
 
 @config.config
+class StripeAuthMethodConfig(config.Config):
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "api_key"] = "oauth"
+    stripe_secret_key: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -238,6 +245,12 @@ class ConvertKitSourceConfig(config.Config):
 
 
 @config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
+
+
+@config.config
 class CopperSourceConfig(config.Config):
     pass
 
@@ -366,8 +379,21 @@ class HelpScoutSourceConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
+    custom_properties: HubspotCustomPropertiesConfig | None = None
 
 
 @config.config
@@ -690,7 +716,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class SlackSourceConfig(config.Config):
-    pass
+    slack_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -721,7 +747,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
+    auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
 
 
@@ -875,6 +901,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
         ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,

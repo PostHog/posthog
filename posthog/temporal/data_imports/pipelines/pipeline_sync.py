@@ -34,7 +34,7 @@ LOGGER = get_logger(__name__)
 def merge_columns(
     db_columns: dict[str, str],
     table_schema_dict: dict[str, str],
-    existing_columns: dict[str, dict[str, str]],
+    existing_columns: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
     """Build column metadata, preserving StringJSONDatabaseField from prior runs"""
     columns: dict[str, dict[str, str]] = {}
@@ -45,7 +45,8 @@ def merge_columns(
             capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
             continue
 
-        existing_hogql_type = existing_columns.get(column_name, {}).get("hogql")
+        existing_column = existing_columns.get(column_name)
+        existing_hogql_type = existing_column.get("hogql") if isinstance(existing_column, dict) else None
         if existing_hogql_type == "StringJSONDatabaseField" and hogql_type == "StringDatabaseField":
             hogql_type = "StringJSONDatabaseField"
 
@@ -98,7 +99,14 @@ async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
         schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
         if not schema.initial_sync_complete:
             schema.initial_sync_complete = True
-            schema.save(update_fields=["initial_sync_complete"])
+            update_fields = ["initial_sync_complete"]
+
+            # CDC snapshot → streaming transition
+            if schema.is_cdc and schema.cdc_mode == "snapshot":
+                schema.sync_type_config["cdc_mode"] = "streaming"
+                update_fields.append("sync_type_config")
+
+            schema.save(update_fields=update_fields)
 
     await _update()
 
@@ -129,7 +137,7 @@ async def validate_schema_and_update_table(
     logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
-        await logger.awarn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
+        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
         return
 
     @database_sync_to_async_pool
@@ -172,7 +180,7 @@ async def validate_schema_and_update_table(
                     table_created.format = table_params["format"]
                     table_created.url_pattern = new_url_pattern
                     table_created.queryable_folder = queryable_folder
-                    if incremental_or_append:
+                    if incremental_or_append or external_data_schema.is_cdc:
                         table_created.row_count = table_created.get_count()
                     else:
                         table_created.row_count = row_count
@@ -198,10 +206,10 @@ async def validate_schema_and_update_table(
 
                 assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+                raw_db_columns = table_created.get_columns()
+                db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
-                existing_columns: dict[str, dict[str, str]] = table_created.columns or {}
+                existing_columns = table_created.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 table_created.columns = columns
                 table_created.save()
@@ -236,3 +244,87 @@ async def validate_schema_and_update_table(
             raise
 
     await _validate_and_update()
+
+
+async def register_cdc_companion_table(
+    run_id: str,
+    team_id: int,
+    schema_id: uuid.UUID,
+    resource_name: str,
+    row_count: int,
+    table_format: DataWarehouseTable.TableFormat,
+    queryable_folder: str,
+    table_schema_dict: Optional[dict[str, str]] = None,
+    set_as_schema_table: bool = False,
+) -> None:
+    """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
+
+    Unlike `validate_schema_and_update_table`, this does NOT update `schema.table` — the companion table is
+    independent of the main schema table so that writing CDC history never overwrites the snapshot queryable folder.
+
+    When ``set_as_schema_table`` is True (used for cdc_only mode), the companion table is also linked as the
+    schema's primary table so the UI shows row counts and query links.
+    """
+    logger = LOGGER.bind(team_id=team_id)
+
+    if row_count == 0:
+        await logger.awarning("Skipping `register_cdc_companion_table` due to `row_count` being 0")
+        return
+
+    @database_sync_to_async_pool
+    def _register():
+        job = ExternalDataJob.objects.prefetch_related("pipeline").get(pk=run_id)
+
+        normalized_resource_name = NamingConvention().normalize_identifier(resource_name)
+        companion_table_name = build_table_name(job.pipeline, resource_name)
+        new_url_pattern = job.url_pattern_by_schema(normalized_resource_name)
+
+        table_params = {
+            "name": companion_table_name,
+            "format": table_format,
+            "url_pattern": new_url_pattern,
+            "team_id": team_id,
+            "row_count": row_count,
+            "queryable_folder": queryable_folder,
+        }
+
+        try:
+            with transaction.atomic():
+                # Find existing companion table (not schema.table) by name
+                companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
+                    team_id=team_id,
+                    name=companion_table_name,
+                    external_data_source_id=job.pipeline.id,
+                    deleted=False,
+                ).first()
+
+                if companion_table:
+                    companion_table.format = table_format
+                    companion_table.url_pattern = new_url_pattern
+                    companion_table.queryable_folder = queryable_folder
+                    companion_table.row_count = companion_table.get_count()
+                    companion_table.save()
+                else:
+                    logger.debug(f"Creating CDC companion table: {companion_table_name}")
+                    companion_table = DataWarehouseTable.objects.create(
+                        external_data_source_id=job.pipeline.id, **table_params
+                    )
+
+                raw_db_columns = companion_table.get_columns()
+                db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
+                existing_columns = companion_table.columns or {}
+                columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                companion_table.columns = columns
+                companion_table.save()
+
+                if set_as_schema_table:
+                    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)
+
+        except Exception as e:
+            logger.exception(
+                f"Data Warehouse: Could not register CDC companion table {companion_table_name}",
+                exc_info=e,
+            )
+            raise
+
+    await _register()

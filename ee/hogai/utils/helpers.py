@@ -43,7 +43,12 @@ from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import (
+    ArtifactRefMessage,
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    ConversationTitleAction,
+)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -173,11 +178,9 @@ def _process_events_data(
         "All events",
     ]
     for item in response.results:
-        if len(response.results) > 25 and item.count <= 3:
-            continue
-        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
-            if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                continue  # Skip system or ignored events (safety net, already filtered in SQL)
+        event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
+        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+            continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}
@@ -391,7 +394,7 @@ def extract_stream_update(update: Any) -> Any:
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
 
-    if isinstance(update, AssistantDispatcherEvent):
+    if isinstance(update, (AssistantDispatcherEvent, ConversationTitleAction)):
         return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name

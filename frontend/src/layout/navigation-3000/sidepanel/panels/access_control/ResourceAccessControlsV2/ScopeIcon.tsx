@@ -12,6 +12,7 @@ import {
     IconMessage,
     IconNotebook,
     IconNotification,
+    IconPeople,
     IconPieChart,
     IconPiggyBank,
     IconRewindPlay,
@@ -30,6 +31,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconHome />
         case 'action':
             return <IconCursor />
+        case 'customer_analytics':
+            return <IconPeople />
         case 'activity_log':
             return <IconNotification />
         case 'dashboard':
@@ -43,7 +46,6 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'event_definition':
             return <IconApps />
         case 'experiment':
-        case 'experiment_saved_metric':
             return <IconFlask />
         case 'external_data_source':
             return <IconDatabase />
@@ -73,6 +75,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconBug />
         case 'web_analytics':
             return <IconPieChart />
+        case 'tracing':
+            return <IconLive />
         default:
             return null
     }

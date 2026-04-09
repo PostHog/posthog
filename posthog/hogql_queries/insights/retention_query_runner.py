@@ -11,6 +11,7 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     InCohortVia,
     IntervalType,
     RetentionEntity,
@@ -360,20 +361,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
-        if not is_first_ever_occurrence:
-            # Pre filter event
-            events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-            unique_events = set(events)
-            # Don't pre-filter if any of them is "All events"
-            if None not in unique_events:
-                events_where.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        # Sorting for consistent snapshots in tests
-                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                        op=ast.CompareOperationOp.In,
-                    )
+        # Pre-filter by event name
+        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
+        unique_events = set(events)
+        # Don't pre-filter if any of them is "All events"
+        if None not in unique_events:
+            events_where.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    # Sorting for consistent snapshots in tests
+                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+                    op=ast.CompareOperationOp.In,
                 )
+            )
 
         return events_where
 
@@ -408,6 +408,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 properties_chain = ["person", property_name]
             else:
                 properties_chain = ["person", "properties", property_name]
+        elif breakdown_type == "data_warehouse_person_property":
+            properties_chain = ["person", *property_name.split(".")]
         elif breakdown_type == "group":
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the groups table
@@ -1296,16 +1298,30 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
+        results = self.format_results(response)
+
+        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+
+    def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
+        """Format raw retention HogQL response into nested interval structures.
+
+        Columns are accessed by name to support arbitrary column ordering
+        (materialized tables return columns alphabetically).
+        Handles: breakdown ranking, 'Other' aggregation, sampling correction,
+        bracket labels, date computation.
+        """
+        cols = {name: i for i, name in enumerate(response.columns or [])}
+        has_aggregation_value = "aggregation_value" in cols
+
         if self.breakdowns_in_query:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
-            # When aggregation_target is set, the query returns count (user count) and aggregation_value (sum/avg)
             breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
             for row in original_results:
-                if self.aggregation_target:
-                    start_interval, intervals_from_base, breakdown_value, count, aggregation_value = row
-                else:
-                    start_interval, intervals_from_base, breakdown_value, count = row
+                start_interval = row[cols["start_event_matching_interval"]]
+                intervals_from_base = row[cols["intervals_from_base"]]
+                breakdown_value = row[cols["breakdown_value"]]
+                count = row[cols["count"]]
                 if intervals_from_base == 0:
                     breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
 
@@ -1315,7 +1331,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit is not None
                 else get_breakdown_limit_for_context(self.limit_context)
             )
-            # Sort by count descending, then by breakdown value ascending for stability
             sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]))
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
@@ -1323,17 +1338,16 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             aggregated_count_data: dict[str, dict[int, dict[int, float]]] = {}
             aggregated_value_data: dict[str, dict[int, dict[int, float]]] = {}
             for row in original_results:
-                if self.aggregation_target:
-                    start_interval, intervals_from_base, breakdown_value, count, aggregation_value = row
-                else:
-                    start_interval, intervals_from_base, breakdown_value, count = row
-                    aggregation_value = None
+                start_interval = row[cols["start_event_matching_interval"]]
+                intervals_from_base = row[cols["intervals_from_base"]]
+                breakdown_value = row[cols["breakdown_value"]]
+                count = row[cols["count"]]
+                aggregation_value = row[cols["aggregation_value"]] if has_aggregation_value else None
 
                 target_breakdown = breakdown_value
                 if breakdown_value in other_values:
                     target_breakdown = BREAKDOWN_OTHER_STRING_LABEL
 
-                # Apply sampling correction when aggregating into the final structure
                 corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
 
                 aggregated_count_data[target_breakdown] = aggregated_count_data.get(target_breakdown, {})
@@ -1356,7 +1370,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             # Step 4: Format final output
             final_results: list[dict[str, Any]] = []
-            # Keep track of the order based on the ranking
             ordered_breakdown_keys = [item[0] for item in sorted_breakdowns[:breakdown_limit]]
             if other_values:
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
@@ -1396,31 +1409,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             results = final_results
         else:
-            # Rename this variable to avoid conflict with the one in the if block
-            if self.aggregation_target:
-                results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
-                    (start_event_matching_interval, intervals_from_base): {
-                        "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor)
-                        or 0.0,
-                    }
-                    for (
-                        start_event_matching_interval,
-                        intervals_from_base,
-                        count,
-                        aggregation_value,
-                    ) in response.results
-                }
-            else:
-                results_by_interval_pair = {
-                    (start_event_matching_interval, intervals_from_base): {
-                        "count": correct_result_for_sampling(count, self.query.samplingFactor)
-                    }
-                    for (start_event_matching_interval, intervals_from_base, count) in response.results
-                }
+            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {}
+            for row in response.results or []:
+                key = (row[cols["start_event_matching_interval"]], row[cols["intervals_from_base"]])
+                count = correct_result_for_sampling(row[cols["count"]], self.query.samplingFactor)
+                entry: dict[str, float] = {"count": count}
+                if self.aggregation_target and has_aggregation_value:
+                    entry["aggregation_value"] = (
+                        correct_result_for_sampling(row[cols["aggregation_value"]], self.query.samplingFactor) or 0.0
+                    )
+                results_by_interval_pair[key] = entry
+
             labels = self.get_bracket_labels()
-            default_values = {"count": 0.0}
-            if self.aggregation_target:
+            default_values: dict[str, float] = {"count": 0.0}
+            if self.aggregation_target and has_aggregation_value:
                 default_values["aggregation_value"] = 0.0
             results = [
                 {
@@ -1433,11 +1435,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
                     "date": self.get_date(start_interval),
+                    "breakdown_value": None,  # intentional to keep shape consistent
                 }
                 for start_interval in range(self.query_date_range.intervals_between)
             ]
 
-        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return results
 
     def to_actors_query(
         self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None

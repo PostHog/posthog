@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { isValidElement, ReactNode, useEffect } from 'react'
 
@@ -40,6 +40,18 @@ type ViewRecordingProps = {
     checkRecordingExists?: boolean
 }
 
+export type ViewRecordingButtonProps = Pick<
+    LemonButtonProps,
+    'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'
+> &
+    ViewRecordingProps & {
+        checkIfViewed?: boolean
+        label?: ReactNode
+        variant?: ViewRecordingButtonVariant
+        iconOnly?: boolean
+        noPadding?: boolean
+    }
+
 export default function ViewRecordingButton({
     sessionId,
     recordingStatus,
@@ -56,14 +68,7 @@ export default function ViewRecordingButton({
     iconOnly = false,
     noPadding = false,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
-    ViewRecordingProps & {
-        checkIfViewed?: boolean
-        label?: ReactNode
-        variant?: ViewRecordingButtonVariant
-        iconOnly?: boolean
-        noPadding?: boolean
-    }): JSX.Element {
+}: ViewRecordingButtonProps): JSX.Element {
     const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
     const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
 
@@ -127,7 +132,7 @@ export default function ViewRecordingButton({
                           ? 'Recording unavailable'
                           : null
                 }
-                className={classNames(
+                className={clsx(
                     props.className,
                     props.loading && 'opacity-50',
                     props.fullWidth && 'w-full',

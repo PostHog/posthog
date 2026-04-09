@@ -730,6 +730,30 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('falls back to person.id for distinct_id when event.distinct_id is empty (batch invocations)', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    distinct_id: '',
+                } as any,
+                person: {
+                    id: 'person-uuid-123',
+                    name: 'Batch Person',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'batch@posthog.com' },
+                },
+            } as any)
+            const result = await executor.execute(createExampleInvocation(fn, globals))
+            expect(result?.capturedPostHogEvents).toHaveLength(1)
+            expect(result?.capturedPostHogEvents[0].distinct_id).toBe('person-uuid-123')
+        })
+
         it('allows events that have already used their postHogCapture a maximum of 10 times', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
@@ -1103,6 +1127,25 @@ describe('Hog Executor', () => {
             expect(result.error).toBeInstanceOf(Error)
             expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
             expect(result.error.message).toContain('with status code 500')
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        it('respects maxFetchRetries option to disable retries', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(500, { 'Content-Type': 'text/plain' })
+                res.end('server error')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 })
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeInstanceOf(Error)
+            expect(result.error!.message).toContain('HTTP fetch failed on attempt 1')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 

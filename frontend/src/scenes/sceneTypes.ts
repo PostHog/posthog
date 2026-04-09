@@ -57,6 +57,7 @@ export enum Scene {
     Experiment = 'Experiment',
     Experiments = 'Experiments',
     Exports = 'Exports',
+    Subscriptions = 'Subscriptions',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
@@ -129,6 +130,7 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     Health = 'Health',
+    HealthCategoryDetail = 'HealthCategoryDetail',
     SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
@@ -225,6 +227,8 @@ export interface SceneTab {
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
     pinned?: boolean
+    /** Show a small badge indicator on the tab icon */
+    badge?: boolean
 
     sceneId?: string
     sceneKey?: string
@@ -338,6 +342,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Customer analytics (only journey scenes — configuration uses project-level admin)
+    [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
+    [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
     // LLM Analytics
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,

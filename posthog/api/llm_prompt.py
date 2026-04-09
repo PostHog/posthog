@@ -2,7 +2,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Q, QuerySet, TextField
+from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import posthoganalytics
@@ -16,8 +16,10 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptListQuerySerializer,
+    LLMPromptListSerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
     LLMPromptResolveQuerySerializer,
@@ -28,17 +30,25 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
+    LLMPromptDuplicateNameConflictError,
+    LLMPromptEditError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
     archive_prompt,
+    duplicate_prompt,
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     publish_prompt_version,
     resolve_versions_page,
 )
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import LLMPrompt, User
@@ -67,6 +77,8 @@ ALLOWED_LIST_ORDERINGS = {
     "-version_count": "-version_count",
     "first_version_created_at": "first_version_created_at",
     "-first_version_created_at": "-first_version_created_at",
+    "prompt_size_bytes": "prompt_size_bytes",
+    "-prompt_size_bytes": "-prompt_size_bytes",
 }
 
 
@@ -127,7 +139,8 @@ class LLMPromptViewSet(
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
-            request.successful_authenticator, SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication
+            request.successful_authenticator,
+            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
         ):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},
@@ -189,8 +202,17 @@ class LLMPromptViewSet(
             },
         )
 
+    def _get_list_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMPromptListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
-        queryset = get_latest_prompts_queryset(self.team)
+        queryset = get_latest_prompts_queryset(self.team).annotate(
+            prompt_size_bytes=Func(
+                Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
+            ),
+        )
 
         search = request.query_params.get("search", "").strip()
         if search:
@@ -201,6 +223,17 @@ class LLMPromptViewSet(
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return LLMPromptListSerializer
+        return super().get_serializer_class()
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if self.action == "list":
+            context["content_mode"] = self._get_list_params(self.request).get("content", "full")
+        return context
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
@@ -251,7 +284,8 @@ class LLMPromptViewSet(
                 self.team,
                 user=cast(User, request.user),
                 prompt_name=prompt_name,
-                prompt_payload=payload.validated_data["prompt"],
+                prompt_payload=payload.validated_data.get("prompt"),
+                edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
             )
         except LLMPromptNotFoundError:
@@ -271,6 +305,14 @@ class LLMPromptViewSet(
                         f"Prompt has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the prompt to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMPromptEditError as err:
+            return Response(
+                {
+                    "detail": err.message,
+                    "edit_index": err.edit_index,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -362,6 +404,52 @@ class LLMPromptViewSet(
             request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=LLMPromptDuplicateSerializer, responses={201: LLMPromptSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/duplicate",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_duplicate")
+    @monitor(feature=None, endpoint="llma_prompts_duplicate", method="POST")
+    def duplicate(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMPromptDuplicateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        try:
+            new_prompt = duplicate_prompt(
+                self.team,
+                user=cast(User, request.user),
+                source_name=prompt_name,
+                new_name=new_name,
+            )
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+        except LLMPromptDuplicateNameConflictError:
+            return Response(
+                {"attr": "new_name", "detail": "A prompt with this name already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt duplicated",
+            {
+                "prompt_id": str(new_prompt.id),
+                "prompt_name": new_prompt.name,
+                "source_prompt_name": prompt_name,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
     @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")

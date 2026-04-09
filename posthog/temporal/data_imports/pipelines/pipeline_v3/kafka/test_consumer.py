@@ -126,4 +126,31 @@ class TestKafkaConsumerServiceCallbacks:
         with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
             service._on_revoke(mock_consumer, [])
 
-            mock_logger.warning.assert_called_once_with("failed_to_commit_on_revoke")
+            mock_logger.warning.assert_called_once_with("failed_to_commit_on_revoke", error="commit failed")
+
+    def test_on_revoke_logs_debug_on_no_offset(self):
+        from confluent_kafka import KafkaError, KafkaException
+
+        service = _make_service()
+        mock_consumer = MagicMock()
+        kafka_error = KafkaError(KafkaError._NO_OFFSET)  # type: ignore[attr-defined]
+        mock_consumer.commit.side_effect = KafkaException(kafka_error)
+
+        with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
+            service._on_revoke(mock_consumer, [])
+
+            mock_logger.debug.assert_called_once_with("no_offsets_to_commit_on_revoke")
+            mock_logger.warning.assert_not_called()
+
+    def test_on_revoke_logs_warning_on_kafka_exception(self):
+        from confluent_kafka import KafkaError, KafkaException
+
+        service = _make_service()
+        mock_consumer = MagicMock()
+        kafka_error = KafkaError(KafkaError._FAIL)  # type: ignore[attr-defined]
+        mock_consumer.commit.side_effect = KafkaException(kafka_error)
+
+        with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
+            service._on_revoke(mock_consumer, [])
+
+            mock_logger.warning.assert_called_once()

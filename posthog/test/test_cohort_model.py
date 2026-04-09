@@ -377,6 +377,26 @@ class TestCohort(BaseTest):
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
 
+    def test_insert_users_list_by_uuid_with_different_db_aliases(self):
+        from unittest.mock import patch
+
+        person = Person.objects.create(team=self.team, distinct_ids=["cross-db-test"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        # Simulate production config where db_for_read returns a different
+        # alias than db_for_write. Both "default" and "persons_db_writer"
+        # resolve to the same test database, but Django treats them as
+        # different DBs and rejects cross-DB subqueries.
+        with patch("django.db.router.db_for_read", return_value="default"):
+            cohort.insert_users_list_by_uuid(
+                items=[str(person.uuid)],
+                team_id=self.team.id,
+            )
+
+        cohort.refresh_from_db()
+        assert cohort.people.count() == 1
+        assert str(cohort.people.first().uuid) == str(person.uuid)
+
     @parameterized.expand(
         [
             # operator, filter_value, excluded_ages, included_ages
@@ -509,3 +529,31 @@ class TestCohort(BaseTest):
             cohort.refresh_from_db()
             self.assertEqual(cohort.cohort_type, "realtime")
             self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)
+
+    @parameterized.expand(
+        [
+            ("_safe_reset_calculating_state", "DB connection lost"),
+            ("save", "DB error"),
+        ]
+    )
+    @pytest.mark.ee
+    def test_calculate_people_ch_updates_version_even_when_finally_raises(self, method_name, error_message):
+        from unittest.mock import patch
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="version resilience cohort",
+        )
+
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = 42
+
+            with patch.object(Cohort, method_name, side_effect=Exception(error_message)):
+                with pytest.raises(Exception, match=error_message):
+                    cohort.calculate_people_ch(pending_version=1)
+
+        # Version and count should be updated despite the finally block raising
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.version, 1)
+        self.assertEqual(cohort.count, 42)

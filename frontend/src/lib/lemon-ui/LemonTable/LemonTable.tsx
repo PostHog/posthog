@@ -92,7 +92,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
-    /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
+    /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
     hideSortingIndicatorWhenInactive?: boolean
@@ -253,6 +253,13 @@ export function LemonTable<T extends Record<string, any>>({
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
+    const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
+    // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
+    const headerLoaderColSpan = Math.max(
+        1,
+        Number(isRowExpansionToggleShown) + visibleDataColumnCount + Number(!!rowActions)
+    )
+
     return (
         <div
             id={id}
@@ -265,6 +272,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                allowContentScroll && 'h-full min-h-0 overflow-hidden',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -273,19 +281,23 @@ export function LemonTable<T extends Record<string, any>>({
         >
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
-                direction="horizontal"
-                constrainToDirection={!allowContentScroll}
+                direction={allowContentScroll ? undefined : 'horizontal'}
                 scrollRef={scrollRef}
             >
                 <div className="LemonTable__content">
                     <table ref={tableRef}>
                         <colgroup>
-                            {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}
+                            {isRowExpansionToggleShown && <col style={{ width: '1%' }} /> /* Expand/collapse column */}
                             {columns
                                 .filter((column) => !column.isHidden)
                                 .map((column, index) => (
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
+                                    <col
+                                        key={`LemonTable-col-${index}`}
+                                        // width:0 has no effect in auto-layout tables (ignored by Safari).
+                                        // width:1% is a standard workaround to shrink a column to its content.
+                                        style={{ width: column.width === 0 ? '1%' : column.width }}
+                                    />
                                 ))}
                         </colgroup>
                         {showHeader && (
@@ -506,7 +518,11 @@ export function LemonTable<T extends Record<string, any>>({
                                             })
                                     )}
                                     {rowActions && <th className="w-0" />}
-                                    <LemonTableLoader loading={loading} tag="th" />
+                                </tr>
+                                <tr className="LemonTable__loader-row">
+                                    <th colSpan={headerLoaderColSpan} className="LemonTable__loader-host">
+                                        <LemonTableLoader loading={loading} tag="div" />
+                                    </th>
                                 </tr>
                             </thead>
                         )}

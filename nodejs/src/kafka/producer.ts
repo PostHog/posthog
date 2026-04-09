@@ -4,6 +4,7 @@ import {
     LibrdKafkaError,
     MessageHeader,
     MessageValue,
+    Metadata,
     NumberNullUndefined,
     ProducerGlobalConfig,
     MessageKey as RdKafkaMessageKey,
@@ -26,39 +27,52 @@ import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
 
+export type MessageWithoutTopic = {
+    value: string | Buffer | null
+    key?: MessageKey
+    headers?: Record<string, string>
+    topic?: never
+}
+
 export type TopicMessage = {
     topic: string
-    messages: {
-        value: string | Buffer | null
-        key?: MessageKey
-        headers?: Record<string, string>
-    }[]
+    messages: MessageWithoutTopic[]
 }
 
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
 
+    private static readonly PRODUCER_DEFAULTS: ProducerGlobalConfig = {
+        'client.id': hostname(),
+        'metadata.broker.list': 'kafka:9092',
+        'linger.ms': 20,
+        log_level: 4, // WARN as the default
+        'batch.size': 8 * 1024 * 1024,
+        'queue.buffering.max.messages': 100_000,
+        'compression.codec': 'snappy',
+        'enable.idempotence': true,
+        'metadata.max.age.ms': 30000, // Refresh metadata every 30s
+        'retry.backoff.ms': 500, // Backoff between retry attempts
+        'socket.timeout.ms': 30000, // Timeout for socket operations
+        'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
+    }
+
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
+        return KafkaProducerWrapper.createWithConfig(kafkaClientRack, getKafkaConfigFromEnv(mode))
+    }
 
+    /** Create a producer with a pre-built rdkafka config (merged over defaults). */
+    static async createWithConfig(
+        kafkaClientRack: string | undefined,
+        config: ProducerGlobalConfig
+    ): Promise<KafkaProducerWrapper> {
         const producerConfig: ProducerGlobalConfig = {
-            // Defaults that could be overridden by env vars
-            'client.id': hostname(),
+            ...KafkaProducerWrapper.PRODUCER_DEFAULTS,
             'client.rack': kafkaClientRack,
-            'metadata.broker.list': 'kafka:9092',
-            'linger.ms': 20,
-            log_level: 4, // WARN as the default
-            'batch.size': 8 * 1024 * 1024,
-            'queue.buffering.max.messages': 100_000,
-            'compression.codec': 'snappy',
-            'enable.idempotence': true,
-            'metadata.max.age.ms': 30000, // Refresh metadata every 30s
-            'retry.backoff.ms': 500, // Backoff between retry attempts
-            'socket.timeout.ms': 30000, // Timeout for socket operations
-            'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
-            ...getKafkaConfigFromEnv(mode),
+            ...config,
             dr_cb: true,
         }
 
@@ -89,6 +103,9 @@ export class KafkaProducerWrapper {
         return new KafkaProducerWrapper(producer)
     }
 
+    /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
+    public name?: string
+
     constructor(producer: HighLevelProducer) {
         this.producer = producer
     }
@@ -104,9 +121,13 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: Record<string, string>
     }): Promise<void> {
+        const labels: Record<string, string> = { topic_name: topic }
+        if (this.name) {
+            labels.producer_name = this.name
+        }
         try {
-            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+            const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
+            kafkaProducerMessagesQueuedCounter.labels(labels).inc()
             logger.debug('📤', 'Producing message', { topic: topic })
 
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
@@ -129,11 +150,11 @@ export class KafkaProducerWrapper {
                 )
             })
 
-            kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+            kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
-            kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+            kafkaProducerMessagesFailedCounter.labels(labels).inc()
             logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
@@ -205,29 +226,63 @@ export class KafkaProducerWrapper {
             })
         )
     }
+
+    /** Check that the producer can reach the broker. */
+    public async checkConnection(timeoutMs = 10000): Promise<void> {
+        await new Promise<Metadata>((resolve, reject) =>
+            this.producer.getMetadata({ timeout: timeoutMs }, (error, data) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(data)
+                }
+            })
+        )
+    }
+
+    /** Check that a topic exists on the broker. */
+    public async checkTopicExists(topic: string, timeoutMs = 10000): Promise<void> {
+        const metadata = await new Promise<Metadata>((resolve, reject) =>
+            this.producer.getMetadata({ topic, timeout: timeoutMs }, (error, data) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(data)
+                }
+            })
+        )
+
+        const topicMeta = metadata.topics.find((t) => t.name === topic)
+        if (!topicMeta) {
+            throw new Error(`Topic "${topic}" not found in broker metadata`)
+        }
+        if (topicMeta.partitions.length === 0) {
+            throw new Error(`Topic "${topic}" has no partitions`)
+        }
+    }
 }
 
 export const kafkaProducerMessagesQueuedCounter = new Counter({
     name: 'kafka_producer_messages_queued_total',
     help: 'Count of messages queued to the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesWrittenCounter = new Counter({
     name: 'kafka_producer_messages_written_total',
     help: 'Count of messages written to Kafka, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
     help: 'Count of write failures by the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',
     help: 'Wait time for individual Kafka produces',
-    labelNames: ['topic'],
+    labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })

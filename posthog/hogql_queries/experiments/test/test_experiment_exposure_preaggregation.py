@@ -15,6 +15,8 @@ from posthog.schema import (
     IntervalType,
 )
 
+from posthog.hogql.constants import get_default_hogql_global_settings
+
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -27,6 +29,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
+    _get_insert_settings,
     ensure_precomputed,
 )
 
@@ -529,6 +532,153 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert lazy_result.baseline.number_of_samples == 2, "Should only count control users from Jan 6+"
         assert lazy_result.variant_results is not None
         assert lazy_result.variant_results[0].number_of_samples == 3, "Should only count test users from Jan 7+"
+
+    def test_insert_settings_match_hogql_defaults(self):
+        """The INSERT sync_execute must use the same ClickHouse settings as
+        regular HogQL queries (via execute_hogql_query), except for
+        INSERT-specific overrides like readonly, max_execution_time,
+        insert_quorum, and load_balancing."""
+        hogql_settings = get_default_hogql_global_settings(team_id=self.team.id).model_dump(exclude_none=True)
+        insert_settings = _get_insert_settings(self.team.id)
+
+        # These are intentionally different for INSERTs
+        intentional_overrides = {"readonly", "max_execution_time", "insert_quorum", "load_balancing"}
+
+        for key, hogql_value in hogql_settings.items():
+            if key in intentional_overrides:
+                continue
+            assert key in insert_settings, f"HogQL default setting '{key}' missing from INSERT settings"
+            assert insert_settings[key] == hogql_value, (
+                f"Setting '{key}' differs: HogQL={hogql_value}, INSERT={insert_settings[key]}"
+            )
+
+    def test_precomputed_not_in_filter_with_null_properties(self):
+        """NOT IN test-account filters must not drop users whose person property is
+        unset (NULL). The INSERT sync_execute must use transform_null_in=1 — the
+        same setting execute_hogql_query applies to all regular queries — so that
+        NULL NOT IN (...) evaluates to TRUE rather than NULL."""
+        feature_flag = self.create_feature_flag(key="null-prop-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Set up a NOT IN test account filter on a person property
+        self.team.test_account_filters = [
+            {"key": "environment", "value": ["staging", "dev"], "operator": "is_not", "type": "person"}
+        ]
+        self.team.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create users WITHOUT the "environment" property set (NULL)
+        for i in range(3):
+            _create_person(distinct_ids=[f"null_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"null_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"null_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(4):
+            _create_person(distinct_ids=[f"null_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"null_test_{i}", feature_flag, "test", datetime(2024, 1, 2, 14, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"null_test_{i}",
+                timestamp=datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # The bug only triggers when test-account filters produce a NOT IN clause,
+        # which requires filterTestAccounts to be enabled on the experiment.
+        experiment.exposure_criteria = {"filterTestAccounts": True}
+        experiment.save()
+
+        self._lazy_computed_and_compare(experiment, feature_flag, metric)
+
+    def test_precomputed_variant_not_affected_by_wider_job_window(self):
+        """When an experiment starts mid-day, the job window extends to the
+        UTC-day boundary — earlier than the experiment start. Events in that
+        extra window must not affect variant assignment. Without the fix, a
+        user who had a different variant before the experiment would be
+        misclassified as $multiple."""
+        feature_flag = self.create_feature_flag(key="midday-start-test")
+        # Experiment starts at 14:00 UTC — job window will start at 00:00 UTC
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 2, 14, 0, 0),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # User sees "test" BEFORE the experiment starts (at 06:00 UTC, within
+        # the wider job window but outside the experiment)
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 2, 6, 0, 0, tzinfo=UTC))
+        # Same user sees "control" DURING the experiment (at 15:00 UTC)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 16, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal control user during the experiment
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 3, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 3, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal test user during the experiment
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 3, 14, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 3, 15, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # "switcher" should be counted as control (only saw control during the
+        # experiment), not $multiple. So: 2 control + 1 test.
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        assert direct_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 2
+        assert direct_result.variant_results is not None
+        assert direct_result.variant_results[0].number_of_samples == 1
 
     def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
         feature_flag = self.create_feature_flag()

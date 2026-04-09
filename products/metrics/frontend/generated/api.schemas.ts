@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
+
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
+
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
+}
+
 /**
  * * `numeric` - numeric
  * `currency` - currency
@@ -23,9 +39,10 @@ export const GroupUsageMetricFormatEnumApi = {
  * * `number` - number
  * `sparkline` - sparkline
  */
-export type DisplayEnumApi = (typeof DisplayEnumApi)[keyof typeof DisplayEnumApi]
+export type GroupUsageMetricDisplayEnumApi =
+    (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
 
-export const DisplayEnumApi = {
+export const GroupUsageMetricDisplayEnumApi = {
     Number: 'number',
     Sparkline: 'sparkline',
 } as const
@@ -41,7 +58,7 @@ export interface GroupUsageMetricApi {
      * @maximum 2147483647
      */
     interval?: number
-    display?: DisplayEnumApi
+    display?: GroupUsageMetricDisplayEnumApi
     filters: unknown
 }
 
@@ -65,7 +82,7 @@ export interface PatchedGroupUsageMetricApi {
      * @maximum 2147483647
      */
     interval?: number
-    display?: DisplayEnumApi
+    display?: GroupUsageMetricDisplayEnumApi
     filters?: unknown
 }
 

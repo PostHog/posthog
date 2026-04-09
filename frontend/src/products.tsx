@@ -125,6 +125,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+    '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
@@ -133,7 +134,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
-    '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
@@ -570,6 +570,7 @@ export const productUrls = {
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
+    customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -604,7 +605,7 @@ export const productUrls = {
         breakdownBy?: string
     }): string => {
         if (!params) {
-            return '/endpoints/usage'
+            return '/endpoints?tab=usage'
         }
         const searchParams: Record<string, string> = {}
         if (params.endpointFilter?.length) {
@@ -625,7 +626,7 @@ export const productUrls = {
         if (params.breakdownBy) {
             searchParams.breakdownBy = params.breakdownBy
         }
-        return combineUrl('/endpoints/usage', searchParams).url
+        return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
@@ -1174,7 +1175,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Survey`,
         type: 'survey',
-        href: urls.survey('new'),
+        href: urls.surveyWizard('new'),
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
@@ -1340,7 +1341,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsEvaluations(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsEvaluations',
         sceneKeys: [
             'LLMAnalytics',
@@ -1678,6 +1678,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Unreleased',
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
+        flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
         sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],

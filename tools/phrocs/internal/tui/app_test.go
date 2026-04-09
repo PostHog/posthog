@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,25 +10,26 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// testManager creates a Manager with the named stub processes (no autostart).
-func testManager(names ...string) *process.Manager {
+// testConfig creates a Config with the named stub processes (no autostart).
+func testConfig(names ...string) *config.Config {
 	f := false
 	procs := make(map[string]config.ProcConfig, len(names))
 	for _, n := range names {
 		procs[n] = config.ProcConfig{Shell: "true", Autostart: &f}
 	}
-	return process.NewManager(&config.Config{
+	return &config.Config{
 		Procs:            procs,
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
+	}
 }
 
 // readyModel returns a model that has processed a WindowSizeMsg and is ready.
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
-	mgr := testManager(names...)
-	m := New(mgr, 3, nil)
+	cfg := testConfig(names...)
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -35,14 +37,15 @@ func readyModel(t *testing.T, names ...string) Model {
 func readyDockerModel(t *testing.T) Model {
 	t.Helper()
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs: map[string]config.ProcConfig{
 			"docker": {Shell: "docker compose -f docker-compose.dev.yml up", Autostart: &f},
 		},
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
-	m := New(mgr, 3, nil)
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dockerModel := next.(Model)
 	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
@@ -67,8 +70,9 @@ func update(m Model, msg tea.Msg) Model {
 // ── New() initial state ───────────────────────────────────────────────────────
 
 func TestNew_initialState(t *testing.T) {
-	mgr := testManager("backend", "frontend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend", "frontend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -87,8 +91,9 @@ func TestNew_initialState(t *testing.T) {
 }
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
-	mgr := testManager("backend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -240,12 +245,10 @@ func TestCopyMode_setAnchor(t *testing.T) {
 func TestCopyMode_navigation(t *testing.T) {
 	m := readyModel(t, "backend")
 	// Populate some lines so the viewport has content to navigate.
-	// AppendLine mirrors the readLoop append step; OutputMsg triggers the TUI
-	// to rebuild the viewport from p.Lines().
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"line 1", "line 2", "line 3"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('c')) // enter copy mode
 	initial := m.copyCursor
@@ -331,7 +334,7 @@ func TestSearch_matchesHighlighted(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"hello world", "error here", "another error"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('/'))
 	m = update(m, keypress('e'))
@@ -347,7 +350,7 @@ func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"foo", "bar", "foo again"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('/'))
 	m = update(m, keypress('f'))
@@ -367,7 +370,7 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"match one", "no match", "match two"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	// Enter search and confirm
 	m = update(m, keypress('/'))
@@ -393,11 +396,10 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 func TestSearch_incrementalUpdate(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
-	// Seed two lines, start a search, then deliver a new matching line
-	// incrementally (simulating live output without triggering a full rescan).
-	for i, line := range []string{"error log", "info log"} {
+	// Seed two lines, start a search, then deliver a new matching line.
+	for _, line := range []string{"error log", "info log"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line, LineIndex: i})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	// Activate search
 	m = update(m, keypress('/'))
@@ -408,30 +410,32 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 	if len(m.searchMatches) != 1 {
 		t.Fatalf("want 1 match for 'error', got %d", len(m.searchMatches))
 	}
-	// New matching line arrives — incremental path should append without full rescan
+	// New matching line arrives — recomputeSearch picks it up
 	p.AppendLine("another error")
-	m = update(m, process.OutputMsg{Name: "backend", Line: "another error", LineIndex: 2})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	if len(m.searchMatches) != 2 {
 		t.Errorf("after new matching line: want 2 matches, got %d", len(m.searchMatches))
 	}
 }
 
 func TestSearch_eviction(t *testing.T) {
-	// Use a tiny scrollback (3 lines) so eviction happens quickly.
+	// Use a tiny scrollback (3 lines) and small window so the VT emulator
+	// screen is just 1 row, causing scrollback eviction after 4 lines.
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs:            map[string]config.ProcConfig{"svc": {Shell: "true", Autostart: &f}},
 		MouseScrollSpeed: 3,
 		Scrollback:       3,
-	})
-	m := New(mgr, 3, nil)
-	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 5})
 	p, _ := mgr.Get("svc")
 
 	// Fill the scrollback: lines 0,1,2 = "err0","ok1","err2"
-	for i, line := range []string{"err0", "ok1", "err2"} {
+	for _, line := range []string{"err0", "ok1", "err2"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "svc", Line: line, LineIndex: i})
+		m = update(m, process.OutputMsg{Name: "svc"})
 	}
 	// Search for "err" → matches at indices 0 and 2
 	m = update(m, keypress('/'))
@@ -447,7 +451,7 @@ func TestSearch_eviction(t *testing.T) {
 	// Buffer becomes: ["ok1","err2","ok3"] at indices 0,1,2.
 	// "err0" is gone; "err2" shifts to index 1; new line "ok3" at index 2.
 	p.AppendLine("ok3")
-	m = update(m, process.OutputMsg{Name: "svc", Line: "ok3", LineIndex: 2, Evicted: true})
+	m = update(m, process.OutputMsg{Name: "svc"})
 	if len(m.searchMatches) != 1 {
 		t.Errorf("after evicting matching line: want 1 match, got %d", len(m.searchMatches))
 	}
@@ -460,7 +464,7 @@ func TestSearch_escClearsActiveSearch(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("something")
-	m = update(m, process.OutputMsg{Name: "backend", Line: "something"})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	// Build a search result, then exit typing mode
 	m = update(m, keypress('/'))
 	m = update(m, keypress('s'))
@@ -545,12 +549,11 @@ func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
 
 func TestOutputMsg_activeProc(t *testing.T) {
 	m := readyModel(t, "backend")
-	// AppendLine puts the line into p.lines so buildContent sees it when the
-	// TUI handles the OutputMsg.
+	// AppendLine writes to the VT emulator; OutputMsg triggers a full reload.
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("hello world")
 	before := m.viewport.TotalLineCount()
-	m = update(m, process.OutputMsg{Name: "backend", Line: "hello world"})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	after := m.viewport.TotalLineCount()
 	if after != before+1 {
 		t.Errorf("OutputMsg for active proc: line count want %d, got %d", before+1, after)
@@ -561,7 +564,7 @@ func TestOutputMsg_inactiveProc(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	// cursor is on backend (index 0); send output for frontend
 	before := m.viewport.TotalLineCount()
-	m = update(m, process.OutputMsg{Name: "frontend", Line: "not visible"})
+	m = update(m, process.OutputMsg{Name: "frontend"})
 	after := m.viewport.TotalLineCount()
 	if after != before {
 		t.Error("OutputMsg for inactive proc should not update viewport")
@@ -597,5 +600,443 @@ func TestGotoTop_clearsAtBottom(t *testing.T) {
 	m = update(m, specialKey(tea.KeyHome))
 	if m.viewportAtBottom {
 		t.Error("home key should set atBottom=false")
+	}
+}
+
+// ── Sorting ──────────────────────────────────────────────────────────────────
+
+func serviceNames(m Model) []string {
+	names := make([]string, len(m.services))
+	for i, p := range m.services {
+		names[i] = p.Name
+	}
+	return names
+}
+
+func TestSort_defaultIsName(t *testing.T) {
+	m := readyModel(t, "frontend", "backend", "celery")
+	got := serviceNames(m)
+	want := []string{"backend", "celery", "frontend"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
+
+func TestSort_cycleWithO(t *testing.T) {
+	m := readyModel(t, "backend", "frontend")
+	if m.sortMode != SortName {
+		t.Fatalf("initial sort mode: got %v, want SortName", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortCPU {
+		t.Errorf("after first o: got %v, want SortCPU", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortRAM {
+		t.Errorf("after second o: got %v, want SortRAM", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortStatus {
+		t.Errorf("after third o: got %v, want SortStatus", m.sortMode)
+	}
+	m = update(m, keypress('o'))
+	if m.sortMode != SortName {
+		t.Errorf("after fourth o: got %v, want SortName (wrap)", m.sortMode)
+	}
+}
+
+func TestSort_cursorPreservedAcrossModes(t *testing.T) {
+	m := readyModel(t, "alpha", "beta", "gamma")
+	// Select "gamma" (last in alphabetical order)
+	m = update(m, keypress('j'))
+	m = update(m, keypress('j'))
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Fatalf("cursor should be on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+	// Cycle sort — cursor should stay on gamma
+	m = update(m, keypress('o'))
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Errorf("after sort cycle, cursor should stay on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+}
+
+func TestSort_cursorPreservedOnStatusMsg(t *testing.T) {
+	m := readyModel(t, "alpha", "beta", "gamma")
+	// After init+sort, order is alphabetical: alpha, beta, gamma.
+	// Navigate to the last entry.
+	m = update(m, keypress('j'))
+	m = update(m, keypress('j'))
+	selected := m.services[m.servicesCursor].Name
+	if selected != "gamma" {
+		t.Fatalf("cursor should be on gamma, got %s (order: %v)", selected, serviceNames(m))
+	}
+	// StatusMsg re-fetches and re-sorts — cursor should stay on gamma
+	m = update(m, process.StatusMsg{Name: "alpha", Status: process.StatusRunning})
+	if m.services[m.servicesCursor].Name != "gamma" {
+		t.Errorf("after StatusMsg, cursor should stay on gamma, got %s", m.services[m.servicesCursor].Name)
+	}
+}
+
+func TestSort_statusOrder(t *testing.T) {
+	// All test processes start as StatusStopped since we don't call Start().
+	// With equal statuses, status sort falls back to alphabetical.
+	m := readyModel(t, "gamma", "alpha", "beta")
+	m.sortMode = SortStatus
+	m.sortServices()
+
+	got := serviceNames(m)
+	want := []string{"alpha", "beta", "gamma"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("status sort index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
+
+func TestSort_statusSortOrder(t *testing.T) {
+	// Verify the rank function directly
+	tests := []struct {
+		status process.Status
+		want   int
+	}{
+		{process.StatusRunning, 0},
+		{process.StatusPending, 1},
+		{process.StatusCrashed, 2},
+		{process.StatusStopped, 3},
+		{process.StatusDone, 4},
+	}
+	for i, tt := range tests {
+		got := statusSortOrder(tt.status)
+		if got != tt.want {
+			t.Errorf("statusSortOrder(%v): got %d, want %d (index %d)", tt.status, got, tt.want, i)
+		}
+	}
+}
+
+func TestSort_infoSortsAlphabetically(t *testing.T) {
+	m := readyModel(t, "info", "backend", "alpha")
+	got := serviceNames(m)
+	want := []string{"info", "alpha", "backend"}
+	for i, n := range got {
+		if n != want[i] {
+			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
+		}
+	}
+}
+
+// ── Setup mode ──────────────────────────────────────────────────────────────
+
+func setupModel(t *testing.T) Model {
+	t.Helper()
+	m := readyModel(t, "backend", "frontend")
+	m.setupMode = true
+	m.setupStep = 1
+	m.setupEntries = []config.Intent{
+		{Name: "web", Description: "Web app"},
+		{Name: "analytics", Description: "Analytics pipeline"},
+		{Name: "api", Description: "API server"},
+	}
+	m.setupCursor = 0
+	m.setupOffset = 0
+	m.setupChecked = map[string]bool{"web": true}
+	m.setupError = ""
+	return m
+}
+
+func TestSetup_navigation(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('j'))
+	if m.setupCursor != 1 {
+		t.Errorf("j: cursor want 1, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('j'))
+	if m.setupCursor != 2 {
+		t.Errorf("j j: cursor want 2, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('j'))
+	if m.setupCursor != 2 {
+		t.Errorf("j at bottom: cursor should clamp at 2, got %d", m.setupCursor)
+	}
+	m = update(m, keypress('k'))
+	if m.setupCursor != 1 {
+		t.Errorf("k: cursor want 1, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_arrowKeys(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyDown))
+	if m.setupCursor != 1 {
+		t.Errorf("down: cursor want 1, got %d", m.setupCursor)
+	}
+	m = update(m, specialKey(tea.KeyUp))
+	if m.setupCursor != 0 {
+		t.Errorf("up: cursor want 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_clampsAtTop(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('k'))
+	if m.setupCursor != 0 {
+		t.Errorf("k at top: cursor should stay 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_toggle(t *testing.T) {
+	m := setupModel(t)
+	if !m.setupChecked["web"] {
+		t.Fatal("web should be checked initially")
+	}
+	// Toggle web off
+	m = update(m, specialKey(tea.KeySpace))
+	if m.setupChecked["web"] {
+		t.Error("space should uncheck web")
+	}
+	// Toggle web back on
+	m = update(m, specialKey(tea.KeySpace))
+	if !m.setupChecked["web"] {
+		t.Error("second space should check web")
+	}
+}
+
+func TestSetup_toggleDifferentEntry(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, keypress('j')) // move to analytics
+	m = update(m, specialKey(tea.KeySpace))
+	if !m.setupChecked["analytics"] {
+		t.Error("space on analytics should check it")
+	}
+	if !m.setupChecked["web"] {
+		t.Error("web should remain checked")
+	}
+}
+
+func TestSetup_escExitsFromStep1(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.setupMode {
+		t.Error("esc from step 1 should exit setup mode")
+	}
+	if m.focusedPane != focusServices {
+		t.Error("exiting setup should focus sidebar")
+	}
+}
+
+func TestSetup_escExitsFromStep2(t *testing.T) {
+	m := setupModel(t)
+	m.setupStep = 2
+	m.setupEntries = []config.Intent{{Name: "proc1"}, {Name: "proc2"}}
+	m.setupChecked = map[string]bool{"proc1": true, "proc2": true}
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.setupMode {
+		t.Error("esc from step 1 should exit setup mode")
+	}
+	if m.focusedPane != focusServices {
+		t.Error("exiting setup should focus sidebar")
+	}
+}
+
+func TestSetup_gotoTopAndBottom(t *testing.T) {
+	m := setupModel(t)
+	m = update(m, specialKey(tea.KeyEnd))
+	if m.setupCursor != 2 {
+		t.Errorf("end: cursor want 2, got %d", m.setupCursor)
+	}
+	m = update(m, specialKey(tea.KeyHome))
+	if m.setupCursor != 0 {
+		t.Errorf("home: cursor want 0, got %d", m.setupCursor)
+	}
+}
+
+func TestSetup_isFullScreen(t *testing.T) {
+	m := setupModel(t)
+	if !m.isFullScreen() {
+		t.Error("setup mode should be full screen")
+	}
+}
+
+func TestSetup_handleListUnitsMsg(t *testing.T) {
+	m := setupModel(t)
+	m.handleListUnitsMsg(listUnitsMsg{
+		units:    []string{"backend", "celery", "frontend"},
+		intents:  []string{"web"},
+		excluded: map[string]bool{"celery": true},
+	})
+	if m.setupStep != 2 {
+		t.Errorf("step: want 2, got %d", m.setupStep)
+	}
+	if len(m.setupEntries) != 3 {
+		t.Fatalf("entries: want 3, got %d", len(m.setupEntries))
+	}
+	if !m.setupChecked["backend"] {
+		t.Error("backend should be checked")
+	}
+	if m.setupChecked["celery"] {
+		t.Error("celery should be unchecked (excluded)")
+	}
+	if !m.setupChecked["frontend"] {
+		t.Error("frontend should be checked")
+	}
+	if len(m.setupIntents) != 1 || m.setupIntents[0] != "web" {
+		t.Errorf("intents: want [web], got %v", m.setupIntents)
+	}
+}
+
+func TestSetup_handleListUnitsMsgError(t *testing.T) {
+	m := setupModel(t)
+	m.handleListUnitsMsg(listUnitsMsg{err: fmt.Errorf("hogli failed")})
+	if m.setupError == "" {
+		t.Error("error message should be set")
+	}
+	if m.setupStep != 1 {
+		t.Error("should remain on step 1 after error")
+	}
+}
+
+func TestSetup_handleDevApplyMsgError(t *testing.T) {
+	m := setupModel(t)
+	m.handleDevApplyMsg(devApplyMsg{err: fmt.Errorf("apply failed")})
+	if m.setupError == "" {
+		t.Error("error message should be set")
+	}
+	if !m.setupMode {
+		t.Error("should remain in setup mode after error")
+	}
+}
+
+// ── Hedgehog mode ───────────────────────────────────────────────────────────
+
+func TestHedgehog_enterAndExit(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if !m.hedgehogMode {
+		t.Error("h should enter hedgehog mode")
+	}
+	if m.hedgehogX != 0 {
+		t.Errorf("initial X: got %d, want 0", m.hedgehogX)
+	}
+	if m.hedgehogDir != 1 {
+		t.Errorf("initial dir: got %d, want 1 (right)", m.hedgehogDir)
+	}
+	m = update(m, keypress('h'))
+	if m.hedgehogMode {
+		t.Error("second h should exit hedgehog mode")
+	}
+}
+
+func TestHedgehog_exitWithEscape(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if !m.hedgehogMode {
+		t.Fatal("should be in hedgehog mode")
+	}
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.hedgehogMode {
+		t.Error("esc should exit hedgehog mode")
+	}
+}
+
+func TestHedgehog_jump(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	if m.hedgehogY != 0 {
+		t.Fatalf("initial Y: got %d, want 0", m.hedgehogY)
+	}
+	m = update(m, specialKey(tea.KeySpace))
+	if m.hedgehogY != 1 {
+		t.Errorf("Y after jump: got %d, want 1", m.hedgehogY)
+	}
+	if m.hedgehogVelY != 1 {
+		t.Errorf("velY after jump: got %d, want 1", m.hedgehogVelY)
+	}
+}
+
+func TestHedgehog_jumpOnlyFromGround(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('h'))
+	// First jump
+	m = update(m, specialKey(tea.KeySpace))
+	y := m.hedgehogY
+	vel := m.hedgehogVelY
+	// Second jump while airborne should be ignored
+	m = update(m, specialKey(tea.KeySpace))
+	if m.hedgehogY != y || m.hedgehogVelY != vel {
+		t.Error("space while airborne should not change Y or velY")
+	}
+}
+
+func TestHedgehog_advanceMoves(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogDir = 1
+	m.hedgehogX = 0
+	m.hedgehogFrame = 0
+
+	m.advanceHedgehog()
+	if m.hedgehogX != 1 {
+		t.Errorf("X after advance: got %d, want 1", m.hedgehogX)
+	}
+	if m.hedgehogFrame != 1 {
+		t.Errorf("frame after advance: got %d, want 1", m.hedgehogFrame)
+	}
+}
+
+func TestHedgehog_bounceAtEdge(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	spriteW := len(hedgehogFramesRight[0][0])
+	m.hedgehogX = m.viewport.Width() - spriteW
+	m.hedgehogDir = 1
+
+	m.advanceHedgehog()
+	if m.hedgehogDir != -1 {
+		t.Errorf("dir after hitting right edge: got %d, want -1", m.hedgehogDir)
+	}
+}
+
+func TestHedgehog_bounceAtLeftEdge(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogX = 0
+	m.hedgehogDir = -1
+
+	m.advanceHedgehog()
+	if m.hedgehogDir != 1 {
+		t.Errorf("dir after hitting left edge: got %d, want 1", m.hedgehogDir)
+	}
+}
+
+func TestHedgehog_gravity(t *testing.T) {
+	m := readyModel(t, "backend")
+	m.hedgehogMode = true
+	m.hedgehogY = 2
+	m.hedgehogVelY = 0
+	m.hedgehogDir = 1
+
+	m.advanceHedgehog()
+	if m.hedgehogY != 2 {
+		t.Errorf("Y with velY=0 at Y=2: got %d, want 2", m.hedgehogY)
+	}
+	// Y>0 and velY=0 means gravity pulls down: velY becomes -1
+	if m.hedgehogVelY != -1 {
+		t.Errorf("velY should decrease by 1, got %d", m.hedgehogVelY)
+	}
+
+	m.advanceHedgehog()
+	// Y=2+(-1)=1, velY=-1-1=-2
+	if m.hedgehogY != 1 {
+		t.Errorf("Y after gravity: got %d, want 1", m.hedgehogY)
+	}
+
+	m.advanceHedgehog()
+	// Y=1+(-2)=-1 → clamped to 0
+	if m.hedgehogY != 0 {
+		t.Errorf("Y should clamp to 0, got %d", m.hedgehogY)
+	}
+	if m.hedgehogVelY != 0 {
+		t.Errorf("velY should reset to 0 on landing, got %d", m.hedgehogVelY)
 	}
 }

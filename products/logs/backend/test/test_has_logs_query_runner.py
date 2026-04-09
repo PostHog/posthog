@@ -16,16 +16,6 @@ from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def test_has_logs_returns_false_when_no_logs(self):
         runner = HasLogsQueryRunner(self.team)
         self.assertFalse(runner.run())
@@ -65,23 +55,13 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-
     def setUp(self):
         super().setUp()
         cache.delete(f"team:{self.team.id}:has_logs")
 
     def test_has_logs_api_returns_false_when_no_logs(self):
         # Clean up any logs from previous tests
-        sync_execute(f"TRUNCATE TABLE IF EXISTS logs")
+        sync_execute(f"TRUNCATE TABLE IF EXISTS logs32")
         cache.delete(f"team:{self.team.id}:has_logs")
 
         response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
@@ -124,7 +104,10 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             """)
 
         # First call should hit the database and cache the result
-        with patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner:
+        with (
+            patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner,
+            patch("products.logs.backend.api.report_user_action") as mock_report,
+        ):
             mock_runner.return_value.run.return_value = True
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
@@ -132,11 +115,17 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.json(), {"hasLogs": True})
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
+            assert mock_report.call_args[0][1] == "logs has_logs checked"
+            assert mock_report.call_args[0][2]["has_logs"] is True
+
             # Second call should use cache, not hit the runner again
             response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"hasLogs": True})
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+            # Tracking should fire on both cached and uncached paths
+            assert mock_report.call_count == 2
 
     def test_has_logs_api_does_not_cache_negative_results(self):
         cache.clear()

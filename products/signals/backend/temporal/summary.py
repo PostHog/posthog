@@ -1,7 +1,7 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from django.db import transaction
 
@@ -10,28 +10,39 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql import ast
-
-from posthog.models import Team
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.actionability_judge import (
-    ActionabilityChoice,
-    ActionabilityJudgeInput,
-    actionability_judge_activity,
+from products.signals.backend.report_generation.research import ActionabilityChoice
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.temporal.agentic.report import (
+    RunAgenticReportInput,
+    RunAgenticReportOutput,
+    run_agentic_report_activity,
 )
-from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
+from products.signals.backend.temporal.agentic.select_repository import (
+    SelectRepositoryInput,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
-from products.signals.backend.temporal.summarize_signals import (
-    SummarizeSignalsInput,
-    SummarizeSignalsOutput,
-    summarize_signals_activity,
+from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
+    FetchSignalsForReportOutput,
+    fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
-from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class ReportDecision:
+    title: str
+    summary: str
+    choice: ActionabilityChoice
+    explanation: str
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -42,12 +53,11 @@ class SignalReportSummaryWorkflow:
     Flow:
     1. Fetch all signals for the report from ClickHouse
     2. Mark report as in_progress
-    3. Summarize signals into a title + summary via LLM
-    4. Safety judge: assess the report for prompt injection / manipulation attempts
-       - If unsafe -> mark report as failed, stop
-    5. Actionability judge: assess whether the report is actionable by a coding agent
-       - If not actionable -> reset report weight to 0 and status to potential, stop
-    6. Mark report as ready with the generated title and summary
+    3. Run safety judge to filter unsafe reports
+    4. Select a repository for the agentic research
+    5. Run the agentic report research flow
+    6. Apply the resulting actionability decision to transition the report
+    7. If new signals arrived during the run, loop back to step 1
     """
 
     @staticmethod
@@ -61,13 +71,25 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # If new signals arrived after the report was generated - loop back to process them also
+        max_iterations = 10  # Basic safety guard
+        for _ in range(max_iterations):
+            # Loop internally rather than spawning new workflows because summary workflows are
+            # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
+            should_loop = await self._run_once(inputs)
+            if not should_loop:
+                return
+        workflow.logger.warning(f"Report {inputs.report_id} hit max loop iterations ({max_iterations}), exiting")
+
+    async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs) -> bool:
+        """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
+        # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-
         if not fetch_result.signals:
             workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
             await workflow.execute_activity(
@@ -76,52 +98,28 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            return
-
+            # No loop, as no signals to process
+            return False
+        signal_count = len(fetch_result.signals)
+        # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
             mark_report_in_progress_activity,
-            MarkReportInProgressInput(
-                team_id=inputs.team_id, report_id=inputs.report_id, signal_count=len(fetch_result.signals)
-            ),
+            MarkReportInProgressInput(team_id=inputs.team_id, report_id=inputs.report_id, signal_count=signal_count),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-
         try:
-            summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
-                summarize_signals_activity,
-                SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
+            # 3. Run safety judge first to avoid passing unsafe report into the agentic research
+            safety_result = await workflow.execute_activity(
+                report_safety_judge_activity,
+                SafetyJudgeInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    signals=fetch_result.signals,
+                ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-
-            safety_result, actionability_result = await asyncio.gather(
-                workflow.execute_activity(
-                    report_safety_judge_activity,
-                    SafetyJudgeInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-                workflow.execute_activity(
-                    actionability_judge_activity,
-                    ActionabilityJudgeInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-            )
-
             if not safety_result.safe:
                 workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
                 await workflow.execute_activity(
@@ -134,54 +132,105 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
-
-            if actionability_result.choice == ActionabilityChoice.NOT_ACTIONABLE:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} deemed not actionable: {actionability_result.explanation}"
+                # No loop, as report is unsafe
+                return False
+            # 4. Select repository for the agentic research
+            repo_result: RepoSelectionResult = await workflow.execute_activity(
+                select_repository_activity,
+                SelectRepositoryInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    signals=fetch_result.signals,
+                ),
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if repo_result.repository is None:
+                workflow.logger.warning(f"Report {inputs.report_id} no repository selected: {repo_result.reason}")
+                decision = ReportDecision(
+                    title="Repository selection required",
+                    summary=f"Could not automatically select a repository: {repo_result.reason}",
+                    choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                    explanation=repo_result.reason,
                 )
+            else:
+                # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
+                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    RunAgenticReportInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signals=fetch_result.signals,
+                        repo_selection=repo_result,
+                    ),
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                decision = ReportDecision(
+                    title=agentic_result.title,
+                    summary=agentic_result.summary,
+                    choice=agentic_result.choice,
+                    explanation=agentic_result.explanation,
+                )
+            if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
+                workflow.logger.info(f"Report {inputs.report_id} deemed not actionable: {decision.explanation}")
                 await workflow.execute_activity(
                     reset_report_to_potential_activity,
                     ResetReportToPotentialInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        reason=f"Not actionable: {actionability_result.explanation}",
+                        reason=f"Not actionable: {decision.explanation}",
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
-
-            if actionability_result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} requires human input: {actionability_result.explanation}"
-                )
+                # No loop, as report is not actionable
+                return False
+            if decision.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
+                workflow.logger.info(f"Report {inputs.report_id} requires human input: {decision.explanation}")
                 await workflow.execute_activity(
                     mark_report_pending_input_activity,
                     MarkReportPendingInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        reason=f"Requires human input: {actionability_result.explanation}",
+                        title=decision.title,
+                        summary=decision.summary,
+                        reason=f"Requires human input: {decision.explanation}",
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return
-
-            await workflow.execute_activity(
+                # No loop, human input is required
+                return False
+            # 6. Mark ready and check if new signals arrived during the run
+            has_new_signals: bool = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
-                    title=summarize_result.title,
-                    summary=summarize_result.summary,
+                    title=decision.title,
+                    summary=decision.summary,
+                    processed_signal_count=signal_count,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-
+            # 7. If new signals arrived during the run - loop back to the start
+            if has_new_signals:
+                workflow.logger.info(f"Report {inputs.report_id} has new signals since run started, looping")
+            else:  # Only emit the notification if we're not going to immediately re-run
+                await workflow.execute_activity(
+                    publish_report_completed_activity,
+                    PublishReportCompletedInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -190,95 +239,6 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             raise
-
-
-@dataclass
-class FetchSignalsForReportInput:
-    team_id: int
-    report_id: str
-
-
-@dataclass
-class FetchSignalsForReportOutput:
-    signals: list[SignalData]
-
-
-@temporalio.activity.defn
-async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY timestamp ASC
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsFetchForReport",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=input.report_id),
-            },
-        )
-
-        signals = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp_raw = row
-            # HogQL returns datetime objects, but defend against strings too
-            if isinstance(timestamp_raw, str):
-                timestamp_raw = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00"))
-            if timestamp_raw.tzinfo is None:
-                timestamp_raw = timestamp_raw.replace(tzinfo=UTC)
-            # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
-            # no defensive parsing, we want to fail loudly.
-            metadata = json.loads(metadata_str)
-            signals.append(
-                SignalData(
-                    signal_id=document_id,
-                    content=content,
-                    source_product=metadata.get("source_product", ""),
-                    source_type=metadata.get("source_type", ""),
-                    source_id=metadata.get("source_id", ""),
-                    weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp_raw,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
-        logger.debug(
-            f"Fetched {len(signals)} signals for report {input.report_id}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-            signal_count=len(signals),
-        )
-        return FetchSignalsForReportOutput(signals=signals)
-    except Exception as e:
-        logger.exception(
-            f"Failed to fetch signals for report {input.report_id}: {e}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-        )
-        raise
 
 
 @dataclass
@@ -324,25 +284,35 @@ class MarkReportReadyInput:
     report_id: str
     title: str
     summary: str
+    processed_signal_count: int
 
 
 @temporalio.activity.defn
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
-    """Mark a report as ready after successful summarization and judge checks."""
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+    """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update():
+        def do_update() -> bool:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
+            has_new_signals = report.signal_count > input.processed_signal_count
+            if has_new_signals:
+                # If more signals arrived while the report was being processed, we want to
+                # re-promote it back to candidate and loop to also process new signals
+                candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=candidate_fields)
+            return has_new_signals
 
-        await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals = await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as ready",
             report_id=input.report_id,
             title=input.title,
+            has_new_signals=has_new_signals,
         )
+        return has_new_signals
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
@@ -447,5 +417,53 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
             report_id=input.report_id,
+        )
+        raise
+
+
+@dataclass
+class PublishReportCompletedInput:
+    team_id: int
+    report_id: str
+    signals: list[SignalData]
+
+
+@temporalio.activity.defn
+async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
+    """Publish a message to Kafka when a report is generated or re-generated."""
+    try:
+        message = {
+            "team_id": input.team_id,
+            "report_id": input.report_id,
+            "signals": [
+                {
+                    "document_id": signal.signal_id,
+                    "timestamp": signal.timestamp.isoformat(),
+                    "source_product": signal.source_product,
+                    "source_type": signal.source_type,
+                    "source_id": signal.source_id,
+                    "extra": signal.extra,
+                }
+                for signal in input.signals
+            ],
+        }
+        producer = KafkaProducer()
+        producer.produce(
+            topic=KAFKA_SIGNALS_REPORT_COMPLETED,
+            data=message,
+            key=input.report_id,
+        )
+        await asyncio.to_thread(producer.flush)
+        logger.debug(
+            f"Published report_completed for report {input.report_id}",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            signal_count=len(input.signals),
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to publish report_completed for report {input.report_id}: {e}",
+            report_id=input.report_id,
+            team_id=input.team_id,
         )
         raise

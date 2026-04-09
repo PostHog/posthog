@@ -1,5 +1,9 @@
 metadata:
+    devbox:
+        coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -70,8 +74,12 @@ metadata:
                 scheduled tasks, and email sending.
         nodejs:
             name: Node.js
-            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
-                and writes to Kafka (then ClickHouse).
+            about: CDP workflows, session recordings, logs ingestion, and evaluation scheduler.
+                Ingestion runs as a separate process (see ingestion unit).
+        ingestion:
+            name: Ingestion
+            about: Event ingestion pipeline that processes incoming events and writes to
+                Kafka (then ClickHouse). Runs as IngestionGeneralServer.
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -87,6 +95,17 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
+devbox:
+    devbox: null
+    devbox:setup: null
+    devbox:start: null
+    devbox:stop: null
+    devbox:ssh: null
+    devbox:open: null
+    devbox:logs: null
+    devbox:destroy: null
+    devbox:status: null
+    devbox:forward: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -107,6 +126,11 @@ core:
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
+        services:
+            - postgresql
+    dev:sync-hog-templates:
+        cmd: python manage.py sync_hog_function_templates
+        description: Sync hog function templates from configuration
         services:
             - postgresql
     dev:sync-user-settings:
@@ -171,6 +195,7 @@ start:
             - frontend
             - celery
             - nodejs
+            - ingestion
             - postgresql
             - redis
             - kafka
@@ -205,10 +230,11 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs, ingestion)
         services:
             - celery
             - nodejs
+            - ingestion
             - kafka
             - temporal
             - redis
@@ -252,6 +278,7 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
+    build: null # Click-defined command; placed here for help categorization
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
@@ -494,9 +521,6 @@ tests:
     test:js:
         cmd: pnpm --filter=@posthog/frontend test
         description: Run JavaScript test suite
-    test:run:
-        bin_script: tests
-        description: Interactive test runner with watch mode and changed file detection
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
@@ -542,6 +566,7 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 tools:
+    doctor: null # Click-defined, placed here for categorization
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
@@ -589,6 +614,9 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
+    clickhouse:ai:init:
+        bin_script: clickhouse-ai-events-init
+        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
@@ -655,9 +683,8 @@ tools:
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
     phrocs:build:
-        cmd: cd tools/phrocs && go build -o ../../bin/phrocs .
-        description: Build the phrocs binary from source (Go required; run once or after
-            changing tools/phrocs/)
+        cmd: cd tools/phrocs && make build
+        description: Build the phrocs binary from source
     phrocs:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config
@@ -724,3 +751,14 @@ environment:
         description: Disable anonymous usage telemetry
     telemetry:status:
         description: Show current telemetry settings
+    sandbox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
+    start:stripe:mock:
+        bin_script: start-stripe-mock
+        description: 'Start the local Stripe mock API server'
+        hidden: true
+    fix:rdkafka:paths:
+        bin_script: fix-rdkafka-paths
+        description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
+        hidden: true

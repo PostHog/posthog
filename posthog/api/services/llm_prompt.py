@@ -1,10 +1,12 @@
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
@@ -26,6 +28,58 @@ class LLMPromptVersionConflictError(Exception):
 @dataclass
 class LLMPromptVersionLimitError(Exception):
     max_version: int
+
+
+@dataclass
+class LLMPromptEditError(Exception):
+    message: str
+    edit_index: int
+
+
+def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
+    """Apply sequential find/replace edits to a prompt.
+
+    If the prompt is a string, edits operate on it directly.
+    If it's a JSON structure, it's serialized to a string for editing then parsed back.
+    Each edit's 'old' text must match exactly once.
+    """
+    is_string = isinstance(prompt_content, str)
+    text = prompt_content if is_string else json.dumps(prompt_content, indent=2, ensure_ascii=False)
+
+    for i, edit in enumerate(edits):
+        old = edit["old"]
+        new = edit["new"]
+        count = text.count(old)
+        if count == 0:
+            raise LLMPromptEditError(
+                message="Text to replace was not found in the prompt.",
+                edit_index=i,
+            )
+        if count > 1:
+            raise LLMPromptEditError(
+                message=f"Text to replace matches {count} times — provide more context to make it unique.",
+                edit_index=i,
+            )
+        text = text.replace(old, new, 1)
+
+    result = text if is_string else None
+    if result is None:
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError as err:
+            raise LLMPromptEditError(
+                message=f"Edits produced invalid JSON: {err}",
+                edit_index=len(edits) - 1,
+            ) from err
+
+    result_bytes = len(json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if result_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+        raise LLMPromptEditError(
+            message=f"Resulting prompt exceeds the {MAX_PROMPT_PAYLOAD_BYTES} byte size limit.",
+            edit_index=len(edits) - 1,
+        )
+
+    return result
 
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
@@ -89,7 +143,8 @@ def publish_prompt_version(
     *,
     user: User,
     prompt_name: str,
-    prompt_payload: Any,
+    prompt_payload: Any | None = None,
+    edits: list[dict[str, str]] | None = None,
     base_version: int,
 ) -> LLMPrompt:
     with transaction.atomic():
@@ -107,11 +162,16 @@ def publish_prompt_version(
         if current_latest.version >= MAX_PROMPT_VERSION:
             raise LLMPromptVersionLimitError(max_version=MAX_PROMPT_VERSION)
 
+        if edits is not None:
+            resolved_payload = apply_prompt_edits(current_latest.prompt, edits)
+        else:
+            resolved_payload = prompt_payload
+
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(
             team=team,
             name=current_latest.name,
-            prompt=prompt_payload,
+            prompt=resolved_payload,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -132,6 +192,48 @@ def publish_prompt_version(
             .first()
         )
         return fallback_prompt if fallback_prompt is not None else published_prompt
+
+
+class LLMPromptDuplicateNameConflictError(Exception):
+    pass
+
+
+def duplicate_prompt(
+    team: Team,
+    *,
+    user: User,
+    source_name: str,
+    new_name: str,
+) -> LLMPrompt:
+    with transaction.atomic():
+        source_latest = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=source_name, deleted=False, is_latest=True)
+            .order_by("-version", "-created_at", "-id")
+            .first()
+        )
+        if source_latest is None:
+            raise LLMPromptNotFoundError()
+
+        if LLMPrompt.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMPromptDuplicateNameConflictError()
+
+        try:
+            new_prompt = LLMPrompt.objects.create(
+                team=team,
+                name=new_name,
+                prompt=source_latest.prompt,
+                version=1,
+                is_latest=True,
+                created_by=user,
+            )
+        except IntegrityError as err:
+            if "unique_llm_prompt_latest_per_team" in str(err) or "unique_llm_prompt_version_per_team" in str(err):
+                raise LLMPromptDuplicateNameConflictError() from err
+            raise
+
+    refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
+    return refreshed if refreshed is not None else new_prompt
 
 
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:

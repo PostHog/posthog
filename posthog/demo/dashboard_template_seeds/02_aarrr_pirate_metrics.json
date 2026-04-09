@@ -1,0 +1,151 @@
+{
+    "template_name": "AARRR \u2013 Pirate Metrics",
+    "dashboard_description": "The AARRR framework, also known as \"pirate metrics\" or the AARRR funnel, is a classic framework for understanding customer behavior. Useful for marketers, product managers and growth hackers at startups.",
+    "dashboard_filters": {},
+    "tags": [],
+    "tiles": [
+        {
+            "body": "### Acquisition\n\nEdit the insights below to match your acquisition events. [Pirate metrics guide](https://posthog.com/blog/aarrr-pirate-funnel)",
+            "type": "TEXT",
+            "color": null,
+            "layouts": {
+                "sm": {
+                    "h": 4,
+                    "i": "aar-1",
+                    "w": 12,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 2,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 4,
+                    "i": "aar-1",
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 2,
+                    "minW": 1
+                }
+            }
+        },
+        {
+            "name": "Activation conversion",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": ["{SIGNED_UP}", "{LOGGED_ID}"],
+                    "dateRange": {
+                        "date_from": "-90d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "funnelsFilter": {
+                        "layout": "horizontal",
+                        "exclusions": [],
+                        "funnelVizType": "steps",
+                        "funnelOrderType": "ordered",
+                        "funnelStepReference": "total",
+                        "funnelWindowInterval": 1,
+                        "breakdownAttributionType": "first_touch",
+                        "funnelWindowIntervalUnit": "week"
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "aar-2",
+                    "w": 6,
+                    "x": 0,
+                    "y": 4,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "aar-2",
+                    "w": 1,
+                    "x": 0,
+                    "y": 4,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "Signup to login within one week."
+        },
+        {
+            "name": "Weekly user retention",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "RetentionQuery",
+                    "dateRange": {
+                        "date_from": "-7d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "retentionFilter": {
+                        "period": "Week",
+                        "targetEntity": "{LOGGED_ID}",
+                        "retentionType": "retention_recurring",
+                        "totalIntervals": 9,
+                        "returningEntity": "{LOGGED_ID}",
+                        "retentionReference": "total"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 7,
+                    "i": "aar-3",
+                    "w": 6,
+                    "x": 6,
+                    "y": 4,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 7,
+                    "i": "aar-3",
+                    "w": 1,
+                    "x": 0,
+                    "y": 9,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "Users who performed the login event and returned."
+        }
+    ],
+    "variables": [
+        {
+            "id": "SIGNED_UP",
+            "name": "User signed up",
+            "type": "event",
+            "default": {},
+            "required": true,
+            "description": "User signing up"
+        },
+        {
+            "id": "LOGGED_ID",
+            "name": "User logged in",
+            "type": "event",
+            "default": {},
+            "required": true,
+            "description": "A user login"
+        }
+    ],
+    "image_url": "https://posthog.com/template_art/aarrr-dash.png",
+    "scope": "global"
+}

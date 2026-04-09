@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
@@ -22,7 +23,6 @@ export type OrganizationUpdatePayload = Partial<
         OrganizationType,
         | 'name'
         | 'logo_media_id'
-        | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
@@ -113,7 +113,13 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization],
             (currentOrganization): string => {
                 if (!currentOrganization || !currentOrganization.id) {
-                    throw new Error('currentOrganizationId accessed before organization loaded')
+                    // TODO: Fix callers that access currentOrganizationId before the organization is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentOrganizationId accessed before organization loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
                 }
                 return currentOrganization.id
             },

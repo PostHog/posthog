@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconInfo, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -171,12 +170,13 @@ export function FeatureFlagEvaluationContexts({
                 )}
             </div>
 
-            <LemonDivider className="my-0" />
-
             {/* Evaluation contexts section */}
             <div className="flex flex-col gap-1">
                 <span className="text-sm font-medium inline-flex items-center gap-1">
                     Evaluation contexts
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
                     {(context === 'form' || isEditingContexts) && (
                         <Tooltip
                             interactive

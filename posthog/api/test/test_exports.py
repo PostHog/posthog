@@ -1,20 +1,15 @@
-import asyncio
-import threading
-from collections.abc import Callable, Generator
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import datetime, timedelta
-from typing import Any, Optional
-from zoneinfo import ZoneInfo
+from typing import Optional
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from django.http import HttpResponse
 from django.utils.timezone import now
 
-import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
@@ -26,13 +21,9 @@ from posthog.hogql.errors import QueryError
 
 from posthog.api.insight import InsightSerializer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
-from posthog.models.organization import Organization
-from posthog.models.subscription import Subscription
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import (
@@ -43,16 +34,13 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
-from posthog.tasks.exports import image_exporter
-from posthog.tasks.exports.failure_handler import (
-    FAILURE_TYPE_SYSTEM,
-    FAILURE_TYPE_TIMEOUT_GENERATION,
-    FAILURE_TYPE_USER,
-)
+from posthog.tasks.exports.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from posthog.tasks.exports.image_exporter import export_image
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
 from ee.models.rbac.access_control import AccessControl
-from ee.tasks.subscriptions import subscription_utils
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -106,7 +94,7 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         # add filter to dashboard
         self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
@@ -136,9 +124,10 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
         one_week_from_now = datetime.now() + timedelta(weeks=1)
         response = self.client.post(
@@ -174,13 +163,12 @@ class TestExports(APIBaseTest):
             "expires_after": expected_expiry,
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
         # regression test see https://github.com/PostHog/posthog/issues/11204
-
-        mock_exporter_task.get.side_effect = requests.exceptions.MissingSchema("why is this raised?")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -197,10 +185,11 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
@@ -260,7 +249,8 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.assert_called_once()
+        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -304,18 +294,8 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.exporter")
-    def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/jpeg", "insight": self.insight.id},
@@ -413,8 +393,9 @@ class TestExports(APIBaseTest):
             },
         )
 
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
-    def test_can_download_a_csv(self, patched_request) -> None:
+    def test_can_download_a_csv(self, patched_request, _mock_workflow) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
@@ -516,6 +497,8 @@ class TestExports(APIBaseTest):
         activity_response = self._get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
@@ -772,9 +755,8 @@ class TestExports(APIBaseTest):
     )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    @patch("posthog.api.exports.exporter")
     def test_export_expiry_varies_by_format(
-        self, export_format, expected_delta, mock_exporter_task, mock_async_connect, mock_async_to_sync
+        self, export_format, expected_delta, mock_async_connect, mock_async_to_sync
     ) -> None:
         is_video_format = export_format in ("video/mp4", "video/webm", "image/gif")
 
@@ -803,9 +785,6 @@ class TestExports(APIBaseTest):
         )
 
         self.assertEqual(data["expires_after"], expected_expiry)
-
-        if not is_video_format:
-            mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -1000,26 +979,43 @@ class TestExports(APIBaseTest):
         self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
-        """Test that synchronous exports record failure info when a QueryError occurs."""
+    def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:
+        """Test that export_asset records failure info on the asset when a QueryError occurs.
+
+        The actual export now runs inside a Temporal workflow (tested in
+        test_export_workflow.py). This test verifies the underlying exporter
+        still records structured failure metadata on the ExportedAsset model.
+        """
         from posthog.hogql.errors import QueryError
 
         mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            insight=self.insight,
+            created_by=self.user,
         )
+        exporter.export_asset(asset.id)
 
-        # Should return 201 even though the export failed internally
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-
-        # Reload the asset and verify failure info was recorded
-        asset = ExportedAsset.objects.get(pk=data["id"])
+        asset.refresh_from_db()
         self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
+
+    @patch("posthog.api.exports.async_connect")
+    def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
+        mock_client = AsyncMock()
+        mock_client.execute_workflow.side_effect = Exception("workflow failed")
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):
@@ -1046,7 +1042,7 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.security.url_validation.resolve_host_ips")
     def test_accepts_valid_external_heatmap_url(self, mock_resolve, mock_exporter_task) -> None:
         import ipaddress
@@ -1070,7 +1066,10 @@ class TestExportMixin(APIBaseTest):
         Use this function to test the CSV output of exports in other tests
         """
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
-            with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            with (
+                patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request,
+                patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"),
+            ):
 
                 def requests_side_effect(*args, **kwargs):
                     response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
@@ -1093,6 +1092,10 @@ class TestExportMixin(APIBaseTest):
                         "export_format": "text/csv",
                     },
                 )
+                # Workflow is mocked so the export content isn't generated during
+                # the POST. Run the exporter directly to produce CSV content.
+                exporter.export_asset(response.json()["id"])
+
                 download_response = self.client.get(
                     f"/api/projects/{self.team.id}/exports/{response.json()['id']}/content?download=true"
                 )
@@ -1150,119 +1153,3 @@ class TestExportAssetCounters(APIBaseTest):
             )
             == expected_failure
         )
-
-
-@pytest.mark.django_db(transaction=True)
-class TestGenerateAssetsAsyncCounters:
-    @pytest.fixture
-    def subscription(self, django_user_model: Any) -> Generator[Any, None, None]:
-        organization = Organization.objects.create(name="Test Org for Async")
-        team = Team.objects.create(organization=organization, name="Test Team for Async")
-        user = django_user_model.objects.create(email="async-test@posthog.com")
-        user.join(organization=organization)
-
-        dashboard = Dashboard.objects.create(team=team, name="test dashboard", created_by=user)
-        insight = Insight.objects.create(team=team, short_id="async123", name="Test insight")
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-        subscription = Subscription.objects.create(
-            team=team,
-            dashboard=dashboard,
-            created_by=user,
-            target_type="email",
-            target_value="test@example.com",
-            frequency="daily",
-            interval=1,
-            start_date=datetime(2022, 1, 1, 9, 0).replace(tzinfo=ZoneInfo("UTC")),
-        )
-
-        yield subscription
-
-        subscription.delete()
-        DashboardTile.objects.filter(dashboard=dashboard).delete()
-        insight.delete()
-        dashboard.delete()
-        user.delete()
-        team.delete()
-        organization.delete()
-
-    @staticmethod
-    @contextmanager
-    def _patch_export_image(mock: MagicMock) -> Generator[MagicMock, None, None]:
-        original = image_exporter.export_image
-        image_exporter.export_image = mock
-        try:
-            yield mock
-        finally:
-            image_exporter.export_image = original
-
-    @staticmethod
-    def _get_success_counter_value() -> float:
-        return get_counter_value(exporter.EXPORT_SUCCEEDED_COUNTER, {"type": ExportedAsset.ExportFormat.PNG})
-
-    @staticmethod
-    def _get_failed_counter_value(failure_type: str) -> float:
-        return get_counter_value(
-            exporter.EXPORT_FAILED_COUNTER, {"type": ExportedAsset.ExportFormat.PNG, "failure_type": failure_type}
-        )
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "error,failure_type,expected_success_delta,expected_failure_delta,is_timeout",
-        [
-            (None, FAILURE_TYPE_USER, 1.0, 0.0, False),
-            (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
-            (CHQueryErrorTooManySimultaneousQueries("Too many queries"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
-            (None, FAILURE_TYPE_TIMEOUT_GENERATION, 0.0, 1.0, True),
-        ],
-        ids=["success", "user_error", "system_error", "timeout"],
-    )
-    async def test_export_counter_behavior(
-        self,
-        subscription: Any,
-        settings: Any,
-        error: Exception | None,
-        failure_type: str,
-        expected_success_delta: float,
-        expected_failure_delta: float,
-        is_timeout: bool,
-    ) -> None:
-        side_effect: Callable[..., None] | Exception | None
-        if is_timeout:
-            # Use threading.Event.wait() for a blocking delay
-            blocking_event = threading.Event()
-
-            def slow_export(*args: Any, **kwargs: Any) -> None:
-                blocking_event.wait(timeout=5)
-
-            side_effect = slow_export
-        else:
-            side_effect = error
-
-        mock_export_image = MagicMock(side_effect=side_effect)
-
-        with (
-            patch("ee.tasks.subscriptions.subscription_utils.get_asset_generation_timeout_metric"),
-            patch("ee.tasks.subscriptions.subscription_utils.get_asset_generation_duration_metric"),
-            self._patch_export_image(mock_export_image),
-        ):
-            success_before = self._get_success_counter_value()
-            failed_before = self._get_failed_counter_value(failure_type)
-
-            if is_timeout:
-                # Need > 2 min because export_timeout = (TEMPORAL_TASK_TIMEOUT_MINUTES * 60) - 120
-                # 2.05 gives 3-second timeout, slow_export sleeps for 5s to trigger timeout
-                settings.TEMPORAL_TASK_TIMEOUT_MINUTES = 2.05
-
-            await subscription_utils.generate_assets_async(subscription, max_asset_count=1)
-
-            if is_timeout:
-                # Wait for the orphaned thread to wake up from sleep and process cancellation
-                # The mock sleeps for 5s, timeout fires after 3s, so we wait ~4s more for processing
-                await asyncio.sleep(4)
-
-            success_after = self._get_success_counter_value()
-            failed_after = self._get_failed_counter_value(failure_type)
-
-            assert mock_export_image.called
-            assert success_after - success_before == expected_success_delta
-            assert failed_after - failed_before == expected_failure_delta

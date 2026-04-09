@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from prometheus_client import REGISTRY
+from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
@@ -16,11 +17,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
-from posthog.temporal.delete_recordings.metrics import (
-    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
-    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
-    DeleteRecordingsMetricsInterceptor,
-)
+from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -33,8 +30,18 @@ from posthog.temporal.llm_analytics.trace_clustering.metrics import (
     ClusteringMetricsInterceptor,
 )
 from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
+from posthog.temporal.session_replay.delete_recordings.metrics import (
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+    DeleteRecordingsMetricsInterceptor,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.logs.backend.temporal.metrics import (
+    LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
+    LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+    LogsAlertingMetricsInterceptor,
+)
 from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
 
 logger = get_write_only_logger()
@@ -99,12 +106,14 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
+    SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     SentimentMetricsInterceptor,
+    LogsAlertingMetricsInterceptor,
 ]
 
 
@@ -148,6 +157,7 @@ async def create_worker(
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
     enable_combined_metrics_server: bool = True,
+    enable_open_telemetry_plugin: bool = False,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -196,6 +206,11 @@ async def create_worker(
     else:
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
+
+    if enable_open_telemetry_plugin:
+        plugins: collections.abc.Sequence[Plugin] = (OpenTelemetryPlugin(add_temporal_spans=True),)
+    else:
+        plugins = ()
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
@@ -248,6 +263,12 @@ async def create_worker(
                         itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -256,9 +277,9 @@ async def create_worker(
         host,
         port,
         namespace,
-        server_root_ca_cert,
-        client_cert,
-        client_key,
+        server_root_ca_cert=server_root_ca_cert,
+        client_cert=client_cert,
+        client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
     )
@@ -301,6 +322,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            plugins=plugins,
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)

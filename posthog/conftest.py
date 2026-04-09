@@ -76,6 +76,7 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
+    from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -95,7 +96,10 @@ def reset_clickhouse_tables():
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
-    from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
+    from products.error_tracking.backend.sql import (
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+    )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -107,6 +111,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -121,6 +126,7 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -233,13 +239,11 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     from posthog.product_db_config import load_product_db_routes
 
     for route in load_product_db_routes(settings.BASE_DIR):
-        writer_alias = f"{route.database}_db_writer"
-        reader_alias = f"{route.database}_db_reader"
         test_product_db_name = test_db_name + f"_{route.database}"
-        if writer_alias in settings.DATABASES:
-            settings.DATABASES[writer_alias]["NAME"] = test_product_db_name
-        if reader_alias in settings.DATABASES:
-            settings.DATABASES[reader_alias]["NAME"] = test_product_db_name
+        for suffix in ("_db_writer", "_db_reader", "_db_direct"):
+            alias = f"{route.database}{suffix}"
+            if alias in settings.DATABASES:
+                settings.DATABASES[alias]["NAME"] = test_product_db_name
 
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations

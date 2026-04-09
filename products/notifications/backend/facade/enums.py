@@ -16,7 +16,7 @@ class NotificationType(str, Enum):
 
 class Priority(str, Enum):
     NORMAL = "normal"
-    URGENT = "urgent"
+    CRITICAL = "critical"
 
 
 class TargetType(str, Enum):
@@ -24,6 +24,17 @@ class TargetType(str, Enum):
     TEAM = "team"
     ORGANIZATION = "organization"
     ROLE = "role"
+
+
+class SourceType(str, Enum):
+    REPLAY = "replay"
+    NOTEBOOK = "notebook"
+    INSIGHT = "insight"
+    FEATURE_FLAG = "feature_flag"
+    DASHBOARD = "dashboard"
+    SURVEY = "survey"
+    EXPERIMENT = "experiment"
+    ERROR_TRACKING = "error_tracking"
 
 
 class NotificationOnlyResourceType(str, Enum):

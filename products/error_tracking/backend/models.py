@@ -1,3 +1,4 @@
+import time
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,12 +12,19 @@ from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
+from posthog.kafka_client.topics import (
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+)
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
-from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from products.error_tracking.backend.sql import (
+    INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +60,8 @@ class ErrorTrackingIssue(UUIDTModel):
             overrides = update_error_tracking_issue_fingerprints(
                 team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
             )
+            # Reassign spike events from merged issues before deleting them
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
@@ -82,6 +92,8 @@ class ErrorTrackingIssue(UUIDTModel):
                     )
                 )
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            # Spike events are no longer meaningful after splitting since the issue composition changed
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
         return new_issues
 
 
@@ -493,6 +505,56 @@ def override_error_tracking_issue_fingerprint(
         },
         sync=sync,
     )
+
+
+def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
+    if not issue_ids:
+        return
+
+    issues = {
+        i.id: i
+        for i in ErrorTrackingIssue.objects.filter(id__in=issue_ids, team_id=team_id).select_related("assignment")
+    }
+    fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids, team_id=team_id)
+
+    producer = ClickhouseProducer()
+    version = int(
+        time.time() * 1000
+    )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
+
+    for fp in fingerprints:
+        issue = issues.get(fp.issue_id)
+        if issue is None:
+            continue
+
+        assignment = getattr(issue, "assignment", None)
+        assigned_user_id: int | None = None
+        assigned_role_id: str | None = None
+        if assignment is not None:
+            if assignment.user_id:
+                assigned_user_id = assignment.user_id
+            elif assignment.role_id:
+                assigned_role_id = str(assignment.role_id)
+
+        first_seen_raw = fp.first_seen or issue.created_at
+        first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
+        producer.produce(
+            sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            data={
+                "fingerprint": fp.fingerprint,
+                "issue_id": str(issue.id),
+                "team_id": team_id,
+                "issue_name": issue.name,
+                "issue_description": issue.description,
+                "issue_status": issue.status,
+                "assigned_user_id": assigned_user_id,
+                "assigned_role_id": assigned_role_id,
+                "first_seen": first_seen,
+                "is_deleted": 0,
+                "version": version,
+            },
+        )
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:

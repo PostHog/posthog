@@ -1,5 +1,4 @@
 import io
-import os
 import json
 import time
 import typing
@@ -366,16 +365,13 @@ class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
         )
 
     def get_aws_region(self, context, request) -> str:
-        """Similar to the default implementation, but without a fallback request."""
-        env_aws_region = os.environ.get("AWS_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        """Return AWS region from boto3 session."""
+        region_name = self.session.region_name
 
-        env_aws_region = os.environ.get("AWS_DEFAULT_REGION")
-        if env_aws_region is not None:
-            return env_aws_region
+        if not region_name:
+            raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
 
-        raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
+        return region_name
 
 
 class ServiceAccountNotFoundError(Exception):
@@ -982,10 +978,14 @@ class BigQueryClient:
                 BigQueryQuotaExceededError,
             ) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                self.logger.exception(
-                    "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
+                self.logger.warning(
+                    "LoadJob transient error encountered",
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                    exc_info=True,
                 )
-                self.external_logger.error(  # noqa: TRY400
+                self.external_logger.warning(
                     "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
                     " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
                     " to check with BigQuery if it keeps happening consistently."
@@ -1001,6 +1001,27 @@ class BigQueryClient:
                 await asyncio.sleep(backoff)
                 attempt += 1
 
+            except Forbidden as err:
+                if err.reason != "quotaExceeded" and "reason: quotaExceeded" not in str(err):
+                    raise
+
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                self.logger.warning(
+                    "LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code, exc_info=True
+                )
+                self.external_logger.warning(
+                    "BigQuery load job quota exceeded. This error will be retried in %d seconds, this is attempt number %d."
+                    " It may take several minutes or longer until the quota is restored, as it is restored over the course"
+                    " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",
+                    backoff,
+                    attempt,
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                )
+                await asyncio.sleep(backoff)
+                attempt += 1
+
             else:
                 return result
 
@@ -1009,19 +1030,9 @@ class BigQueryClient:
 
         This method blocks and should only be run on an executor.
         """
-        try:
-            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-            result = load_job.result()
-        except Forbidden as err:
-            if err.reason == "quotaExceeded":
-                self.external_logger.exception(
-                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                )
-                raise BigQueryQuotaExceededError(err.message) from err
-
-            raise
-        else:
-            return result
+        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+        result = load_job.result()
+        return result
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1259,6 +1270,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         project_id=project_id,
         dataset_id=inputs.dataset_id,
         table_id=inputs.table_id,
+        integration_id=inputs.integration_id,
     )
     external_logger = EXTERNAL_LOGGER.bind()
 
@@ -1337,7 +1349,22 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     google_cloud_integration.service_account_email, inputs.team_id
                 )
                 await ensure_our_google_cloud_credentials_are_valid()
-            bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            try:
+                bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except Exception:
+                LOGGER.exception("Initialize client from service account failed")
+                # TODO: Migrate everyone and remove this
+                if (
+                    inputs.private_key is None
+                    or inputs.private_key_id is None
+                    or inputs.token_uri is None
+                    or inputs.client_email is None
+                ):
+                    # We cannot fallback to using inputs
+                    raise
+                bq_client = BigQueryClient.from_service_account_inputs(
+                    inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
+                )
 
         else:
             # TODO: Migrate everyone and remove this
@@ -1529,6 +1556,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
+            integration_id=inputs.integration_id,
         )
 
         await execute_batch_export_using_internal_stage(

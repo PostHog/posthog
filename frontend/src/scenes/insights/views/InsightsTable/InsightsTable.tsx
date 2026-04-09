@@ -21,7 +21,12 @@ import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
-import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
+import {
+    AggregationColumnItem,
+    AggregationColumnTitle,
+    CALC_COLUMN_LABELS,
+    getAggregatedValue,
+} from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
@@ -74,7 +79,7 @@ export function InsightsTable({
     isMainInsightView = false,
     editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -92,12 +97,13 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
-        insightsTableDataLogic(insightProps)
-    )
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
+        useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
+
+    const isCompareTable = isMainInsightView && !!compareFilter?.compare
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -152,7 +158,9 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
-                        disabledReason={editingDisabledReason}
+                        disabledReason={
+                            !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                        }
                     />
                 )}
                 {isSingleSeriesWithBreakdown ? (
@@ -184,6 +192,7 @@ export function InsightsTable({
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeriesDefinition}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    hideCompare={isCompareTable}
                 />
             )
 
@@ -194,7 +203,9 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
+                    disabledReason={
+                        !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                    }
                 />
             ) : (
                 label
@@ -334,10 +345,41 @@ export function InsightsTable({
                 />
             ),
 
-            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
+            sorter: (a, b) =>
+                (getAggregatedValue(a, aggregation, isNonTimeSeriesDisplay) ?? 0) -
+                (getAggregatedValue(b, aggregation, isNonTimeSeriesDisplay) ?? 0),
             dataIndex: 'count',
             align: 'right',
         })
+
+        if (isCompareTable) {
+            columns.push({
+                title: <span>Previous {CALC_COLUMN_LABELS[aggregation]}</span>,
+                render: (_: any, item: IndexedTrendResult) => {
+                    const previousItem = getPreviousResult(item)
+                    if (!previousItem) {
+                        return <span>—</span>
+                    }
+                    return (
+                        <AggregationColumnItem
+                            item={previousItem}
+                            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                            aggregation={aggregation}
+                            trendsFilter={trendsFilter}
+                        />
+                    )
+                },
+                sorter: (a, b) => {
+                    const prevA = getPreviousResult(a)
+                    const prevB = getPreviousResult(b)
+                    const valA = prevA ? (getAggregatedValue(prevA, aggregation, isNonTimeSeriesDisplay) ?? 0) : 0
+                    const valB = prevB ? (getAggregatedValue(prevB, aggregation, isNonTimeSeriesDisplay) ?? 0) : 0
+                    return valA - valB
+                },
+                key: 'previous',
+                align: 'right',
+            })
+        }
     }
 
     const renderCount = useCallback(
@@ -441,9 +483,11 @@ export function InsightsTable({
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView
-                    ? indexedResults
-                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
+                isMainInsightView
+                    ? displayResults
+                    : isLegend
+                      ? indexedResults
+                      : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}
@@ -468,9 +512,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
-            // Allow vertical scrolling within the card so long tables
-            // inside dashboards remain scrollable without resizing tiles.
-            allowContentScroll={isInDashboardContext}
+            // Allow vertical scrolling so long tables inside constrained
+            // containers (dashboards, embedded views) remain scrollable.
+            allowContentScroll={isInDashboardContext || embedded}
         />
     )
 }

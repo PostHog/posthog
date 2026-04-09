@@ -22,6 +22,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantMessage,
     AssistantRetentionQuery,
     AssistantToolCall,
@@ -93,7 +94,11 @@ AssistantOutput = (
 )
 
 AnyAssistantGeneratedQuery = (
-    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantLifecycleQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -560,6 +565,7 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
+    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):
@@ -602,7 +608,14 @@ class UpdateAction(BaseModel):
     content: str | AssistantToolCall
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+class ConversationTitleAction(BaseModel):
+    type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
+    title: str
+
+
+AssistantActionUnion = (
+    MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction | ConversationTitleAction
+)
 
 
 class NodePath(BaseModel):

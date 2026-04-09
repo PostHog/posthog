@@ -93,6 +93,66 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+export const DashboardTemplateScopeEnumApi = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplateApi {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
+/**
  * * `default` - Default
  * `template` - Template
  * `duplicate` - Duplicate
@@ -376,6 +436,18 @@ export interface PatchedDashboardApi {
     _create_in_folder?: string
 }
 
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
+export interface DashboardGeneratedMetadataApi {
+    name: string
+    description: string
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -413,6 +485,25 @@ export interface PatchedDataColorThemeApi {
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
+}
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then case-insensitively A–Z by `template_name` (use `-template_name` for Z–A). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     */
+    ordering?: string
 }
 
 export type DashboardsListParams = {
@@ -498,6 +589,30 @@ export type DashboardsAnalyzeRefreshResultCreateFormat =
     (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
 
 export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat
+}
+
+export type DashboardsCopyTileCreateFormat =
+    (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
+
+export const DashboardsCopyTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGenerateMetadataCreateParams = {
+    format?: DashboardsGenerateMetadataCreateFormat
+}
+
+export type DashboardsGenerateMetadataCreateFormat =
+    (typeof DashboardsGenerateMetadataCreateFormat)[keyof typeof DashboardsGenerateMetadataCreateFormat]
+
+export const DashboardsGenerateMetadataCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

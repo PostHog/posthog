@@ -14,6 +14,7 @@ import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -91,7 +92,7 @@ export function DashboardReloadAction(): JSX.Element {
     })
 
     return (
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
             {/* Status text */}
             <span className="text-muted text-sm whitespace-nowrap">
                 {itemsLoading ? (
@@ -197,7 +198,10 @@ export function DashboardReloadAction(): JSX.Element {
                     {!itemsLoading && dashboardAIRefreshEnabled && (
                         <Tooltip title="Refresh and analyze with AI">
                             <button
-                                className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate"
+                                className={cn(
+                                    'absolute z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate',
+                                    autoRefresh.enabled ? '-bottom-2 -right-2' : '-top-2 -right-2'
+                                )}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     triggerDashboardRefresh({ withAnalysis: true })

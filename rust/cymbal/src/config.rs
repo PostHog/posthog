@@ -40,6 +40,9 @@ pub struct Config {
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
 
+    #[envconfig(default = "clickhouse_error_tracking_fingerprint_issue_state")]
+    pub fingerprint_issue_state_topic: String,
+
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 
@@ -175,6 +178,13 @@ pub struct Config {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Internal API for signal emission
+    #[envconfig(default = "")]
+    pub signals_api_base_url: String,
+
+    #[envconfig(default = "")]
+    pub internal_api_secret: String,
 }
 
 impl Config {

@@ -6,10 +6,23 @@ from django.conf import settings
 from posthog.models import Team
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSource
+from posthog.temporal.data_imports.sources.common.base import (
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+
+def get_webhook_url(hog_function_id: str) -> str:
+    webhooks_host = {
+        "US": "https://webhooks.us.posthog.com",
+        "EU": "https://webhooks.eu.posthog.com",
+        "DEV": "https://app.dev.posthog.dev",
+    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
+    return f"{webhooks_host}/public/webhooks/dwh/{hog_function_id}"
 
 
 @dataclasses.dataclass
@@ -68,6 +81,7 @@ def get_or_create_webhook_hog_function(
             team=team,
             type="warehouse_source_webhook",
             inputs__source_id__value=source_id,
+            deleted=False,
         )
         if existing_hog.inputs:
             existing_mapping = existing_hog.inputs.get("schema_mapping", {}).get("value", {})
@@ -104,13 +118,7 @@ def get_or_create_webhook_hog_function(
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
-    webhooks_host = {
-        "US": "https://webhooks.us.posthog.com",
-        "EU": "https://webhooks.eu.posthog.com",
-        "DEV": "https://app.dev.posthog.dev",
-    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
-
-    webhook_url = f"{webhooks_host}/public/webhooks/dwh/{hog_function.id}"
+    webhook_url = get_webhook_url(hog_function.id)
 
     return WebhookHogFunctionCreateResult(
         hog_function=hog_function, webhook_url=webhook_url, hog_function_created=created
@@ -141,4 +149,44 @@ def create_and_register_webhook(
         success=result.success,
         webhook_url=hog_fn_result.webhook_url,
         error=result.error,
+    )
+
+
+@dataclasses.dataclass
+class WebhookDeletionSetupResult:
+    success: bool
+    external_deleted: bool = False
+    error: str | None = None
+
+
+def delete_webhook_and_hog_function(
+    team: Team,
+    source: WebhookSource,
+    config: Config,
+    source_id: str,
+) -> WebhookDeletionSetupResult:
+    """Delete the HogFunction and attempt to remove the external webhook."""
+
+    try:
+        hog_function = HogFunction.objects.get(
+            team=team,
+            type="warehouse_source_webhook",
+            inputs__source_id__value=source_id,
+            deleted=False,
+        )
+    except HogFunction.DoesNotExist:
+        return WebhookDeletionSetupResult(success=True, external_deleted=False)
+
+    webhook_url = get_webhook_url(hog_function.id)
+
+    external_result: WebhookDeletionResult = source.delete_webhook(config, webhook_url, team.pk)
+
+    hog_function.deleted = True
+    hog_function.enabled = False
+    hog_function.save(update_fields=["deleted", "enabled"])
+
+    return WebhookDeletionSetupResult(
+        success=True,
+        external_deleted=external_result.success,
+        error=external_result.error if not external_result.success else None,
     )

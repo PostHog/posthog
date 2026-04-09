@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { performQuery } from '~/queries/query'
@@ -67,13 +68,18 @@ export const funnelPathsExpansionLogic = kea<funnelPathsExpansionLogicType>([
 
     listeners(({ actions, values }) => ({
         expandPath: async ({ expansion }, breakpoint) => {
+            eventUsageLogic.actions.reportCustomerJourneyPathExpanded(
+                expansion.pathType,
+                expansion.dropOff,
+                expansion.stepIndex
+            )
             if (values.expandedPathCacheKey && values.expandedPathResults) {
                 actions.setPathsResults(values.expandedPathCacheKey, values.expandedPathResults)
                 return
             }
 
             const { querySource } = values
-            if (!querySource || querySource.aggregation_group_type_index != undefined) {
+            if (!querySource || querySource.aggregation_group_type_index != null) {
                 actions.collapsePath()
                 lemonToast.info('Cannot expand paths for group aggregation')
                 return

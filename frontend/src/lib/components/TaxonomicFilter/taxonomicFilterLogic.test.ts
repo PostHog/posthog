@@ -77,7 +77,7 @@ describe('taxonomicFilterLogic', () => {
         logic.mount()
 
         // does not automatically mount these, but needs them
-        for (const listGroupType of logicProps.taxonomicGroupTypes) {
+        for (const listGroupType of logic.values.taxonomicGroupTypes) {
             infiniteListLogic({ ...logicProps, listGroupType }).mount()
         }
     })
@@ -97,23 +97,23 @@ describe('taxonomicFilterLogic', () => {
     it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({
-                infiniteListCounts: {
+                infiniteListCounts: expect.objectContaining({
                     [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.SessionProperties]: 0,
-                },
+                }),
             })
             .toDispatchActions(['infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
-                infiniteListCounts: {
+                infiniteListCounts: expect.objectContaining({
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
                     [TaxonomicFilterGroupType.SessionProperties]: 2,
-                },
+                }),
             })
     })
 
@@ -139,48 +139,48 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic).toMatchValues({
             searchQuery: 'event',
             activeTab: TaxonomicFilterGroupType.Events,
-            infiniteListCounts: {
+            infiniteListCounts: expect.objectContaining({
                 [TaxonomicFilterGroupType.Events]: 4,
                 [TaxonomicFilterGroupType.Actions]: 0,
                 [TaxonomicFilterGroupType.Elements]: 0,
                 [TaxonomicFilterGroupType.SessionProperties]: 0,
-            },
+            }),
         })
 
         await waitForRemoteResults(() => logic.actions.setSearchQuery('selector'))
         await expectLogic(logic).toMatchValues({
             searchQuery: 'selector',
-            activeTab: TaxonomicFilterGroupType.Elements,
-            infiniteListCounts: {
+            activeTab: TaxonomicFilterGroupType.Events,
+            infiniteListCounts: expect.objectContaining({
                 [TaxonomicFilterGroupType.Events]: 0,
                 [TaxonomicFilterGroupType.Actions]: 0,
                 [TaxonomicFilterGroupType.Elements]: 1,
                 [TaxonomicFilterGroupType.SessionProperties]: 0,
-            },
+            }),
         })
 
         await waitForRemoteResults(() => logic.actions.setSearchQuery('this is not found'))
         await expectLogic(logic).toMatchValues({
             searchQuery: 'this is not found',
-            activeTab: TaxonomicFilterGroupType.Elements,
-            infiniteListCounts: {
+            activeTab: TaxonomicFilterGroupType.Events,
+            infiniteListCounts: expect.objectContaining({
                 [TaxonomicFilterGroupType.Events]: 0,
                 [TaxonomicFilterGroupType.Actions]: 0,
                 [TaxonomicFilterGroupType.Elements]: 0,
                 [TaxonomicFilterGroupType.SessionProperties]: 0,
-            },
+            }),
         })
 
         await waitForRemoteResults(() => logic.actions.setSearchQuery(''))
         await expectLogic(logic).toMatchValues({
             searchQuery: '',
-            activeTab: TaxonomicFilterGroupType.Elements,
-            infiniteListCounts: {
+            activeTab: TaxonomicFilterGroupType.Events,
+            infiniteListCounts: expect.objectContaining({
                 [TaxonomicFilterGroupType.Events]: 157,
                 [TaxonomicFilterGroupType.Actions]: 0,
                 [TaxonomicFilterGroupType.Elements]: 4,
                 [TaxonomicFilterGroupType.SessionProperties]: 2,
-            },
+            }),
         })
     })
 
@@ -459,6 +459,169 @@ describe('taxonomicFilterLogic', () => {
             expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)).toBe(
                 expectQuickFilters
             )
+
+            testLogic.unmount()
+        })
+    })
+
+    describe('promoted groups are reordered', () => {
+        it.each([
+            {
+                description: 'promotes PageviewUrls, Screens, EmailAddresses after SuggestedFilters and RecentFilters',
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            },
+            {
+                description: 'promotes shortcut groups after auto-injected meta groups when no SuggestedFilters',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            },
+            {
+                description: 'auto-injects meta groups when no shortcut groups are present',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+        ])('$description', ({ groupTypes, expected }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testReorder-${groupTypes.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            expect(testLogic.values.taxonomicGroupTypes).toEqual(expected)
+
+            testLogic.unmount()
+        })
+    })
+
+    describe('autocapture context', () => {
+        it.each([
+            {
+                description: 'SuggestedFilters has text/selector options when eventNames includes $autocapture',
+                eventNames: ['$autocapture'],
+                expectedOptions: [
+                    { name: 'text', group: TaxonomicFilterGroupType.Elements },
+                    { name: 'selector', group: TaxonomicFilterGroupType.Elements },
+                ],
+            },
+            {
+                description: 'SuggestedFilters has empty options when eventNames does not include $autocapture',
+                eventNames: ['$pageview'],
+                expectedOptions: [],
+            },
+            {
+                description: 'SuggestedFilters has empty options when eventNames is empty',
+                eventNames: [] as string[],
+                expectedOptions: [],
+            },
+        ])('$description', ({ eventNames, expectedOptions }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testAutocaptureSuggested-${eventNames.join('-')}`,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+                eventNames,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            const suggestedGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            expect(suggestedGroup?.options).toEqual(expectedOptions)
+
+            testLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'Elements group is promoted after SuggestedFilters when eventNames includes $autocapture',
+                eventNames: ['$autocapture'],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+            {
+                description: 'Elements group stays in default position when eventNames does not include $autocapture',
+                eventNames: ['$pageview'],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+                expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+            },
+        ])('$description', ({ eventNames, groupTypes, expected }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testAutocapturePromotion-${eventNames.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+                eventNames,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            expect(testLogic.values.taxonomicGroupTypes).toEqual(expected)
 
             testLogic.unmount()
         })

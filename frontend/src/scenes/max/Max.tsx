@@ -187,6 +187,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                         size="small"
                         icon={<IconPlus />}
                         onClick={() => startNewConversation()}
+                        data-attr="max-new-chat"
                         tooltip="Start a new chat"
                         tooltipPlacement="bottom"
                     />
@@ -226,7 +227,7 @@ export const MaxInstance = React.memo(function MaxInstance({
 
     return sidePanel ? (
         <>
-            <SidePanelContentContainer>
+            <SidePanelContentContainer contentClassName="flex flex-col flex-1">
                 {header}
                 {content}
             </SidePanelContentContainer>

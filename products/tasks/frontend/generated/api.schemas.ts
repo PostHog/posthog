@@ -18,47 +18,16 @@ export interface ErrorResponseApi {
 }
 
 /**
- * Serializer for extracted tasks
+ * * `trusted` - Trusted
+ * `full` - Full
+ * `custom` - Custom
  */
-export interface TaskApi {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
+export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
 
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
-/**
- * Latest run details for this task
- * @nullable
- */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
-
-/**
- * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `slack` - Slack
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
-
-export const OriginProductEnumApi = {
-    ErrorTracking: 'error_tracking',
-    EvalClusters: 'eval_clusters',
-    UserCreated: 'user_created',
-    Slack: 'slack',
-    SupportQueue: 'support_queue',
-    SessionSummaries: 'session_summaries',
+export const NetworkAccessLevelEnumApi = {
+    Trusted: 'trusted',
+    Full: 'full',
+    Custom: 'custom',
 } as const
 
 /**
@@ -120,6 +89,101 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+export interface SandboxEnvironmentListApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSandboxEnvironmentListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SandboxEnvironmentListApi[]
+}
+
+export interface SandboxEnvironmentApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+    include_default_domains?: boolean
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses) */
+    environment_variables?: unknown
+    /** Whether this environment has any environment variables set */
+    readonly has_environment_variables: boolean
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    /** Computed domain allowlist based on network_access_level and allowed_domains */
+    readonly effective_domains: readonly string[]
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+/**
+ * Serializer for extracted tasks
+ */
+export interface TaskApi {
+    title: string
+    description?: string
+    /** @nullable */
+    assignee?: string | null
+}
+
+export interface PaginatedTaskListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskApi[]
+}
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
+
+/**
+ * * `error_tracking` - Error Tracking
+ * `eval_clusters` - Eval Clusters
+ * `user_created` - User Created
+ * `slack` - Slack
+ * `support_queue` - Support Queue
+ * `session_summaries` - Session Summaries
+ * `signal_report` - Signal Report
+ */
+export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+
+export const OriginProductEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+} as const
+
 export interface PatchedTaskApi {
     readonly id?: string
     /** @nullable */
@@ -140,8 +204,12 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /** @nullable */
+    signal_report?: string | null
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
     /**
      * Latest run details for this task
      * @nullable
@@ -165,6 +233,28 @@ export const TaskRunCreateRequestModeEnumApi = {
 } as const
 
 /**
+ * * `user` - user
+ * `bot` - bot
+ */
+export type PrAuthorshipModeEnumApi = (typeof PrAuthorshipModeEnumApi)[keyof typeof PrAuthorshipModeEnumApi]
+
+export const PrAuthorshipModeEnumApi = {
+    User: 'user',
+    Bot: 'bot',
+} as const
+
+/**
+ * * `manual` - manual
+ * `signal_report` - signal_report
+ */
+export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
+
+export const RunSourceEnumApi = {
+    Manual: 'manual',
+    SignalReport: 'signal_report',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface TaskRunCreateRequestApi {
@@ -181,8 +271,24 @@ export interface TaskRunCreateRequestApi {
     branch?: string | null
     /** ID of a previous run to resume from. Must belong to the same task. */
     resume_from_run_id?: string
-    /** Follow-up user message to include in the resumed run's prompt. */
+    /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
 }
 
 /**
@@ -344,6 +450,7 @@ export interface TaskRunAppendLogRequestApi {
  * `reference` - reference
  * `output` - output
  * `artifact` - artifact
+ * `tree_snapshot` - tree_snapshot
  */
 export type TaskRunArtifactUploadTypeEnumApi =
     (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
@@ -354,6 +461,7 @@ export const TaskRunArtifactUploadTypeEnumApi = {
     Reference: 'reference',
     Output: 'output',
     Artifact: 'artifact',
+    TreeSnapshot: 'tree_snapshot',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -368,7 +476,8 @@ export interface TaskRunArtifactUploadApi {
 * `context` - context
 * `reference` - reference
 * `output` - output
-* `artifact` - artifact */
+* `artifact` - artifact
+* `tree_snapshot` - tree_snapshot */
     type: TaskRunArtifactUploadTypeEnumApi
     /** Raw file contents (UTF-8 string or base64 data) */
     content: string
@@ -579,11 +688,26 @@ export interface RepositoryReadinessResponseApi {
     scan?: ScanEvidenceApi
 }
 
+export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type TasksListParams = {
     /**
      * Filter by creator user ID
      */
     created_by?: number
+    /**
+     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     */
+    internal?: boolean
     /**
      * Number of results to return per page.
      */
