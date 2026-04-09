@@ -14,6 +14,7 @@ import {
     dashboardTemplateChooserLogic,
     DashboardTemplateChooserExperimentVariant,
     DashboardTemplateChooserLogicProps,
+    resolveDashboardTemplateChooserExperimentVariant,
 } from './dashboardTemplateChooserLogic'
 import { TemplateItem } from './DashboardTemplateItem'
 import { DashboardTemplateItemSkeleton } from './DashboardTemplateItemSkeleton'

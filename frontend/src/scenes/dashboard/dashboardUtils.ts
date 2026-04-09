@@ -25,7 +25,7 @@ import {
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
+    dashboard: DashboardType<InsightModel> | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined

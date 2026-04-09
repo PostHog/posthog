@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
+import { InsightColor, type DashboardTemplateEditorType, type DashboardTemplateType } from '~/types'
 
 import { DashboardTemplateModal } from './DashboardTemplateModal'
 import { dashboardTemplateModalLogic } from './dashboardTemplateModalLogic'
@@ -19,6 +19,10 @@ import { dashboardTemplateModalLogic } from './dashboardTemplateModalLogic'
 type ViewerMode = 'staff' | 'nonStaff'
 
 type ModalStoryVariant = 'create' | 'edit'
+
+type ViewerModeStoryArgs = {
+    viewerMode: ViewerMode
+}
 
 const templateMocks = {
     get: {
@@ -34,7 +38,7 @@ const nonStaffUserMocks = {
 }
 
 const withViewerModeMsw: Decorator = (Story, context) => {
-    const viewerMode = ((context.args as { viewerMode?: ViewerMode }).viewerMode ?? 'nonStaff') as ViewerMode
+    const viewerMode = (context.args as ViewerModeStoryArgs).viewerMode ?? 'nonStaff'
     return mswDecorator({
         get: {
             ...templateMocks.get,
@@ -72,11 +76,11 @@ const meta = {
             name: 'Viewer mode',
         },
     },
-} satisfies Meta
+} satisfies Meta<ViewerModeStoryArgs>
 
 export default meta
 
-type ModalStory = StoryObj<typeof DashboardTemplateModal>
+type ModalStory = StoryObj<ViewerModeStoryArgs>
 
 const sampleCreatePayload: DashboardTemplateEditorType = {
     template_name: '',
@@ -87,7 +91,7 @@ const sampleCreatePayload: DashboardTemplateEditorType = {
         {
             name: 'Example',
             type: 'INSIGHT',
-            color: 'blue',
+            color: InsightColor.Blue,
             layouts: {},
             filters: {},
         },
@@ -106,7 +110,7 @@ const sampleEditingTemplate: DashboardTemplateType = {
         {
             name: 'Example',
             type: 'INSIGHT',
-            color: 'blue',
+            color: InsightColor.Blue,
             layouts: {},
             filters: {},
         },
@@ -138,25 +142,22 @@ function DashboardTemplateModalStory({
     return <DashboardTemplateModal />
 }
 
-function renderModalStory(variant: ModalStoryVariant) {
-    return (_: unknown, { args }: { args: Record<string, unknown> }): JSX.Element => {
-        const viewerMode = ((args as { viewerMode?: ViewerMode }).viewerMode ?? 'nonStaff') as ViewerMode
-        return <DashboardTemplateModalStory viewerMode={viewerMode} variant={variant} />
-    }
+function renderModalStory(variant: ModalStoryVariant): ModalStory['render'] {
+    return ({ viewerMode }) => <DashboardTemplateModalStory viewerMode={viewerMode} variant={variant} />
 }
 
 export const Create: ModalStory = {
     args: {
-        viewerMode: 'nonStaff' satisfies ViewerMode,
-    } as Record<string, unknown>,
+        viewerMode: 'nonStaff',
+    },
     decorators: [withViewerModeMsw],
     render: renderModalStory('create'),
 }
 
 export const Edit: ModalStory = {
     args: {
-        viewerMode: 'nonStaff' satisfies ViewerMode,
-    } as Record<string, unknown>,
+        viewerMode: 'nonStaff',
+    },
     decorators: [withViewerModeMsw],
     render: renderModalStory('edit'),
 }
@@ -188,7 +189,7 @@ function DashboardTemplateEditorStory({ viewerMode }: { viewerMode: ViewerMode }
 }
 
 const withViewerModeMswEditorDefaultStaff: Decorator = (Story, context) => {
-    const viewerMode = ((context.args as { viewerMode?: ViewerMode }).viewerMode ?? 'staff') as ViewerMode
+    const viewerMode = (context.args as ViewerModeStoryArgs).viewerMode ?? 'staff'
     return mswDecorator({
         get: {
             ...templateMocks.get,
@@ -197,10 +198,10 @@ const withViewerModeMswEditorDefaultStaff: Decorator = (Story, context) => {
     })(Story, context)
 }
 
-export const FullJsonEditor: StoryObj<typeof DashboardTemplateEditor> = {
+export const FullJsonEditor: StoryObj<ViewerModeStoryArgs> = {
     args: {
-        viewerMode: 'staff' satisfies ViewerMode,
-    } as Record<string, unknown>,
+        viewerMode: 'staff',
+    },
     argTypes: {
         viewerMode: {
             control: 'inline-radio',
@@ -211,8 +212,5 @@ export const FullJsonEditor: StoryObj<typeof DashboardTemplateEditor> = {
         },
     },
     decorators: [withViewerModeMswEditorDefaultStaff],
-    render: (_, { args }) => {
-        const viewerMode = ((args as { viewerMode?: ViewerMode }).viewerMode ?? 'staff') as ViewerMode
-        return <DashboardTemplateEditorStory viewerMode={viewerMode} />
-    },
+    render: ({ viewerMode }) => <DashboardTemplateEditorStory viewerMode={viewerMode} />,
 }
