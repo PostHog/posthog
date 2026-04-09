@@ -128,11 +128,14 @@ class SandboxBase(ABC):
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
+        # files get fetched on demand. Shallow clones are already small enough.
+        blob_filter = "" if shallow else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
