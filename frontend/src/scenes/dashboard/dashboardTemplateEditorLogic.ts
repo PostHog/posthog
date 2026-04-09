@@ -171,12 +171,20 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                     try {
                         await api.dashboardTemplates.update(id, { deleted: true })
                     } catch (e: any) {
-                        lemonToast.error(e?.detail || e?.message || 'Could not delete template')
+                        lemonToast.error(e?.detail || e?.message || 'Could not delete dashboard template')
                         throw e
                     }
-                    const displayName = templateName.trim() || 'Dashboard template'
+                    const trimmedName = templateName.trim()
                     lemonToast.info(
-                        createElement(Fragment, null, createElement('b', null, displayName), ' has been deleted'),
+                        trimmedName
+                            ? createElement(
+                                  Fragment,
+                                  null,
+                                  'Dashboard template ',
+                                  createElement('b', null, trimmedName),
+                                  ' has been deleted'
+                              )
+                            : 'Dashboard template has been deleted',
                         {
                             toastId: `delete-dashboard-template-${id}`,
                             button: {
@@ -187,16 +195,21 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                                         await api.dashboardTemplates.update(id, { deleted: false })
                                         refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
                                         lemonToast.success(
-                                            createElement(
-                                                Fragment,
-                                                null,
-                                                createElement('b', null, displayName),
-                                                ' has been restored'
-                                            ),
+                                            trimmedName
+                                                ? createElement(
+                                                      Fragment,
+                                                      null,
+                                                      'Dashboard template ',
+                                                      createElement('b', null, trimmedName),
+                                                      ' has been restored'
+                                                  )
+                                                : 'Dashboard template has been restored',
                                             { toastId: `undo-dashboard-template-${id}` }
                                         )
                                     } catch (err: any) {
-                                        lemonToast.error(err?.detail || err?.message || 'Could not restore template')
+                                        lemonToast.error(
+                                            err?.detail || err?.message || 'Could not restore dashboard template'
+                                        )
                                     }
                                 },
                             },
