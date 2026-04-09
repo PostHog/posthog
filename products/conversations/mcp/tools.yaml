@@ -7,6 +7,7 @@
 category: Conversations
 feature: conversations
 url_prefix: /conversations/tickets
+ui_apps: {}
 tools:
     conversations-tickets-list:
         operation: conversations_tickets_list
@@ -20,10 +21,10 @@ tools:
         list: true
         title: List support tickets
         description: >
-            List support tickets in the project. Supports filtering by status (new, open, pending,
-            on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack),
-            assignee, date range, and search. Results are paginated and ordered by updated_at descending
-            by default. Returns ticket metadata including status, priority, message counts, and timestamps.
+            List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved),
+            priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search.
+            Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including
+            status, priority, message counts, and timestamps.
         response:
             exclude:
                 - anonymous_traits
@@ -49,8 +50,8 @@ tools:
         enrich_url: '{id}'
         title: Get support ticket
         description: >
-            Get a specific support ticket by ID or ticket number. Returns full ticket details including
-            status, priority, assignee, message count, channel info, person data, and session context.
+            Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
+            priority, assignee, message count, channel info, person data, and session context.
     conversations-tickets-partial-update:
         operation: conversations_tickets_partial_update
         enabled: true
@@ -63,9 +64,9 @@ tools:
         enrich_url: '{id}'
         title: Update support ticket
         description: >
-            Update a support ticket. Can change status (new, open, pending, on_hold, resolved),
-            priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags.
-            Assignee should be an object with type ('user' or 'role') and id, or null to unassign.
+            Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
+            high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user'
+            or 'role') and id, or null to unassign.
         exclude_params:
             - anonymous_traits
             - ai_resolved
@@ -78,11 +79,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        requires_ai_consent: true
         title: Suggest a reply for a support ticket
         description: >
-            Use AI to generate a suggested reply for a support ticket based on the conversation
-            history. Requires AI data processing to be approved for the organization.
+            Use AI to generate a suggested reply for a support ticket based on the conversation history. Requires AI
+            data processing to be approved for the organization.
+        requires_ai_consent: true
     conversations-tickets-create:
         operation: conversations_tickets_create
         enabled: false
