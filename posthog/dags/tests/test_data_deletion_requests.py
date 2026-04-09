@@ -431,9 +431,9 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
     assert result.success
 
     all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "custom_event")).result()
-    for props in all_props:
-        assert "secret" not in props
-        assert "keep_me" in props
+    for event_props in all_props:
+        assert "secret" not in event_props
+        assert "keep_me" in event_props
 
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
