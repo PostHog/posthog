@@ -389,7 +389,27 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                         }
                                         checked={schema.should_sync}
                                         onChange={(active) => {
-                                            updateSchema({ ...schema, should_sync: active })
+                                            if (!active && schema.sync_type === 'webhook') {
+                                                LemonDialog.open({
+                                                    title: 'Disable webhook sync?',
+                                                    description:
+                                                        'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                                    primaryButton: {
+                                                        children: 'Disable',
+                                                        status: 'danger',
+                                                        onClick: () =>
+                                                            updateSchema({
+                                                                ...schema,
+                                                                should_sync: false,
+                                                            }),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            } else {
+                                                updateSchema({ ...schema, should_sync: active })
+                                            }
                                         }}
                                     />
                                 </SourceEditorAction>
@@ -565,8 +585,8 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                                     Cancel sync
                                                                 </LemonButton>
                                                             )}
-                                                            {schema.incremental && (
-                                                                <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                            {(schema.incremental || schema.sync_type === 'webhook') && (
+                                                                <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
                                                                     <LemonButton
                                                                         type="tertiary"
                                                                         size="xsmall"

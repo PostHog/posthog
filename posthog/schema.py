@@ -6016,6 +6016,51 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
+    )
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12565,52 +12610,6 @@ class ECODDetectorConfig(BaseModel):
         description=(
             "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
         ),
-    )
-
-
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    filters_override: DashboardFilter | None = None
-    limit: int | None = Field(
-        default=None,
-        description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Variables to parameterize the endpoint query. The key is the variable name"
-            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
-            " match a variable `code_name` defined in the query (referenced as"
-            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
-            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
-            " and `date_to` are built-in variables that filter the date range.    "
-            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
-            " materialized insight endpoints:   - Use the breakdown property name as"
-            ' the key to filter by breakdown value.     Example: `{"$browser":'
-            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
-            " insight endpoints.\n\nUnknown variable names will return a 400 error."
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 

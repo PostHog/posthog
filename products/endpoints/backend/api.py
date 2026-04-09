@@ -1274,7 +1274,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed.update(_get_breakdown_properties(breakdown_filter))
 
         if not is_materialized:
-            # Non-materialized also allows date_from/date_to via filters_override
+            # Non-materialized insight endpoints expose date_from/date_to as magic variables
             allowed.update({"date_from", "date_to"})
 
         return allowed
@@ -1544,25 +1544,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
                 pagination.apply_to(select_query)
 
-            deprecation_headers: dict[str, str] | None = None
-
-            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
-            if query_kind != "HogQLQuery" and data.filters_override is not None:
-                deprecation_headers = {
-                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
-                }
-                # Extract breakdown filter from properties
-                if data.filters_override.properties:
-                    for prop in data.filters_override.properties:
-                        if hasattr(prop, "key") and hasattr(prop, "value") and prop.value is not None:
-                            # Convert value to string for breakdown filter
-                            value = prop.value[0] if isinstance(prop.value, list) else prop.value
-                            condition = self._build_breakdown_filter_condition(query_kind, str(value))
-                            if condition:
-                                _add_where_condition(select_query, condition)
-                            # filters_override is deprecated — only the first property is used
-                            break
-            elif data.variables:
+            if data.variables:
                 if query_kind == "HogQLQuery":
                     # HogQL: filter by all materialized variable columns
                     materialized_vars = self._get_materialized_variables(version)
@@ -1620,7 +1602,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 request,
                 extra_result_fields=extra_fields,
                 debug=debug,
-                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1632,7 +1613,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     request,
                     extra_result_fields=extra_fields,
                     debug=debug,
-                    headers=deprecation_headers,
                     pagination=pagination,
                 )
 
@@ -1904,15 +1884,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             variables_override = None
             filters_override = None
-            deprecation_headers: dict[str, str] | None = None
 
-            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
-            if query_kind != "HogQLQuery" and data.filters_override is not None:
-                filters_override = data.filters_override
-                deprecation_headers = {
-                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
-                }
-            elif data.variables:
+            if data.variables:
                 if query_kind == "HogQLQuery":
                     variables_override = self._parse_variables(query, data.variables)
                 else:
@@ -1938,7 +1911,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 variables_override=variables_override,
                 cache_age_seconds=cache_age,
                 debug=debug,
-                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1968,6 +1940,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
+
+        # Reject the removed filters_override parameter with a clear migration message.
+        # The field is no longer on EndpointRunRequest, so pydantic would otherwise return a
+        # generic "Extra inputs are not permitted" error that doesn't point users to variables.
+        if isinstance(request.data, dict) and "filters_override" in request.data:
+            raise ValidationError(
+                {
+                    "filters_override": "filters_override is no longer supported. Use variables instead: https://posthog.com/docs/api/endpoints"
+                }
+            )
+
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -1977,7 +1960,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             properties={
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
-                "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
                 "has_offset": data.offset is not None,
@@ -2125,17 +2107,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if version and not version.is_active:
             raise ValidationError(f"Version {version.version} is inactive and cannot be executed.")
 
-        query_kind = query.get("kind")
-
         # Reject query_override (always)
         if hasattr(data, "query_override") and data.query_override is not None:
             raise ValidationError({"query_override": "Not allowed. Use variables instead."})
-
-        # Allow filters_override for insight endpoints (deprecated but backwards compatible)
-        # Reject for HogQL endpoints
-        if data.filters_override is not None:
-            if query_kind == "HogQLQuery":
-                raise ValidationError({"filters_override": "Not allowed for HogQL endpoints. Use variables instead."})
 
         # Validate refresh mode
         if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
@@ -2155,8 +2129,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # SECURITY: For materialized endpoints with required variables, ALL must be provided.
         # Without this check, omitting variables would return ALL data instead of filtered data.
-        # Exception: filters_override is the deprecated way to provide filters for insight endpoints
-        if is_materialized and not (data.filters_override and data.filters_override.properties):
+        if is_materialized:
             required_vars = self._get_required_variables_for_materialized(query, version)
             if required_vars:
                 provided = set(data.variables.keys()) if data.variables else set()
