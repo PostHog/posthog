@@ -200,6 +200,7 @@ pub async fn process_events<'a>(
     // Apply per-(token, distinct_id) global rate limiting -- reroute to overflow
     if let Some(ref limiter) = global_rate_limiter {
         let mut rerouted_distinct_ids: HashSet<&str> = HashSet::new();
+        let mut rerouted_event_count: u64 = 0;
         for event in events.iter_mut() {
             let cache_key =
                 GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
@@ -208,10 +209,10 @@ pub async fn process_events<'a>(
                 event.metadata.force_overflow = true;
                 event.metadata.skip_person_processing = true;
                 rerouted_distinct_ids.insert(&event.event.distinct_id);
+                rerouted_event_count += 1;
             }
         }
-        if !rerouted_distinct_ids.is_empty() {
-            let count = rerouted_distinct_ids.len();
+        if rerouted_event_count > 0 {
             let ids: Vec<&str> = rerouted_distinct_ids.iter().copied().collect();
             let preview: String = if ids.len() > 10 {
                 format!("{}...", ids[..10].join(", "))
@@ -222,10 +223,11 @@ pub async fn process_events<'a>(
                 "capture_events_rerouted_overflow",
                 "reason" => "global_rate_limit_token_distinctid",
             )
-            .increment(count as u64);
+            .increment(rerouted_event_count);
             warn!(
                 token = context.token,
-                rerouted_count = count,
+                rerouted_event_count = rerouted_event_count,
+                distinct_id_count = rerouted_distinct_ids.len(),
                 distinct_ids = %preview,
                 "events rerouted to overflow by distinct_id rate limit"
             );
