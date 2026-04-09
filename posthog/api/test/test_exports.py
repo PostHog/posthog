@@ -1028,6 +1028,7 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
             ("private_ip_192", "http://192.168.1.1/internal"),
             ("internal_domain", "http://service.cluster.local/api"),
             ("file_scheme", "file:///etc/passwd"),
+            ("protocol_relative", "//evil.com/steal-data"),
         ]
     )
     def test_rejects_ssrf_heatmap_url(self, _name: str, url: str) -> None:
@@ -1071,18 +1072,6 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_rejects_protocol_relative_heatmap_url(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "image/png",
-                "export_context": {
-                    "heatmap_url": "//evil.com/steal-data",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExportMixin(APIBaseTest):
