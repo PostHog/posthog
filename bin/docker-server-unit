@@ -53,16 +53,37 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
 else
     echo "🔧 Starting with Nginx Unit server (default, stable)..."
 
-    # Cleanup temp directory on exit
-    trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
-
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
     export NGINX_UNIT_REQUEST_LIMIT=${NGINX_UNIT_REQUEST_LIMIT:-7500}
-    envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+
+    if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
+      # Cleanup temp directories on exit
+      trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR" "$UNIT_STATEDIR"' EXIT
+
+      # Pre-bake the Unit configuration into a state directory so unitd starts
+      # with config already loaded. This avoids the docker-entrypoint.sh pattern
+      # of: start unitd → apply config via API (loading all workers) → stop unitd
+      # → restart unitd (loading all workers again). That double-start means every
+      # worker process loads the full Django app twice on each pod startup.
+      UNIT_STATEDIR=$(mktemp -d)
+      envsubst < /docker-entrypoint.d/unit.json.tpl > "$UNIT_STATEDIR/conf.json"
+      chmod -R 700 "$UNIT_STATEDIR"
+    else
+      # Cleanup temp directory on exit
+      trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+      envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+    fi
 
     # We need to run as root so that nginx unit can proxy the control socket for stats
     # However each application is run as "nobody"
-    # nosemgrep: trailofbits.generic.container-user-root.container-user-root
-    exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+    if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
+      # nosemgrep: trailofbits.generic.container-user-root.container-user-root
+      exec unitd --no-daemon --user root --statedir "$UNIT_STATEDIR" \
+          --control unix:/var/run/control.unit.sock
+    else
+      # nosemgrep: trailofbits.generic.container-user-root.container-user-root
+      exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+    fi
 fi

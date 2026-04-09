@@ -2576,6 +2576,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     groupTypeIndex?: integer
     /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean
+    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    useQueryV3?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -5935,6 +5937,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
+    SUBSCRIPTIONS = 'subscriptions',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

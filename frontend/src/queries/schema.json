@@ -14598,6 +14598,10 @@
                     "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
                     "type": "boolean"
                 },
+                "useQueryV3": {
+                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -25605,6 +25609,7 @@
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
+                "subscriptions",
                 "surveys",
                 "tasks",
                 "teams",
