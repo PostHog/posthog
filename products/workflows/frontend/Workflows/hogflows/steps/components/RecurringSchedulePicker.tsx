@@ -228,7 +228,11 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
                         {timezone ? ` in ${timezone}` : ''}
                     </div>
                     <div className="space-y-1.5">
-                        <OccurrencesList occurrences={previewOccurrences} isFinite={state.endType !== 'never'} />
+                        <OccurrencesList
+                            occurrences={previewOccurrences}
+                            isFinite={state.endType !== 'never'}
+                            timezone={timezone}
+                        />
                     </div>
                 </div>
             )}
@@ -313,13 +317,8 @@ function NaturalLanguageScheduleInput({
 
 export function RecurringSchedulePicker(): JSX.Element {
     const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const {
-        setScheduleState,
-        setScheduleStartsAt,
-        setScheduleStartsAtFromPicker,
-        setScheduleTimezone,
-        setScheduleRepeating,
-    } = useActions(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
 
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
@@ -373,19 +372,15 @@ export function RecurringSchedulePicker(): JSX.Element {
                         showTimeToggle={false}
                     />
                 </div>
-                <div className="w-22 shrink-0">
-                    <LemonSwitch
-                        label="Repeat"
-                        checked={isScheduleRepeating}
-                        onChange={(checked) => {
-                            if (!scheduleStartsAt) {
-                                // If no start date yet, set one so the toggle is meaningful
-                                setScheduleStartsAt(new Date().toISOString())
-                            }
-                            setScheduleRepeating(checked)
-                        }}
-                    />
-                </div>
+                {scheduleStartsAt && (
+                    <div className="w-22 shrink-0">
+                        <LemonSwitch
+                            label="Repeat"
+                            checked={isScheduleRepeating}
+                            onChange={(checked) => setScheduleRepeating(checked)}
+                        />
+                    </div>
+                )}
             </div>
             {scheduleStartsAt && (
                 <div className="flex flex-col gap-1 -mt-1">
@@ -409,7 +404,7 @@ export function RecurringSchedulePicker(): JSX.Element {
                 </div>
             )}
 
-            {isScheduleRepeating && (
+            {scheduleStartsAt && isScheduleRepeating && (
                 <NaturalLanguageScheduleInput
                     state={scheduleState}
                     startsAt={scheduleStartsAt}
@@ -417,7 +412,7 @@ export function RecurringSchedulePicker(): JSX.Element {
                 />
             )}
 
-            {isScheduleRepeating && (
+            {scheduleStartsAt && isScheduleRepeating && (
                 <>
                     <div className="flex items-center gap-2 flex-wrap">
                         <FrequencyPicker state={scheduleState} onStateChange={setScheduleState} />

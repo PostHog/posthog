@@ -1,4 +1,4 @@
-import FuseClass from 'fuse.js'
+import FuseClass, { FuseResult } from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
@@ -74,7 +74,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
             (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardBasicType[] =>
                 searchQuery.length
-                    ? dashboardsFuse.search(searchQuery).map((r: FuseClass.FuseResult<DashboardType>) => r.item)
+                    ? dashboardsFuse.search(searchQuery).map((r: FuseResult<DashboardType>) => r.item)
                     : nameSortedDashboards,
         ],
         currentDashboards: [

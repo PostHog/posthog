@@ -5,59 +5,29 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-interface PropertyMathSelectorProps {
+interface PropertyValueMathSelectorProps {
+    /** The currently selected taxonomic group for the math property, e.g. session or person properties. */
     mathPropertyType: TaxonomicFilterGroupType | null | undefined
+    /** The set of taxonomic groups the picker should allow the user to choose math properties from. */
+    mathPropertyTypes: TaxonomicFilterGroupType[] | null | undefined
+    /** The currently selected property key to aggregate over for property-value math. */
     mathProperty: string | null | undefined
+    /** The event or action name used to scope property suggestions shown in the picker. */
     mathName: string | null | undefined
+    /** The row index used when reporting selection changes back to the parent filter list. */
     index: number
+    /** Called when the user selects a property and its taxonomic group. */
     onMathPropertySelect: (index: number, value: string, groupType: TaxonomicFilterGroupType) => void
     showNumericalPropsOnly?: boolean
+    /** Available schema fields for data warehouse property suggestions when the picker is scoped to a table. */
     schemaColumns: DatabaseSchemaField[]
     /** Display name of the math aggregation, e.g. "average" */
     mathDisplayName?: string
 }
 
-type BoxPlotPropertySelectorProps = Pick<
-    PropertyMathSelectorProps,
-    'mathPropertyType' | 'mathProperty' | 'index' | 'onMathPropertySelect' | 'mathName'
->
-
-export function BoxPlotPropertySelector({
-    mathPropertyType,
-    mathProperty,
-    index,
-    onMathPropertySelect,
-    mathName,
-}: BoxPlotPropertySelectorProps): JSX.Element {
-    return (
-        <div className="flex-auto min-w-0">
-            <TaxonomicStringPopover
-                groupType={mathPropertyType || TaxonomicFilterGroupType.NumericalEventProperties}
-                groupTypes={[
-                    TaxonomicFilterGroupType.NumericalEventProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                ]}
-                value={mathProperty || undefined}
-                onChange={(currentValue, groupType) => onMathPropertySelect(index, currentValue, groupType)}
-                eventNames={mathName ? [mathName] : []}
-                placeholder="Select numeric property"
-                data-attr="box-plot-property-select"
-                showNumericalPropsOnly
-                renderValue={(currentValue) => (
-                    <PropertyKeyInfo
-                        value={currentValue}
-                        disablePopover
-                        type={TaxonomicFilterGroupType.EventProperties}
-                    />
-                )}
-            />
-        </div>
-    )
-}
-
 export function PropertyValueMathSelector({
     mathPropertyType,
+    mathPropertyTypes,
     mathProperty,
     mathName,
     index,
@@ -65,18 +35,20 @@ export function PropertyValueMathSelector({
     showNumericalPropsOnly,
     schemaColumns,
     mathDisplayName,
-}: PropertyMathSelectorProps): JSX.Element {
+}: PropertyValueMathSelectorProps): JSX.Element {
     return (
         <div className="flex-auto min-w-0">
             <TaxonomicStringPopover
                 groupType={mathPropertyType || TaxonomicFilterGroupType.NumericalEventProperties}
-                groupTypes={[
-                    TaxonomicFilterGroupType.DataWarehouseProperties,
-                    TaxonomicFilterGroupType.NumericalEventProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                ]}
+                groupTypes={
+                    mathPropertyTypes || [
+                        TaxonomicFilterGroupType.NumericalEventProperties,
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                        TaxonomicFilterGroupType.DataWarehouseProperties,
+                    ]
+                }
                 schemaColumns={schemaColumns}
                 value={mathProperty}
                 onChange={(currentValue, groupType) => onMathPropertySelect(index, currentValue, groupType)}
