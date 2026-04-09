@@ -45,7 +45,7 @@ export function mapToTopN(map: Map<string, number>, limit: number): Record<strin
 }
 
 function getPageNonce(): string | undefined {
-    return document.querySelector('script[nonce]')?.nonce || undefined
+    return (document.querySelector('script[nonce]') as HTMLElement | null)?.nonce || undefined
 }
 
 function loadMemLensScript(): Promise<void> {
