@@ -1,5 +1,4 @@
 import time
-import asyncio
 import datetime as dt
 from typing import Any
 
@@ -114,13 +113,16 @@ def extract_behavioral_filters(cohort: Cohort) -> list[BehavioralEventFilter]:
     return filters
 
 
-def compute_backfill_days(filters: list[BehavioralEventFilter]) -> int:
+def compute_backfill_days(filters: list[BehavioralEventFilter]) -> tuple[int, int]:
     """Compute the number of days to backfill from filter time windows.
 
     Takes the maximum time window across all filters and clamps to MAX_BACKFILL_DAYS.
+
+    Returns:
+        Tuple of (clamped_days, unclamped_days).
     """
     if not filters:
-        return 0
+        return 0, 0
 
     max_days = 0
     for f in filters:
@@ -128,7 +130,7 @@ def compute_backfill_days(filters: list[BehavioralEventFilter]) -> int:
         filter_days = f.time_value * multiplier
         max_days = max(max_days, filter_days)
 
-    return min(max_days, MAX_BACKFILL_DAYS)
+    return min(max_days, MAX_BACKFILL_DAYS), max_days
 
 
 class Command(BaseCommand):
@@ -175,22 +177,16 @@ class Command(BaseCommand):
         concurrent_workflows = options["concurrent_workflows"]
 
         if team_id and team_ids_option:
-            self.stdout.write(self.style.ERROR("Cannot use both --team-id and --team-ids. Please use only one."))
-            return
+            raise CommandError("Cannot use both --team-id and --team-ids. Please use only one.")
 
         if not team_id and not team_ids_option:
-            self.stdout.write(self.style.ERROR("Must provide either --team-id or --team-ids"))
-            return
+            raise CommandError("Must provide either --team-id or --team-ids")
 
         if cohort_id and team_ids_option:
-            self.stdout.write(
-                self.style.ERROR("Cannot use --cohort-id with --team-ids. Use --cohort-id only with --team-id.")
-            )
-            return
+            raise CommandError("Cannot use --cohort-id with --team-ids. Use --cohort-id only with --team-id.")
 
         if days_override is not None and days_override <= 0:
-            self.stdout.write(self.style.ERROR("--days must be a positive integer"))
-            return
+            raise CommandError("--days must be a positive integer")
 
         if team_id:
             team_ids = [team_id]
@@ -304,10 +300,7 @@ class Command(BaseCommand):
                         )
                     )
             else:
-                effective_days = compute_backfill_days(deduplicated_filters)
-                auto_computed_unclamped = max(
-                    f.time_value * TIME_INTERVAL_TO_DAYS.get(f.time_interval, 1) for f in deduplicated_filters
-                )
+                effective_days, auto_computed_unclamped = compute_backfill_days(deduplicated_filters)
                 if auto_computed_unclamped > MAX_BACKFILL_DAYS:
                     self.stdout.write(
                         self.style.WARNING(
@@ -373,30 +366,22 @@ class Command(BaseCommand):
         concurrent_workflows: int,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
+        filter_storage_key = store_event_filters(filters, team_id)
+        self.stdout.write(
+            self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")
+        )
 
-        async def _run_workflow():
-            filter_storage_key = store_event_filters(filters, team_id)
-            self.stdout.write(
-                self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")
+        # TODO(Stage 3): Replace with BackfillPrecalculatedEventsCoordinatorInputs
+        # and the actual coordinator workflow once they exist.
+        # For now, just store filters and return a placeholder workflow ID.
+        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
+
+        self.stdout.write(
+            self.style.WARNING(
+                f"Coordinator workflow not yet implemented. "
+                f"Filters stored at: {filter_storage_key} "
+                f"(days={effective_days}, concurrent={concurrent_workflows})"
             )
+        )
 
-            # TODO(Stage 3): Replace with BackfillPrecalculatedEventsCoordinatorInputs
-            # and the actual coordinator workflow once they exist.
-            # For now, just store filters and return a placeholder workflow ID.
-            workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
-
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Coordinator workflow not yet implemented. "
-                    f"Filters stored at: {filter_storage_key} "
-                    f"(days={effective_days}, concurrent={concurrent_workflows})"
-                )
-            )
-
-            return workflow_id
-
-        try:
-            return asyncio.run(_run_workflow())
-        except Exception as e:
-            logger.exception(f"Failed to execute Temporal workflow: {e}")
-            raise
+        return workflow_id

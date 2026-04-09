@@ -1,9 +1,11 @@
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
@@ -374,20 +376,22 @@ class TestComputeBackfillDays(BaseTest):
 
     @parameterized.expand(
         [
-            ("day_30", [(30, "day")], 30),
-            ("week_4", [(4, "week")], 28),
-            ("month_3_clamped", [(3, "month")], MAX_BACKFILL_DAYS),
-            ("takes_max", [(7, "day"), (30, "day"), (14, "day")], 30),
-            ("clamps_to_max", [(365, "day")], MAX_BACKFILL_DAYS),
-            ("unknown_interval_uses_1x", [(10, "unknown")], 10),
+            ("day_30", [(30, "day")], 30, 30),
+            ("week_4", [(4, "week")], 28, 28),
+            ("month_3_clamped", [(3, "month")], MAX_BACKFILL_DAYS, 90),
+            ("takes_max", [(7, "day"), (30, "day"), (14, "day")], 30, 30),
+            ("clamps_to_max", [(365, "day")], MAX_BACKFILL_DAYS, 365),
+            ("unknown_interval_uses_1x", [(10, "unknown")], 10, 10),
         ]
     )
-    def test_compute_backfill_days(self, _name, filter_inputs, expected):
+    def test_compute_backfill_days(self, _name, filter_inputs, expected_clamped, expected_unclamped):
         filters = [self._make_filter(tv, ti) for tv, ti in filter_inputs]
-        assert compute_backfill_days(filters) == expected
+        clamped, unclamped = compute_backfill_days(filters)
+        assert clamped == expected_clamped
+        assert unclamped == expected_unclamped
 
     def test_empty_filters_returns_zero(self):
-        assert compute_backfill_days([]) == 0
+        assert compute_backfill_days([]) == (0, 0)
 
 
 class TestBackfillPrecalculatedEventsCommand(BaseTest):
@@ -626,28 +630,24 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
         self.assertIn("No realtime cohorts found", output)
 
     def test_validation_rejects_both_team_id_and_team_ids(self):
-        call_command(
-            "backfill_precalculated_events",
-            "--team-id",
-            "1",
-            "--team-ids",
-            "2",
-            "3",
-            stdout=self.command_output,
-        )
-
-        output = self.command_output.getvalue()
-        self.assertIn("Cannot use both", output)
+        with pytest.raises(CommandError, match="Cannot use both"):
+            call_command(
+                "backfill_precalculated_events",
+                "--team-id",
+                "1",
+                "--team-ids",
+                "2",
+                "3",
+                stdout=self.command_output,
+            )
 
     def test_validation_rejects_negative_days(self):
-        call_command(
-            "backfill_precalculated_events",
-            "--team-id",
-            str(self.team.id),
-            "--days",
-            "-1",
-            stdout=self.command_output,
-        )
-
-        output = self.command_output.getvalue()
-        self.assertIn("--days must be a positive integer", output)
+        with pytest.raises(CommandError, match="--days must be a positive integer"):
+            call_command(
+                "backfill_precalculated_events",
+                "--team-id",
+                str(self.team.id),
+                "--days",
+                "-1",
+                stdout=self.command_output,
+            )
