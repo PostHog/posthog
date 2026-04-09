@@ -320,6 +320,25 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
         mock_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"pending_user_message": "Read the attached file first"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(
+            task_run.state["pending_user_message"],
+            "Read the attached file first",
+        )
+        mock_workflow.assert_called_once()
+
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
 

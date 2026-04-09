@@ -105,7 +105,10 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
         "id": PAY_AS_YOU_GO_SERVICE_ID,
         "description": "Pay-as-you-go - usage-based pricing across all PostHog products with no minimum commitment.",
         "categories": ALL_CATEGORIES,
-        "pricing": {"type": "paid", "paid": {"type": "custom"}},
+        "pricing": {
+            "type": "paid",
+            "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+        },
         "kind": "plan",
     }
 
@@ -120,7 +123,11 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
             "component": {
                 "options": [
                     {"parent_service_ids": [FREE_PLAN_SERVICE_ID], "type": "free"},
-                    {"parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID], "type": "paid", "paid": {"type": "custom"}},
+                    {
+                        "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
+                        "type": "paid",
+                        "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+                    },
                 ]
             },
         },
@@ -217,7 +224,7 @@ def provisioning_services(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
-    return Response({"data": _get_services(), "next_cursor": ""})
+    return Response({"data": _get_services()})
 
 
 # ---------------------------------------------------------------------------
@@ -931,11 +938,13 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     if service_id not in VALID_SERVICE_IDS:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
-    payment_credentials = request.data.get("payment_credentials")
-    if payment_credentials:
-        spt = payment_credentials.get("stripe_payment_token")
-        if spt:
-            _activate_billing_with_spt(team, spt)
+    billing_result = _try_activate_billing_with_spt(request, team, user)
+    if billing_result is False:
+        return _error_response(
+            "billing_activation_failed",
+            "Failed to activate billing with payment credentials",
+            resource_id=resource_id,
+        )
 
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", service_id, timeout=None)
 
@@ -959,20 +968,6 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             },
         }
     )
-
-
-def _activate_billing_with_spt(team: Team, spt: str) -> None:
-    """Forward a Stripe Payment Token to the billing service to activate a paid subscription."""
-    try:
-        res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/activate",
-            headers={"Authorization": f"Bearer {team.api_token}"},
-            json={"products": "all_products:", "stripe_payment_token": spt},
-        )
-        res.raise_for_status()
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id})
-        logger.warning("agentic_provisioning.activate_billing_with_spt_failed", team_id=team.id)
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:

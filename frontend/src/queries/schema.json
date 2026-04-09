@@ -13362,6 +13362,26 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                }
+            ],
+            "description": "Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery."
+        },
         "EndpointRefreshMode": {
             "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
             "enum": ["cache", "force", "direct"],
@@ -13406,7 +13426,7 @@
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
-                            "$ref": "#/definitions/InsightQueryNode"
+                            "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
                 },

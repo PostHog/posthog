@@ -13,8 +13,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
     )
 
 
@@ -154,7 +153,7 @@ class TestRunTests:
         result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.environment["api_host"] == "https://test.posthog.com"
-        assert result.environment["project_id"] == "12345"
+        assert result.environment["team_id"] == "12345"
 
     @patch("posthog.temporal.ingestion_acceptance_test.runner.as_completed")
     def test_submits_all_tests_to_executor(
