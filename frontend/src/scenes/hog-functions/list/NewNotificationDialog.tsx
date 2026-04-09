@@ -22,14 +22,17 @@ export interface NewNotificationDialogProps {
     onCreated: () => void
     /** Dialog title shown in the modal header */
     title?: string
+    /** Override the default filters used by the sub-template */
+    filtersOverride?: NewNotificationDialogLogicProps['filtersOverride']
 }
 
 export function NewNotificationDialog({
     subTemplateId,
     onCreated,
     title = 'New notification',
+    filtersOverride,
 }: NewNotificationDialogProps): JSX.Element {
-    const logicProps: NewNotificationDialogLogicProps = { subTemplateId, onCreated }
+    const logicProps: NewNotificationDialogLogicProps = { subTemplateId, onCreated, filtersOverride }
     const logic = newNotificationDialogLogic(logicProps)
 
     const {

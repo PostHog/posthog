@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-import { HogFunctionSubTemplateIdType, HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES, HOG_FUNCTION_SUB_TEMPLATES } from '../sub-templates/sub-templates'
 import type { newNotificationDialogLogicType } from './newNotificationDialogLogicType'
@@ -40,12 +40,13 @@ export interface NewNotificationForm {
 export interface NewNotificationDialogLogicProps {
     subTemplateId: HogFunctionSubTemplateIdType
     onCreated: () => void
+    filtersOverride?: CyclotronJobFiltersType
 }
 
 export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
     path(['scenes', 'hog-functions', 'list', 'newNotificationDialogLogic']),
     props({} as NewNotificationDialogLogicProps),
-    key((props) => props.subTemplateId),
+    key((props) => `${props.subTemplateId}-${JSON.stringify(props.filtersOverride ?? null)}`),
     connect(() => ({
         values: [integrationsLogic, ['integrations']],
     })),
@@ -134,7 +135,7 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
                     description: subTemplate?.description ?? '',
                     inputs_schema: template.inputs_schema,
                     inputs,
-                    filters: commonProps.filters,
+                    filters: props.filtersOverride ?? commonProps.filters,
                     hog: template.code,
                     icon_url: template.icon_url,
                     enabled: true,
