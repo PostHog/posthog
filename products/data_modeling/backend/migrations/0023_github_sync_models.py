@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ("posthog", "1089_ducklake_backfill_populate"),
         ("data_warehouse", "0041_migrate_stripe_job_inputs_to_auth_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("data_modeling", "0021_dag_sync_frequency"),
+        ("data_modeling", "0022_add_source_control_paths"),
     ]
 
     operations = [
@@ -119,24 +119,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_datamodelinggithubsyncconfig",
             },
-        ),
-        migrations.AddField(
-            model_name="dag",
-            name="source_control_path",
-            field=models.TextField(
-                blank=True,
-                default="",
-                help_text="Directory path in the source control repository for synced DAGs",
-            ),
-        ),
-        migrations.AddField(
-            model_name="node",
-            name="source_control_path",
-            field=models.TextField(
-                blank=True,
-                default="",
-                help_text="File path in the source control repository for synced nodes",
-            ),
         ),
         migrations.CreateModel(
             name="GitHubSyncedModel",
