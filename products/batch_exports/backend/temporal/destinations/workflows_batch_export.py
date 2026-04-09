@@ -268,7 +268,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             try:
                 async with tg:
                     # TODO: Use multiple consumers
-                    result = await run_consumer_from_stage(
+                    _ = await run_consumer_from_stage(
                         queue=queue,
                         consumer=consumer,
                         producer_task=producer_task,
@@ -286,16 +286,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
 
-        # The task group has now drained, so records_failed_count is final.
-        # We build the result here rather than in Consumer.start() because the
-        # fire-and-forget POST tasks complete after start() returns.
-        records_failed = consumer.records_failed_count
-        records_completed = (result.records_completed or 0) - records_failed
-        return BatchExportResult(
-            records_completed=records_completed,
-            bytes_exported=result.bytes_exported,
-            records_failed=records_failed,
-        )
+        return consumer.collect_result()
 
 
 @temporalio.workflow.defn(name="workflows-export", failure_exception_types=[temporalio.workflow.NondeterminismError])
