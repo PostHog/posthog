@@ -6,6 +6,8 @@ import temporalio.common
 import temporalio.workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.schema import AlertState
+
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     enumerate_due_alerts_activity,
@@ -129,7 +131,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CheckAlertWorkflowInputs) -> None:
-        new_state: str | None = None
+        new_state: AlertState | None = None
         skip_reason: str | None = None
         caught_error: BaseException | None = None
 

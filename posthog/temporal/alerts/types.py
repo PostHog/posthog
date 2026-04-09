@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Literal
 
+from posthog.schema import AlertState
+
 from posthog.slo.types import SloConfig
 
 
@@ -99,14 +101,13 @@ class EvaluateAlertResult:
                       message and to mark targets_notified for idempotency.
     `should_notify`:  True iff state transitioned to FIRING / ERRORED, OR
                       we're sending a RESOLVED notification. Computed by
-                      the same logic as today's add_alert_check at
-                      posthog/tasks/alerts/checks.py:458-509.
-    `new_state`:      AlertState as string (cross-process serialization).
+                      the same logic as today's add_alert_check in
+                      posthog/tasks/alerts/checks.py.
     """
 
     alert_check_id: int
     should_notify: bool
-    new_state: str  # AlertState as string: "Firing" | "Not firing" | "Errored" | "Snoozed"
+    new_state: AlertState
 
 
 # ─── notify_alert_activity I/O ──────────────────────────────────────

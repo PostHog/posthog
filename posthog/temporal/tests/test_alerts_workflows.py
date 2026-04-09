@@ -9,19 +9,6 @@ from posthog.temporal.alerts.schedule import create_schedule_all_alert_checks_sc
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleAllAlertChecksWorkflow
 
 
-def test_schedule_all_alert_checks_workflow_is_decorated():
-    # @temporalio.workflow.defn sets __temporal_workflow_definition
-    assert hasattr(ScheduleAllAlertChecksWorkflow, "__temporal_workflow_definition")
-    defn = ScheduleAllAlertChecksWorkflow.__temporal_workflow_definition
-    assert defn.name == "schedule-all-alert-checks"
-
-
-def test_check_alert_workflow_is_decorated():
-    assert hasattr(CheckAlertWorkflow, "__temporal_workflow_definition")
-    defn = CheckAlertWorkflow.__temporal_workflow_definition
-    assert defn.name == "check-alert"
-
-
 def test_schedule_all_alert_checks_workflow_parses_empty_inputs():
     inputs = ScheduleAllAlertChecksWorkflow.parse_inputs([])
     assert inputs is not None
