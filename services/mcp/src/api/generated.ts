@@ -17795,6 +17795,13 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    export interface SummaryOutcome {
+      /** @nullable */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface SessionRecordingType {
       /** @nullable */
       active_seconds?: number | null;
@@ -17872,6 +17879,7 @@ export namespace Schemas {
       start_url?: string | null;
       /** @nullable */
       summary?: string | null;
+      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
