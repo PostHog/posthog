@@ -122,7 +122,9 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
+
+        parts = request.path.split("/")
+        if len(parts) > 1 and parts[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
         if ip:
@@ -548,7 +550,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
 
         # skip adding the cookie on API requests
         split_request_path = request.path.split("/")
-        if len(split_request_path) and split_request_path[1] in cookie_api_paths_to_ignore:
+        if len(split_request_path) > 1 and split_request_path[1] in cookie_api_paths_to_ignore:
             return response
 
         if request.path.startswith("/logout"):
