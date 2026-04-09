@@ -467,17 +467,9 @@ def _run_affected(extra_args: list[str]) -> None:
         click.secho("No Python files changed on this branch.", fg="yellow")
         raise SystemExit(0)
 
-    map_path = REPO_ROOT / ".test_dependency_map.json"
-    if not map_path.exists():
-        click.secho(
-            "No .test_dependency_map.json found. Run: uv run bin/build_test_dependency_map.py",
-            fg="red",
-        )
-        raise SystemExit(1)
-
-    # Use find_affected_tests.py for the lookup
+    # Build import graph and find affected tests in one step
     result = subprocess.run(
-        ["python", str(REPO_ROOT / "bin" / "find_affected_tests.py"), "--changed-files", " ".join(py_files)],
+        ["uv", "run", str(REPO_ROOT / "bin" / "find_affected_tests.py"), "--changed-files", " ".join(py_files)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

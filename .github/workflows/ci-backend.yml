@@ -935,8 +935,8 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
     # Intelligent test selection: compute which tests are affected by the PR's changes.
-    # Builds .test_dependency_map.json on-the-fly via import graph analysis, then maps
-    # changed source files to their dependent test files.
+    # Builds an import graph with grimp to map changed source files to their dependent
+    # test files.
     # Outputs mode=selective (with affected test list) or mode=full (run everything).
     compute-affected-tests:
         needs: [changes]
@@ -958,13 +958,11 @@ jobs:
               with:
                   version: '0.10.2'
 
-            - name: Build dependency map and compute affected tests
+            - name: Compute affected tests from import graph
               id: compute
               run: |
                   CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')
                   echo "Changed files: $CHANGED" >&2
-
-                  uv run bin/build_test_dependency_map.py
 
                   RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
                   MODE=$(echo "$RESULT" | jq -r '.mode')
