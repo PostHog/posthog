@@ -135,6 +135,7 @@ export function ActionFilterRow({
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
     const isTrendsContext = trendsDisplayCategory != null
+    const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
@@ -262,6 +263,7 @@ export function ActionFilterRow({
             groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
+            suggestedFiltersLabel={suggestedFiltersLabel}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 if (isQuickFilterItem(item)) {
                     if (item.eventName) {
