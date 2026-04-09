@@ -10,6 +10,7 @@ import { z } from 'zod'
  * corresponding env var is set. Invalid env var values cause a startup failure.
  */
 const producerConfigSchema = z.object({
+    'client.id': z.string().optional(),
     'metadata.broker.list': z.string().default('kafka:9092'),
     'security.protocol': z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']).optional(),
     'sasl.mechanisms': z.string().optional(),
@@ -27,8 +28,8 @@ const producerConfigSchema = z.object({
     log_level: z.coerce.number().default(4),
     'enable.idempotence': z
         .enum(['true', 'false'])
-        .transform((v) => v === 'true')
-        .default('true'),
+        .default('true')
+        .transform((v) => v === 'true'),
     'message.max.bytes': z.coerce.number().optional(),
     'batch.num.messages': z.coerce.number().optional(),
     'sticky.partitioning.linger.ms': z.coerce.number().optional(),

@@ -67,7 +67,7 @@ class ReplaceFilters(CloningVisitor):
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     all_tables.append(last_join.table.chain)
-                    if last_join.table.chain == ["events"]:
+                    if last_join.table.chain == ["events"] or last_join.table.chain == ["posthog", "ai_events"]:
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True

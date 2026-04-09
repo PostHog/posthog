@@ -19,6 +19,7 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
 }
 
 jest.setTimeout(10000)
@@ -404,12 +405,17 @@ describe('LegacyWebhookService', () => {
                     fetchGroupTypesByTeamIds: jest.fn(),
                     fetchGroupTypesByProjectIds: jest.fn(),
                 },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
                 hub.groupRepository,
                 mockGrpcClient as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
 

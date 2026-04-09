@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from posthog.temporal.oauth import PosthogMcpScopes
+
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 
@@ -29,6 +31,8 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str
+    sandbox_environment_id: str | None = None
+    posthog_mcp_scopes: PosthogMcpScopes | None = None
 
 
 def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
@@ -90,6 +94,8 @@ async def _create_task_and_trigger(
     context: CustomPromptSandboxContext,
     branch: str = "master",
     step_name: str = "",
+    origin_product: str | None = None,
+    signal_report_id: str | None = None,
 ):
     from posthog.models.team.team import Team
 
@@ -101,12 +107,13 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=Task.OriginProduct(origin_product) if origin_product else Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         create_pr=False,
         mode="background",
         branch=branch if branch and branch != "master" else None,
+        signal_report_id=signal_report_id,
     )
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:

@@ -109,7 +109,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 1. **get_task_processing_context** — Loads the TaskRun from the database, validates the GitHub integration and repository, and builds a `TaskProcessingContext` carrying all the IDs needed by later activities
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a Docker sandbox (reusing a snapshot if one exists), clones the repository, and stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls `/health` until it responds
-4. **wait_condition** — The workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 5 minutes
+4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 30 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs, even on failure)
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
@@ -126,6 +126,66 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 ## 8. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
+
+### Modal credentials
+
+Both `MODAL_DOCKER` and `modal` providers require a Modal API token.
+Look up **"Modal Development Token"** in 1Password and add the values to your `.env`:
+
+```bash
+MODAL_TOKEN_ID=<token_id>
+MODAL_TOKEN_SECRET=<token_secret>
+```
+
+### Tunnel gateway and API
+
+Since Modal sandboxes run in the cloud and can't reach `localhost` directly,
+you'll need to expose the Django API and LLM gateway via a tunnel (e.g. ngrok or Cloudflare Tunnel).
+
+With ngrok, add tunnels to your ngrok config, `~/.config/ngrok/ngrok.yml` (Linux) or `~/Library/Application Support/ngrok/ngrok.yml` (MacOS):
+
+```yaml
+tunnels:
+  django:
+    proto: http
+    addr: 8000
+  gateway:
+    proto: http
+    addr: 3308
+```
+
+**IMPORTANT:** The free version of Ngrok includes on `dev` domain, that will try to cover both tunnels, and it won't work. Use Cloudflare (free). If you want to use ngrok, upgrade to `Hobbyist` plan, create custom domans, and add them to config:
+
+```yaml
+tunnels:
+  django:
+    proto: http
+    addr: 8000
+    domain: alexl-django.ngrok.dev
+  gateway:
+    proto: http
+    addr: 3308
+    domain: alexl-llmg.ngrok.dev
+agent:
+  authtoken: ...
+```
+
+Then, get an auth token at `https://dashboard.ngrok.com/get-started/your-authtoken` and add it locally (either to ngrok directly, through `ngrok config add-authtoken`, or to the config file).
+
+After that, start both tunnels:
+
+```bash
+ngrok start --all
+```
+
+Set the resulting URLs in your `.env`:
+
+```bash
+SANDBOX_API_URL=https://<django-8000-subdomain>.ngrok-free.app
+SANDBOX_LLM_GATEWAY_URL=https://<gateway-3308-subdomain>.ngrok-free.app
+```
+
+### Local agent packages
 
 ```bash
 # In your .env:

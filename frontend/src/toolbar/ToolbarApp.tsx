@@ -36,14 +36,24 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   const styleLink = document.createElement('link')
                   styleLink.rel = 'stylesheet'
                   styleLink.type = 'text/css'
-                  // toolbar.js is served from the PostHog CDN, this has a TTL of 24 hours.
-                  // the toolbar asset includes a rotating "token" that is valid for 5 minutes.
-                  const fiveMinutesInMillis = 5 * 60 * 1000
-                  // this ensures that we bust the cache periodically
-                  const timestampToNearestFiveMinutes =
-                      Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                  // Load CSS from API host (where static assets are served, same place as the JS was loaded from)
-                  styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+
+                  // When __POSTHOG_TOOLBAR_PUBLIC_PATH__ is baked in at build
+                  // time (posthog-js versioned bundle), load the CSS from the
+                  // same versioned URL as the JS bundle. The version is the
+                  // cache key, so no cache-busting query param is needed.
+                  //
+                  // Otherwise (i.e. posthog/posthog's own deploys), fall back to
+                  // serving toolbar.css from the API host alongside toolbar.js,
+                  // with a 5-minute cache-buster on the unversioned URL.
+                  if (__POSTHOG_TOOLBAR_PUBLIC_PATH__) {
+                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar.css`
+                  } else {
+                      const fiveMinutesInMillis = 5 * 60 * 1000
+                      const timestampToNearestFiveMinutes =
+                          Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
+                      styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                  }
+
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot

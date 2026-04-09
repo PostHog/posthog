@@ -56,7 +56,7 @@ for model_tables in EMBEDDING_TABLES_1:
     operations.append(
         run_sql_with_exceptions(
             model_tables.distributed_table_sql(),
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
         )
     )
 
@@ -86,6 +86,6 @@ for model_tables in EMBEDDING_TABLES_1:
 operations.append(
     run_sql_with_exceptions(
         DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     )
 )

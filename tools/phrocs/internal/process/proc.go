@@ -7,20 +7,24 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 	gops "github.com/shirou/gopsutil/v4/process"
 
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-const metricsSampleInterval = 5 * time.Second
+const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
+const defaultShell = "/bin/bash"
 
 type Status int
 
@@ -54,12 +58,18 @@ type StatusMsg struct {
 	Status Status
 }
 
-// Batched output notification for incremental viewport updates.
+// Notification that a process has new output; the TUI should refresh.
 type OutputMsg struct {
-	Name    string
-	Added   []string
-	Evicted int
+	Name string
 }
+
+// Requests the TUI to focus a specific process by name.
+type FocusMsg struct {
+	Name string
+}
+
+// Sent after metrics are sampled so the TUI can refresh the info panel.
+type MetricsMsg struct{}
 
 // Metrics holds the most recent sampled resource usage for a process tree.
 type Metrics struct {
@@ -100,29 +110,40 @@ type Snapshot struct {
 type Process struct {
 	Name         string
 	Cfg          config.ProcConfig
+	shellBin     string // shell binary for running shell commands
 	readyPattern *regexp.Regexp
 	maxLines     int
 	status       Status
 	cmd          *exec.Cmd
 
 	mu        sync.Mutex
-	lines     []string      // scrollback buffer of recent output lines
-	ptmx      *os.File      // pty master; nil when using pipes
-	stdinPipe *os.File      // write end of stdin pipe; nil when using PTY
-	hasPrompt bool          // true when the last output was a partial line without a trailing \n
-	waitDone  chan struct{} // closed by the goroutine that calls cmd.Wait()
+	emulator  *vt.SafeEmulator // virtual terminal emulator for output
+	ptmx      *os.File         // pty master; nil when using pipes
+	stdinPipe *os.File         // write end of stdin pipe; nil when using PTY
+	hasPrompt bool             // true when last PTY output had no trailing \n (likely waiting for input)
+	unread    bool             // true when new output arrived since the last MarkRead call
+	waitDone  chan struct{}    // closed by the goroutine that calls cmd.Wait()
 
-	startedAt time.Time
-	readyAt   time.Time
-	exitCode  *int
-	metrics   *Metrics
+	startedAt      time.Time
+	readyAt        time.Time
+	exitCode       *int
+	metrics        *Metrics
+	metricsEnabled atomic.Bool
 }
 
-func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
+func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell string) *Process {
+	shell := globalShell
+	if shell == "" {
+		shell = defaultShell
+	}
+	em := vt.NewSafeEmulator(80, 24)
+	em.SetScrollbackSize(scrollback)
 	p := &Process{
 		Name:     name,
 		Cfg:      cfg,
+		shellBin: shell,
 		maxLines: scrollback,
+		emulator: em,
 		status:   StatusStopped,
 	}
 	if cfg.ReadyPattern != "" {
@@ -137,6 +158,18 @@ func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
+}
+
+func (s Status) IsRunning() bool {
+	return s == StatusRunning || s == StatusPending
+}
+
+func (p *Process) IsRunning() bool {
+	return p.Status().IsRunning()
+}
+
+func (p *Process) SetMetricsEnabled(on bool) {
+	p.metricsEnabled.Store(on)
 }
 
 // CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
@@ -159,37 +192,79 @@ func (p *Process) MemRSSMB() float64 {
 	return p.metrics.MemRSSMB
 }
 
-// HasPrompt returns true when the last output was a partial line (no trailing \n),
-// indicating the process is likely waiting for input.
+// HasPrompt returns true when the last PTY output was a partial line
+// (no trailing \n), indicating the process is likely waiting for input.
+// This works for both line-based prompts ("Enter name: ") and TUI
+// frameworks like Ink that end render frames with escape codes.
 func (p *Process) HasPrompt() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.hasPrompt
 }
 
+// Unread returns true when new output has arrived since the last MarkRead call.
+func (p *Process) Unread() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.unread
+}
+
+// MarkRead clears the unread flag, indicating the user has seen the output.
+func (p *Process) MarkRead() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.unread = false
+}
+
 func (p *Process) Lines() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	cp := make([]string, len(p.lines))
-	copy(cp, p.lines)
-	return cp
+	if p.emulator == nil {
+		return nil
+	}
+	result := []string{}
+	sb := p.emulator.Scrollback()
+	if sb != nil {
+		for i := range sb.Len() {
+			result = append(result, sb.Line(i).Render())
+		}
+	}
+	screen := p.emulator.Render()
+	screenLines := strings.Split(screen, "\n")
+	// The VT screen buffer always has height rows; trim trailing blank rows
+	// so unused screen space doesn't inflate the line count.
+	for len(screenLines) > 0 && screenLines[len(screenLines)-1] == "" {
+		screenLines = screenLines[:len(screenLines)-1]
+	}
+	result = append(result, screenLines...)
+	return result
+}
+
+// ClearLines empties the scrollback buffer.
+func (p *Process) ClearLines() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.emulator != nil {
+		p.emulator.ClearScrollback()
+	}
 }
 
 // AppendLine injects a line into the buffer without a real subprocess (for tests).
 func (p *Process) AppendLine(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.lines) >= p.maxLines {
-		p.lines[0] = "" // allow GC of evicted string data
-		p.lines = p.lines[1:]
+	if p.emulator != nil {
+		_, _ = p.emulator.Write([]byte(line + "\n"))
 	}
-	p.lines = append(p.lines, line)
 }
 
 func ptr[T any](v T) *T { return &v }
 
-// Returns a consistent point-in-time view of the process
+// Returns a consistent point-in-time view of the process.
+// If the process is running, metrics are sampled on the spot.
 func (p *Process) Snapshot() Snapshot {
+	p.sampleMetrics()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -220,6 +295,67 @@ func (p *Process) Snapshot() Snapshot {
 	return snap
 }
 
+// sampleMetrics collects resource usage for the process tree and stores it.
+func (p *Process) sampleMetrics() {
+	p.mu.Lock()
+	pid := 0
+	if p.cmd != nil && p.cmd.Process != nil {
+		pid = p.cmd.Process.Pid
+	}
+	st := p.status
+	p.mu.Unlock()
+
+	if pid == 0 || !st.IsRunning() {
+		return
+	}
+
+	ps, err := gops.NewProcess(int32(pid))
+	if err != nil {
+		return
+	}
+
+	all := collectProcessTree(ps)
+
+	var rssBytes uint64
+	var cpuPct, cpuTime float64
+	var threads, fds int32
+	for _, proc := range all {
+		if mem, err := proc.MemoryInfo(); err == nil {
+			rssBytes += mem.RSS
+		}
+		if c, err := proc.CPUPercent(); err == nil {
+			cpuPct += c
+		}
+		if ct, err := proc.Times(); err == nil {
+			cpuTime += ct.User + ct.System
+		}
+		if t, err := proc.NumThreads(); err == nil {
+			threads += t
+		}
+		if f, err := proc.NumFDs(); err == nil {
+			fds += f
+		}
+	}
+
+	rssMB := float64(rssBytes) / 1024 / 1024
+
+	p.mu.Lock()
+	if p.metrics == nil {
+		p.metrics = &Metrics{}
+	}
+	p.metrics.MemRSSMB = rssMB
+	if rssMB > p.metrics.PeakMemMB {
+		p.metrics.PeakMemMB = rssMB
+	}
+	p.metrics.CPUPercent = cpuPct
+	p.metrics.CPUTimeS = cpuTime
+	p.metrics.Threads = threads
+	p.metrics.Children = len(all) - 1
+	p.metrics.FDs = fds
+	p.metrics.SampledAt = time.Now()
+	p.mu.Unlock()
+}
+
 // buildEnv constructs the environment for the child process.
 func (p *Process) buildEnv() []string {
 	env := os.Environ()
@@ -231,10 +367,14 @@ func (p *Process) buildEnv() []string {
 
 // buildCmd creates the exec.Cmd from either the shell or cmd config.
 func (p *Process) buildCmd() *exec.Cmd {
+	var cmd *exec.Cmd
 	if len(p.Cfg.Cmd) > 0 {
-		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+		cmd = exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+	} else {
+		cmd = exec.Command(p.shellBin, "-c", p.Cfg.Shell)
 	}
-	return exec.Command("/bin/bash", "-c", p.Cfg.Shell)
+	cmd.Dir = p.Cfg.Cwd
+	return cmd
 }
 
 // It's safe to call Start concurrently as running process is a no-op
@@ -245,7 +385,14 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		return nil
 	}
 	p.status = StatusPending
-	p.lines = nil
+	// Preserve the current emulator dimensions (set by Resize) so the
+	// child process sees the correct terminal size from the start.
+	w, h := 80, 24
+	if p.emulator != nil {
+		w, h = p.emulator.Width(), p.emulator.Height()
+	}
+	p.emulator = vt.NewSafeEmulator(w, h)
+	p.emulator.SetScrollbackSize(p.maxLines)
 	p.metrics = nil
 	p.exitCode = nil
 	p.startedAt = time.Now()
@@ -264,6 +411,11 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		// Use combined stdout/stderr pipe when PTY allocation fails
 		return p.startWithPipe(cmd, send)
 	}
+
+	// Set the PTY size immediately so the child process sees the correct
+	// terminal dimensions before it reads them (e.g. Ink/React TUIs that
+	// center content based on process.stdout.columns).
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(w), Rows: uint16(h)})
 
 	waitDone := make(chan struct{})
 
@@ -293,7 +445,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -388,7 +540,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid)
+	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -443,18 +595,10 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 	}
 }
 
-// readLoop reads process output, batches lines, and sends OutputMsg to outChannel.
-//
-// Pipeline: PTY → [reader goroutine] → chunkChannel → [select loop] → outChannel → [drainer] → TUI
-//
-// The select loop handles three concerns:
-//   - data:          split raw bytes into lines, accumulate into batch
-//   - flushTicker:   deliver the batch to outChannel every 16ms (non-blocking to avoid backpressure)
-//   - partialTimer:  lines without a trailing \n (e.g. "Enter name: ") are flushed after 48ms
-//     of silence so interactive prompts appear without waiting for \n
+// readLoop reads process output, feeds it through a VT terminal emulator,
+// and sends OutputMsg to outChannel so the TUI can refresh.
+// Pipeline: PTY → [reader goroutine] → chunkChannel → VT emulator → outChannel → TUI
 func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
-	// Reader goroutine: drains the PTY independently so the kernel buffer
-	// never fills up and blocks the child's writes.
 	chunkChannel := make(chan []byte, 64)
 	go func() {
 		buf := make([]byte, 256*1024)
@@ -472,35 +616,12 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 		}
 	}()
 
-	var partial []byte // leftover bytes after the last \n (incomplete line)
-	var batch []string // lines accumulated since last successful send
-	var evicted int    // lines evicted from scrollback during this batch
-
-	partialTimer := time.NewTimer(0)
-	if !partialTimer.Stop() {
-		<-partialTimer.C
-	}
-
 	flushTicker := time.NewTicker(flushInterval)
 	defer flushTicker.Stop()
 
+	dirty := false
 	becameReady := false
 
-	// addLine buffers a line in scrollback and adds it to the current batch.
-	addLine := func(s string) {
-		ev, ready := p.bufferLine(s)
-		if ev {
-			evicted++
-		}
-		if ready {
-			becameReady = true
-		}
-		batch = append(batch, s)
-	}
-
-	// trySend delivers the batch to outChannel without blocking. If the TUI event
-	// loop is busy (channel full), the batch keeps growing until next tick.
-	// A pending "became ready" status is sent first (also non-blocking).
 	trySend := func() {
 		if becameReady {
 			select {
@@ -509,109 +630,57 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			default:
 			}
 		}
-		if len(batch) == 0 {
+		if !dirty {
 			return
 		}
 		select {
-		case outChannel <- OutputMsg{Name: p.Name, Added: batch, Evicted: evicted}:
-			batch = nil
-			evicted = 0
+		case outChannel <- OutputMsg{Name: p.Name}:
+			dirty = false
 		default:
 		}
 	}
 
 	for {
 		select {
-		// New data from the PTY (or EOF when the child exits)
 		case data, ok := <-chunkChannel:
 			if !ok {
-				// EOF — flush remaining partial + batch (non-blocking to avoid deadlock)
-				if len(partial) > 0 {
-					addLine(string(partial))
-				}
 				trySend()
 				return
 			}
 
-			// Prepend any leftover bytes from the previous chunk
-			data = append(partial, data...)
-			partial = nil
-
-			// Split into complete lines at \n boundaries
-			for {
-				idx := bytes.IndexByte(data, '\n')
-				if idx == -1 {
-					break
+			// Check ready pattern against raw bytes before emulator processing
+			if !becameReady && p.readyPattern != nil {
+				p.mu.Lock()
+				if p.status != StatusRunning && p.readyPattern.Match(data) {
+					p.readyAt = time.Now()
+					p.status = StatusRunning
+					becameReady = true
 				}
-				line := data[:idx]
-				// PTY line discipline adds \r\n (ONLCR); strip the \r
-				if len(line) > 0 && line[len(line)-1] == '\r' {
-					line = line[:len(line)-1]
-				}
-				addLine(string(line))
-				data = data[idx+1:]
+				p.mu.Unlock()
 			}
 
-			// Leftover bytes without \n — likely an interactive prompt
+			// Feed raw bytes into the VT emulator
 			p.mu.Lock()
-			p.hasPrompt = len(data) > 0
-			p.mu.Unlock()
-
-			if len(data) > 0 {
-				partial = data
-				// Start/reset the partial timer so the prompt appears
-				// after 48ms of silence rather than waiting for \n
-				if !partialTimer.Stop() {
-					select {
-					case <-partialTimer.C:
-					default:
-					}
-				}
-				partialTimer.Reset(flushInterval * 3)
+			if p.emulator != nil {
+				_, _ = p.emulator.Write(data)
 			}
+			// Detect interactive prompts: if the chunk doesn't end with \n,
+			// the process likely wrote a partial line and is waiting for input.
+			// This works for line-based prompts and TUI frameworks like Ink
+			// that end render frames with escape codes (no trailing newline).
+			p.hasPrompt = data[len(data)-1] != '\n'
+			p.unread = true
+			p.mu.Unlock()
+			dirty = true
 
-		// Periodic flush — deliver accumulated lines to the TUI
 		case <-flushTicker.C:
 			trySend()
-
-		// Partial line timeout — treat the incomplete line as complete
-		case <-partialTimer.C:
-			if len(partial) > 0 {
-				addLine(string(partial))
-				partial = nil
-				trySend()
-			}
 		}
 	}
 }
 
-// bufferLine adds a line to the scrollback buffer, evicting old lines if needed.
-func (p *Process) bufferLine(line string) (evicted bool, becameReady bool) {
-	p.mu.Lock()
-	if len(p.lines) >= p.maxLines {
-		p.lines[0] = "" // allow GC of evicted string data
-		p.lines = p.lines[1:]
-		evicted = true
-	}
-	p.lines = append(p.lines, line)
-
-	if p.status != StatusRunning && p.readyPattern != nil && p.readyPattern.MatchString(line) {
-		p.readyAt = time.Now()
-		p.status = StatusRunning
-		becameReady = true
-	}
-	p.mu.Unlock()
-
-	return evicted, becameReady
-}
-
-// Sampling CPU/mem/threads every metricsSampleInterval for the process tree
-func (p *Process) startMetricsSampler(pid int) {
-	ps, err := gops.NewProcess(int32(pid))
-	if err != nil {
-		return
-	}
-	_, _ = ps.CPUPercent() // baseline measurement
+// Sampling CPU/mem/threads every metricsSampleInterval when metrics are enabled.
+func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 	origPID := pid
 
 	ticker := time.NewTicker(metricsSampleInterval)
@@ -626,65 +695,49 @@ func (p *Process) startMetricsSampler(pid int) {
 		}
 		p.mu.Unlock()
 
-		if (st != StatusRunning && st != StatusPending) || (currentPID != 0 && currentPID != origPID) {
-			// Process has been restarted with a new PID
+		if !st.IsRunning() || (currentPID != 0 && currentPID != origPID) {
 			return
 		}
 
-		all := collectProcessTree(ps)
-
-		var rssBytes uint64
-		var cpuPct, cpuTime float64
-		var threads, fds int32
-		for _, proc := range all {
-			if mem, err := proc.MemoryInfo(); err == nil {
-				rssBytes += mem.RSS
-			}
-			if c, err := proc.CPUPercent(); err == nil {
-				cpuPct += c
-			}
-			if ct, err := proc.Times(); err == nil {
-				cpuTime += ct.User + ct.System
-			}
-			if t, err := proc.NumThreads(); err == nil {
-				threads += t
-			}
-			if f, err := proc.NumFDs(); err == nil {
-				fds += f
-			}
+		if !p.metricsEnabled.Load() {
+			continue
 		}
 
-		rssMB := float64(rssBytes) / 1024 / 1024
-
-		p.mu.Lock()
-		if p.metrics == nil {
-			p.metrics = &Metrics{}
-		}
-		p.metrics.MemRSSMB = rssMB
-		if rssMB > p.metrics.PeakMemMB {
-			p.metrics.PeakMemMB = rssMB
-		}
-		p.metrics.CPUPercent = cpuPct
-		p.metrics.CPUTimeS = cpuTime
-		p.metrics.Threads = threads
-		p.metrics.Children = len(all) - 1
-		p.metrics.FDs = fds
-		p.metrics.SampledAt = time.Now()
-		p.mu.Unlock()
+		p.sampleMetrics()
+		send(MetricsMsg{})
 	}
 }
 
-// collectProcessTree returns ps and all its descendants via a depth-first walk.
-func collectProcessTree(ps *gops.Process) []*gops.Process {
-	all := []*gops.Process{ps}
-	children, err := ps.Children()
+// collectProcessTree returns ps and all its descendants.
+func collectProcessTree(root *gops.Process) []*gops.Process {
+	allProcs, err := gops.Processes()
 	if err != nil {
-		return all
+		return []*gops.Process{root}
 	}
-	for _, child := range children {
-		all = append(all, collectProcessTree(child)...)
+
+	// Build parent → children index
+	byPID := make(map[int32]*gops.Process, len(allProcs))
+	childrenOf := make(map[int32][]*gops.Process)
+	for _, p := range allProcs {
+		byPID[p.Pid] = p
+		ppid, err := p.Ppid()
+		if err == nil && ppid > 0 {
+			childrenOf[ppid] = append(childrenOf[ppid], p)
+		}
 	}
-	return all
+
+	// BFS from root
+	result := []*gops.Process{root}
+	queue := []*gops.Process{root}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, child := range childrenOf[cur.Pid] {
+			result = append(result, child)
+			queue = append(queue, child)
+		}
+	}
+	return result
 }
 
 // stopSignal returns the syscall signal to use when stopping the process,
@@ -811,6 +864,9 @@ func (p *Process) WriteInput(data []byte) error {
 func (p *Process) Resize(cols, rows uint16) {
 	p.mu.Lock()
 	ptmx := p.ptmx
+	if p.emulator != nil {
+		p.emulator.Resize(int(cols), int(rows))
+	}
 	p.mu.Unlock()
 	if ptmx != nil {
 		_ = pty.Setsize(ptmx, &pty.Winsize{Rows: rows, Cols: cols})

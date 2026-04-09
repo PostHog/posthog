@@ -35,6 +35,7 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -129,28 +130,6 @@ def transform_variant_for_max(
         delta=None,
         significant=False,
     )
-
-
-def get_default_metric_title(metric_dict: dict) -> str:
-    """Generate a default title for a metric based on its configuration."""
-    metric_type = metric_dict.get("metric_type", "")
-    if metric_type == "funnel":
-        series = metric_dict.get("series", [])
-        if series:
-            first_event = series[0].get("event") or series[0].get("name") or "Event"
-            last_event = series[-1].get("event") or series[-1].get("name") or "Event"
-            if len(series) == 1:
-                return f"{first_event} conversion"
-            return f"{first_event} to {last_event}"
-    elif metric_type == "mean":
-        source = metric_dict.get("source", {})
-        event = source.get("event") or source.get("name") or "Event"
-        return f"Mean {event}"
-    elif metric_type == "ratio":
-        return "Ratio metric"
-    elif metric_type == "retention":
-        return "Retention metric"
-    return "Metric"
 
 
 def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:

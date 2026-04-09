@@ -99,6 +99,7 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
 }
 
 function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeof MOCK_GROUPS): MockPersonHogClient {
@@ -108,6 +109,10 @@ function createMockGrpcClient(groupTypes: typeof MOCK_GROUP_TYPES, groups: typeo
             fetchGroupsByKeys: jest.fn(),
             fetchGroupTypesByTeamIds: jest.fn(),
             fetchGroupTypesByProjectIds: jest.fn(),
+        },
+        persons: {
+            fetchPersonsByDistinctIds: jest.fn(),
+            fetchPersonsByPersonIds: jest.fn(),
         },
     }
 
@@ -174,6 +179,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 rolloutPercentage,
+                new Set(),
                 'test'
             )
             groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
@@ -304,12 +310,17 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                     }),
                     fetchGroupTypesByProjectIds: jest.fn(),
                 },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const manager = new GroupsManagerService(
@@ -350,6 +361,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
@@ -417,6 +429,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 0,
+                new Set(),
                 'test'
             )
             const postgresManager = new GroupsManagerService(mockTeamManager, postgresRepo)

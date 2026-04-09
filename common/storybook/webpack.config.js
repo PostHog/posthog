@@ -159,7 +159,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
+                    test: /\.(png|jpe?g|gif|svg)$/,
                     use: [
                         {
                             // Using file-loader for these files

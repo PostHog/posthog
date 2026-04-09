@@ -214,7 +214,7 @@ const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus,
 
 export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
+    const { updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, setIsProjectTime } = useActions(
         dataWarehouseSourceSettingsLogic
     )
     const { isProjectTime, source } = useValues(dataWarehouseSourceSettingsLogic)
@@ -389,7 +389,27 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                         }
                                         checked={schema.should_sync}
                                         onChange={(active) => {
-                                            updateSchema({ ...schema, should_sync: active })
+                                            if (!active && schema.sync_type === 'webhook') {
+                                                LemonDialog.open({
+                                                    title: 'Disable webhook sync?',
+                                                    description:
+                                                        'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                                    primaryButton: {
+                                                        children: 'Disable',
+                                                        status: 'danger',
+                                                        onClick: () =>
+                                                            updateSchema({
+                                                                ...schema,
+                                                                should_sync: false,
+                                                            }),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            } else {
+                                                updateSchema({ ...schema, should_sync: active })
+                                            }
                                         }}
                                     />
                                 </SourceEditorAction>
@@ -553,8 +573,20 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                                     Sync now
                                                                 </LemonButton>
                                                             </Tooltip>
-                                                            {schema.incremental && (
-                                                                <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                            {schema.status === 'Running' && (
+                                                                <LemonButton
+                                                                    type="tertiary"
+                                                                    size="xsmall"
+                                                                    fullWidth
+                                                                    status="danger"
+                                                                    onClick={() => cancelSchema(schema)}
+                                                                    disabledReason={disabledReason}
+                                                                >
+                                                                    Cancel sync
+                                                                </LemonButton>
+                                                            )}
+                                                            {(schema.incremental || schema.sync_type === 'webhook') && (
+                                                                <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
                                                                     <LemonButton
                                                                         type="tertiary"
                                                                         size="xsmall"
@@ -677,7 +709,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         description: currentSyncMethodModalSchema.description,
                         should_sync_default: currentSyncMethodModalSchema.should_sync_default ?? true,
                         sync_type: currentSyncMethodModalSchema.sync_type,
-                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
                         incremental_available: schemaIncrementalFields.incremental_available,
@@ -696,7 +728,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                             sync_type: syncType,
                             incremental_field: syncType === 'full_refresh' ? null : incrementalField,
                             incremental_field_type: syncType === 'full_refresh' ? null : incrementalFieldType,
-                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
                         })
                     }}
                 />

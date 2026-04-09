@@ -27,8 +27,10 @@ const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typ
 
 function createMockOutputs(mockKafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
-        [DLQ_OUTPUT]: { topic: 'test-dlq', producer: mockKafkaProducer },
-        [INGESTION_WARNINGS_OUTPUT]: { topic: 'test-ingestion-warnings', producer: mockKafkaProducer },
+        [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockKafkaProducer, producerName: 'test' }],
+        [INGESTION_WARNINGS_OUTPUT]: [
+            { topic: 'test-ingestion-warnings', producer: mockKafkaProducer, producerName: 'test' },
+        ],
     })
 }
 

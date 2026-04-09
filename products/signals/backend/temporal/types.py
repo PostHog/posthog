@@ -105,11 +105,12 @@ class TeamSignalGroupingV2Input:
 
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
+    paused_until: Optional[datetime] = None
 
 
 @dataclass
 class ReadSignalsFromS3Input:
-    """Activity input: read a batch of signals from S3."""
+    """Activity input for reading a signal batch."""
 
     object_key: str
 

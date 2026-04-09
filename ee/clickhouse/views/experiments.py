@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
@@ -23,18 +23,23 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
+from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
+from posthog.user_permissions import UserPermissions
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentTimeseriesRecalculation,
+    experiment_has_legacy_metrics,
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -126,22 +131,32 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "date_to": data["end_date"] if data["end_date"] else "",
             "explicitDate": True,
         }
+
+        # Refresh action names in inline metrics (metrics and metrics_secondary)
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
-            for metric in metrics_list:
+            for i, metric in enumerate(metrics_list):
+                # Refresh action names to show current names instead of stale cached values
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                if refreshed_metric:
+                    metrics_list[i] = refreshed_metric
+                    metric = refreshed_metric
+
                 if metric.get("count_query", {}).get("dateRange"):
                     metric["count_query"]["dateRange"] = new_date_range
                 if metric.get("funnels_query", {}).get("dateRange"):
                     metric["funnels_query"]["dateRange"] = new_date_range
 
+        # Update date ranges in saved metrics
+        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
-                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
-                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
-
-            # Add fingerprint to saved metric returned from API
-            # so that frontend knows what timeseries records to query
             if saved_metric.get("query"):
+                if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+                # Add fingerprint to saved metric returned from API
+                # so that frontend knows what timeseries records to query
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
@@ -263,6 +278,20 @@ class EndExperimentSerializer(serializers.Serializer):
 
 class ShipVariantSerializer(EndExperimentSerializer):
     variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+
+
+class CopyExperimentToProjectSerializer(serializers.Serializer):
+    target_team_id = serializers.IntegerField(help_text="The team ID to copy the experiment to.")
+    feature_flag_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional feature flag key to use in the destination team.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the copied experiment.",
+    )
 
 
 @extend_schema_view(
@@ -520,13 +549,7 @@ class EnterpriseExperimentsViewSet(
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
-        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
-        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
-        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
-            saved_metric__query__kind__in=legacy_kinds
-        ).exists()
-        if has_legacy_inline or has_legacy_saved:
+        if experiment_has_legacy_metrics(source_experiment):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -546,6 +569,59 @@ class EnterpriseExperimentsViewSet(
         return Response(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
+
+    @extend_schema(
+        request=CopyExperimentToProjectSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
+    def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        if experiment_has_legacy_metrics(source_experiment):
+            return Response(
+                {"detail": "Copying is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
+        request_serializer = CopyExperimentToProjectSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        target_team_id = request_serializer.validated_data["target_team_id"]
+        target_team = Team.objects.filter(id=target_team_id, organization_id=self.team.organization_id).first()
+        if target_team is None:
+            return Response({"detail": "Target team not found."}, status=404)
+
+        user_permissions = UserPermissions(user=cast(User, request.user))
+        target_team_permissions = user_permissions.team(target_team)
+        effective_level = target_team_permissions.effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            return Response({"detail": "You do not have write access to the target project."}, status=403)
+
+        feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
+        name = request_serializer.validated_data.get("name")
+
+        service = ExperimentService(team=self.team, user=request.user)
+        new_experiment = service.copy_experiment_to_project(
+            source_experiment,
+            target_team,
+            feature_flag_key=feature_flag_key,
+            name=name,
+            serializer_context={
+                "request": request,
+                "team_id": target_team.id,
+                "project_id": target_team.project_id,
+                "get_team": lambda: target_team,
+            },
+        )
+
+        target_context = {
+            **self.get_serializer_context(),
+            "team_id": target_team.id,
+            "project_id": target_team.project_id,
+            "get_team": lambda: target_team,
+        }
+        return Response(ExperimentSerializer(new_experiment, context=target_context).data, status=201)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:

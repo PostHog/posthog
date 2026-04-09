@@ -36,7 +36,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
             expect(typeof result.results).toBe('string')
-            expect(result._posthogUrl).toMatch(/\/insights\/new\?q=/)
+            expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
         })
 
         it('should include pipe-separated table in formatted results', async () => {
@@ -91,8 +91,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             )
             const result = (await tool.handler(context, {
                 retentionFilter: {
-                    targetEntity: { id: '$pageview', type: 'events' },
-                    returningEntity: { id: '$pageview', type: 'events' },
+                    targetEntity: { name: '$pageview', type: 'events' },
+                    returningEntity: { name: '$pageview', type: 'events' },
                     period: 'Day',
                     totalIntervals: 7,
                 },
@@ -129,12 +129,12 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result._posthogUrl).toContain('/insights/new?q=')
-            const url = new URL(result._posthogUrl)
-            const queryParam = url.searchParams.get('q')
-            expect(queryParam).toBeTruthy()
-            const parsed = JSON.parse(decodeURIComponent(queryParam!))
-            expect(parsed.kind).toBe('StickinessQuery')
+            expect(result._posthogUrl).toContain('/insights/new#q=')
+            const hash = result._posthogUrl.split('#q=')[1]
+            expect(hash).toBeTruthy()
+            const parsed = JSON.parse(decodeURIComponent(hash))
+            expect(parsed.kind).toBe('InsightVizNode')
+            expect(parsed.source.kind).toBe('StickinessQuery')
         })
     })
 
@@ -151,7 +151,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(result._posthogUrl).toMatch(/\/insights\/new\?q=/)
+            expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
         })
 
         it('should execute a paths query with start point', async () => {
@@ -219,11 +219,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
-    describe('query-traces-list', () => {
+    describe('query-llm-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(
                 GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-traces-list'
+                'query-llm-traces-list'
             )
             const result = (await tool.handler(context, {
                 dateRange: { date_from: '-7d' },
@@ -238,20 +238,19 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
     })
 
     describe('factory behavior', () => {
-        it('should generate a valid PostHog URL with kind', async () => {
+        it('should wrap query in InsightVizNode in the URL', async () => {
             const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-trends')
             const result = (await tool.handler(context, {
                 series: [{ kind: 'EventsNode', event: '$pageview' }],
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result._posthogUrl).toContain('/insights/new?q=')
-            // URL-encoded query should be parseable
-            const url = new URL(result._posthogUrl)
-            const queryParam = url.searchParams.get('q')
-            expect(queryParam).toBeTruthy()
-            const parsed = JSON.parse(decodeURIComponent(queryParam!))
-            expect(parsed.kind).toBe('TrendsQuery')
+            expect(result._posthogUrl).toContain('/insights/new#q=')
+            const hash = result._posthogUrl.split('#q=')[1]
+            expect(hash).toBeTruthy()
+            const parsed = JSON.parse(decodeURIComponent(hash))
+            expect(parsed.kind).toBe('InsightVizNode')
+            expect(parsed.source.kind).toBe('TrendsQuery')
         })
     })
 })

@@ -48,7 +48,7 @@ async function rasterizeRecordingActivity(
     const onProgress = () => Context.current().heartbeat()
 
     try {
-        const result = await rasterizeRecording(pool, input, outputPath, playerHtml, undefined, log, onProgress)
+        const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, undefined, log)
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)

@@ -31,6 +31,7 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
 )
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
+TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
@@ -86,4 +87,5 @@ LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue
 LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
+LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process

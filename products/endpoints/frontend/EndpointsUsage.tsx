@@ -22,6 +22,7 @@ export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
         errorRateTrendsQuery,
         endpointTableQuery,
         refreshKey,
+        activeEndpointNames,
     } = useValues(endpointsUsageLogic({ tabId }))
 
     const tableContext: QueryContext<DataTableNode> = useMemo(
@@ -33,7 +34,10 @@ export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
                         if (!value || typeof value !== 'string') {
                             return <>{value}</>
                         }
-                        return <Link to={urls.endpoint(value)}>{value}</Link>
+                        if (activeEndpointNames.has(value)) {
+                            return <Link to={urls.endpoint(value)}>{value}</Link>
+                        }
+                        return <span className="text-muted">{value} (deleted)</span>
                     },
                 },
                 requests: {
@@ -58,7 +62,7 @@ export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
                 },
             },
         }),
-        []
+        [activeEndpointNames]
     )
 
     return (

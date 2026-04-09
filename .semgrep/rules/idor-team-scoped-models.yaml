@@ -89,6 +89,7 @@ rules:
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryDraft
+                              |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
@@ -119,6 +120,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
@@ -143,6 +145,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |MCPAnalyticsSubmission
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -274,6 +277,7 @@ rules:
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
@@ -304,6 +308,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue

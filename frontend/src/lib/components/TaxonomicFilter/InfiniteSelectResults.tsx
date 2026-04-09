@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -16,14 +17,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
-// Number of taxonomic groups after which we switch to vertical layout by default
-const VERTICAL_LAYOUT_THRESHOLD = 4
-
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
-    useVerticalLayout?: boolean
     definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
@@ -124,11 +121,11 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
     popupAnchorElement,
-    useVerticalLayout: useVerticalLayoutProp,
     definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     const openTab = activeTab || taxonomicGroups[0].type
     const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
@@ -137,7 +134,7 @@ export function InfiniteSelectResults({
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { totalListCount } = useValues(logic)
+    const { totalListCount, isLocalDataLoading } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -158,35 +155,28 @@ export function InfiniteSelectResults({
                 </div>
             )}
             <InfiniteList
-                popupAnchorElement={popupAnchorElement}
+                popupAnchorElement={popupAnchorElement ?? wrapperRef.current}
                 definitionPopoverRenderer={definitionPopoverRenderer}
             />
         </>
     )
 
-    const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
-
-    const useVerticalLayout =
-        useVerticalLayoutProp !== undefined
-            ? useVerticalLayoutProp
-            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
+    const showDataWarehouseLoadingState =
+        (openTab === TaxonomicFilterGroupType.DataWarehouse ||
+            openTab === TaxonomicFilterGroupType.DataWarehouseProperties) &&
+        totalListCount === 0 &&
+        isLocalDataLoading
+    const showEmptyState =
+        !showDataWarehouseLoadingState &&
+        totalListCount === 0 &&
+        taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
+        <div ref={wrapperRef} className="flex flex-row h-full">
             {hasMultipleGroups && (
-                <div
-                    className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
-                        'border-primary'
-                    )}
-                >
+                <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
                     <div className="taxonomic-group-title">Categories</div>
-                    <div
-                        className={cn(
-                            'taxonomic-pills flex',
-                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
-                        )}
-                    >
+                    <div className="taxonomic-pills flex flex-col gap-1">
                         {taxonomicGroupTypes.map((groupType) => {
                             return (
                                 <CategoryPill
@@ -217,9 +207,15 @@ export function InfiniteSelectResults({
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                             >
-                                {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
-                                {!showEmptyState && listComponent}
-                                {!showEmptyState &&
+                                {(showDataWarehouseLoadingState || showEmptyState) && (
+                                    <TaxonomicFilterEmptyState
+                                        groupType={groupType}
+                                        isLoading={showDataWarehouseLoadingState}
+                                    />
+                                )}
+                                {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
+                                {!showDataWarehouseLoadingState &&
+                                    !showEmptyState &&
                                     (() => {
                                         const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
                                         return (

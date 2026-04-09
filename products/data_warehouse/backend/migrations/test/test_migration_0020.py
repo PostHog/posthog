@@ -106,10 +106,10 @@ class TestMigrateGithubJobInputs:
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "sk_test_123"},
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
         )
 
         migrate_github_job_inputs(apps, None)
 
         stripe_source.refresh_from_db()
-        assert stripe_source.job_inputs == {"stripe_secret_key": "sk_test_123"}
+        assert stripe_source.job_inputs == {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}

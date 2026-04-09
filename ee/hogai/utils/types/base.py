@@ -22,6 +22,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantMessage,
     AssistantRetentionQuery,
     AssistantToolCall,
@@ -93,7 +94,11 @@ AssistantOutput = (
 )
 
 AnyAssistantGeneratedQuery = (
-    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantLifecycleQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 

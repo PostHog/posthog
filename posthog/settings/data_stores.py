@@ -278,6 +278,9 @@ CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+CLICKHOUSE_SATELLITE_CLUSTERS: list[str] = [
+    s.strip() for s in os.getenv("CLICKHOUSE_SATELLITE_CLUSTERS", "ai_events,aux,ops,sessions").split(",") if s.strip()
+]
 CLICKHOUSE_CA: str | None = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE: bool = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
@@ -285,6 +288,7 @@ CLICKHOUSE_ENABLE_STORAGE_POLICY: bool = get_from_env("CLICKHOUSE_ENABLE_STORAGE
 CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTER", "posthog_single_shard")
 CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "posthog_writable")
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
+CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -322,8 +326,8 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
 )
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
-CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION: str = os.getenv(
-    "CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION", "warpstream_ingestion"
+CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
 )
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based

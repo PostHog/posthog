@@ -1,0 +1,45 @@
+name: Mirror Playwright container image to GHCR
+
+# When bumping the Playwright version, also update:
+#   - .github/workflows/ci-storybook.yml (container image, 2 occurrences)
+#   - Dockerfile.playwright (FROM line)
+on:
+    workflow_dispatch:
+        inputs:
+            playwright-version:
+                description: 'Playwright image tag to mirror (e.g. v1.45.0)'
+                required: true
+                default: 'v1.45.0'
+    schedule:
+        # Weekly check — keeps the mirror fresh if the tag is mutable
+        - cron: '0 6 * * 1'
+
+jobs:
+    mirror:
+        name: Mirror mcr.microsoft.com/playwright to GHCR
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            packages: write
+        steps:
+            - name: Login to ghcr.io
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Pull from MCR and push to GHCR
+              env:
+                  TAG: ${{ inputs.playwright-version || 'v1.45.0' }}
+              run: |
+                  SOURCE="mcr.microsoft.com/playwright:${TAG}"
+                  TARGET="ghcr.io/posthog/playwright:${TAG}"
+
+                  echo "Mirroring ${SOURCE} -> ${TARGET}"
+                  docker pull "${SOURCE}"
+                  docker tag "${SOURCE}" "${TARGET}"
+                  docker push "${TARGET}"
+                  echo "## Playwright image mirrored" >> $GITHUB_STEP_SUMMARY
+                  echo "**Source:** \`${SOURCE}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Target:** \`${TARGET}\`" >> $GITHUB_STEP_SUMMARY

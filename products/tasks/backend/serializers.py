@@ -10,6 +10,7 @@ from posthog.storage import object_storage
 
 from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
+from .temporal.process_task.utils import PrAuthorshipMode, RunSource
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
@@ -35,6 +36,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "signal_report",
             "json_schema",
             "internal",
             "latest_run",
@@ -75,6 +77,11 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
 
         return value.lower()
+
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
@@ -351,6 +358,9 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
 class TaskRunCreateRequestSerializer(serializers.Serializer):
     """Request body for creating a new task run"""
 
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
         required=False,
@@ -373,12 +383,37 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
-        help_text="Follow-up user message to include in the resumed run's prompt.",
+        help_text="Initial or follow-up user message to include in the run prompt.",
     )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
         help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
     )
 
 

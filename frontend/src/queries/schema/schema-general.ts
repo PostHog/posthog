@@ -137,6 +137,7 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
     WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
+    WebNotableChangesQuery = 'WebNotableChangesQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
@@ -155,6 +156,7 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
@@ -217,6 +219,7 @@ export type AnyDataNode =
     | WebPageURLSearchQuery
     | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -285,6 +288,7 @@ export type QuerySchema =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebNotableChangesQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrossRevenueQuery
@@ -844,6 +848,20 @@ export interface EventsQueryPersonColumn {
     distinct_id: string
 }
 
+/** An action step definition for matching events without a saved action */
+export interface EventsQueryActionStep {
+    event?: string | null
+    properties?: AnyPropertyFilter[]
+    selector?: string | null
+    tag_name?: string | null
+    text?: string | null
+    text_matching?: 'contains' | 'exact' | 'regex' | null
+    href?: string | null
+    href_matching?: 'contains' | 'exact' | 'regex' | null
+    url?: string | null
+    url_matching?: 'contains' | 'exact' | 'regex' | null
+}
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** source for querying events for insights */
@@ -874,6 +892,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
      * Show events matching a given action
      */
     actionId?: integer
+    /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
+    actionSteps?: EventsQueryActionStep[]
     /** Show events for a given person */
     personId?: string
     /** Only fetch events that happened before this timestamp */
@@ -1073,6 +1093,11 @@ export interface HeatmapGradientStop {
     color: string
 }
 
+export enum HeatmapSortOrder {
+    Asc = 'asc',
+    Desc = 'desc',
+}
+
 export interface HeatmapSettings {
     xAxisColumn?: string
     yAxisColumn?: string
@@ -1084,6 +1109,8 @@ export interface HeatmapSettings {
     gradient?: HeatmapGradientStop[]
     gradientPreset?: string
     gradientScaleMode?: 'absolute' | 'relative'
+    sortColumn?: string
+    sortOrder?: HeatmapSortOrder
 }
 
 export interface YAxisSettings {
@@ -1361,6 +1388,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default true */
+    excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
 }
@@ -1385,6 +1414,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'excludeBoxPlotOutliers',
     'hideWeekends',
 ])
 
@@ -1801,10 +1831,13 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+/** Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery. */
+export type EndpointQueryNode = TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery
+
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode
+    query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */
@@ -1816,6 +1849,8 @@ export interface EndpointRequest {
     version?: integer
     /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
     bucket_overrides?: Record<string, string>
+    /** Set to true to soft-delete this endpoint */
+    deleted?: boolean
 }
 
 /**
@@ -1851,15 +1886,6 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
-    /**
-     * @deprecated Use `variables` instead. Will be removed in a future release.
-     *
-     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
-     * Not allowed for HogQL endpoints.
-     *
-     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-     */
-    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -2079,7 +2105,13 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
+    source?:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | ExperimentActorsQuery
+        | StickinessActorsQuery
+        | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -2511,16 +2543,27 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /* Error Tracking */
+
+/** @title ErrorTrackingOrderBy */
+export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    /** Field to sort results by. */
+    orderBy: ErrorTrackingOrderBy
+    /** Sort direction. */
     orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
     dateRange: DateRange
+    /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
+    /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
     volumeResolution: integer
     withAggregations?: boolean
@@ -2533,6 +2576,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     groupTypeIndex?: integer
     /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean
+    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    useQueryV3?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2794,12 +2839,15 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** @title LogsOrderBy */
+export type LogsOrderBy = 'latest' | 'earliest'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
+    orderBy?: LogsOrderBy
     searchTerm?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
@@ -2908,14 +2956,16 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: 'latest' | 'earliest'
-    searchTerm?: string
+    orderBy?: LogsOrderBy
+    filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Prefetch up to this many spans per trace and include them in results */
+    prefetchSpans?: integer
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3315,6 +3365,15 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
+// Legacy experiment query type guards
+export const isExperimentTrendsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentTrendsQuery => query.kind === NodeKind.ExperimentTrendsQuery
+
+export const isExperimentFunnelsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentFunnelsQuery => query.kind === NodeKind.ExperimentFunnelsQuery
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
@@ -3391,6 +3450,16 @@ export interface LegacyExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface ExperimentActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.ExperimentActorsQuery
+    source: ExperimentQuery
+    /** Index of the step for which we want to get actors for, per experiment variant.
+     * Positive for converted persons, negative for dropped off persons. */
+    funnelStep?: integer
+    /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
+    funnelStepBreakdown?: BreakdownKeyType
 }
 
 export interface SessionData {
@@ -3680,7 +3749,12 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
+    source:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | StickinessActorsQuery
+        | ExperimentActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -3834,7 +3908,13 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z)
+     * or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
+     */
     date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
@@ -3956,6 +4036,17 @@ export interface TrendsAlertConfig {
     series_index: integer
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
+}
+
+/** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
+export interface AlertScheduleRestrictionWindow {
+    start: string
+    end: string
+}
+
+/** Quiet hours: local time windows when the alert must not run. At most five windows after API normalization. */
+export interface AlertScheduleRestriction {
+    blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
 // Detector types for anomaly detection alerts
@@ -4202,10 +4293,17 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: EventTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
@@ -4745,6 +4843,29 @@ export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
 
+export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
+    kind: NodeKind.WebNotableChangesQuery
+    limit?: integer
+}
+
+export interface WebNotableChangeItem {
+    dimension_type: string
+    dimension_value: string
+    metric: string
+    current_value: number
+    previous_value: number
+    percent_change: number
+    impact_score: number
+}
+
+export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebNotableChangeItem[]
+    samplingRate?: SamplingRate
+    usedPreAggregatedTables?: boolean
+}
+
+export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
+
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery extends Omit<
@@ -4984,6 +5105,9 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
 export enum AttributionMode {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
+    Linear = 'linear',
+    TimeDecay = 'time_decay',
+    PositionBased = 'position_based',
 }
 
 export enum MatchField {
@@ -5125,13 +5249,19 @@ export interface SourceFieldInputConfig {
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
+export interface SourceFieldSelectConfigOption {
+    label: string
+    value: string
+    fields?: SourceFieldConfig[]
+}
+
 export interface SourceFieldSelectConfig {
     type: 'select'
     name: string
     label: string
     required: boolean
     defaultValue: string
-    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
 }
 
@@ -5807,6 +5937,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
+    SUBSCRIPTIONS = 'subscriptions',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

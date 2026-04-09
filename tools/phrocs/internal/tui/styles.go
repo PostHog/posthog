@@ -20,15 +20,19 @@ const (
 )
 
 var (
-	colorYellow   = sharedpalette.ColorYellow
-	colorBlue     = sharedpalette.ColorBlue
-	colorGrey     = sharedpalette.ColorGrey
-	colorDarkGrey = sharedpalette.ColorDarkGrey
-	colorGreen    = sharedpalette.ColorGreen
-	colorRed      = sharedpalette.ColorRed
-	colorWhite    = sharedpalette.ColorWhite
-	colorBlack    = sharedpalette.ColorBlack
-	colorMidGrey  = sharedpalette.ColorMidGrey
+	colorYellow       = sharedpalette.ColorYellow
+	colorBlue         = sharedpalette.ColorBlue
+	colorGreen        = sharedpalette.ColorGreen
+	colorRed          = sharedpalette.ColorRed
+	colorBlack        = sharedpalette.ColorBlack
+	colorWhite        = sharedpalette.ColorWhite
+	colorBrightWhite  = sharedpalette.ColorBrightWhite
+	colorBrightBlack  = sharedpalette.ColorBrightBlack
+	colorBrightYellow = sharedpalette.ColorBrightYellow
+	brandYellow       = sharedpalette.BrandYellow
+	brandBlue         = sharedpalette.BrandBlue
+	brandRed          = sharedpalette.BrandRed
+	brandBlack        = sharedpalette.BrandBlack
 )
 
 // Outer width of the process list column (including border)
@@ -45,53 +49,44 @@ const horizontalBorderCount = 4
 var (
 	// Header
 	headerBrandStyle = lipgloss.NewStyle().
-				Foreground(colorWhite).
 				Bold(true).
 				Padding(0, 1)
 
 	headerMetaStyle = lipgloss.NewStyle().
-			Foreground(colorGrey).
+			Foreground(colorBrightBlack).
 			Padding(0, 1)
 
 	stripesStyle = lipgloss.NewStyle().
 			PaddingLeft(1).
 			Render(
-			lipgloss.NewStyle().Background(colorBlue).Render(" ") +
-				lipgloss.NewStyle().Background(colorYellow).Render(" ") +
-				lipgloss.NewStyle().Background(colorRed).Render(" ") +
-				lipgloss.NewStyle().Background(colorBlack).Render(" "),
+			lipgloss.NewStyle().Background(brandBlue).Render(" ") +
+				lipgloss.NewStyle().Background(brandRed).Render(" ") +
+				lipgloss.NewStyle().Background(brandYellow).Render(" ") +
+				lipgloss.NewStyle().Background(brandBlack).Render(" "),
 		)
 
 	labelStyle = lipgloss.NewStyle().
-			Foreground(colorWhite).
 			Bold(true)
 
-	// Borders
-	borderStyle = lipgloss.NewStyle().
+	// Borders — foreground is set dynamically via borderFor()
+	baseBorderStyle = lipgloss.NewStyle().
 			BorderRight(true).
 			BorderTop(true).
 			BorderBottom(true).
 			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(colorDarkGrey)
-
-	borderFocusedStyle = borderStyle.
-				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(colorMidGrey)
+			BorderStyle(lipgloss.NormalBorder())
 
 	// Sidebar
 	procInactiveStyle = lipgloss.NewStyle().
-				PaddingLeft(1).
-				Foreground(colorGrey)
+				PaddingLeft(1)
 
 	scrollArrowStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
-				Foreground(colorGrey).
+				Foreground(colorBrightBlack).
 				Align(lipgloss.Center)
 
 	// Footer
 	footerStyle = lipgloss.NewStyle().
-			Foreground(colorGrey).
 			PaddingLeft(1)
 
 	// Scroll position indicator (floating top-right of output pane)
@@ -103,11 +98,11 @@ var (
 	// Copy mode
 	copyModeStyle = lipgloss.NewStyle().
 			Background(colorBlue).
-			Foreground(colorWhite)
+			Foreground(colorBlack)
 
 	// Search mode
 	searchMatchStyle = lipgloss.NewStyle().
-				Background(colorDarkGrey)
+				Background(colorBrightBlack)
 
 	searchCurrentMatchStyle = lipgloss.NewStyle().
 				Background(colorYellow).
@@ -117,7 +112,10 @@ var (
 	warnStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorYellow).
-			Background(sharedpalette.ColorBarMid)
+			Background(colorBrightBlack)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(colorBrightYellow)
 )
 
 func statusIconChar(s process.Status) string {
@@ -144,7 +142,7 @@ func statusIconColor(s process.Status) color.Color {
 	case process.StatusPending:
 		return colorYellow
 	case process.StatusStopped, process.StatusDone:
-		return colorGrey
+		return nil
 	case process.StatusCrashed:
 		return colorRed
 	default:
@@ -152,114 +150,57 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
-// cpuBarColor returns a background tint based on CPU usage percentage.
-func cpuBarColor(cpuPct float64, isDark bool) color.Color {
+// Renders a single sidebar row with icon and name
+func subtleBg(isDark bool) color.Color {
 	if isDark {
-		switch {
-		case cpuPct >= 150:
-			return sharedpalette.ColorBarHigh
-		case cpuPct >= 50:
-			return sharedpalette.ColorBarMid
-		default:
-			return sharedpalette.ColorBarLow
-		}
+		return colorBrightBlack
 	}
-	switch {
-	case cpuPct >= 150:
-		return sharedpalette.ColorBarHighLight
-	case cpuPct >= 50:
-		return sharedpalette.ColorBarMidLight
-	default:
-		return sharedpalette.ColorBarLowLight
-	}
+	return colorBrightWhite
 }
 
-// Renders a single sidebar row with icon, name, and an htop-style CPU usage
-// bar as a background fill. cpuPct is the total CPU% for the process tree;
-// the filled portion scales to innerW (100% = full width).
-// Used by both the process sidebar and the container sidebar.
-func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, cpuPct float64, innerW int, isDark bool) string {
-	// How many columns the bar fills (cap at innerW)
-	barW := 0
-	if cpuPct > 0 {
-		barW = int(cpuPct / 100.0 * float64(innerW))
-		barW = max(min(barW, innerW), 1)
+// borderFor returns the border style with a foreground appropriate for the
+// current terminal background.
+func borderFor(isDark, focused bool) lipgloss.Style {
+	s := baseBorderStyle.BorderForeground(subtleBg(isDark))
+	if focused {
+		s = s.BorderStyle(lipgloss.ThickBorder())
 	}
-
-	barBg := cpuBarColor(cpuPct, isDark)
-	nameW := max(innerW-2, 0) // 1 padding + 1 icon
-
-	// Pick background for each segment based on whether it falls within the bar
-	bgFor := func(col int) color.Color {
-		if selected {
-			if barW > 0 && col < barW {
-				return barBg
-			}
-			return colorDarkGrey
-		}
-		if barW > 0 && col < barW {
-			return barBg
-		}
-		return nil
-	}
-
-	textColor := colorGrey
-	if selected {
-		textColor = colorWhite
-	}
-
-	// Icon occupies columns 0 (padding) and 1 (icon char)
-	iconBg := bgFor(0)
-	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor)
-	if selected {
-		iconStyle = iconStyle.Bold(true)
-	}
-	if iconBg != nil {
-		iconStyle = iconStyle.Background(iconBg)
-	}
-	iconSeg := iconStyle.Render(icon)
-
-	// Name starts at column 2 and spans nameW columns
-	// Split into filled and unfilled portions based on barW
-	nameContent := " " + name
-	nameRunes := []rune(nameContent)
-	for len(nameRunes) < nameW {
-		nameRunes = append(nameRunes, ' ')
-	}
-	if len(nameRunes) > nameW {
-		nameRunes = nameRunes[:nameW]
-	}
-
-	// The name starts at column 2, so the bar covers columns 2..barW-1
-	nameFillW := max(min(barW-2, nameW), 0)
-
-	filledPart := ""
-	if nameFillW > 0 {
-		s := lipgloss.NewStyle().Foreground(textColor).Background(barBg)
-		if selected {
-			s = s.Bold(true)
-		}
-		filledPart = s.Render(string(nameRunes[:nameFillW]))
-	}
-
-	unfilledRunes := nameRunes[nameFillW:]
-	unfilledStyle := lipgloss.NewStyle().Foreground(textColor)
-	if selected {
-		unfilledStyle = unfilledStyle.Bold(true).Background(colorDarkGrey)
-	}
-	// Pad remaining width so the background extends to the edge
-	unfilledStyle = unfilledStyle.Width(nameW - nameFillW)
-	unfilledPart := unfilledStyle.Render(string(unfilledRunes))
-
-	return iconSeg + filledPart + unfilledPart
+	return s
 }
 
-func helpStyles(isDark bool) help.Styles {
-	lightDark := lipgloss.LightDark(isDark)
+type sidebarRow struct {
+	icon      string
+	name      string
+	iconColor color.Color
+	selected  bool
+	unread    bool
+	innerW    int
+	isDark    bool
+}
 
-	keyStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#555555"), colorGrey))
-	descStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#777777"), colorMidGrey))
-	sepStyle := lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#AAAAAA"), colorDarkGrey))
+func renderSidebarRow(r sidebarRow) string {
+	nameW := max(r.innerW-2, 0) // 1 padding + 1 icon
+	selBg := subtleBg(r.isDark)
+
+	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(r.iconColor)
+	if r.selected {
+		iconStyle = iconStyle.Background(selBg)
+	}
+
+	nameStyle := lipgloss.NewStyle().Width(nameW)
+	if r.selected {
+		nameStyle = nameStyle.Background(selBg)
+	} else if r.unread {
+		nameStyle = nameStyle.Bold(true)
+	}
+
+	return iconStyle.Render(r.icon) + nameStyle.Render(" "+r.name)
+}
+
+func helpStyles() help.Styles {
+	keyStyle := lipgloss.NewStyle()
+	descStyle := lipgloss.NewStyle().Foreground(colorBrightBlack)
+	sepStyle := lipgloss.NewStyle().Foreground(colorBrightBlack)
 
 	return help.Styles{
 		ShortKey:       keyStyle,

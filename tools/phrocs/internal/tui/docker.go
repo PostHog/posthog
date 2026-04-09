@@ -92,16 +92,19 @@ func (m Model) renderContainerSidebar() string {
 			name = truncate(c.Service, innerW-3)
 			iconColor = docker.ContainerStateColor(c.State)
 		}
-		rows = append(rows, renderSidebarRow(icon, name, iconColor, i == m.containerCursor, 0, innerW, m.isDark))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      icon,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.containerCursor,
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	for i := end - start; i < h; i++ {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	style := borderStyle
-	if m.focusedPane == focusContainers {
-		style = borderFocusedStyle
-	}
-	return style.Height(h).Render(strings.Join(rows, "\n"))
+	return borderFor(m.isDark, m.focusedPane == focusContainers).Height(h).Render(strings.Join(rows, "\n"))
 }

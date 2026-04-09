@@ -49,7 +49,7 @@ class TestBuildRasterizationInput:
                 "end_timestamp": 2000,
                 "skip_inactivity": False,
                 "mouse_tail": False,
-                "capture_timeout": 300.0,
+                "max_virtual_time": 300.0,
             },
         )
 
@@ -77,7 +77,7 @@ class TestBuildRasterizationInput:
         assert result.end_timestamp == 2000
         assert result.skip_inactivity is False
         assert result.mouse_tail is False
-        assert result.capture_timeout == 300.0
+        assert result.max_virtual_time == 300.0
 
     def test_defaults(self):
         asset = _make_asset(
@@ -100,7 +100,7 @@ class TestBuildRasterizationInput:
         assert result.playback_speed == 4
         assert result.recording_fps == 24
         assert result.trim is None
-        assert result.capture_timeout is None
+        assert result.max_virtual_time is None
         assert result.show_metadata_footer is False
         assert result.viewport_width is None
         assert result.viewport_height is None

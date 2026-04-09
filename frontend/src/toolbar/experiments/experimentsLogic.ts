@@ -1,7 +1,7 @@
-import Fuse from 'fuse.js'
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -58,8 +58,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (s) => [s.allExperiments, s.searchTerm],
             (allExperiments, searchTerm) => {
                 const filteredExperiments = searchTerm
-                    ? new Fuse(allExperiments, {
-                          threshold: 0.3,
+                    ? createFuse(allExperiments, {
                           keys: ['name'],
                       })
                           .search(searchTerm)
