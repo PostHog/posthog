@@ -39,8 +39,8 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -214,7 +214,8 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
-    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
@@ -320,7 +321,7 @@ export function PageHeaderCustom(): JSX.Element {
                             Duplicate
                         </ButtonPrimitive>
 
-                        {canCopyToProject && (
+                        {hasMultipleProjects && (
                             <ButtonPrimitive menuItem onClick={() => setCopyToProjectModalOpen(true)}>
                                 <IconCopy />
                                 Copy to project
