@@ -599,6 +599,6 @@ def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
     click.echo()
     click.echo("Tips for more space:")
     if not prune_cargo:
-        click.echo("  hogli devbox:cleanup:disk --cargo  remove Cargo artifacts (~/.cargo/target, forces recompile)")
+        click.echo("  hogli devbox:cleanup:disk --cargo  (rm ~/.cargo/target, forces recompile)")
     if not prune_docker:
-        click.echo("  hogli devbox:cleanup:disk --docker           prune stopped containers")
+        click.echo("  hogli devbox:cleanup:disk --docker  (prune stopped containers)")
