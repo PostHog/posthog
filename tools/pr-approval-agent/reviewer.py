@@ -12,17 +12,25 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
 try:
-    from posthoganalytics.ai.claude_agent_sdk import query
+    import os
 
-    _POSTHOG_AI_AVAILABLE = True
+    import posthoganalytics
+
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+
+    if posthoganalytics.api_key:
+        from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
+
+        _POSTHOG_AI_AVAILABLE = True
+    else:
+        _POSTHOG_AI_AVAILABLE = False
 except ImportError:
-    from claude_agent_sdk import query  # type: ignore[no-redef]
-
     _POSTHOG_AI_AVAILABLE = False
 
 MODEL = "claude-sonnet-4-6"

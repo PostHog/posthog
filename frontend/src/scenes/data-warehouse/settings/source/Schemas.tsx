@@ -308,6 +308,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                 { value: '5min', label: '5 mins' },
                             ]
                             const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [
+                                { value: '5min', label: '5 mins' },
                                 { value: '15min', label: '15 mins' },
                                 { value: '30min', label: '30 mins' },
                                 { value: '1hour', label: '1 hour' },

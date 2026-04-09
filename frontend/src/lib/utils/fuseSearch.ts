@@ -6,6 +6,7 @@ export type { IFuseOptions }
 const FUSE_DEFAULTS = {
     threshold: 0.3,
     useTokenSearch: true,
+    ignoreDiacritics: true,
 }
 
 export function createFuse<T>(items: T[], options: IFuseOptions<T>): FuseClass<T> {

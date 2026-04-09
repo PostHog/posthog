@@ -796,12 +796,7 @@ class ClickHousePrinter(HogQLPrinter):
         if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
             not_nullable = True
 
-        # :HACK: Prevent ifNull() wrapping for session timestamp expressions to preserve index usage.
-        # These strings must match the printed SQL produced by SessionMinTimestampWhereClauseExtractorV2/V3.
-        # If the extractor's timestamp_field changes, update these strings accordingly.
-        # See #30370 for original context.
         hack_sessions_timestamp = (
-            "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)))",
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",
         )

@@ -1193,6 +1193,7 @@ impl FeatureFlagMatcher {
         // NoConditionMatch or OutOfRolloutBound takes precedence in mixed-targeting flags.
         let mut highest_match = FeatureFlagMatchReason::NoGroupType;
         let mut highest_index = None;
+        let mut had_skipped_group_conditions = false;
 
         // Lazily compute properties per aggregation type. Person and group properties are
         // cached separately so conditions with different aggregation modes can share them.
@@ -1350,7 +1351,10 @@ impl FeatureFlagMatcher {
                         condition_index = %index,
                         "Condition uses group aggregation but group type not provided in evaluation context, skipping"
                     );
-                    // Record this as a NoGroupType reason but continue to next condition
+                    // Record this as a NoGroupType reason but continue to next condition.
+                    // Track that we skipped a group condition so the final result can
+                    // surface a richer description when person conditions also didn't match.
+                    had_skipped_group_conditions = true;
                     let (new_highest_match, new_highest_index) = self
                         .get_highest_priority_match_evaluation(
                             highest_match.clone(),
@@ -1458,6 +1462,17 @@ impl FeatureFlagMatcher {
         }
 
         condition_timer.label("outcome", "success").fin();
+
+        // When person conditions were evaluated (and didn't match) but group conditions
+        // were skipped because the caller didn't provide the required group type, upgrade
+        // the reason to carry a richer description. The API code still serializes as
+        // "no_condition_match" for backward compatibility, but the description tells the
+        // caller about the skipped group conditions.
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
+        {
+            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        }
+
         // Return with the highest_match reason and index even if no conditions matched
         Ok(FeatureFlagMatch {
             matches: false,
