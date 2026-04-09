@@ -110,6 +110,18 @@ export type SurveyBaseStatTuple = [string, number, number, string | null, string
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 
+const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
+
+const SURVEY_QUERY_TAGS = {
+    baseStats: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_base_stats' as const },
+    dismissedAndSent: {
+        ...SURVEY_QUERY_TAG_BASE,
+        name: 'survey_dismissed_sent_overlap' as const,
+    },
+    aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
+    openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
+}
+
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
         label: allOperatorsMapping[PropertyOperator.IContains],
@@ -750,17 +762,13 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters,
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
                         },
-                    }
-                )
+                    },
+                })
                 const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
                 actions.setBaseStatsResults(results)
                 actions.loadConsolidatedSurveyResults()
@@ -800,17 +808,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters, // Property filters applied in WHERE
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.dismissedAndSent, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters, // Property filters applied in WHERE
                         },
-                    }
-                )
+                    },
+                })
                 const count = response.results?.[0]?.[0] ?? 0
                 actions.setDismissedAndSentCount(count)
                 return count as DismissedAndSentCountResult
@@ -831,8 +835,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
-                const queryOpts = { scene: 'Survey' as const, productKey: 'surveys' as const }
-
                 const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
                 const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
 
@@ -842,14 +844,24 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const [aggregateResponse, openEndedResponse] = await Promise.all([
                     aggregateQuery
-                        ? api.queryHogQL(aggregateQuery as HogQLQueryString, queryOpts, queryParams).then((r) => {
-                              aggregateDuration = performance.now() - startMs
-                              return r
-                          })
+                        ? api
+                              .queryHogQL(
+                                  aggregateQuery as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.aggregateResults,
+                                  queryParams
+                              )
+                              .then((r) => {
+                                  aggregateDuration = performance.now() - startMs
+                                  return r
+                              })
                         : Promise.resolve({ results: null }),
                     openEndedResult
                         ? api
-                              .queryHogQL(openEndedResult.query as HogQLQueryString, queryOpts, queryParams)
+                              .queryHogQL(
+                                  openEndedResult.query as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.openEndedResults,
+                                  queryParams
+                              )
                               .then((r) => {
                                   openEndedDuration = performance.now() - startMs
                                   return r

@@ -1722,7 +1722,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // findSegmentForTimestamp can safely return a real segment for
             // past-end timestamps (needed for the image exporter to boot the
             // rrweb replayer). See #49364 and #53550.
-            const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+            //
+            // Strictly > (not >=): landing exactly on `end` is a valid
+            // "show the last frame" seek (e.g. from a stale ?t= URL that
+            // got clamped by seekToTime). Firing endReached here would
+            // pause the player before tryInitReplayer has created the
+            // rrweb wrapper. Natural playback progression still triggers
+            // endReached via updateAnimation.
+            const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
             if (isPastEnd) {
                 actions.setEndReached(true)
             } else if (segment && !objectsEqual(segment, values.currentSegment)) {

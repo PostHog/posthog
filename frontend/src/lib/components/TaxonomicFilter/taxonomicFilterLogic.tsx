@@ -411,6 +411,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.schemaColumns,
+                (_, props) => props.schemaColumnsLoading,
                 s.metadataSource,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
@@ -428,6 +429,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
                 eventNames: string[],
                 schemaColumns: DatabaseSchemaField[],
+                schemaColumnsLoading: boolean | undefined,
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
@@ -518,7 +520,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
-                    ...(schemaColumns.length > 0
+                    ...(schemaColumns.length > 0 || schemaColumnsLoading
                         ? [
                               {
                                   name: 'Data warehouse properties',
