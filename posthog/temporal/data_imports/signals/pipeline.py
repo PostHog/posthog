@@ -99,8 +99,8 @@ async def _summarize_description(
             summary = (response.text or "").strip()
             if not summary:
                 raise ValueError("Empty response from LLM when summarizing description")
-            if len(summary) >= threshold:
-                raise ValueError(f"Summary is {len(summary)} characters, must be under {threshold}")
+            if len(summary) > threshold:
+                raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -129,7 +129,7 @@ async def summarize_long_descriptions(
     threshold: int,
     extra: dict[str, Any],
 ) -> list[SignalEmitterOutput]:
-    needs_summary = [i for i, output in enumerate(outputs) if len(output.description) >= threshold]
+    needs_summary = [i for i, output in enumerate(outputs) if len(output.description) > threshold]
     if not needs_summary:
         return outputs
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
