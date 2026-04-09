@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-07 20:09:32 UTC
+// Generated at: 2026-04-09 20:13:58 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -62,6 +62,7 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'io-net-int4'
+    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
@@ -81,7 +82,6 @@ export type CanonicalProvider =
     | 'nebius-fp8'
     | 'nebius-int4'
     | 'nextbit-bf16'
-    | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
     | 'novita'
