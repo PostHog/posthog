@@ -18,9 +18,15 @@ class NodeType(models.TextChoices):
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team_id: int
+
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
+    saved_query_id: int | None
+
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, db_column="dag_fk_id")
+    dag_id: int
+
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)

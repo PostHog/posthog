@@ -15,6 +15,8 @@ DEFAULT_DAG_NAME = "Default"
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team_id: int
+
     name = models.TextField(max_length=2048, db_index=True)
     description = models.TextField(blank=True, default="")
     source_control_path = models.TextField(

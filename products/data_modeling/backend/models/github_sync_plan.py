@@ -14,7 +14,10 @@ class GitHubSyncPlanStatus(models.TextChoices):
 
 class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team_id: int
+
     config = models.ForeignKey(GitHubSyncConfig, on_delete=models.CASCADE, related_name="sync_plans")
+    config_id: int
 
     pr_number = models.IntegerField(help_text="GitHub PR number")
     pr_url = models.URLField(max_length=1024, help_text="Full URL to the GitHub PR")
@@ -38,6 +41,21 @@ class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         max_length=64, blank=True, default="", help_text="Merge commit SHA that applied this plan"
     )
 
+    def __str__(self) -> str:
+        return f"GitHubSyncPlan PR#{self.pr_number} ({self.status})"
+
+    def clean(self) -> None:
+        super().clean()
+        if not isinstance(self.plan, dict):
+            raise ValueError("plan must be a dict")
+        for key in ("models", "dags"):
+            if key not in self.plan:
+                raise ValueError(f"plan must contain '{key}' key")
+
     class Meta:
         app_label = "data_modeling"
         db_table = "posthog_datamodelinggithubsyncplan"
+        indexes = [
+            models.Index(fields=["config", "pr_number"], name="idx_syncplan_config_pr"),
+            models.Index(fields=["status"], name="idx_syncplan_status"),
+        ]

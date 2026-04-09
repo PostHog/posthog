@@ -17,8 +17,11 @@ class GitHubSyncStatus(models.TextChoices):
 
 class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team_id: int
 
     integration = models.ForeignKey("posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True)
+    integration_id: int | None
+
     repository = models.CharField(
         max_length=1024, blank=True, default="", help_text="GitHub repo in 'owner/repo' format"
     )
@@ -39,6 +42,9 @@ class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     last_sync_error = models.TextField(blank=True, default="", help_text="Error message from the last failed sync")
 
     auto_merge_prs = models.BooleanField(default=False, help_text="Auto-merge PRs created by PostHog for this env")
+
+    def __str__(self) -> str:
+        return f"GitHubSyncConfig {self.repository or '(unconfigured)'}"
 
     class Meta:
         app_label = "data_modeling"
