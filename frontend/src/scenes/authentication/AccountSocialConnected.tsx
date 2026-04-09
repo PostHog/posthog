@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -39,16 +38,15 @@ export function AccountSocialConnected(): JSX.Element {
 
     return (
         <BridgePage view="account-social-connected">
-            <div className="flex flex-col items-center gap-4 text-center max-w-md mx-auto">
+            <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
                 <IconCheckCircle className="text-success text-5xl shrink-0" />
-                <h2 className="text-xl font-semibold m-0">{label} connected</h2>
+                <h2 className="text-xl font-semibold m-0">{label} linked to account</h2>
+                <p className="text-muted mb-0">You can now log into PostHog using {label}.</p>
                 <p className="text-muted mb-0">
-                    Opening <strong>PostHog Code</strong>… If nothing happens, use the link below. You can also close
-                    this tab.
+                    <strong>Returning to PostHog Code…</strong>
+                    <br />
+                    <em>If this hasn't happened automatically, get back to the PostHog Code app manually.</em>
                 </p>
-                <Link to={POSTHOG_CODE_CALLBACK_URL} className="font-medium text-primary underline">
-                    Continue in PostHog Code
-                </Link>
             </div>
         </BridgePage>
     )
