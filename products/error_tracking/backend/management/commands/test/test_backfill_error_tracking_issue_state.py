@@ -112,9 +112,9 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
 
         first_seen = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="SeenError", status="active")
-        ErrorTrackingIssueFingerprintV2.objects.create(
-            team=self.team, issue=issue, fingerprint="fp_seen", first_seen=first_seen
-        )
+        fp = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_seen")
+        # auto_now_add ignores passed values, so update after creation
+        ErrorTrackingIssueFingerprintV2.objects.filter(pk=fp.pk).update(first_seen=first_seen)
 
         self._run_backfill(team_id=self.team.pk)
 
@@ -124,15 +124,16 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
 
     def test_backfill_falls_back_to_issue_created_at_when_first_seen_is_null(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="NullSeenError", status="active")
-        ErrorTrackingIssueFingerprintV2.objects.create(
-            team=self.team, issue=issue, fingerprint="fp_null_seen", first_seen=None
-        )
+        fp = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_null_seen")
+        ErrorTrackingIssueFingerprintV2.objects.filter(pk=fp.pk).update(first_seen=None)
 
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["first_seen"], issue.created_at)
+        # CH DateTime64(3) has millisecond precision, so truncate microseconds for comparison
+        expected = issue.created_at.replace(microsecond=issue.created_at.microsecond // 1000 * 1000)
+        self.assertEqual(rows[0]["first_seen"], expected)
 
     def test_backfill_multiple_issues(self):
         issue_a = ErrorTrackingIssue.objects.create(team=self.team, name="ErrorA", status="active")
