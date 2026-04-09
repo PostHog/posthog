@@ -240,12 +240,14 @@ func (p *Process) Lines() []string {
 	return result
 }
 
-// ClearLines empties the scrollback buffer.
+// ClearLines empties the scrollback buffer and active screen.
 func (p *Process) ClearLines() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.emulator != nil {
-		p.emulator.ClearScrollback()
+		w, h := p.emulator.Width(), p.emulator.Height()
+		p.emulator = vt.NewSafeEmulator(w, h)
+		p.emulator.SetScrollbackSize(p.maxLines)
 	}
 }
 
