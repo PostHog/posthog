@@ -39,6 +39,14 @@ LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
 
 
+def _safe_heartbeat() -> None:
+    # Pipeline runs both inside Temporal activities (production) and standalone via the
+    # emit_signals_from_fixture management command. Outside an activity context, heartbeat()
+    # raises RuntimeError, so we no-op when there's nothing to report to.
+    if activity.in_activity():
+        activity.heartbeat()
+
+
 def build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
@@ -134,7 +142,7 @@ async def summarize_long_descriptions(
         return outputs
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
-    activity.heartbeat()
+    _safe_heartbeat()
     completed_count = 0
 
     async def _bounded_summarize(output: SignalEmitterOutput) -> SignalEmitterOutput | None:
@@ -152,7 +160,7 @@ async def summarize_long_descriptions(
             finally:
                 completed_count += 1
                 if completed_count % LLM_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat()
+                    _safe_heartbeat()
             return result
 
     tasks: dict[int, asyncio.Task[SignalEmitterOutput | None]] = {}
@@ -239,7 +247,7 @@ async def filter_actionable(
 ) -> list[SignalEmitterOutput]:
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
-    activity.heartbeat()
+    _safe_heartbeat()
     checked_count = 0
 
     async def _bounded_check(output: SignalEmitterOutput) -> tuple[bool, str | None]:
@@ -257,7 +265,7 @@ async def filter_actionable(
             finally:
                 checked_count += 1
                 if checked_count % LLM_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat()
+                    _safe_heartbeat()
             return result
 
     tasks: dict[int, asyncio.Task[tuple[bool, str | None]]] = {}
@@ -308,7 +316,7 @@ async def _emit_signals(
     extra: dict[str, Any],
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
-    activity.heartbeat()
+    _safe_heartbeat()
     completed_count = 0
 
     async def _bounded_emit(output: SignalEmitterOutput) -> bool:
@@ -350,7 +358,7 @@ async def _emit_signals(
             finally:
                 completed_count += 1
                 if completed_count % EMIT_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat()
+                    _safe_heartbeat()
 
     results: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:
