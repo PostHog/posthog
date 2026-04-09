@@ -106,12 +106,12 @@ describe('ci-alerts-devex', () => {
         const { outputs } = await run(github)
 
         expect(outputs.action).toBe('none')
-        expect(outputs.save_cache).toBe('false')
+        expect(outputs.save_cache).toBe('true')
     })
 
-    it('records failure but does not alert under threshold', async () => {
+    it.each(['failure', 'timed_out'])('records %s but does not alert under threshold', async (conclusion) => {
         const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'failure' },
+            'ci-backend.yml': { name: 'Backend CI', conclusion },
             'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
         })
 
@@ -179,7 +179,7 @@ describe('ci-alerts-devex', () => {
         const { outputs } = await run(github, { state: failingState(0), now: minutes(10) })
 
         expect(outputs.action).toBe('none')
-        expect(outputs.save_cache).toBe('false')
+        expect(outputs.save_cache).toBe('true')
     })
 
     it('resets the clock when a workflow recovers then fails again', async () => {

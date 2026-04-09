@@ -82,7 +82,7 @@ function determineAction(state, failing, thresholdMs, now) {
     const wasAlerted = state?.alerted === true
 
     if (!hasFailures && !wasAlerted) {
-        return { action: 'none', failingList, save: false }
+        return { action: 'none', failingList, save: true }
     }
 
     if (!hasFailures && wasAlerted) {
