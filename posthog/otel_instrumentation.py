@@ -106,7 +106,7 @@ def initialize_otel():
         )
 
 
-def instrument_django(provider: TracerProvider):
+def instrument_django(provider: trace.TracerProvider):
     try:
         DjangoInstrumentor().instrument(
             tracer_provider=provider,
@@ -118,7 +118,7 @@ def instrument_django(provider: TracerProvider):
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
 
 
-def instrument_redis(provider: TracerProvider):
+def instrument_redis(provider: trace.TracerProvider):
     try:
         RedisInstrumentor().instrument(tracer_provider=provider)
         logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
@@ -126,7 +126,7 @@ def instrument_redis(provider: TracerProvider):
         logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)
 
 
-def instrument_psycopg(provider: TracerProvider):
+def instrument_psycopg(provider: trace.TracerProvider):
     try:
         PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
         logger.info(
@@ -139,7 +139,7 @@ def instrument_psycopg(provider: TracerProvider):
         logger.exception("otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e)
 
 
-def instrument_kafka(provider: TracerProvider):
+def instrument_kafka(provider: trace.TracerProvider):
     try:
         KafkaInstrumentor().instrument(tracer_provider=provider)
         logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
@@ -147,7 +147,7 @@ def instrument_kafka(provider: TracerProvider):
         logger.exception("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e)
 
 
-def instrument_aiokafka(provider: TracerProvider):
+def instrument_aiokafka(provider: trace.TracerProvider):
     try:
         AIOKafkaInstrumentor().instrument(tracer_provider=provider)
         logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
@@ -157,7 +157,7 @@ def instrument_aiokafka(provider: TracerProvider):
         )
 
 
-def instrument_aiohttp_client(provider: TracerProvider):
+def instrument_aiohttp_client(provider: trace.TracerProvider):
     try:
         AioHttpClientInstrumentor().instrument(tracer_provider=provider)
         logger.info("otel_instrumentation_attempt", instrumentor="AioHttpClientInstrumentor", status="success")
@@ -167,7 +167,7 @@ def instrument_aiohttp_client(provider: TracerProvider):
         )
 
 
-INSTRUMENTORS: dict[str, typing.Callable[[TracerProvider], None]] = {
+INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
     "django": instrument_django,
     "psycopg": instrument_psycopg,
     "redis": instrument_redis,
