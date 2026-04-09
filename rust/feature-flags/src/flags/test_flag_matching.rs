@@ -8950,7 +8950,7 @@ mod tests {
     #[rstest::rstest]
     #[case::person_property_mismatch_outranks_skipped_group(
         PersonConditionVariant::FailsProperties,
-        FeatureFlagMatchReason::NoConditionMatch,
+        FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
         Some(0)
     )]
     #[case::person_out_of_rollout_outranks_skipped_group(

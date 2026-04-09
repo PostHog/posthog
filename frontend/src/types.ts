@@ -1572,7 +1572,7 @@ export interface CohortCriteriaType {
     seq_time_value?: number | string | null
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
-    value_property?: string | null // Transformed into 'value' for api calls
+    value_property?: PropertyFilterValue // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
     sort_key?: string // Client-side only stable id for sorting.
 }
