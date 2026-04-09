@@ -71,10 +71,12 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "has subscribed you" in mocked_email_messages[0].html_body
         assert "Someone subscribed you to a PostHog Insight" == mocked_email_messages[0].subject
         self.subscription.refresh_from_db()
+        next_delivery_date = self.subscription.next_delivery_date
+        assert next_delivery_date is not None
         expected_schedule_summary = (
             f"This subscription is {self.subscription.summary}. "
             f"The next subscription will be sent on "
-            f"{self.subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+            f"{next_delivery_date.strftime('%A %B %d, %Y')}"
         )
         assert expected_schedule_summary in mocked_email_messages[0].html_body
         assert "My invite message" in mocked_email_messages[0].html_body
