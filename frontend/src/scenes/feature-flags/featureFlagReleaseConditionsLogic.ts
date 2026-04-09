@@ -183,7 +183,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return {
                         ...state,
                         aggregation_group_type_index: value,
-                        groups: state.groups.map((group) => {
+                        groups: state.groups.map((group): FeatureFlagGroupTypeWithSortKey => {
                             const previousEffective =
                                 group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
                             // Use == to treat null and undefined equivalently
@@ -209,7 +209,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             rollout_percentage: originalRolloutPercentage,
                             variant: null,
                             sort_key: uuidv4(),
-                        },
+                        } as FeatureFlagGroupTypeWithSortKey,
                     ],
                 }
             },
@@ -266,10 +266,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     aggregation_group_type_index: null,
                     // Each condition inherits the global aggregation type as its
                     // per-condition value, so properties remain valid
-                    groups: state.groups.map((group) => ({
-                        ...group,
-                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
-                    })),
+                    groups: state.groups.map(
+                        (group): FeatureFlagGroupTypeWithSortKey => ({
+                            ...group,
+                            aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
+                        })
+                    ),
                 }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
