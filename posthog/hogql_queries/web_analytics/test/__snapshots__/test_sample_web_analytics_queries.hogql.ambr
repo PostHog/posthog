@@ -94,10 +94,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -119,10 +120,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(tupleElement(breakdown_value, 2), NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -144,10 +146,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -169,10 +172,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -194,10 +198,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -219,10 +224,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -246,11 +252,11 @@
             session.session_id AS session_id,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), in(events.event, tuple('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), in(events.event, tuple('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING or(greater(`context.columns.rage_clicks`, tuple(0, 0)), greater(`context.columns.dead_clicks`, tuple(0, 0)), greater(`context.columns.errors`, tuple(0, 0)))
+  HAVING and(or(greater(`context.columns.rage_clicks`, tuple(0, 0)), greater(`context.columns.dead_clicks`, tuple(0, 0)), greater(`context.columns.errors`, tuple(0, 0))), notEquals(`context.columns.breakdown_value`, NULL))
   ORDER BY `context.columns.errors` DESC,
            `context.columns.rage_clicks` DESC,
            `context.columns.dead_clicks` DESC
@@ -272,10 +278,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, and(notEquals(breakdown_value, NULL), notEquals(breakdown_value, '')))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING and(notEquals(`context.columns.breakdown_value`, NULL), notEquals(`context.columns.breakdown_value`, ''))
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -297,10 +304,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -322,10 +330,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -347,7 +356,7 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -372,7 +381,7 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -397,7 +406,7 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -422,7 +431,7 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -447,10 +456,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -472,7 +482,7 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -498,10 +508,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -523,10 +534,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -548,10 +560,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -573,10 +586,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -598,10 +612,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(tupleElement(breakdown_value, 2), NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -623,10 +638,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -648,10 +664,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -673,10 +690,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, and(notEquals(tupleElement(breakdown_value, 1), NULL), notEquals(tupleElement(breakdown_value, 2), NULL), notEquals(tupleElement(breakdown_value, 1), 0), notEquals(tupleElement(breakdown_value, 2), 0)))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING and(notEquals(tupleElement(`context.columns.breakdown_value`, 1), NULL), notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL), notEquals(tupleElement(`context.columns.breakdown_value`, 1), 0), notEquals(tupleElement(`context.columns.breakdown_value`, 2), 0))
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -799,7 +817,7 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1, notEquals(breakdown_value, NULL))
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -813,10 +831,11 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), notEquals(breakdown_value, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
+  WHERE notEquals(counts.breakdown_value, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -838,10 +857,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(properties.$pathname, '/pricing'), notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(properties.$pathname, '/pricing'))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -863,10 +883,11 @@
             any(session.$is_bounce) AS is_bounce,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(session.$channel_type, 'Direct'), notEquals(breakdown_value, NULL))
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(session.$channel_type, 'Direct'))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING notEquals(`context.columns.breakdown_value`, NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC

@@ -45,9 +45,10 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
+import { PropertyValueMathSelector } from './PropertyValueMathSelector'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
