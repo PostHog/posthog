@@ -41,9 +41,15 @@ export function ConnectedApps(): JSX.Element {
                     render: (_, app) => (
                         <div className="flex items-center gap-2">
                             {app.logo_uri ? (
-                                <img src={app.logo_uri} alt={`${app.name} logo`} className="w-6 h-6 rounded" />
+                                <div className="w-8 h-8 shrink-0 rounded bg-bg-light border flex items-center justify-center p-1">
+                                    <img
+                                        src={app.logo_uri}
+                                        alt={`${app.name} logo`}
+                                        className="w-full h-full object-contain"
+                                    />
+                                </div>
                             ) : (
-                                <div className="w-6 h-6 rounded bg-border flex items-center justify-center text-xs font-bold text-muted">
+                                <div className="w-8 h-8 shrink-0 rounded bg-border flex items-center justify-center text-sm font-bold text-muted">
                                     {app.name.charAt(0).toUpperCase()}
                                 </div>
                             )}
