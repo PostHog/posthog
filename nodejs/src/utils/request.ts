@@ -1,4 +1,3 @@
-import diagnosticsChannel from 'diagnostics_channel'
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
@@ -40,22 +39,6 @@ const inflightExternalRequests = new Gauge({
     name: 'cdp_http_inflight_requests',
     help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
 })
-
-// Tracks requests that are queued inside undici waiting for a free connection slot.
-// Non-zero values mean the connection pool (EXTERNAL_REQUEST_CONNECTIONS) is fully
-// saturated. A persistently high value is a strong signal to scale out.
-// Uses undici diagnostics_channel: increments when a request is created, decrements
-// when it acquires a socket (sendHeaders) or errors before acquiring one.
-const pendingExternalRequests = new Gauge({
-    name: 'cdp_http_pending_requests',
-    help: 'Number of external HTTP requests waiting for a free connection in the undici pool.',
-})
-
-diagnosticsChannel.subscribe('undici:request:create', () => pendingExternalRequests.inc())
-// sendHeaders fires when a connection slot is claimed and the request goes on the wire
-diagnosticsChannel.subscribe('undici:client:sendHeaders', () => pendingExternalRequests.dec())
-// error can fire before a socket is acquired, so we must also decrement here
-diagnosticsChannel.subscribe('undici:request:error', () => pendingExternalRequests.dec())
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
 export type FetchOptions = {
@@ -364,7 +347,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation
-export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
+export async function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
     let parsed: URL
     try {
         parsed = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url)
@@ -382,5 +365,10 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
     requestOptions.dispatcher = sharedSecureAgent
     requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
 
-    return undiciFetch(parsed.toString(), requestOptions)
+    inflightExternalRequests.inc()
+    try {
+        return await undiciFetch(parsed.toString(), requestOptions)
+    } finally {
+        inflightExternalRequests.dec()
+    }
 }
