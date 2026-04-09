@@ -93,48 +93,93 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
         }),
         blankTileClicked: (tileLocation: 'main_grid' | 'featured_row' | 'modal_toolbar') => ({ tileLocation }),
     }),
-    selectors(({ props }) => ({
+    // Optional props in selector deps: use `(_, props) => props.field` like dataTableLogic `queryWithDefaults`
+    // (LogicPropSelectors wraps optional props as callables; cohort's `p.query` is required so it works there).
+    selectors({
         filteredTemplates: [
-            (s) => [s.allTemplates],
-            (raw: DashboardTemplateType[]) => filterTemplatesByAvailability(raw, props.availabilityContexts),
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                filterTemplatesByAvailability(raw, availabilityContexts),
         ],
-        showBlankTile: [() => [], () => computeShowBlankTile(props.availabilityContexts)],
+        showBlankTile: [
+            () => [(_, props) => props.availabilityContexts],
+            (availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                computeShowBlankTile(availabilityContexts),
+        ],
         teamTemplates: [
-            (s) => [s.filteredTemplates],
-            (visible: DashboardTemplateType[]) => visible.filter(isTeamTemplate),
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                filterTemplatesByAvailability(raw, availabilityContexts).filter(isTeamTemplate),
         ],
         officialTemplates: [
-            (s) => [s.filteredTemplates],
-            (visible: DashboardTemplateType[]) => visible.filter((t) => !isTeamTemplate(t)),
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                filterTemplatesByAvailability(raw, availabilityContexts).filter((t) => !isTeamTemplate(t)),
         ],
         featuredTemplates: [
-            (s) => [s.officialTemplates],
-            (official: DashboardTemplateType[]) => official.filter((t) => t.is_featured === true),
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                filterTemplatesByAvailability(raw, availabilityContexts)
+                    .filter((t) => !isTeamTemplate(t))
+                    .filter((t) => t.is_featured === true),
         ],
         nonFeaturedOfficial: [
-            (s) => [s.officialTemplates],
-            (official: DashboardTemplateType[]) => official.filter((t) => t.is_featured !== true),
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
+                filterTemplatesByAvailability(raw, availabilityContexts)
+                    .filter((t) => !isTeamTemplate(t))
+                    .filter((t) => t.is_featured !== true),
         ],
         hasActiveFilter: [(s) => [s.templateFilter], (filterText: string) => filterText.trim().length > 0],
         showDashedEmptyState: [
-            (s) => [s.allTemplatesLoading, s.filteredTemplates],
-            (loading: boolean, visible: DashboardTemplateType[]) => !loading && visible.length === 0,
+            (s) => [s.allTemplatesLoading, s.allTemplates, (_, props) => props.availabilityContexts],
+            (
+                loading: boolean,
+                raw: DashboardTemplateType[],
+                availabilityContexts: DashboardTemplateProps['availabilityContexts']
+            ) => !loading && filterTemplatesByAvailability(raw, availabilityContexts).length === 0,
         ],
         showOfficialGrid: [
-            (s) => [s.allTemplatesLoading, s.officialTemplates],
-            (loading: boolean, official: DashboardTemplateType[]) => loading || official.length > 0,
+            (s) => [s.allTemplatesLoading, s.allTemplates, (_, props) => props.availabilityContexts],
+            (
+                loading: boolean,
+                raw: DashboardTemplateType[],
+                availabilityContexts: DashboardTemplateProps['availabilityContexts']
+            ) =>
+                loading ||
+                filterTemplatesByAvailability(raw, availabilityContexts).filter((t) => !isTeamTemplate(t)).length > 0,
         ],
         allMatchesInFeaturedSection: [
-            (s) => [s.nonFeaturedOfficial, s.featuredTemplates],
-            (nonFeatured: DashboardTemplateType[], featured: DashboardTemplateType[]) =>
-                nonFeatured.length === 0 && featured.length > 0,
+            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
+            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) => {
+                const official = filterTemplatesByAvailability(raw, availabilityContexts).filter(
+                    (t) => !isTeamTemplate(t)
+                )
+                const nonFeatured = official.filter((t) => t.is_featured !== true)
+                const featured = official.filter((t) => t.is_featured === true)
+                return nonFeatured.length === 0 && featured.length > 0
+            },
         ],
         showOfficialSection: [
-            (s) => [s.allTemplatesLoading, s.allMatchesInFeaturedSection, s.nonFeaturedOfficial],
-            (loading: boolean, allMatchesPopular: boolean, nonFeatured: DashboardTemplateType[]) =>
-                loading || allMatchesPopular || nonFeatured.length > 0,
+            (s) => [s.allTemplatesLoading, s.allTemplates, (_, props) => props.availabilityContexts],
+            (
+                loading: boolean,
+                raw: DashboardTemplateType[],
+                availabilityContexts: DashboardTemplateProps['availabilityContexts']
+            ) => {
+                if (loading) {
+                    return true
+                }
+                const official = filterTemplatesByAvailability(raw, availabilityContexts).filter(
+                    (t) => !isTeamTemplate(t)
+                )
+                const nonFeatured = official.filter((t) => t.is_featured !== true)
+                const featured = official.filter((t) => t.is_featured === true)
+                const allMatchesPopular = nonFeatured.length === 0 && featured.length > 0
+                return allMatchesPopular || nonFeatured.length > 0
+            },
         ],
-    })),
+    }),
     listeners(({ actions, values, props }) => ({
         templateTileClicked: ({ template, tileLocation }) => {
             if (values.isLoading) {
