@@ -420,6 +420,7 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         'segment-actions-saleswings': 'saleswingsapp.com',
         'segment-actions-schematic': 'schematichq.com',
         'segment-actions-canny': 'canny.io',
+        'segment-actions-koala-cloud': 'getkoala.com',
     }
 
     if (!slug && !(id in icon_overrides)) {

@@ -396,6 +396,34 @@
             "enum": ["absolute_value", "relative_increase", "relative_decrease"],
             "type": "string"
         },
+        "AlertScheduleRestriction": {
+            "additionalProperties": false,
+            "description": "Quiet hours: local time windows when the alert must not run. At most five windows after API normalization.",
+            "properties": {
+                "blocked_windows": {
+                    "items": {
+                        "$ref": "#/definitions/AlertScheduleRestrictionWindow"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocked_windows"],
+            "type": "object"
+        },
+        "AlertScheduleRestrictionWindow": {
+            "additionalProperties": false,
+            "description": "One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end).",
+            "properties": {
+                "end": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end"],
+            "type": "object"
+        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
@@ -3439,7 +3467,7 @@
             "type": "object"
         },
         "AttributionMode": {
-            "enum": ["first_touch", "last_touch"],
+            "enum": ["first_touch", "last_touch", "linear", "time_decay", "position_based"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {
@@ -12355,7 +12383,7 @@
             "type": "string"
         },
         "DataWarehouseSyncInterval": {
-            "enum": ["5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
             "type": "string"
         },
         "DataWarehouseViewLink": {
@@ -13334,6 +13362,26 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                }
+            ],
+            "description": "Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery."
+        },
         "EndpointRefreshMode": {
             "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
             "enum": ["cache", "force", "direct"],
@@ -13378,7 +13426,7 @@
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
-                            "$ref": "#/definitions/InsightQueryNode"
+                            "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
                 },
@@ -13404,10 +13452,6 @@
                     "default": false,
                     "description": "Whether to include debug information (such as the executed HogQL) in the response.",
                     "type": "boolean"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter",
-                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer",
@@ -14552,6 +14596,10 @@
                 },
                 "useQueryV2": {
                     "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
+                },
+                "useQueryV3": {
+                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
                     "type": "boolean"
                 },
                 "version": {
@@ -25561,6 +25609,7 @@
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
+                "subscriptions",
                 "surveys",
                 "tasks",
                 "teams",
@@ -33285,6 +33334,25 @@
                 },
                 "summary": {
                     "type": "string"
+                },
+                "summary_outcome": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "description": {
+                                    "type": ["string", "null"]
+                                },
+                                "success": {
+                                    "type": ["boolean", "null"]
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",

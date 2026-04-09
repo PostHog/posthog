@@ -1,8 +1,13 @@
+import os
 import socket
 import ipaddress
 import urllib.parse as urlparse
 
+import structlog
+
 from posthog.cloud_utils import is_dev_mode
+
+logger = structlog.get_logger(__name__)
 
 # Schemes that should never be allowed for external URLs
 DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
@@ -32,7 +37,8 @@ def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Add
     """Resolve a hostname to its IP addresses."""
     try:
         infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
+    except socket.gaierror as e:
+        logger.warning("url_validation.dns_resolution_failed", host=host, errno=e.errno, strerror=e.strerror)
         return set()
     ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for _fam, *_rest, sockaddr in infos:
@@ -83,6 +89,17 @@ def _is_private_ip_literal(host: str) -> bool:
     )
 
 
+def _dev_bypass_enabled() -> bool:
+    """
+    Dev mode short-circuits is_url_allowed unless POSTHOG_FORCE_URL_VALIDATION is set.
+    Developers can set the env var to exercise the production code path locally
+    (e.g. to reproduce or verify SSRF-related fixes) without flipping global DEBUG.
+    """
+    if not is_dev_mode():
+        return False
+    return os.environ.get("POSTHOG_FORCE_URL_VALIDATION", "").lower() not in {"1", "true"}
+
+
 def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     """
     Validate a URL for SSRF protection.
@@ -94,37 +111,42 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     - Host must not be localhost, metadata service, or internal domain
     - Resolved IPs must not be private/internal
     """
-    if is_dev_mode():
+    if _dev_bypass_enabled():
         return True, None
+
+    def _blocked(reason: str, **log_kwargs) -> tuple[bool, str]:
+        logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
+        return False, reason
+
     try:
         u = urlparse.urlparse(raw_url)
     except Exception:
-        return False, "Invalid URL"
+        return _blocked("Invalid URL")
     if u.scheme not in {"http", "https"} or u.scheme in DISALLOWED_SCHEMES:
-        return False, "Disallowed scheme"
+        return _blocked("Disallowed scheme", scheme=u.scheme)
     if not u.netloc:
-        return False, "Missing host"
+        return _blocked("Missing host")
     host = (u.hostname or "").lower()
     if host in METADATA_HOSTS:
-        return False, "Local/metadata host"
+        return _blocked("Local/metadata host", host=host)
     if host in {"localhost", "127.0.0.1", "::1"}:
-        return False, "Local/Loopback host not allowed"
+        return _blocked("Local/Loopback host not allowed", host=host)
 
     # Check internal domain patterns
     for pattern in INTERNAL_DOMAIN_PATTERNS:
         if host.endswith(pattern):
-            return False, f"Internal domain pattern blocked: {pattern}"
+            return _blocked(f"Internal domain pattern blocked: {pattern}", host=host, pattern=pattern)
 
     # Quick check for private IP literals (avoids DNS lookup)
     if _is_private_ip_literal(host):
-        return False, "Private IP address not allowed"
+        return _blocked("Private IP address not allowed", host=host)
 
     ips = resolve_host_ips(host)
     if not ips:
-        return False, "Could not resolve host"
+        return _blocked("Could not resolve host", host=host)
     for ip in ips:
         if _is_internal_ip(ip):
-            return False, f"Disallowed target IP: {ip}"
+            return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))
     return True, None
 
 

@@ -77,7 +77,17 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     {
                         title: 'Schema',
                         render: (_, job) => {
-                            return job.schema.label ?? job.schema.name
+                            const name = job.schema.label ?? job.schema.name
+                            return (
+                                <span className="flex items-center gap-1">
+                                    {name}
+                                    {job.schema.sync_type === 'cdc' && (
+                                        <LemonTag type="highlight" size="small">
+                                            CDC
+                                        </LemonTag>
+                                    )}
+                                </span>
+                            )
                         },
                     },
                     {
