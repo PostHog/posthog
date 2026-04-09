@@ -899,6 +899,21 @@
             "readOnlyHint": true
         }
     },
+    "endpoint-openapi-spec": {
+        "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoint OpenAPI spec",
+        "title": "Get endpoint OpenAPI spec",
+        "required_scopes": ["endpoint:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -940,6 +955,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-issues-merge-create": {
+        "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Merge error tracking issues",
+        "title": "Merge error tracking issues",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1258,6 +1288,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "llm-analytics-evaluation-summary-create": {
+        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Summarize evaluation results",
+        "title": "Summarize evaluation results",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true
     },
     "llm-analytics-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",

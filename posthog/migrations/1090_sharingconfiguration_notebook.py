@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("notebooks", "0003_add_kernel_timeouts"),
-        ("posthog", "1087_alertconfiguration_schedule_restriction"),
+        ("posthog", "1089_ducklake_backfill_populate"),
     ]
 
     operations = [

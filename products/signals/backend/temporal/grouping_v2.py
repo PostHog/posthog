@@ -44,16 +44,10 @@ async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSi
 @temporalio.workflow.defn(name="team-signal-grouping-v2")
 class TeamSignalGroupingV2Workflow:
     """
-    V2 grouping workflow that receives S3 object keys (from BufferSignalsWorkflow)
-    instead of raw signals. Downloads each batch from S3 and processes it via
-    _process_signal_batch. S3 objects are cleaned up by lifecycle policies.
+    Receives batch keys from BufferSignalsWorkflow, reads each batch from object
+    storage, and processes it via _process_signal_batch().
 
-    Buffers pending object keys in memory. Calls continue_as_new after processing
-    each batch, carrying over any remaining keys.
-
-    Supports pausing via set_paused_until / clear_paused signals. When paused,
-    the workflow sleeps in 30-second increments and only calls continue_as_new
-    after 30 minutes to keep history bounded.
+    Supports pause/unpause and uses continue_as_new to keep history bounded.
 
     One instance per team (workflow ID: team-signal-grouping-v2-{team_id}).
     """

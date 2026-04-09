@@ -752,9 +752,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
-    experiment_recalculation_time: () => null,
-    default_experiment_confidence_level: () => null,
-    default_experiment_stats_method: () => null,
     managed_viewsets: () => null,
 }
 
