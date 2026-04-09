@@ -52,12 +52,15 @@ export type LogEntry = {
     instanceId: string
     level: LogEntryLevel
     timestamp: Dayjs
+    rawTimestamp: string
 }
 
 export type GroupedLogEntry = {
     instanceId: string
     maxTimestamp: Dayjs
+    maxRawTimestamp: string
     minTimestamp: Dayjs
+    minRawTimestamp: string
     logLevel: LogEntryLevel
     entries: LogEntry[]
 }
@@ -75,7 +78,7 @@ export type LogEntryParams = {
 }
 
 const toKey = (log: LogEntry): string => {
-    return `${log.instanceId}-${log.level}-${log.timestamp.toISOString()}`
+    return `${log.instanceId}-${log.level}-${log.rawTimestamp}`
 }
 
 export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
@@ -137,6 +140,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         (result): LogEntry => ({
             instanceId: result[0],
             timestamp: dayjs(result[1]),
+            rawTimestamp: result[1],
             level: result[2].toUpperCase(),
             message: result[3],
         })
@@ -182,6 +186,7 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
         (result): LogEntry => ({
             instanceId: result[0],
             timestamp: dayjs(result[1]),
+            rawTimestamp: result[1],
             level: result[2].toUpperCase(),
             message: result[3],
         })
@@ -189,35 +194,36 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
 }
 
 export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
+    const sorted = [...logs].sort((a, b) =>
+        a.rawTimestamp < b.rawTimestamp ? -1 : a.rawTimestamp > b.rawTimestamp ? 1 : 0
+    )
+
     const byId: Record<string, GroupedLogEntry> = {}
     const dedupeCache = new Set<string>()
 
-    for (const log of logs) {
+    for (const log of sorted) {
         const key = toKey(log)
         if (dedupeCache.has(key)) {
             continue
         }
         dedupeCache.add(key)
-        const group = byId[log.instanceId] ?? {
+        const group = (byId[log.instanceId] ??= {
             instanceId: log.instanceId,
             maxTimestamp: log.timestamp,
+            maxRawTimestamp: log.rawTimestamp,
             minTimestamp: log.timestamp,
+            minRawTimestamp: log.rawTimestamp,
             logLevel: log.level,
             entries: [],
-        }
-        byId[log.instanceId] = group
+        })
         group.entries.push(log)
-        group.maxTimestamp = log.timestamp.isAfter(group.maxTimestamp) ? log.timestamp : group.maxTimestamp
-        group.minTimestamp = log.timestamp.isBefore(group.minTimestamp) ? log.timestamp : group.minTimestamp
-        if (ALL_LOG_LEVELS.indexOf(log.level) > ALL_LOG_LEVELS.indexOf(group.logLevel)) {
-            group.logLevel = log.level
-        }
+        // Since logs are sorted ascending, the last entry always has the max timestamp
+        group.maxTimestamp = log.timestamp
+        group.maxRawTimestamp = log.rawTimestamp
+        group.logLevel = log.level
     }
 
-    return Object.values(byId).map((group) => ({
-        ...group,
-        entries: group.entries.sort((a, b) => a.timestamp.diff(b.timestamp)),
-    }))
+    return Object.values(byId)
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([

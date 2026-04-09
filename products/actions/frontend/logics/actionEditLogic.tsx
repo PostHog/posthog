@@ -6,10 +6,8 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +17,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import type { ActionReferenceApi } from '../generated/api.schemas'
+import { deleteActionWithWarning } from '../utils/deleteAction'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
 
@@ -231,56 +230,17 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 return
             }
 
-            if (values.referencesLoading) {
-                lemonToast.info('Checking for references. Please try again in a moment.')
-                return
-            }
-
-            const performDelete = async (): Promise<void> => {
-                try {
-                    await deleteWithUndo({
-                        endpoint: api.actions.determineDeleteEndpoint(),
-                        object: values.action,
-                        callback: (undo: boolean) => {
-                            if (undo) {
-                                router.actions.push(urls.action(actionId))
-                                refreshTreeItem('action', String(actionId))
-                            } else {
-                                actions.resetAction()
-                                deleteFromTree('action', String(actionId))
-                                router.actions.push(urls.actions())
-                                actions.loadActions()
-                            }
-                        },
-                    })
-                } catch (e: any) {
-                    lemonToast.error(`Error deleting action: ${e.detail}`)
+            await deleteActionWithWarning(values.action, (undo: boolean) => {
+                if (undo) {
+                    router.actions.push(urls.action(actionId))
+                    refreshTreeItem('action', String(actionId))
+                } else {
+                    actions.resetAction()
+                    deleteFromTree('action', String(actionId))
+                    router.actions.push(urls.actions())
+                    actions.loadActions()
                 }
-            }
-
-            if (values.references.length > 0) {
-                const count = values.references.length
-
-                LemonDialog.open({
-                    title: 'This action is used by other resources',
-                    description: (
-                        <>
-                            This action is referenced by <strong>{count}</strong> resource
-                            {count === 1 ? '' : 's'}. Deleting it may break them.
-                        </>
-                    ),
-                    primaryButton: {
-                        children: 'Delete anyway',
-                        status: 'danger',
-                        onClick: performDelete,
-                    },
-                    secondaryButton: {
-                        children: 'Cancel',
-                    },
-                })
-            } else {
-                await performDelete()
-            }
+            })
         },
     })),
 

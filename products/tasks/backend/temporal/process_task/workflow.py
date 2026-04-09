@@ -55,7 +55,7 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-INACTIVITY_TIMEOUT_MINUTES = 5
+INACTIVITY_TIMEOUT_MINUTES = 30
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
 

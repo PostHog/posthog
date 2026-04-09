@@ -486,6 +486,7 @@ function WizardOnlyVariant({
 
     const handleWizardOnlySDKClick = (sdk: SDK): void => {
         sdkGridProps.onSDKClick(sdk)
+        setManualModalOpen(false)
         setSdkInstructionsOpen(true)
     }
 

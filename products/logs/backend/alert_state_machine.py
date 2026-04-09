@@ -54,8 +54,8 @@ def evaluate_alert_check(
     now: datetime,
 ) -> AlertCheckOutcome:
     """Implements the RFC state table: N-of-M sliding-window trigger
-    (CloudWatch-style), PENDING_RESOLVE for symmetric resolution, and
-    cooldown suppression.
+    (CloudWatch-style) for firing, immediate resolution on the first OK
+    check, and cooldown suppression.
     """
     if snapshot.state == AlertState.SNOOZED:
         if snapshot.snooze_until is not None and snapshot.snooze_until > now:
@@ -87,7 +87,6 @@ def evaluate_alert_check(
 
     breach_count = sum(1 for b in window if b)
     n = snapshot.datapoints_to_alarm
-    is_simple = n == 1 and m == 1
 
     if effective_state == AlertState.ERRORED:
         effective_state = AlertState.NOT_FIRING
@@ -102,23 +101,15 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    elif effective_state == AlertState.FIRING:
+    # PENDING_RESOLVE is currently unused — resolution is immediate on the first
+    # OK check. Kept in the enum for future symmetric N-of-M resolution support.
+    elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
         if check.threshold_breached:
             new_state = AlertState.FIRING
-        elif is_simple:
+        else:
+            # Always resolve after a single OK check — N-of-M only governs firing
             new_state = AlertState.NOT_FIRING
             notification = NotificationAction.RESOLVE
-        else:
-            new_state = AlertState.PENDING_RESOLVE
-
-    elif effective_state == AlertState.PENDING_RESOLVE:
-        if check.threshold_breached:
-            new_state = AlertState.FIRING
-        elif len(window) - breach_count >= n:
-            new_state = AlertState.NOT_FIRING
-            notification = NotificationAction.RESOLVE
-        else:
-            new_state = AlertState.PENDING_RESOLVE
 
     else:
         new_state = AlertState.NOT_FIRING

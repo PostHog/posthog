@@ -26,10 +26,15 @@ export const InlineMenu = ({
         editor: ttEditor,
         selector: ({ editor }) => {
             const attrs = editor?.getAttributes('link') ?? {}
+            const sel = editor?.state.selection
             return {
                 isLinkActive: editor?.isActive('link') ?? false,
                 href: attrs.href as string | undefined,
                 target: attrs.target as string | undefined,
+                // useEditorState uses deepEqual; without selection in this object, link state often
+                // stays identical across moves and we never re-render — stale bold/heading/extra().
+                selectionAnchor: sel?.anchor ?? 0,
+                selectionHead: sel?.head ?? 0,
             }
         },
     })

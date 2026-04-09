@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { SurveyEventTrigger } from './SurveyEventTrigger'
 import { surveyLogic } from './surveyLogic'
 import { WhenStep } from './wizard/steps/WhenStep'
+import { surveyWizardLogic } from './wizard/surveyWizardLogic'
 
 jest.mock('lib/components/PropertyFilters/PropertyFilters', () => ({
     PropertyFilters: ({
@@ -53,6 +54,8 @@ describe('Survey event trigger property filters', () => {
     })
 
     function mountSurveyWithTriggerEvent(): ReturnType<typeof surveyLogic.build> {
+        const wizardLogic = surveyWizardLogic({ id: 'new' })
+        wizardLogic.mount()
         const logic = surveyLogic({ id: 'new' })
         logic.mount()
         logic.actions.setSurveyValue('conditions', {
@@ -86,7 +89,9 @@ describe('Survey event trigger property filters', () => {
         render(
             <Provider>
                 <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
-                    <WhenStep />
+                    <BindLogic logic={surveyWizardLogic} props={{ id: 'new' }}>
+                        <WhenStep />
+                    </BindLogic>
                 </BindLogic>
             </Provider>
         )

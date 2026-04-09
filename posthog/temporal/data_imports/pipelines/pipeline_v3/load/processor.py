@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import s3fs
 import structlog
+import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
 
@@ -37,7 +38,7 @@ logger = structlog.get_logger(__name__)
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
     """Convert sync type to write type for DeltaTableHelper."""
-    if sync_type == "incremental":
+    if sync_type in ("incremental", "cdc"):
         return "incremental"
     elif sync_type == "append":
         return "append"
@@ -331,29 +332,100 @@ def process_message(message: Any) -> None:
         # Capture file URIs before write for partial data loading
         previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
 
-        write_type = _get_write_type(export_signal.sync_type)
         primary_keys = export_signal.primary_keys
+        cdc_write_mode = export_signal.cdc_write_mode
 
-        # First batch should overwrite the table, but only if not resuming
-        should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
+        # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
+        # existing DeltaLake state. Batch-internal enrichment was already applied
+        # in the extraction activity; this handles standalone DELETEs that arrive
+        # in a batch with no preceding INSERT/UPDATE for the same PK.
+        if cdc_write_mode is not None and primary_keys and existing_delta_table is not None:
+            from posthog.temporal.data_imports.cdc.batcher import (
+                CDC_OP_COLUMN,
+                SCD2_VALID_TO_COLUMN,
+                enrich_delete_rows,
+            )
 
-        logger.debug(
-            "writing_to_delta_lake",
-            write_type=write_type,
-            should_overwrite_table=should_overwrite_table,
-            primary_keys=primary_keys,
-            batch_index=export_signal.batch_index,
-        )
+            if CDC_OP_COLUMN in pa_table.column_names:
+                present_pks = [col for col in primary_keys if col in pa_table.column_names]
+                if present_pks:
+                    ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
+                    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
+                    delete_key_set: set[tuple[Any, ...]] = set()
+                    for i, op in enumerate(ops):
+                        if op == "D":
+                            delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
 
-        with DELTA_WRITE_DURATION_SECONDS.labels(
-            team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
-        ).time():
-            delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
-                data=pa_table,
+                    if delete_key_set:
+                        # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
+                        # For composite PKs that IN is a superset — narrow in PyArrow below.
+                        first_pk = present_pks[0]
+                        first_components = list({t[0] for t in delete_key_set})
+                        existing_rows = existing_delta_table.to_pyarrow_table(
+                            filters=[(first_pk, "in", first_components)]
+                        )
+
+                        # For composite PKs the IN filter is a superset — narrow to exact matches.
+                        if len(present_pks) > 1 and existing_rows.num_rows > 0:
+                            if all(col in existing_rows.column_names for col in present_pks):
+                                ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
+                                match_indices = [
+                                    j
+                                    for j in range(existing_rows.num_rows)
+                                    if tuple(arr[j] for arr in ex_pk_arrays) in delete_key_set
+                                ]
+                                existing_rows = existing_rows.take(match_indices)
+                            else:
+                                existing_rows = existing_rows.take([])
+
+                        # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
+                        # enrich the DELETE with the most recent state rather than a historical one.
+                        if (
+                            cdc_write_mode == "scd2_append"
+                            and existing_rows.num_rows > 0
+                            and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                        ):
+                            existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+
+                        pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+        if cdc_write_mode == "scd2_append":
+            logger.debug(
+                "writing_scd2_to_delta_lake",
+                primary_keys=primary_keys,
+                batch_index=export_signal.batch_index,
+            )
+
+            with DELTA_WRITE_DURATION_SECONDS.labels(
+                team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
+            ).time():
+                delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
+                    data=pa_table,
+                    primary_keys=primary_keys or [],
+                )
+        else:
+            write_type = _get_write_type(export_signal.sync_type)
+
+            # First batch should overwrite the table, but only if not resuming
+            should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
+
+            logger.debug(
+                "writing_to_delta_lake",
                 write_type=write_type,
                 should_overwrite_table=should_overwrite_table,
                 primary_keys=primary_keys,
+                batch_index=export_signal.batch_index,
             )
+
+            with DELTA_WRITE_DURATION_SECONDS.labels(
+                team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
+            ).time():
+                delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                    data=pa_table,
+                    write_type=write_type,
+                    should_overwrite_table=should_overwrite_table,
+                    primary_keys=primary_keys,
+                )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
@@ -381,6 +453,12 @@ def process_message(message: Any) -> None:
                 "final_batch_received",
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,
+                cdc_write_mode=export_signal.cdc_write_mode,
+                cdc_table_mode=export_signal.cdc_table_mode,
+                sync_type=export_signal.sync_type,
+                schema_sync_type=schema.sync_type,
+                schema_cdc_table_mode=schema.cdc_table_mode,
+                resource_name=export_signal.resource_name,
             )
 
             async_to_sync(run_post_load_operations)(
@@ -393,6 +471,8 @@ def process_message(message: Any) -> None:
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,
                 logger=logger,
+                cdc_table_mode=export_signal.cdc_table_mode,
+                cdc_write_mode=export_signal.cdc_write_mode,
             )
 
             _mark_job_completed(export_signal)

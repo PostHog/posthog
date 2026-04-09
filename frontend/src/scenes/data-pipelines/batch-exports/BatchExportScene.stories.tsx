@@ -191,10 +191,47 @@ export const RunsEmpty: Story = {
     },
 }
 
+const MOCK_LOG_RESULTS = {
+    results: [
+        [
+            'run-aaa-bbb-ccc',
+            '2024-01-15 10:00:00.000001',
+            'INFO',
+            'Batch exporting range 2024-01-15T09:00:00Z - 2024-01-15T10:00:00Z to BigQuery: posthog-301601.BatchExports.events',
+        ],
+        [
+            'run-aaa-bbb-ccc',
+            '2024-01-15 10:00:02.000003',
+            'INFO',
+            'Batch export for range 2024-01-15T09:00:00Z - 2024-01-15T10:00:00Z finished successfully with 48230 records exported',
+        ],
+        [
+            'run-ddd-eee-fff',
+            '2024-01-15 10:05:00.000001',
+            'INFO',
+            'Batch exporting range 2024-01-15T10:00:00Z - 2024-01-15T11:00:00Z to BigQuery: posthog-301601.BatchExports.events',
+        ],
+        ['run-ddd-eee-fff', '2024-01-15 10:05:01.000002', 'WARN', 'Retrying after transient error'],
+        [
+            'run-ddd-eee-fff',
+            '2024-01-15 10:05:05.000003',
+            'ERROR',
+            'Batch export for range 2024-01-15T10:00:00Z - 2024-01-15T11:00:00Z failed with a non-recoverable error: NotFound: 404 POST https://bigquery.googleapis.com/bigquery/v2/projects/posthog-301601/datasets/BatchExports/tables?prettyPrint=false: Not found: Dataset posthog-301601:BatchExports',
+        ],
+    ],
+}
+
 export const Logs: Story = {
     parameters: {
         pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=logs`,
     },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/HogQLQuery/': MOCK_LOG_RESULTS,
+            },
+        }),
+    ],
 }
 
 export const Metrics: Story = {

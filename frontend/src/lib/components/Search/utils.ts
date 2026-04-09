@@ -1,5 +1,37 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
+
+interface FuseSearchable {
+    name: string
+    displayName?: string
+    category: string
+    searchKeywords?: string[]
+}
+
+const FUSE_OPTIONS = {
+    keys: [
+        { name: 'name', weight: 2 },
+        { name: 'displayName', weight: 2 },
+        { name: 'category', weight: 0.5 },
+        { name: 'searchKeywords', weight: 1.5 },
+    ],
+    ignoreLocation: true,
+    useExtendedSearch: true,
+}
+
+/**
+ * Filter items using Fuse.js fuzzy search. Searches across name, displayName,
+ * category, and searchKeywords with weighted scoring.
+ */
+export function filterSearchItems<T extends FuseSearchable>(items: T[], query: string): T[] {
+    const trimmed = query.trim()
+    if (!trimmed) {
+        return items
+    }
+    const fuse = createFuse<T>(items, FUSE_OPTIONS)
+    return fuse.search(trimmed).map((r) => r.item)
+}
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {

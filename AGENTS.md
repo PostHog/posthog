@@ -13,11 +13,10 @@
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
-  - All tests: `pytest`
-  - Single test: `pytest path/to/test.py::TestClass::test_method`
-  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
-  - Frontend: `pnpm --filter=@posthog/frontend test`
-  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - Universal: `hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
+  - Single test: `hogli test path/to/test.py::TestClass::test_method`
+  - Watch mode: `hogli test path/to/test.py --watch`
+  - Changed files only: `hogli test --changed`
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
@@ -68,8 +67,28 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+### Public open source repo guidance
+
+This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
+
+- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
+- If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
+- Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
+
+Examples:
+
+- ✅ Good: `fix(insights): handle missing series color in trend export`
+- ✅ Good: `chore(ci): reduce flaky backend test retries`
+- ❌ Avoid: `fix: patch issue found in acme-co prod workspace after sales escalation`
+- ❌ Avoid: `chore: workaround for internal k8s outage in us-east-2`
+- ❌ Avoid: `feat: add migration for private enterprise customer contract requirement`
+- ❌ Avoid: `fix: will run fine on our 12 million rows there now`
+- ❌ Avoid: `fix: we were failing there for 300 teams`
+
 ## CI / GitHub Actions
 
+- `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 
 ## Security

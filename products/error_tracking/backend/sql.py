@@ -2,19 +2,12 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import (
-    KAFKA_ERROR_TRACKING_EVENTS_TEST,
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
-)
-from posthog.models.event.sql import (
-    EVENTS_TABLE_BASE_SQL,
-    EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS,
-    EVENTS_TABLE_JSON_MV_SQL,
-    INSERTED_AT_COLUMN,
-    KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
 )
 
 #
@@ -124,8 +117,134 @@ def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 
+def TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE}"
+
+
 INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
 INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
+"""
+
+#
+# error_tracking_fingerprint_issue_state: Contains issue metadata alongside fingerprint
+# mappings, eliminating the need for Postgres JOINs in the list query.
+#
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE = "error_tracking_fingerprint_issue_state"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE = f"raw_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV = f"{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}_mv"
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    team_id Int64,
+    fingerprint VARCHAR,
+    issue_id UUID,
+    issue_name Nullable(VARCHAR),
+    issue_description Nullable(VARCHAR),
+    issue_status VARCHAR,
+    assigned_user_id Nullable(Int64),
+    assigned_role_id Nullable(UUID),
+    first_seen DateTime64(3, 'UTC'),
+    is_deleted Int8,
+    version Int64
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE, ver="version"
+)
+
+
+def RAW_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return (
+        ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL
+        + """
+    ORDER BY (team_id, fingerprint)
+    SETTINGS index_granularity = 512
+    """
+    ).format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE_ENGINE(),
+        extra_fields=f"""
+    {KAFKA_COLUMNS_WITH_PARTITION}
+    , {index_by_kafka_timestamp(ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE)}
+    """,
+    )
+
+
+def KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL():
+    return ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            group="clickhouse-error-tracking-fingerprint-issue-state",
+        ),
+        extra_fields="",
+    )
+
+
+def ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV_SQL(
+    target_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE,
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
+AS SELECT
+team_id,
+fingerprint,
+issue_id,
+issue_name,
+issue_description,
+issue_status,
+assigned_user_id,
+assigned_role_id,
+first_seen,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.{kafka_table}
+""".format(
+        mv_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV,
+        target_table=target_table,
+        kafka_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+
+WRITABLE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL = (
+    lambda: ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
+)
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL = lambda: ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+    table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+    engine=Distributed(
+        data_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_RAW_TABLE,
+        cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+    ),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+
+INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = """
+INSERT INTO error_tracking_fingerprint_issue_state (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 
@@ -218,91 +337,4 @@ FROM {database}.{kafka_table}
         target_table=target_table,
         kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         database=settings.CLICKHOUSE_DATABASE,
-    )
-
-
-#
-# error_tracking_events_test: Test table for comparing error tracking pipeline outputs.
-# Used to validate the dual-write from capture by comparing Node.js pipeline output
-# against cymbal output. Reuses the same schema as clickhouse_events_json.
-#
-
-ERROR_TRACKING_EVENTS_TEST_TABLE = "error_tracking_events_test"
-ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_EVENTS_TEST_TABLE}"
-ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_EVENTS_TEST_TABLE}"
-ERROR_TRACKING_EVENTS_TEST_MV = f"{ERROR_TRACKING_EVENTS_TEST_TABLE}_mv"
-
-DROP_ERROR_TRACKING_EVENTS_TEST_MV_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_MV}"
-DROP_ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE}"
-DROP_ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE}"
-DROP_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL = f"DROP TABLE IF EXISTS {ERROR_TRACKING_EVENTS_TEST_TABLE}"
-
-
-def ERROR_TRACKING_EVENTS_TEST_TABLE_ENGINE():
-    return ReplacingMergeTree(ERROR_TRACKING_EVENTS_TEST_TABLE, ver="_timestamp")
-
-
-ERROR_TRACKING_EVENTS_TEST_TTL_DAYS = 30
-
-
-def ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
-    return (
-        EVENTS_TABLE_BASE_SQL
-        + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-{ttl_period}
-"""
-    ).format(
-        table_name=ERROR_TRACKING_EVENTS_TEST_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
-        engine=ERROR_TRACKING_EVENTS_TEST_TABLE_ENGINE(),
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        materialized_columns="",
-        indexes=f", {index_by_kafka_timestamp(ERROR_TRACKING_EVENTS_TEST_TABLE)}",
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        ttl_period=ttl_period("timestamp", ERROR_TRACKING_EVENTS_TEST_TTL_DAYS, unit="DAY"),
-    )
-
-
-def WRITABLE_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
-    # Distributed table on ingestion layer that routes writes to the data table
-    return EVENTS_TABLE_BASE_SQL.format(
-        table_name=ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
-        engine=Distributed(
-            data_table=ERROR_TRACKING_EVENTS_TEST_TABLE,
-            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
-        ),
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        materialized_columns="",
-        indexes="",
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-    )
-
-
-def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
-    # kafka_skip_broken_messages = 0 ensures malformed messages surface as consumer lag
-    # rather than being silently discarded, making pipeline issues visible during validation
-    return (
-        EVENTS_TABLE_BASE_SQL
-        + """
-    SETTINGS kafka_skip_broken_messages = 0
-"""
-    ).format(
-        table_name=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
-        engine=kafka_engine(KAFKA_ERROR_TRACKING_EVENTS_TEST, group="clickhouse-error-tracking-events-test"),
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        materialized_columns="",
-        indexes="",
-        extra_fields="",
-    )
-
-
-def ERROR_TRACKING_EVENTS_TEST_MV_SQL():
-    return EVENTS_TABLE_JSON_MV_SQL(
-        mv_name=ERROR_TRACKING_EVENTS_TEST_MV,
-        kafka_table=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
-        target_table=ERROR_TRACKING_EVENTS_TEST_WRITABLE_TABLE,  # Write to writable table
-        on_cluster=False,
     )

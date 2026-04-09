@@ -230,6 +230,10 @@ The devcontainer lifecycle scripts handle everything automatically:
 
 To get practical test data, run `hogli dev:demo-data`.
 
+## Option 3: Developing with Coder workspaces (PostHog employees only)
+
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
+
 ## Testing
 
 For a PostHog PR to be merged, all tests must be green, and ideally you should be introducing new ones as well – that's why you must be able to run tests with ease.
@@ -239,25 +243,19 @@ For a PostHog PR to be merged, all tests must be green, and ideally you should b
 For frontend unit tests, run:
 
 ```bash
-pnpm --filter=@posthog/frontend test
+hogli test frontend/src/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pnpm jest --testPathPattern=frontend/src/lib/components/DateFilter/DateFilter.test.tsx
+hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `pnpm storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
 
 ```bash
-pnpm test:visual
-```
-
-To only update snapshots for stories under a specific path, run:
-
-```bash
-pnpm test:visual:update frontend/src/lib/Example.stories.tsx
+hogli storybook:test
 ```
 
 ### Backend
@@ -265,26 +263,32 @@ pnpm test:visual:update frontend/src/lib/Example.stories.tsx
 For backend tests, run:
 
 ```bash
-pytest
+hogli test posthog/test/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pytest posthog/test/test_example.py
+hogli test posthog/test/test_example.py
 ```
 
 Or to only test cases with matching function names:
 
 ```bash
-pytest posthog/test/test_example.py -k test_something
+hogli test posthog/test/test_example.py -k test_something
 ```
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
+You can also run tests for all files changed on the current branch:
+
+```bash
+hogli test --changed
+```
+
 ### End-to-end
 
-For Playwright end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
+For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
 
 ## Django migrations
 
