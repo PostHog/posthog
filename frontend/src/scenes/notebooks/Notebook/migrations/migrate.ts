@@ -262,13 +262,17 @@ async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> 
                 return node
             }
 
-            const response = await api.schema.queryUpgrade({ query })
-            return {
-                ...node,
-                attrs: {
-                    ...node.attrs,
-                    query: response.query,
-                },
+            try {
+                const response = await api.schema.queryUpgrade({ query })
+                return {
+                    ...node,
+                    attrs: {
+                        ...node.attrs,
+                        query: response.query,
+                    },
+                }
+            } catch {
+                return node
             }
         })
     )

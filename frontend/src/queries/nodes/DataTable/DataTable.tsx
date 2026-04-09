@@ -165,6 +165,7 @@ export function DataTable({
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
+        doNotLoad: context?.insightProps?.doNotLoad,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         limitContext: context?.limitContext,

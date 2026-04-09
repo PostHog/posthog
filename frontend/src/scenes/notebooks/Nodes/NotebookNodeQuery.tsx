@@ -49,10 +49,12 @@ const Component = ({
     const { expanded, notebookLogic } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
-    const { canvasFiltersOverride } = useValues(notebookLogic)
+    const { canvasFiltersOverride, mode } = useValues(notebookLogic)
+    const isSharedMode = mode === 'shared'
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
+        ...(isSharedMode && { doNotLoad: true }),
     }
     const { insightName } = useValues(insightLogic(insightLogicProps))
 
@@ -134,8 +136,10 @@ const Component = ({
                     } as QuerySchema,
                 })
             }}
+            context={{ insightProps: insightLogicProps }}
             embedded
             readOnly
+            inSharedMode={isSharedMode}
         />
     )
 
