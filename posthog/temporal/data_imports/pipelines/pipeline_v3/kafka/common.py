@@ -8,7 +8,7 @@ from posthog.kafka_client.client import _KafkaProducer
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.utils import SingletonDecorator
 
-SyncTypeLiteral = Literal["full_refresh", "incremental", "append"]
+SyncTypeLiteral = Literal["full_refresh", "incremental", "append", "cdc"]
 
 _WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
 
@@ -53,6 +53,8 @@ class ExportSignalMessage:
     partition_mode: Optional[PartitionMode] = None
     is_first_ever_sync: bool = False
     cumulative_row_count: int = 0
+    cdc_write_mode: Optional[str] = None
+    cdc_table_mode: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -86,4 +88,6 @@ class ExportSignalMessage:
             partition_mode=data.get("partition_mode"),
             is_first_ever_sync=data.get("is_first_ever_sync", False),
             cumulative_row_count=data.get("cumulative_row_count", 0),
+            cdc_write_mode=data.get("cdc_write_mode"),
+            cdc_table_mode=data.get("cdc_table_mode"),
         )

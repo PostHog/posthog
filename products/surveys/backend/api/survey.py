@@ -2792,12 +2792,14 @@ def public_survey_page(request, survey_id: str):
             archived=survey.archived,
             survey_type=survey.type,
         )
+        # Pass appearance so the error page still shows the customer's brand.
         return render(
             request,
             "surveys/error.html",
             {
-                "error_title": "Survey not receiving responses",
-                "error_message": "The requested survey is not receiving responses.",
+                "error_title": "Feels quiet in here",
+                "error_message": "This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
+                "appearance": survey.appearance or {},
             },
             status=404,  # Use 404 instead of 403 to prevent information leakage
         )

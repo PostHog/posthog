@@ -27,6 +27,79 @@ export function shouldUseGrpc(percentage: number): boolean {
     return Math.random() * 100 < percentage
 }
 
+/**
+ * Team ID-aware rollout check. If rolloutTeamIds is non-empty, routes based on
+ * team membership (ignoring percentage). Otherwise falls back to percentage.
+ */
+export function shouldUseGrpcForTeam(rolloutTeamIds: ReadonlySet<number>, teamId: number, percentage: number): boolean {
+    if (rolloutTeamIds.size > 0) {
+        return rolloutTeamIds.has(teamId)
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/**
+ * Batch variant: returns true only if ALL provided team IDs are in the rollout set.
+ * When rolloutTeamIds is empty, falls back to percentage-based sampling.
+ * Zero-allocation: iterates the array directly with O(1) Set lookups.
+ */
+export function shouldUseGrpcForTeams(
+    rolloutTeamIds: ReadonlySet<number>,
+    teamIds: number[],
+    percentage: number
+): boolean {
+    if (rolloutTeamIds.size > 0) {
+        if (teamIds.length === 0) {
+            return false
+        }
+        for (const id of teamIds) {
+            if (!rolloutTeamIds.has(id)) {
+                return false
+            }
+        }
+        return true
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/**
+ * Like shouldUseGrpcForTeams but accepts an array of objects with a teamId field,
+ * avoiding the intermediate .map() allocation.
+ */
+export function shouldUseGrpcForTeamItems<T extends { teamId: number }>(
+    rolloutTeamIds: ReadonlySet<number>,
+    items: T[],
+    percentage: number
+): boolean {
+    if (rolloutTeamIds.size > 0) {
+        if (items.length === 0) {
+            return false
+        }
+        for (const item of items) {
+            if (!rolloutTeamIds.has(item.teamId)) {
+                return false
+            }
+        }
+        return true
+    }
+    return shouldUseGrpc(percentage)
+}
+
+/** Parse a comma-separated string of team IDs into a Set. */
+export function parseRolloutTeamIds(raw: string): Set<number> {
+    if (!raw.trim()) {
+        return new Set()
+    }
+    const ids = new Set<number>()
+    for (const part of raw.split(',')) {
+        const n = parseInt(part.trim(), 10)
+        if (!isNaN(n)) {
+            ids.add(n)
+        }
+    }
+    return ids
+}
+
 export function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
@@ -41,7 +114,7 @@ export interface PersonHogClientConfig {
 
     // -- Request limits --
 
-    /** Per-request timeout in milliseconds. Default: 5 000. */
+    /** Per-request timeout in milliseconds. Default: 1 000. */
     timeoutMs?: number
     /** Maximum inbound message size in bytes. Default: 128 MiB. */
     readMaxBytes?: number
@@ -129,7 +202,7 @@ export class PersonHogClient {
 
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
-            defaultTimeoutMs: config.timeoutMs ?? 5_000,
+            defaultTimeoutMs: config.timeoutMs ?? 1_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
             sessionManager: stateMonitor,

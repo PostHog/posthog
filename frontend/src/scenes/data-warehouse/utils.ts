@@ -35,9 +35,15 @@ export const syncAnchorIntervalToHumanReadable = (
     syncFrequency: DataWarehouseSyncInterval
 ): string => {
     // For intervals <= 1 hour, we don't use anchor time
-    if (['5min', '30min', '1hour'].includes(syncFrequency)) {
+    if (['1min', '5min', '30min', '1hour'].includes(syncFrequency)) {
         return `The sync runs every ${
-            syncFrequency === '5min' ? '5 minutes' : syncFrequency === '30min' ? '30 minutes' : '1 hour'
+            syncFrequency === '1min'
+                ? '1 minute'
+                : syncFrequency === '5min'
+                  ? '5 minutes'
+                  : syncFrequency === '30min'
+                    ? '30 minutes'
+                    : '1 hour'
         }`
     }
 
@@ -76,6 +82,8 @@ export const syncAnchorIntervalToHumanReadable = (
 
 export function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undefined): string {
     switch (syncInterval) {
+        case '1min':
+            return '1m'
         case '5min':
             return '5m'
         case '15min':
@@ -130,6 +138,7 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     incremental: 'Incremental',
     append: 'Append only',
     webhook: 'Webhook',
+    cdc: 'CDC',
 }
 
 export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {

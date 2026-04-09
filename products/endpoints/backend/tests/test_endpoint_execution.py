@@ -22,12 +22,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     Tests for the endpoint execution API.
 
     Design principles:
-    1. `variables` is the preferred mechanism for passing dynamic values
+    1. `variables` is the only mechanism for passing dynamic values
     2. API behavior is consistent regardless of query type (HogQL vs Insight)
     3. API behavior is consistent regardless of materialization status
     4. `date_from` and `date_to` are magic variables for insight endpoints
     5. `query_override` is not allowed
-    6. `filters_override` is deprecated but supported for insight endpoints (not HogQL)
+    6. `filters_override` is not allowed — use variables instead
     7. Unknown variables cause errors
     """
 
@@ -218,7 +218,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
+        self.assertIn("filters_override is no longer supported", response.json()["detail"])
 
     # =========================================================================
     # NON-MATERIALIZED INSIGHT ENDPOINTS
@@ -345,98 +345,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("query_override", response.json()["detail"])
-
-    def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
-        endpoint = create_endpoint_with_version(
-            name="trends_filters_override",
-            team=self.team,
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                dateRange={
-                    "date_from": "2026-01-01",
-                    "date_to": "2026-01-10",
-                },  # Explicit range covering all test events
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-
-        # Get baseline without date filter (all 10 events)
-        response_baseline = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {"refresh": "force"},
-            format="json",
-        )
-        self.assertEqual(response_baseline.status_code, status.HTTP_200_OK)
-        baseline_total = sum(response_baseline.json()["results"][0]["data"])
-
-        # Use filters_override to filter by date - should have fewer results (days 5-10)
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {"filters_override": {"date_from": "2026-01-05", "date_to": "2026-01-10"}, "refresh": "force"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        filtered_total = sum(response.json()["results"][0]["data"])
-        self.assertLess(filtered_total, baseline_total)
-
-    def test_insight_endpoint_filters_override_returns_deprecation_header(self):
-        endpoint = create_endpoint_with_version(
-            name="trends_deprecation_header",
-            team=self.team,
-            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {"filters_override": {"date_from": "2026-01-01"}},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("X-PostHog-Warn", response.headers)
-        self.assertIn("filters_override is deprecated", response.headers["X-PostHog-Warn"])
-
-    def test_insight_endpoint_filters_override_takes_precedence_over_variables(self):
-        endpoint = create_endpoint_with_version(
-            name="trends_precedence",
-            team=self.team,
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                dateRange={"date_from": "-30d"},
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-
-        # filters_override uses date_from 2026-01-08 (days 8-10), variables uses 2026-01-02 (days 2-10)
-        # If filters_override wins, we should have fewer results
-        response_filters = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {
-                "filters_override": {"date_from": "2026-01-08"},
-                "variables": {"date_from": "2026-01-02"},
-                "refresh": "force",
-            },
-            format="json",
-        )
-        self.assertEqual(response_filters.status_code, status.HTTP_200_OK)
-        filters_total = sum(response_filters.json()["results"][0]["data"])
-
-        # Use only variables with same date to verify
-        response_vars = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-            {"variables": {"date_from": "2026-01-08"}, "refresh": "force"},
-            format="json",
-        )
-        self.assertEqual(response_vars.status_code, status.HTTP_200_OK)
-        vars_total = sum(response_vars.json()["results"][0]["data"])
-
-        # Both should have same result since filters_override wins with same date
-        self.assertEqual(filters_total, vars_total)
 
     # =========================================================================
     # MATERIALIZED HOGQL ENDPOINTS
@@ -1117,30 +1025,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("$browser", response.json()["detail"])
         self.assertIn("required", response.json()["detail"].lower())
-
-    def test_materialized_insight_endpoint_accepts_filters_override_instead_of_variable(self):
-        endpoint = create_endpoint_with_version(
-            name="mat_trends_filters_fallback",
-            team=self.team,
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                breakdownFilter={"breakdowns": [{"property": "$browser", "type": "event"}]},
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-        self._materialize_endpoint(endpoint)
-
-        # Using filters_override instead of variables should work (backwards compat)
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-                {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
-                format="json",
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            mock_exec.assert_called()
 
     def test_materialized_insight_endpoint_direct_refresh_bypasses_materialization(self):
         endpoint = create_endpoint_with_version(
