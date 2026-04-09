@@ -11,6 +11,7 @@ import posthoganalytics
 from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 from posthog.temporal.data_imports.signals.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
@@ -378,11 +379,11 @@ async def run_signal_pipeline(
         records=records,
         emitter=config.emitter,
     )
-    if not outputs and error_count > 0:
-        from temporalio.exceptions import ApplicationError
-
+    # Only fail if every record raised — emitters may return None as a benign skip,
+    # so a mix of skips and errors should fall through to the no_actionable_records path.
+    if error_count == len(records):
         raise ApplicationError(
-            f"All {len(records)} records failed emitter for {source_label} ({error_count} errors)",
+            f"All {len(records)} records failed emitter for {source_label}",
             non_retryable=True,
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)

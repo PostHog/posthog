@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.signals.pipeline import (
     _summarize_description,
     build_emitter_outputs,
     filter_actionable,
+    run_signal_pipeline,
     summarize_long_descriptions,
 )
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
@@ -165,10 +166,8 @@ class TestQueryNewRecords:
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
 
     def test_reraises_on_query_error(self):
-        # Must NOT swallow exceptions: a silenced failure would look like an empty sync window,
-        # the parent workflow would advance last_synced_at, and the records would be permanently
-        # skipped. Re-raising lets the activity's retry policy handle transient HogQL/ClickHouse
-        # failures and surfaces persistent ones as a failed child workflow.
+        # Must NOT swallow: silenced failures advance last_synced_at and permanently skip records.
+        # Re-raising lets the activity's retry policy handle transient HogQL/ClickHouse failures.
         config = _make_config()
 
         with (
@@ -213,6 +212,49 @@ class TestBuildEmitterOutputs:
 
         assert outputs[0].extra["created_at"] == "2025-06-15T12:30:00+00:00"
         assert outputs[0].extra["name"] == "keep_as_is"
+
+
+class TestRunSignalPipelineEmitterFailures:
+    # Pipeline must only fail when EVERY record raised — mixing skips (None) with errors
+    # is a benign no-op batch, not a broken emitter.
+
+    @pytest.mark.asyncio
+    async def test_raises_only_when_every_record_errors(self):
+        def always_raises(team_id, record):
+            raise ValueError("boom")
+
+        config = _make_config(emitter=always_raises)
+        team = MagicMock(id=1)
+
+        from temporalio.exceptions import ApplicationError
+
+        with pytest.raises(ApplicationError, match="All 2 records failed emitter"):
+            await run_signal_pipeline(team=team, config=config, records=[{"id": 1}, {"id": 2}], extra={})
+
+    @pytest.mark.asyncio
+    async def test_mixed_errors_and_none_does_not_raise(self):
+        # Regression: previously this raised "All 2 records failed emitter" because the pipeline
+        # checked `not outputs and error_count > 0` instead of `error_count == len(records)`.
+        def mixed_emitter(team_id, record):
+            if record["id"] == 1:
+                raise ValueError("malformed record")
+            return None  # benign skip
+
+        config = _make_config(emitter=mixed_emitter)
+        team = MagicMock(id=1)
+
+        result = await run_signal_pipeline(team=team, config=config, records=[{"id": 1}, {"id": 2}], extra={})
+
+        assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
+
+    @pytest.mark.asyncio
+    async def test_all_skipped_does_not_raise(self):
+        config = _make_config(emitter=lambda team_id, record: None)
+        team = MagicMock(id=1)
+
+        result = await run_signal_pipeline(team=team, config=config, records=[{"id": 1}, {"id": 2}], extra={})
+
+        assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
 class TestCheckActionability:
