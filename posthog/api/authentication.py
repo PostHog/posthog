@@ -145,10 +145,12 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         request.session.flush()
     else:
         # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
-        # (see frontend AccountSocialConnected)
-        request.GET["next"] = (  # type: ignore[assignment]
+        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        query_dict = request.GET.copy()
+        query_dict["next"] = (
             f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
+        request.GET = query_dict  # type: ignore[assignment]
 
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
