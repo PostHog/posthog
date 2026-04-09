@@ -935,8 +935,8 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
     # Intelligent test selection: compute which tests are affected by the PR's changes.
-    # Uses the pre-built .test_dependency_map.json (refreshed weekly) to map changed
-    # source files to their dependent test files via import graph analysis.
+    # Builds .test_dependency_map.json on-the-fly via import graph analysis, then maps
+    # changed source files to their dependent test files.
     # Outputs mode=selective (with affected test list) or mode=full (run everything).
     compute-affected-tests:
         needs: [changes]
@@ -953,24 +953,20 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  python-version: 3.12.12
+                  version: '0.10.2'
 
-            - name: Compute affected tests from dependency map
+            - name: Build dependency map and compute affected tests
               id: compute
               run: |
                   CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')
                   echo "Changed files: $CHANGED" >&2
 
-                  if [ ! -f .test_dependency_map.json ]; then
-                    echo "mode=full" >> $GITHUB_OUTPUT
-                    echo "No dependency map found, falling back to full run" >&2
-                    exit 0
-                  fi
+                  uv run bin/build_test_dependency_map.py
 
-                  RESULT=$(python bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
+                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
                   MODE=$(echo "$RESULT" | jq -r '.mode')
                   echo "mode=$MODE" >> $GITHUB_OUTPUT
 
@@ -1081,7 +1077,15 @@ jobs:
                   echo "Django matrix size: $(jq -r 'length' <<< "$include")"
 
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix, compute-affected-tests]
+        needs:
+            [
+                changes,
+                turbo-discover,
+                detect-snapshot-mode,
+                get_clickhouse_versions,
+                build_django_matrix,
+                compute-affected-tests,
+            ]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)

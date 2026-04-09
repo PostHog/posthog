@@ -462,9 +462,9 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Filter test collection to only affected tests when AFFECTED_TEST_FILES is set.
 
-    This env var is set by CI's compute-affected-tests job, which uses the
-    pre-built .test_dependency_map.json to determine which tests are
-    transitively affected by the changed source files in a PR.
+    This env var is set by CI's compute-affected-tests job, which uses
+    .test_dependency_map.json to determine which tests are transitively
+    affected by the changed source files in a PR.
 
     When unset, all collected tests run (default behavior).
     """

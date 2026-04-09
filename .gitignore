@@ -18,6 +18,7 @@ __pycache__/
 .postgres-backups/
 .python-version
 .temporal-worker-settings
+.test_dependency_map.json
 .turbo
 .venv
 .wokeignore
