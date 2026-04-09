@@ -9,581 +9,498 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
     <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
-    <meta name="apple-mobile-web-app-title" content="{{ name }} • PostHog Surveys">
-    <meta name="application-name" content="{{ name }} • PostHog Surveys">
-    <title>{{ name }} • PostHog Surveys</title>
-    <meta name="description" content="Take our survey: {{ name }} • PostHog Surveys">
+    <meta name="apple-mobile-web-app-title" content="{{ name }}">
+    <meta name="application-name" content="{{ name }}">
+    <title>{{ name }}</title>
+    <meta name="description" content="{{ name }}">
     <style>
-        /* CSS Variables */
+        /* Page-level vars only — survey-card vars are managed by posthog-js (set inline
+           on the survey container based on the merged appearance object). */
         :root {
-            --ph-survey-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
-            --ph-survey-border-color: #e5e7eb;
-            --ph-survey-border-radius: 8px;
-            --ph-survey-card-border-radius: 16px;
-            --ph-survey-body-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --ph-survey-header-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --ph-survey-header-text-color: white;
-            --ph-survey-background-color: #ffffff;
-            --ph-survey-text-primary-color: #111827;
-            --ph-survey-text-subtle-color: #6b7280;
-            --ph-survey-input-background: #ffffff;
-            --ph-survey-input-text-color: #111827;
-            --ph-survey-submit-button-color: #2563eb;
-            --ph-survey-submit-button-text-color: white;
-            --ph-survey-rating-button-color: #f8fafc;
-            --ph-survey-rating-active-bg-color: #2563eb;
-            --ph-survey-rating-button-text-color: #374151;
-            --ph-survey-rating-button-active-text-color: white;
-            --ph-survey-disabled-button-opacity: 0.6;
-            --ph-survey-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.1);
-            --ph-survey-box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --ph-survey-page-background: #ffffff;
+            --ph-survey-page-text: #111111;
+            --ph-survey-page-text-subtle: #6b6b6b;
+            --ph-survey-page-progress-track: rgba(17, 17, 17, 0.08);
+            --ph-survey-page-progress-bar: #111111;
+            --ph-survey-progress-value: 0%;
+            --ph-survey-page-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            /* Default elevation shadow for light card surfaces. Overridden in JS to a light
+               shadow when the card surface is dark (so cards stay grounded on dark themes). */
+            --ph-survey-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 2px 8px rgba(17, 17, 17, 0.04);
         }
 
         * {
             box-sizing: border-box;
         }
 
-        /* Base Layout */
+        html,
         body {
-            font-family: var(--ph-survey-font-family);
             margin: 0;
             padding: 0;
-            background: var(--ph-survey-body-background);
-            min-height: 100vh;
-            line-height: 1.6;
-            color: var(--ph-survey-text-primary-color);
+            background: var(--ph-survey-page-background);
+            color: var(--ph-survey-page-text);
+            font-family: var(--ph-survey-page-font);
             font-size: 16px;
+            line-height: 1.5;
             -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        body {
+            min-height: 100vh;
+        }
+
+        body,
+        button,
+        input,
+        textarea,
+        a {
+            touch-action: manipulation;
         }
 
         .main-container {
             min-height: 100vh;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-            box-sizing: border-box;
+            flex-direction: column;
+            padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 4vw, 2.5rem);
         }
 
-        .survey-card {
-            background: white;
-            border-radius: var(--ph-survey-card-border-radius);
-            box-shadow: var(--ph-survey-box-shadow);
-            max-width: 720px;
+        /* Progress bar lives at the top of the page, NOT inside the centered content group.
+           It represents progress through the whole survey (page chrome), not the current
+           question's state — so it should stay anchored regardless of how much content sits below. */
+        .survey-progress-wrap {
             width: 100%;
+            max-width: 44rem;
+            margin: 0 auto;
+        }
+
+        /* Centers content vertically when it fits, falls back to top-aligned natural scroll
+           when it doesn't (margin: auto collapses to 0 once content exceeds available space). */
+        .survey-stage {
+            width: 100%;
+            max-width: 44rem;
+            margin: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .survey-progress-track {
+            width: 100%;
+            height: 3px;
             overflow: hidden;
-            max-height: 90vh;
-            display: flex;
-            flex-direction: column;
-            animation: slideUp 0.6s ease-out;
+            border-radius: 999px;
+            background: var(--ph-survey-page-progress-track);
         }
 
-        /* Survey Header */
-        .survey-header {
-            background: var(--ph-survey-header-background);
-            color: var(--ph-survey-header-text-color);
-            padding: 1.75rem 2rem 1.5rem;
+        .survey-progress-bar {
+            display: block;
+            width: var(--ph-survey-progress-value);
+            height: 100%;
+            background: var(--ph-survey-page-progress-bar);
+            transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        /* === Survey rendered by posthog-js into #posthog-survey-container ===
+           When rendered via the API path, posthog-js sets CSS variables inline on
+           this element but does NOT inject its own stylesheet, so we own all the
+           styling. Customer customization flows through via mergeHostedAppearance
+           below — the CSS variable names here MUST match what posthog-js sets. */
+
+        #posthog-survey-container {
+            display: flex;
+            flex-direction: column;
+            color: var(--ph-survey-text-primary-color, #111);
+            font-family: inherit;
+        }
+
+        #posthog-survey-container .question-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Thank-you screen is celebratory — center the text. Question screens stay
+           left-aligned because reading left-to-right is faster while answering. */
+        #posthog-survey-container .thank-you-message {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             text-align: center;
-            flex-shrink: 0;
+            gap: 1.5rem;
         }
 
-        .survey-title {
-            font-size: 1.75rem;
-            font-weight: 700;
+        #posthog-survey-container .survey-question,
+        #posthog-survey-container .thank-you-message-header {
             margin: 0;
+            font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: -0.015em;
+            color: var(--ph-survey-text-primary-color, #111);
+            text-wrap: balance;
         }
 
-        .survey-description {
-            font-size: 1rem;
+        #posthog-survey-container .survey-question-description,
+        #posthog-survey-container .thank-you-message-body {
             margin: 0;
-            opacity: 0.9;
-            line-height: 1.4;
+            font-size: 0.975rem;
+            line-height: 1.6;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
         }
 
-        /* Survey Content */
-        .survey-content {
+        #posthog-survey-container .survey-question-description strong,
+        #posthog-survey-container .thank-you-message strong {
+            color: var(--ph-survey-text-primary-color, #111);
+        }
+
+        #posthog-survey-container fieldset {
+            min-width: 0;
+            margin: 0;
+            padding: 0;
+            border: none;
+        }
+
+        #posthog-survey-container legend {
+            padding: 0;
+        }
+
+        #posthog-survey-container .response-choice {
             flex: 1;
+            min-width: 0;
             display: flex;
-            flex-direction: column;
-            min-height: 0;
-        }
-
-        .survey-box {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            flex: 1;
-            min-height: 0;
-        }
-
-        .bottom-section {
-            display: flex;
-            flex-direction: column;
+            align-items: center;
             gap: 0.75rem;
         }
 
-        .survey-form,
-        .thank-you-message {
+        #posthog-survey-container textarea,
+        #posthog-survey-container input[type='text'] {
             width: 100%;
-            margin: 0;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            background: white;
-            padding: 1.5rem 2rem;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            min-height: 0;
-        }
-
-        /* Question Styling */
-        .survey-question {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--ph-survey-text-primary-color);
-            line-height: 1.4;
-            margin: 0;
-        }
-
-        .survey-question-description {
-            font-size: 1rem;
-            color: var(--ph-survey-text-subtle-color);
-            margin-top: 0.25rem;
-            margin-bottom: 1.25rem;
-        }
-
-        .question-container,
-        .thank-you-message {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .response-choice {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        /* Standard transitions - optimized for survey UX */
-        label,
-        input[type='checkbox'],
-        input[type='radio'],
-        input[type='text'],
-        textarea,
-        .ratings-emoji,
-        .ratings-number,
-        .footer-branding,
-        .form-cancel,
-        .form-submit {
-            transition: all 0.2s ease-out;
-        }
-
-        /* Input Styling */
-        textarea,
-        input[type='text'] {
-            border: 2px solid var(--ph-survey-border-color);
-            border-radius: var(--ph-survey-border-radius);
-            padding: 1rem;
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
+            border-radius: var(--ph-survey-border-radius, 10px);
+            background: var(--ph-survey-input-background, #fff);
+            color: var(--ph-survey-input-text-color, #111);
+            font: inherit;
             font-size: 1rem;
             line-height: 1.5;
-            background: var(--ph-survey-input-background);
-            color: var(--ph-survey-input-text-color);
-            width: 100%;
-            font-family: var(--ph-survey-font-family);
+            box-shadow: var(--ph-survey-card-shadow);
+            transition: border-color 160ms ease, box-shadow 160ms ease;
         }
 
-        textarea:focus,
-        input[type='text']:focus {
+        #posthog-survey-container textarea {
+            resize: vertical;
+            min-height: 8rem;
+        }
+
+        #posthog-survey-container textarea::placeholder,
+        #posthog-survey-container input[type='text']::placeholder {
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            opacity: 0.65;
+        }
+
+        /* :focus-visible is enough for text inputs — per spec, mouse-clicking into a text
+           field counts as visible focus (the user might be about to type), so we don't need
+           a separate :focus rule. */
+        #posthog-survey-container textarea:focus-visible,
+        #posthog-survey-container input[type='text']:focus-visible {
             outline: none;
-            border-color: var(--ph-survey-rating-active-bg-color);
-            box-shadow: var(--ph-survey-focus-ring);
+            border-color: var(--ph-survey-rating-active-bg-color, #111);
+            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.10), var(--ph-survey-card-shadow);
         }
 
-        textarea:hover:not(:focus),
-        input[type='text']:hover:not(:focus) {
-            border-color: var(--ph-survey-rating-active-bg-color);
+        #posthog-survey-container .validation-hint {
+            margin-top: 0.5rem;
+            font-size: 0.825rem;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
         }
 
-        /* Multiple Choice Options */
-        .multiple-choice-options {
+        #posthog-survey-container .multiple-choice-options {
             display: flex;
             flex-direction: column;
-            gap: 0.625rem;
-            flex: 1;
-            justify-content: flex-start;
-            overflow-y: auto;
-            max-height: 400px;
-            padding-right: 0.5rem;
-            margin: 0;
-            padding-left: 0;
-            border: none;
-        }
-
-        /* Fieldset styling */
-        fieldset {
-            border: none;
+            gap: 0.5rem;
             margin: 0;
             padding: 0;
         }
 
-        .multiple-choice-options label {
-            border: 2px solid var(--ph-survey-border-color);
-            border-radius: var(--ph-survey-border-radius);
-            padding: 0.875rem 1.25rem;
-            cursor: pointer;
-            background: white;
-            font-size: 1rem;
-            min-height: 56px;
+        #posthog-survey-container .multiple-choice-options label {
             display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-            color: var(--ph-survey-text-primary-color);
-            font-family: var(--ph-survey-font-family);
-        }
-
-        .choice-option-open {
-            flex-wrap: wrap;
-        }
-
-        .multiple-choice-options label:hover:not(:has(input:checked)) {
-            border-color: #d1d5db;
-            background: #f9fafb;
-        }
-
-        .multiple-choice-options label:has(input:checked) {
-            border-color: var(--ph-survey-rating-active-bg-color);
-            background: #eff6ff;
-        }
-
-        .multiple-choice-options input[type='checkbox'],
-        .multiple-choice-options input[type='radio'] {
-            appearance: none;
-            width: 1rem;
-            height: 1rem;
-            background: var(--ph-survey-input-background);
-            border: 1.5px solid var(--ph-survey-border-color);
+            flex-direction: column;
+            gap: 0.625rem;
+            min-height: 3rem;
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
+            border-radius: var(--ph-survey-border-radius, 10px);
+            background: var(--ph-survey-input-background, #fff);
+            color: var(--ph-survey-input-text-color, #111);
             cursor: pointer;
-            border-radius: 3px;
+            font-size: 0.975rem;
+            box-shadow: var(--ph-survey-card-shadow);
+            transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+        }
+
+        /* Selected state: dark border + a 1px inset to make it read as a "double-stroke" without
+           a layout-shifting border-width change. No background tint — on gray/dark pages tinting
+           darker makes selected cards appear dimmer than unselected ones, which reads backwards. */
+        #posthog-survey-container .multiple-choice-options label:has(input:checked) {
+            border-color: var(--ph-survey-rating-active-bg-color, #111);
+            box-shadow: inset 0 0 0 1px var(--ph-survey-rating-active-bg-color, #111), var(--ph-survey-card-shadow);
+        }
+
+        /* Focus ring on the whole label when its input has keyboard focus, so arrow-key
+           navigation has a clear target instead of just the small native radio dot. */
+        #posthog-survey-container .multiple-choice-options label:has(input:focus-visible) {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
+        }
+
+        #posthog-survey-container .multiple-choice-options input[type='checkbox'],
+        #posthog-survey-container .multiple-choice-options input[type='radio'] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 1.1rem;
+            height: 1.1rem;
+            margin: 0;
             flex-shrink: 0;
             position: relative;
-            margin: 0;
+            border: 1.5px solid rgba(17, 17, 17, 0.28);
+            background: #ffffff;
+            cursor: pointer;
+            transition: border-color 140ms ease, background-color 140ms ease;
         }
 
-        .multiple-choice-options input[type='radio'] {
-            border-radius: 50%;
+        #posthog-survey-container .multiple-choice-options input[type='checkbox'] {
+            border-radius: 4px;
         }
 
-        .multiple-choice-options input[type='checkbox']:hover,
-        .multiple-choice-options input[type='radio']:hover {
-            border-color: var(--ph-survey-rating-active-bg-color);
-            transform: scale(1.05);
+        #posthog-survey-container .multiple-choice-options input[type='radio'] {
+            border-radius: 999px;
         }
 
-        .multiple-choice-options input[type='checkbox']:checked,
-        .multiple-choice-options input[type='radio']:checked {
-            background: var(--ph-survey-rating-active-bg-color);
-            border-color: var(--ph-survey-rating-active-bg-color);
+        #posthog-survey-container .multiple-choice-options input[type='checkbox']:focus-visible,
+        #posthog-survey-container .multiple-choice-options input[type='radio']:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
         }
 
-        .multiple-choice-options input[type='checkbox']:checked::after {
+        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked,
+        #posthog-survey-container .multiple-choice-options input[type='radio']:checked {
+            border-color: var(--ph-survey-rating-active-bg-color, #111);
+            background: var(--ph-survey-rating-active-bg-color, #111);
+        }
+
+        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked::after,
+        #posthog-survey-container .multiple-choice-options input[type='radio']:checked::after {
             content: '';
             position: absolute;
-            left: 4px;
-            width: 4px;
-            height: 8px;
-            border: solid white;
+            box-sizing: content-box;
+        }
+
+        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked::after {
+            top: 0.05rem;
+            left: 0.3rem;
+            width: 0.22rem;
+            height: 0.5rem;
+            border: solid var(--ph-survey-rating-active-text-color, #fff);
             border-width: 0 2px 2px 0;
             transform: rotate(45deg);
         }
 
-        .multiple-choice-options input[type='radio']:checked::after {
-            content: '';
-            position: absolute;
-            left: 3.5px;
-            top: 3.5px;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: white;
+        #posthog-survey-container .multiple-choice-options input[type='radio']:checked::after {
+            top: 0.27rem;
+            left: 0.27rem;
+            width: 0.32rem;
+            height: 0.32rem;
+            border-radius: 999px;
+            background: var(--ph-survey-rating-active-text-color, #fff);
         }
 
-        /* Rating Styles */
-        .rating-text {
+        #posthog-survey-container .choice-option-open input[type='text'] {
+            margin-left: calc(1.1rem + 0.75rem);
+            width: calc(100% - 1.85rem);
+        }
+
+        #posthog-survey-container .rating-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.625rem;
+        }
+
+        #posthog-survey-container .rating-options-number {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 1fr;
+            gap: 0.4rem;
+        }
+
+        #posthog-survey-container .ratings-number {
+            min-height: 3rem;
+            padding: 0.75rem 0;
+            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
+            border-radius: var(--ph-survey-border-radius, 10px);
+            background: var(--ph-survey-rating-bg-color, #f1efea);
+            color: var(--ph-survey-rating-text-color, #111);
+            font: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: var(--ph-survey-card-shadow);
+            transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+        }
+
+        #posthog-survey-container .ratings-number.rating-active {
+            background: var(--ph-survey-rating-active-bg-color, #111);
+            color: var(--ph-survey-rating-active-text-color, #fff);
+            border-color: var(--ph-survey-rating-active-bg-color, #111);
+        }
+
+        #posthog-survey-container .rating-options-emoji {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        #posthog-survey-container .ratings-emoji {
+            min-width: 2.75rem;
+            min-height: 2.75rem;
+            padding: 0;
+            border: none;
+            border-radius: 999px;
+            background: transparent;
+            opacity: 0.5;
+            cursor: pointer;
+            transition: opacity 140ms ease, background-color 140ms ease;
+        }
+
+        #posthog-survey-container .ratings-emoji.rating-active {
+            opacity: 1;
+            background: rgba(17, 17, 17, 0.06);
+        }
+
+        #posthog-survey-container .ratings-emoji svg {
+            fill: var(--ph-survey-text-primary-color, #111);
+        }
+
+        #posthog-survey-container .rating-text {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            font-size: 0.825rem;
+        }
+
+        #posthog-survey-container .bottom-section {
             display: flex;
             flex-direction: row;
-            font-size: 0.8rem;
-            justify-content: space-between;
-            opacity: 0.7;
-        }
-
-        .rating-options-number {
-            display: grid;
-            grid-auto-columns: 1fr;
-            grid-auto-flow: column;
-            border-radius: var(--ph-survey-border-radius);
-            overflow: hidden;
-            border: 2px solid var(--ph-survey-border-color);
-        }
-
-        .ratings-number {
-            padding: 0.875rem 0;
-            border: none;
-            background-color: var(--ph-survey-rating-button-color);
-            border-right: 1px solid var(--ph-survey-border-color);
-            text-align: center;
-            cursor: pointer;
-            color: var(--ph-survey-rating-button-text-color);
-            font-weight: 600;
-            font-family: var(--ph-survey-font-family);
-        }
-
-        .ratings-number:last-of-type {
-            border-right: 0;
-        }
-
-        .ratings-number:hover {
-            filter: brightness(0.95);
-        }
-
-        .ratings-number.rating-active {
-            background: var(--ph-survey-rating-active-bg-color);
-            color: var(--ph-survey-rating-button-active-text-color);
-        }
-
-        .rating-options-emoji {
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .ratings-emoji {
-            font-size: 16px;
-            background-color: transparent;
-            border: none;
-            padding: 0;
-            opacity: 0.5;
-        }
-
-        .ratings-emoji:hover {
-            cursor: pointer;
-            transform: scale(1.15);
-            opacity: 1;
-        }
-
-        .ratings-emoji.rating-active {
-            opacity: 1;
-        }
-
-        .ratings-emoji svg {
-            fill: var(--ph-survey-text-primary-color);
-            /* Smooth color transitions */
-            transition: fill 0.2s ease-out;
-        }
-
-
-        /* Button Styling */
-        .form-submit {
-            background: var(--ph-survey-submit-button-color);
-            border: none;
-            border-radius: var(--ph-survey-border-radius);
-            padding: 0.875rem 2rem;
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--ph-survey-submit-button-text-color);
-            cursor: pointer;
-            width: 100%;
-            margin-top: 1rem;
-            font-family: var(--ph-survey-font-family);
-        }
-
-        .form-submit:hover:not([disabled]) {
-            filter: brightness(0.9);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-        }
-
-        .form-submit:active:not([disabled]) {
-            transform: translateY(0);
-        }
-
-        .form-submit[disabled] {
-            opacity: var(--ph-survey-disabled-button-opacity);
-            cursor: not-allowed;
-        }
-
-        /* Footer Branding */
-        .footer-branding {
-            font-size: 11px;
-            font-weight: 500;
-            display: flex;
-            justify-content: center;
-            gap: 4px;
             align-items: center;
-            text-decoration: none;
-            opacity: 0.6;
-            color: var(--ph-survey-text-subtle-color);
-            font-family: var(--ph-survey-font-family);
+            flex-wrap: wrap;
+            gap: 0.875rem 1rem;
+            margin-top: 2rem;
         }
 
-        .footer-branding:hover {
+        #posthog-survey-container .form-submit {
+            min-width: 10rem;
+            min-height: 3rem;
+            padding: 0.75rem 1.75rem;
+            border: none;
+            border-radius: var(--ph-survey-border-radius, 10px);
+            cursor: pointer;
+            user-select: none;
+            background: var(--ph-survey-submit-button-color, #111);
+            color: var(--ph-survey-submit-button-text-color, #fff);
+            font: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            box-shadow: none;
+            transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+        }
+
+        #posthog-survey-container .form-submit:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
+        }
+
+        /* Disabled state: outlined treatment instead of a flat gray block, so the unanswered
+           form doesn't feel like it's shouting at the respondent. */
+        #posthog-survey-container .form-submit[disabled] {
+            background: transparent;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            box-shadow: inset 0 0 0 1px var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
+            cursor: not-allowed;
             opacity: 1;
         }
 
-        .footer-branding a {
+        /* Pin "Survey by PostHog" to the page corner instead of stacking it under the submit button.
+           posthog-js still renders the element (and respects whiteLabel for paid customers); we
+           just relocate it visually. Hidden on small screens to keep the form unobstructed. */
+        #posthog-survey-container .footer-branding {
+            position: fixed;
+            bottom: 1.25rem;
+            right: 1.25rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.4rem 0.7rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 4px 14px rgba(17, 17, 17, 0.06);
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            font-size: 0.72rem;
+            font-weight: 500;
             text-decoration: none;
-            color: inherit;
+            opacity: 0.75;
+            transition: opacity 140ms ease;
+            z-index: 10;
         }
 
-        /* Thank You Message */
-        .thank-you-message {
-            text-align: center;
-            padding: 2rem;
+        #posthog-survey-container .footer-branding:hover {
+            opacity: 1;
         }
 
-        .thank-you-message-header {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--ph-survey-text-primary-color);
-            margin: 0 0 1rem 0;
+        #posthog-survey-container .footer-branding svg {
+            width: auto;
+            height: 0.85rem;
         }
 
-        .thank-you-message-body {
-            font-size: 1rem;
-            color: var(--ph-survey-text-subtle-color);
-            opacity: 0.8;
+        @media (max-width: 640px) {
+            #posthog-survey-container .footer-branding {
+                bottom: 0.75rem;
+                right: 0.75rem;
+            }
         }
 
-        /* Scrollbar Styling */
-        .multiple-choice-options::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .multiple-choice-options::-webkit-scrollbar-track {
-            background: #f1f5f9;
-            border-radius: 3px;
-        }
-
-        .multiple-choice-options::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
-
-        .multiple-choice-options::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-
-        /* Loading State */
         .loading {
-            text-align: center;
-            padding: 3rem 2rem;
-            color: var(--ph-survey-text-subtle-color);
+            flex: 1;
+            min-height: 16rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            flex: 1;
+            gap: 0.75rem;
+            color: var(--ph-survey-page-text-subtle);
+            text-align: center;
         }
 
         .loading-spinner {
-            display: inline-block;
-            width: 32px;
-            height: 32px;
-            border: 3px solid #e5e7eb;
-            border-top: 3px solid var(--ph-survey-rating-active-bg-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 1rem;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 999px;
+            border: 2px solid rgba(17, 17, 17, 0.1);
+            border-top-color: var(--ph-survey-page-text);
+            animation: spin 800ms linear infinite;
         }
 
         .loading-text {
-            font-size: 1.125rem;
-            font-weight: 500;
+            margin: 0;
+            font-size: 0.9rem;
         }
 
-        /* Hide loading when survey is rendered */
-        #posthog-survey-container:has(.ph-survey) .loading {
+        #posthog-survey-container:has(.question-container) .loading,
+        #posthog-survey-container:has(.thank-you-message) .loading {
             display: none;
         }
 
-        /* Animations */
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .main-container {
-                padding: 0.5rem;
-            }
-
-            .survey-header {
-                padding: 1.5rem 1.5rem 1.25rem;
-            }
-
-            .survey-title {
-                font-size: 1.5rem;
-            }
-
-            .survey-description {
-                font-size: 0.9rem;
-            }
-
-            .survey-form,
-            .thank-you-message {
-                padding: 1.25rem 1.5rem;
-            }
-
-            .multiple-choice-options {
-                max-height: 256px;
-            }
-        }
-
-        @media (max-height: 700px) {
-            .main-container {
-                padding: 0.75rem;
-            }
-
-            .survey-header {
-                padding: 1.25rem 2rem 1rem;
-            }
-
-            .survey-title {
-                font-size: 1.5rem;
-                margin-bottom: 0.25rem;
-            }
-
-            .survey-description {
-                font-size: 0.9rem;
-            }
-
-            .survey-form,
-            .thank-you-message {
-                padding: 1.25rem 2rem;
-            }
-        }
-
-        /* Utility classes */
         .sr-only {
             position: absolute;
             width: 1px;
@@ -596,18 +513,103 @@
             border: 0;
         }
 
-        /* Motion preferences */
+        /* Keyboard hint chips. Hidden by default; turned on inside the hover-capable query
+           below. The default-hidden + override pattern means touch devices skip the chips
+           naturally without needing a separate "hide on touch" rule. */
+        #posthog-survey-container .survey-keyhint {
+            display: none;
+            align-items: center;
+            gap: 1rem;
+            color: var(--ph-survey-text-subtle-color, #6b6b6b);
+            font-size: 0.78rem;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        #posthog-survey-container .survey-keyhint-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        #posthog-survey-container .survey-kbd {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.5rem;
+            height: 1.5rem;
+            padding: 0 0.4rem;
+            border-radius: 6px;
+            background: rgba(17, 17, 17, 0.05);
+            color: var(--ph-survey-text-primary-color, #111);
+            font-family: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+
+        #posthog-survey-container .survey-keyhint-label {
+            opacity: 0.7;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            #posthog-survey-container .survey-keyhint {
+                display: inline-flex;
+            }
+
+            #posthog-survey-container .multiple-choice-options label:hover:not(:has(input:checked)) {
+                border-color: rgba(17, 17, 17, 0.22);
+                transform: translateY(-1px);
+            }
+
+            #posthog-survey-container .ratings-number:hover:not(.rating-active) {
+                border-color: rgba(17, 17, 17, 0.22);
+                transform: translateY(-1px);
+            }
+
+            #posthog-survey-container .form-submit:hover:not([disabled]) {
+                opacity: 0.92;
+                transform: translateY(-1px);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .main-container {
+                padding: 1.25rem;
+                padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+            }
+
+            #posthog-survey-container .form-submit {
+                width: 100%;
+                min-width: 0;
+            }
+
+            #posthog-survey-container .survey-question,
+            #posthog-survey-container .thank-you-message-header {
+                font-size: 1.5rem;
+            }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-            * {
+            *,
+            *::before,
+            *::after {
                 animation-duration: 0.01ms !important;
                 animation-iteration-count: 1 !important;
                 transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
             }
         }
 
         html.embed-mode body {
-            background: transparent;
             min-height: auto;
+            background: transparent;
         }
 
         html.embed-mode .main-container {
@@ -615,25 +617,22 @@
             padding: 0;
         }
 
-        html.embed-mode .survey-card {
-            box-shadow: none;
-            border-radius: 0;
-            max-width: none;
-            max-height: none;
+        html.embed-mode .survey-progress-track {
+            margin-bottom: 1.5rem;
         }
     </style>
     {% if embed_mode %}
     <script nonce="{{ request.csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function() {
-            var surveyCard = document.querySelector('.survey-card');
-            if (!surveyCard) return;
+            var container = document.querySelector('.main-container');
+            if (!container) return;
             new ResizeObserver(function() {
                 window.parent.postMessage({
                     type: 'posthog:survey:height',
                     surveyId: '{{ survey_id }}',
-                    height: Math.ceil(surveyCard.getBoundingClientRect().height)
+                    height: Math.ceil(container.getBoundingClientRect().height)
                 }, '*');
-            }).observe(surveyCard);
+            }).observe(container);
         });
     </script>
     {% endif %}
@@ -641,333 +640,374 @@
 
 <body>
     <div class="main-container">
-        <div class="survey-card">
-            <div class="survey-header">
-                <h1 class="survey-title">{{ name }}</h1>
+        <div class="survey-progress-wrap">
+            <div
+                class="survey-progress-track"
+                id="survey-progress-track"
+                role="progressbar"
+                aria-label="Survey progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+            >
+                <span class="survey-progress-bar" id="survey-progress-bar"></span>
             </div>
+        </div>
 
-            <div class="survey-content">
-                <div id="posthog-survey-container">
-                    <div class="loading">
-                        <div class="loading-spinner"></div>
-                        <div class="loading-text">Loading survey...</div>
-                    </div>
+        <div class="survey-stage">
+            <div id="posthog-survey-container">
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p class="loading-text">Loading…</p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- PostHog JavaScript -->
     {{ survey_data|json_script:"survey-data" }}
     {{ project_config|json_script:"project-config" }}
     <script nonce="{{ request.csp_nonce }}">
-        // Project config from Django and helper functions
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
         const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
 
-        const BLACK_TEXT_COLOR = '#020617'
+        // Defaults tuned for the standalone hosted survey page. Customer-supplied
+        // appearance values always win — we only fill in fields they didn't customize,
+        // overriding posthog-js's popup-oriented defaults (gray bg, dark border, etc).
+        const HOSTED_SURVEY_DEFAULTS = {
+            backgroundColor: '#ffffff',
+            borderColor: 'rgba(17, 17, 17, 0.10)',
+            borderRadius: '10px',
+            submitButtonColor: '#111111',
+            submitButtonTextColor: '#ffffff',
+            // Rating buttons default to the same surface as choice cards and text inputs.
+            // Visual hierarchy should come from selection state, not control type. Customers
+            // can still override ratingButtonColor independently in their appearance settings.
+            ratingButtonColor: '#ffffff',
+            ratingButtonActiveColor: '#111111',
+            inputBackground: '#ffffff',
+            textSubtleColor: '#6b6b6b',
+        };
 
-        function hex2rgb(c) {
-            if (c[0] === '#') {
-                const hexColor = c.replace(/^#/, '')
-                const r = parseInt(hexColor.slice(0, 2), 16)
-                const g = parseInt(hexColor.slice(2, 4), 16)
-                const b = parseInt(hexColor.slice(4, 6), 16)
-                return 'rgb(' + r + ',' + g + ',' + b + ')'
-            }
-            return 'rgb(255, 255, 255)'
+        function mergeHostedAppearance(appearance) {
+            return { ...HOSTED_SURVEY_DEFAULTS, ...(appearance || {}) };
         }
 
-
-        function nameToHex(name) {
-            return {
-                aliceblue: '#f0f8ff',
-                antiquewhite: '#faebd7',
-                aqua: '#00ffff',
-                aquamarine: '#7fffd4',
-                azure: '#f0ffff',
-                beige: '#f5f5dc',
-                bisque: '#ffe4c4',
-                black: '#000000',
-                blanchedalmond: '#ffebcd',
-                blue: '#0000ff',
-                blueviolet: '#8a2be2',
-                brown: '#a52a2a',
-                burlywood: '#deb887',
-                cadetblue: '#5f9ea0',
-                chartreuse: '#7fff00',
-                chocolate: '#d2691e',
-                coral: '#ff7f50',
-                cornflowerblue: '#6495ed',
-                cornsilk: '#fff8dc',
-                crimson: '#dc143c',
-                cyan: '#00ffff',
-                darkblue: '#00008b',
-                darkcyan: '#008b8b',
-                darkgoldenrod: '#b8860b',
-                darkgray: '#a9a9a9',
-                darkgreen: '#006400',
-                darkkhaki: '#bdb76b',
-                darkmagenta: '#8b008b',
-                darkolivegreen: '#556b2f',
-                darkorange: '#ff8c00',
-                darkorchid: '#9932cc',
-                darkred: '#8b0000',
-                darksalmon: '#e9967a',
-                darkseagreen: '#8fbc8f',
-                darkslateblue: '#483d8b',
-                darkslategray: '#2f4f4f',
-                darkturquoise: '#00ced1',
-                darkviolet: '#9400d3',
-                deeppink: '#ff1493',
-                deepskyblue: '#00bfff',
-                dimgray: '#696969',
-                dodgerblue: '#1e90ff',
-                firebrick: '#b22222',
-                floralwhite: '#fffaf0',
-                forestgreen: '#228b22',
-                fuchsia: '#ff00ff',
-                gainsboro: '#dcdcdc',
-                ghostwhite: '#f8f8ff',
-                gold: '#ffd700',
-                goldenrod: '#daa520',
-                gray: '#808080',
-                green: '#008000',
-                greenyellow: '#adff2f',
-                honeydew: '#f0fff0',
-                hotpink: '#ff69b4',
-                'indianred ': '#cd5c5c',
-                indigo: '#4b0082',
-                ivory: '#fffff0',
-                khaki: '#f0e68c',
-                lavender: '#e6e6fa',
-                lavenderblush: '#fff0f5',
-                lawngreen: '#7cfc00',
-                lemonchiffon: '#fffacd',
-                lightblue: '#add8e6',
-                lightcoral: '#f08080',
-                lightcyan: '#e0ffff',
-                lightgoldenrodyellow: '#fafad2',
-                lightgrey: '#d3d3d3',
-                lightgreen: '#90ee90',
-                lightpink: '#ffb6c1',
-                lightsalmon: '#ffa07a',
-                lightseagreen: '#20b2aa',
-                lightskyblue: '#87cefa',
-                lightslategray: '#778899',
-                lightsteelblue: '#b0c4de',
-                lightyellow: '#ffffe0',
-                lime: '#00ff00',
-                limegreen: '#32cd32',
-                linen: '#faf0e6',
-                magenta: '#ff00ff',
-                maroon: '#800000',
-                mediumaquamarine: '#66cdaa',
-                mediumblue: '#0000cd',
-                mediumorchid: '#ba55d3',
-                mediumpurple: '#9370d8',
-                mediumseagreen: '#3cb371',
-                mediumslateblue: '#7b68ee',
-                mediumspringgreen: '#00fa9a',
-                mediumturquoise: '#48d1cc',
-                mediumvioletred: '#c71585',
-                midnightblue: '#191970',
-                mintcream: '#f5fffa',
-                mistyrose: '#ffe4e1',
-                moccasin: '#ffe4b5',
-                navajowhite: '#ffdead',
-                navy: '#000080',
-                oldlace: '#fdf5e6',
-                olive: '#808000',
-                olivedrab: '#6b8e23',
-                orange: '#ffa500',
-                orangered: '#ff4500',
-                orchid: '#da70d6',
-                palegoldenrod: '#eee8aa',
-                palegreen: '#98fb98',
-                paleturquoise: '#afeeee',
-                palevioletred: '#d87093',
-                papayawhip: '#ffefd5',
-                peachpuff: '#ffdab9',
-                peru: '#cd853f',
-                pink: '#ffc0cb',
-                plum: '#dda0dd',
-                powderblue: '#b0e0e6',
-                purple: '#800080',
-                red: '#ff0000',
-                rosybrown: '#bc8f8f',
-                royalblue: '#4169e1',
-                saddlebrown: '#8b4513',
-                salmon: '#fa8072',
-                sandybrown: '#f4a460',
-                seagreen: '#2e8b57',
-                seashell: '#fff5ee',
-                sienna: '#a0522d',
-                silver: '#c0c0c0',
-                skyblue: '#87ceeb',
-                slateblue: '#6a5acd',
-                slategray: '#708090',
-                snow: '#fffafa',
-                springgreen: '#00ff7f',
-                steelblue: '#4682b4',
-                tan: '#d2b48c',
-                teal: '#008080',
-                thistle: '#d8bfd8',
-                tomato: '#ff6347',
-                turquoise: '#40e0d0',
-                violet: '#ee82ee',
-                wheat: '#f5deb3',
-                white: '#ffffff',
-                whitesmoke: '#f5f5f5',
-                yellow: '#ffff00',
-                yellowgreen: '#9acd32',
-            }[name.toLowerCase()]
+        // Returns sRGB luminance (0–1) for any CSS color string we can parse, or null when we
+        // can't (e.g. named colors we don't have a hex for, oklch, etc — uncommon in customer
+        // appearance settings since the builder UI emits hex). Used to pick a card shadow that
+        // contrasts with the actual surface color, not just the default light theme.
+        function getLuminance(color) {
+            if (!color) return null
+            let hex = color.trim().toLowerCase()
+            if (hex === 'white') hex = '#ffffff'
+            else if (hex === 'black') hex = '#000000'
+            if (hex[0] !== '#') return null
+            if (hex.length === 4) hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]
+            if (hex.length !== 7) return null
+            const r = parseInt(hex.slice(1, 3), 16) / 255
+            const g = parseInt(hex.slice(3, 5), 16) / 255
+            const b = parseInt(hex.slice(5, 7), 16) / 255
+            // Rec. 709 luma — close enough to perceptual for picking light vs dark shadow.
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
         }
 
-        function getContrastingTextColor(color) {
-            let rgb
-            if (color[0] === '#') {
-                rgb = hex2rgb(color)
+        // Page background and progress bar follow the survey appearance so the form
+        // feels like a single document rather than a card floating on a contrasting page.
+        function applyPageAppearance(appearance) {
+            const root = document.documentElement;
+            if (appearance.backgroundColor) {
+                root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor);
             }
-            if (color.startsWith('rgb')) {
-                rgb = color
+            if (appearance.submitButtonColor) {
+                // Tie progress bar to the primary action color for visual coherence.
+                root.style.setProperty('--ph-survey-page-progress-bar', appearance.submitButtonColor);
             }
-            // otherwise it's a color name
-            const nameColorToHex = nameToHex(color)
-            if (nameColorToHex) {
-                rgb = hex2rgb(nameColorToHex)
+            if (appearance.textSubtleColor) {
+                root.style.setProperty('--ph-survey-page-text-subtle', appearance.textSubtleColor);
             }
-            if (!rgb) {
-                return BLACK_TEXT_COLOR
+
+            // Pick a card elevation shadow that actually contrasts with the card surface.
+            // Dark surfaces need a light shadow (otherwise dark-on-dark = invisible elevation).
+            const cardLuminance = getLuminance(appearance.inputBackground)
+            if (cardLuminance !== null && cardLuminance < 0.5) {
+                root.style.setProperty(
+                    '--ph-survey-card-shadow',
+                    '0 1px 2px rgba(255, 255, 255, 0.04), 0 2px 8px rgba(255, 255, 255, 0.04)'
+                )
             }
-            const colorMatch = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/)
-            if (colorMatch) {
-                const r = parseInt(colorMatch[1])
-                const g = parseInt(colorMatch[2])
-                const b = parseInt(colorMatch[3])
-                const hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
-                return hsp > 127.5 ? BLACK_TEXT_COLOR : 'white'
-            }
-            return BLACK_TEXT_COLOR
         }
 
-        function colorToRgbaWithOpacity(color, opacity = 0.25) {
-            let rgb
-
-            // Handle hex colors
-            if (color[0] === '#') {
-                rgb = hex2rgb(color)
-            }
-            // Handle rgb/rgba colors
-            else if (color.startsWith('rgb')) {
-                rgb = color
-            }
-            // Handle color names
-            else {
-                const nameColorToHex = nameToHex(color)
-                if (nameColorToHex) {
-                    rgb = hex2rgb(nameColorToHex)
+        function inferCurrentQuestionIndex(container) {
+            // posthog-js exposes the current question index as a data attribute on .survey-box.
+            // Works for every question type (open text, multiple choice, rating, link).
+            const surveyBox = container.querySelector('.survey-box[data-question-index]')
+            if (surveyBox) {
+                const parsed = Number(surveyBox.getAttribute('data-question-index'))
+                if (Number.isFinite(parsed)) {
+                    return parsed
                 }
             }
 
-            if (!rgb) {
-                return `rgba(255, 255, 255, ${opacity})` // fallback to white with opacity
+            // Fallback for older posthog-js versions that don't expose the index yet.
+            // Match the displayed question text against survey.questions[].
+            const displayedQuestion = container.querySelector('.survey-question')?.textContent?.trim()
+            if (displayedQuestion && Array.isArray(survey.questions)) {
+                const matchedIndex = survey.questions.findIndex((q) => (q?.question || '').trim() === displayedQuestion)
+                if (matchedIndex >= 0) {
+                    return matchedIndex
+                }
             }
 
-            const colorMatch = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/)
-            if (colorMatch) {
-                const r = parseInt(colorMatch[1])
-                const g = parseInt(colorMatch[2])
-                const b = parseInt(colorMatch[3])
-                return `rgba(${r}, ${g}, ${b}, ${opacity})`
-            }
-
-            return `rgba(255, 255, 255, ${opacity})` // fallback
+            return null
         }
 
-
-        // Apply survey appearance settings as CSS variables
-        function applySurveyAppearance(appearance) {
-            if (!appearance) return;
-
-            const root = document.documentElement;
-
-            // Apply custom appearance settings
-            if (appearance.backgroundColor) {
-                // Apply to body and header instead of survey container
-                // Use 25% opacity for body background for a softer effect
-                root.style.setProperty('--ph-survey-body-background', colorToRgbaWithOpacity(appearance.backgroundColor, 0.25));
-                root.style.setProperty('--ph-survey-header-background', appearance.backgroundColor);
-                root.style.setProperty('--ph-survey-header-text-color', getContrastingTextColor(appearance.backgroundColor));
+        function updateProgress(percentage) {
+            const normalized = Math.max(0, Math.min(100, Math.round(percentage)))
+            document.documentElement.style.setProperty('--ph-survey-progress-value', normalized + '%')
+            const progressTrack = document.getElementById('survey-progress-track')
+            if (progressTrack) {
+                progressTrack.setAttribute('aria-valuenow', String(normalized))
             }
-
-            if (appearance.submitButtonColor) {
-                root.style.setProperty('--ph-survey-submit-button-color', appearance.submitButtonColor);
-                root.style.setProperty('--ph-survey-submit-button-text-color',
-                    appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor));
-            }
-
-            if (appearance.ratingButtonColor) {
-                root.style.setProperty('--ph-survey-rating-button-color', appearance.ratingButtonColor);
-                root.style.setProperty('--ph-survey-rating-button-text-color', getContrastingTextColor(appearance.ratingButtonColor));
-            }
-
-            if (appearance.ratingButtonActiveColor) {
-                root.style.setProperty('--ph-survey-rating-active-bg-color', appearance.ratingButtonActiveColor);
-                root.style.setProperty('--ph-survey-rating-button-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
-            }
-
-            if (appearance.borderColor) {
-                root.style.setProperty('--ph-survey-border-color', appearance.borderColor);
-            }
-
-            if (appearance.borderRadius) {
-                root.style.setProperty('--ph-survey-border-radius', appearance.borderRadius);
-                root.style.setProperty('--ph-survey-card-border-radius', appearance.borderRadius);
-            }
-
-            if (appearance.inputBackground) {
-                root.style.setProperty('--ph-survey-input-background', appearance.inputBackground);
-            }
-
-            if (appearance.inputTextColor) {
-                root.style.setProperty('--ph-survey-input-text-color', appearance.inputTextColor);
-            }
-
-            if (appearance.textSubtleColor) {
-                root.style.setProperty('--ph-survey-text-subtle-color', appearance.textSubtleColor);
-            }
-
-            if (appearance.disabledButtonOpacity) {
-                root.style.setProperty('--ph-survey-disabled-button-opacity', appearance.disabledButtonOpacity);
-            }
-
-            // Properties not suitable for external surveys (ignored):
-            // - zIndex: not relevant for full page
-            // - maxWidth: we manage our own layout
-            // - position: not relevant for full page
-            // - boxShadow: we have our own design
-            // - boxPadding: we have our own padding
-            // - fontFamily: we have our own font stack
-            // - whiteLabel: not relevant for this context
-            // - placeholder: handled by PostHog survey rendering
-            // - shuffleQuestions: behavioral setting, not appearance
-            // - thankYouMessageHeader/thankYouMessageDescription: handled by PostHog survey rendering
-            // - displayThankYouMessage: handled by PostHog survey rendering
         }
 
-        // Apply survey appearance if available
-        if (survey.appearance) {
-            applySurveyAppearance(survey.appearance);
+        // Single keyboard handler bound once on document.
+        //
+        // Convention (matches iMessage, Linear, Slack, Typeform, ChatGPT):
+        //   - Enter           → submit current question
+        //   - Shift+Enter     → newline inside a textarea (default browser behavior)
+        //   - ↑/↓ or ←/→      → cycle focus through choices and rating buttons
+        //
+        // Bound on DOCUMENT (not the container) because link/announcement questions have
+        // no focusable input — focus stays on <body>, so a container-scoped listener would
+        // never fire. Document-scoped works for every question type uniformly.
+        //
+        // CAPTURE PHASE is required: posthog-js's OpenTextQuestion calls e.stopPropagation()
+        // on every textarea keydown, which kills the bubble phase before our handler can run.
+        let keyboardShortcutsBound = false
+        function bindKeyboardShortcuts(container) {
+            if (keyboardShortcutsBound) return
+            keyboardShortcutsBound = true
+            document.addEventListener('keydown', (event) => {
+                if (event.metaKey || event.ctrlKey || event.altKey) return
+
+                // Swallow Enter and Escape on the thank-you screen. posthog-js's
+                // ConfirmationMessage binds its own window keydown listener that calls
+                // onClose() on either key — fine inside a popup, but on the hosted page
+                // there's nothing to close, so it unmounts the survey and leaves an empty
+                // container behind. Stopping the event in capture phase prevents posthog-js's
+                // bubble-phase handler from firing.
+                if ((event.key === 'Enter' || event.key === 'Escape') && container.querySelector('.thank-you-message')) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    return
+                }
+
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    const submitButton = container.querySelector('.form-submit:not([disabled])')
+                    if (!submitButton) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    submitButton.click()
+                    return
+                }
+
+                // Arrow keys → cycle through focusable options. Skipped while focus is in a
+                // text input or textarea so users can move the cursor through their answer.
+                if (isArrowKey(event.key)) {
+                    const target = event.target
+                    if (target instanceof HTMLElement) {
+                        const tag = target.tagName
+                        if (tag === 'TEXTAREA') return
+                        if (tag === 'INPUT' && target.type === 'text') return
+                    }
+                    if (handleArrowNavigation(container, event.key)) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }
+                }
+            }, true /* capture */)
         }
+
+        function isArrowKey(key) {
+            return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight'
+        }
+
+        // Returns the focusable options for the currently displayed question, in DOM order.
+        // Multiple choice → the underlying inputs (radio/checkbox).
+        // Rating          → the rating buttons.
+        function getNavigableOptions(container) {
+            const choices = container.querySelectorAll('.multiple-choice-options input[type="radio"], .multiple-choice-options input[type="checkbox"]')
+            if (choices.length > 0) {
+                return { kind: 'choice', elements: Array.from(choices) }
+            }
+            const ratings = container.querySelectorAll('.ratings-number, .ratings-emoji')
+            if (ratings.length > 0) {
+                return { kind: 'rating', elements: Array.from(ratings) }
+            }
+            return null
+        }
+
+        function handleArrowNavigation(container, key) {
+            const nav = getNavigableOptions(container)
+            if (!nav || nav.elements.length === 0) return false
+
+            const active = document.activeElement
+            const currentIdx = nav.elements.indexOf(active)
+            const goingForward = key === 'ArrowDown' || key === 'ArrowRight'
+
+            // If nothing in the group is focused yet, the first arrow press lands on the
+            // first or last option depending on direction. Subsequent presses cycle.
+            let nextIdx
+            if (currentIdx === -1) {
+                nextIdx = goingForward ? 0 : nav.elements.length - 1
+            } else {
+                nextIdx = (currentIdx + (goingForward ? 1 : -1) + nav.elements.length) % nav.elements.length
+            }
+
+            const next = nav.elements[nextIdx]
+            next.focus()
+
+            // Auto-select on focus for single-select groups (radios + ratings), matching
+            // native radio group behavior. Checkboxes only move focus — Space toggles.
+            const shouldAutoSelect = nav.kind === 'rating' || (next.type === 'radio')
+            if (shouldAutoSelect) {
+                next.click()
+            }
+            return true
+        }
+
+        function refreshSurveyState() {
+            const container = document.getElementById('posthog-survey-container')
+            if (!container) return
+
+            const questionCount = Array.isArray(survey.questions) ? survey.questions.length : 0
+            const isComplete = Boolean(container.querySelector('.thank-you-message-header'))
+            const currentQuestionIndex = inferCurrentQuestionIndex(container)
+
+            if (isComplete) {
+                updateProgress(100)
+            } else if (currentQuestionIndex !== null && questionCount > 0) {
+                const currentStep = Math.min(questionCount, currentQuestionIndex + 1)
+                updateProgress((currentStep / questionCount) * 100)
+            } else {
+                updateProgress(0)
+            }
+
+            bindKeyboardShortcuts(container)
+
+            const idx = currentQuestionIndex
+            const currentType = idx !== null ? survey.questions?.[idx]?.type : null
+            updateKeyboardHint(container, currentType)
+        }
+
+        // Localized labels for the keyboard hint chips. Covers languages we're confident on;
+        // anything else falls through to English. Region variants fall through to the base
+        // language (pt-BR → pt). Asian and RTL languages need a native-speaker pass before
+        // we add them — for now they'll just see the English fallback.
+        const KEYBOARD_HINT_I18N = {
+            en: { submit: 'submit', newline: 'new line', select: 'select', toggle: 'toggle' },
+            es: { submit: 'enviar', newline: 'nueva línea', select: 'seleccionar', toggle: 'alternar' },
+            pt: { submit: 'enviar', newline: 'nova linha', select: 'selecionar', toggle: 'marcar' },
+            fr: { submit: 'envoyer', newline: 'nouvelle ligne', select: 'sélectionner', toggle: 'cocher' },
+            de: { submit: 'senden', newline: 'neue Zeile', select: 'auswählen', toggle: 'umschalten' },
+            it: { submit: 'invia', newline: 'nuova riga', select: 'seleziona', toggle: 'attiva' },
+            nl: { submit: 'verzenden', newline: 'nieuwe regel', select: 'selecteren', toggle: 'aanvinken' },
+            pl: { submit: 'wyślij', newline: 'nowa linia', select: 'wybierz', toggle: 'zaznacz' },
+            ru: { submit: 'отправить', newline: 'новая строка', select: 'выбрать', toggle: 'отметить' },
+            tr: { submit: 'gönder', newline: 'yeni satır', select: 'seç', toggle: 'işaretle' },
+            id: { submit: 'kirim', newline: 'baris baru', select: 'pilih', toggle: 'tandai' },
+            vi: { submit: 'gửi', newline: 'dòng mới', select: 'chọn', toggle: 'chọn' },
+        }
+
+        function getKeyboardHintLabels() {
+            const lang = (navigator.language || 'en').toLowerCase().split('-')[0]
+            return KEYBOARD_HINT_I18N[lang] || KEYBOARD_HINT_I18N.en
+        }
+
+        // Renders kbd-style chips next to the submit button explaining the keyboard shortcuts.
+        // Touch devices are handled purely via CSS (`@media (hover: hover)`) — that re-evaluates
+        // when the input device changes, which the JS check wouldn't, and is more accurate on
+        // touchscreen laptops where 'ontouchstart' is true but a real keyboard exists.
+        // Each question type gets only the chips that are actually relevant to it:
+        //   - open                  → ↵ submit  ⇧↵ new line
+        //   - single_choice         → ↵ submit  ↑↓ select
+        //   - multiple_choice       → ↵ submit  ↑↓ select  ␣ toggle
+        //   - rating                → ↵ submit  ←→ select
+        //   - link                  → ↵ submit
+        //   - thank-you / unknown   → no hint
+        function updateKeyboardHint(container, currentType) {
+            const bottomSection = container.querySelector('.bottom-section')
+            const submitButton = bottomSection?.querySelector('.form-submit')
+            if (!bottomSection || !submitButton) return
+
+            let hint = bottomSection.querySelector('.survey-keyhint')
+
+            if (!currentType) {
+                hint?.remove()
+                return
+            }
+
+            if (!hint) {
+                hint = document.createElement('span')
+                hint.className = 'survey-keyhint'
+                bottomSection.appendChild(hint)
+            }
+
+            const labels = getKeyboardHintLabels()
+            const chip = (kbd, label) =>
+                `<span class="survey-keyhint-row"><kbd class="survey-kbd">${kbd}</kbd><span class="survey-keyhint-label">${label}</span></span>`
+
+            const chips = [chip('↵', labels.submit)]
+            if (currentType === 'open') {
+                chips.push(chip('⇧ ↵', labels.newline))
+            } else if (currentType === 'single_choice') {
+                chips.push(chip('↑ ↓', labels.select))
+            } else if (currentType === 'multiple_choice') {
+                chips.push(chip('↑ ↓', labels.select))
+                chips.push(chip('Space', labels.toggle))
+            } else if (currentType === 'rating') {
+                chips.push(chip('← →', labels.select))
+            }
+
+            hint.innerHTML = chips.join('')
+        }
+
+        function setupSurveyShell() {
+            const container = document.getElementById('posthog-survey-container')
+            if (!container) return
+
+            let queued = false
+            const refresh = () => {
+                queued = false
+                refreshSurveyState()
+            }
+            const scheduleRefresh = () => {
+                if (queued) return
+                queued = true
+                window.requestAnimationFrame(refresh)
+            }
+
+            new MutationObserver(scheduleRefresh).observe(container, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+            })
+
+            refreshSurveyState()
+        }
+
+        // Merge our hosted-page defaults into the survey appearance before posthog-js renders.
+        // Customer customization (survey.appearance.*) wins; we only fill the gaps.
+        survey.appearance = mergeHostedAppearance(survey.appearance);
+        applyPageAppearance(survey.appearance);
+
+        document.addEventListener('DOMContentLoaded', setupSurveyShell)
     </script>
     <script nonce="{{ request.csp_nonce }}">
-        // Load PostHog from CDN
         !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.full.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init Ie Ts Ms Ee Es Rs capture Ge calculateEventProperties Os register register_once register_for_session unregister unregister_for_session js getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Ds Fs createPersonProfile Ls Ps opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Cs debug I As getPageViewId captureTraceFeedback captureTraceMetric".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
 
         const searchParams = new URLSearchParams(window.location.search);
 
-        // Initialize PostHog with project configuration
         const config = {
             api_host: projectConfig.api_host,
             disable_surveys_automatic_display: true,
@@ -999,12 +1039,10 @@
             }
         }
 
-        // Extract additional survey event properties from URL parameters
         const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', '__posthog_debug', 'auto_submit'];
         const surveyEventProperties = {};
 
         for (const [key, value] of searchParams.entries()) {
-            // Skip question prefill parameters (q1, q2, etc.) and ignored params
             const keyLower = key.toLowerCase();
             if (!URL_PARAMS_TO_IGNORE.includes(keyLower) && !keyLower.match(/^q\d+$/)) {
                 if (/^-?\d+(\.\d+)?$/.test(value)) {
@@ -1019,7 +1057,6 @@
             }
         }
 
-        // Add ui_host if available (for reverse proxy setups)
         if (projectConfig.ui_host) {
             config.ui_host = projectConfig.ui_host;
         }

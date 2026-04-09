@@ -55,10 +55,10 @@ import type {
     ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
+    EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -776,6 +776,7 @@ export interface ActionType extends WithAccessControl {
     bytecode_error?: string
     pinned_at: string | null
     _create_in_folder?: string | null
+    reference_count?: number
 }
 
 /** Sync with nodejs/src/types.ts */
@@ -1827,6 +1828,7 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
+    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }
@@ -2330,7 +2332,7 @@ export interface EndpointType extends WithAccessControl {
     name: string
     description: string
     derived_from_insight?: string | null
-    query: HogQLQuery | InsightQueryNode
+    query: HogQLQuery | EndpointQueryNode
     is_active: boolean
     endpoint_path: string
     created_at: string

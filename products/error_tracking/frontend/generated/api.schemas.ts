@@ -293,6 +293,16 @@ export interface PatchedErrorTrackingIssueFullApi {
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
 
+export interface ErrorTrackingIssueMergeRequestApi {
+    /** IDs of the issues to merge into the current issue. */
+    ids: string[]
+}
+
+export interface ErrorTrackingIssueMergeResponseApi {
+    /** Whether the merge completed successfully. */
+    success: boolean
+}
+
 export interface ErrorTrackingReleaseApi {
     readonly id: string
     hash_id: string

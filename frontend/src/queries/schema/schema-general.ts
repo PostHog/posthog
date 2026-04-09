@@ -1831,10 +1831,13 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+/** Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery. */
+export type EndpointQueryNode = TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery
+
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode
+    query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */

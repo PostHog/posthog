@@ -190,6 +190,7 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresPersonRepository,
             this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
@@ -198,6 +199,7 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresGroupRepository,
             this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
 

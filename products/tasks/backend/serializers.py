@@ -379,7 +379,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
-        help_text="Follow-up user message to include in the resumed run's prompt.",
+        help_text="Initial or follow-up user message to include in the run prompt.",
     )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
