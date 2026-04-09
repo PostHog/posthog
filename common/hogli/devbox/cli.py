@@ -532,8 +532,10 @@ def _run_cleanup_step(label: str, cmd: list[str]) -> None:
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
         click.echo(" done")
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except FileNotFoundError:
         click.echo(" skipped (command unavailable)")
+    except subprocess.CalledProcessError as e:
+        click.echo(f" warning: exited with code {e.returncode}")
 
 
 def _rm_dir(label: str, path: Path) -> None:
@@ -587,8 +589,10 @@ def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
     try:
         subprocess.run(["nix-collect-garbage", "-d"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
         click.echo(" done")
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except FileNotFoundError:
         click.echo(" skipped (nix-collect-garbage unavailable)")
+    except subprocess.CalledProcessError as e:
+        click.echo(f" warning: exited with code {e.returncode}")
 
     # Cargo build artifacts — opt-in because removing them forces a full Rust recompile
     if prune_cargo:
@@ -601,8 +605,10 @@ def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
                 ["docker", "container", "prune", "-f"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )  # noqa: S603
             click.echo(" done")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            click.echo(" skipped (Docker unavailable)")
+        except FileNotFoundError:
+            click.echo(" skipped (docker unavailable)")
+        except subprocess.CalledProcessError as e:
+            click.echo(f" warning: exited with code {e.returncode}")
 
     actually_freed = _sum_freed(before, _snapshot_free(watch_paths))
 
@@ -612,9 +618,13 @@ def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
     else:
         click.echo("Nothing significant was freed (caches may already be empty).")
 
-    click.echo()
-    click.echo("Tips for more space:")
+    tips = []
     if not prune_cargo:
-        click.echo("  hogli devbox:cleanup:disk --cargo  (rm ~/.cargo/target, forces recompile)")
+        tips.append("  hogli devbox:cleanup:disk --cargo  (rm ~/.cargo/target, forces recompile)")
     if not prune_docker:
-        click.echo("  hogli devbox:cleanup:disk --docker  (prune stopped containers)")
+        tips.append("  hogli devbox:cleanup:disk --docker  (prune stopped containers)")
+    if tips:
+        click.echo()
+        click.echo("Tips for more space:")
+        for tip in tips:
+            click.echo(tip)
