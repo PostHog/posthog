@@ -8,9 +8,9 @@ export function convertSegmentKinds(
     isLoadingSnapshots: boolean
 ): RecordingSegment[] {
     return segments.map((segment) => {
-        if (snapshotStore.sourceCount > 0) {
-            const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
-            const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
+        const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
+        const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
+        if (startIdx !== null && endIdx !== null) {
             const hasUnloaded = snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length > 0
 
             if (segment.kind === 'buffer' && !hasUnloaded) {

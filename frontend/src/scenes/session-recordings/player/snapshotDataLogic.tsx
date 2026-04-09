@@ -35,6 +35,14 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
+// Reactivity note (#53686): `cache.store` (SnapshotStore) and `cache.scheduler`
+// (LoadingScheduler) live outside Kea. Their mutations are invisible to
+// selectors unless `storeUpdated()` is dispatched. Any listener that
+// mutates either — scheduler.seekTo, scheduler.clearSeek, store.markLoaded,
+// store.setSources — MUST dispatch `storeUpdated()` afterwards. Any selector
+// that reads `cache.scheduler.currentMode` or `cache.store` state MUST depend
+// on `storeUpdateCount` (not `storeVersion`, which only bumps on data mutations
+// and would memoize to stale values across pure mode transitions).
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -238,15 +246,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
                 // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
-                // buffer_ahead loading already starts from the beginning.
-                //
-                // The sourceCount > 0 check is load-bearing (#53686): an empty store's
-                // getSourceIndexForTimestamp returns 0 for any timestamp, so without
-                // the guard a ?t=<past-end> URL that arrives before sources finish
-                // loading would skip seek mode and leave the scheduler stuck in
-                // buffer_ahead with no way to reach a full snapshot.
+                // buffer_ahead loading already starts from the beginning. An empty store
+                // returns null here, which naturally falls through to scheduler.seekTo —
+                // that's required for ?t=<past-end> URLs that arrive before sources load
+                // (see #53686).
                 const targetIndex = cache.store.getSourceIndexForTimestamp(timestamp)
-                if (cache.store.sourceCount > 0 && targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
+                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
                     actions.loadNextSnapshotSource()
                     return
                 }
