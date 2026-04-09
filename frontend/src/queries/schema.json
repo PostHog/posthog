@@ -33320,13 +33320,12 @@
                             "additionalProperties": false,
                             "properties": {
                                 "description": {
-                                    "type": "string"
+                                    "type": ["string", "null"]
                                 },
                                 "success": {
-                                    "type": "boolean"
+                                    "type": ["boolean", "null"]
                                 }
                             },
-                            "required": ["success", "description"],
                             "type": "object"
                         },
                         {
