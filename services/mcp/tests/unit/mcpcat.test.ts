@@ -31,11 +31,29 @@ describe('initMcpCatObservability', () => {
         }
     }
 
-    it('calls mcpcat.track with null projectId and correct options', () => {
+    function getIdentifyCallback(): () => Promise<unknown> {
+        const call = vi.mocked(track).mock.calls[0]!
+        const options = call[2] as { identify: () => Promise<unknown> }
+        return options.identify
+    }
+
+    function getEventTagsCallback(): () => Promise<Record<string, string>> {
+        const call = vi.mocked(track).mock.calls[0]!
+        const options = call[2] as { eventTags: () => Promise<Record<string, string>> }
+        return options.eventTags
+    }
+
+    function getEventPropertiesCallback(): () => Record<string, unknown> {
+        const call = vi.mocked(track).mock.calls[0]!
+        const options = call[2] as { eventProperties: () => Record<string, unknown> }
+        return options.eventProperties
+    }
+
+    it('calls mcpcat.track with null projectId and correct options', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         expect(track).toHaveBeenCalledWith(
             server,
@@ -59,147 +77,100 @@ describe('initMcpCatObservability', () => {
         )
     })
 
-    it('skips initialization when POSTHOG_ANALYTICS_API_KEY is not set', () => {
+    it('skips initialization when POSTHOG_ANALYTICS_API_KEY is not set', async () => {
         env.POSTHOG_ANALYTICS_API_KEY = undefined as unknown as string
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
-
+        await initMcpCatObservability(server, identity)
         expect(track).not.toHaveBeenCalled()
     })
 
-    it('skips initialization when POSTHOG_ANALYTICS_HOST is not set', () => {
+    it('skips initialization when POSTHOG_ANALYTICS_HOST is not set', async () => {
         env.POSTHOG_ANALYTICS_HOST = undefined as unknown as string
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
-
+        await initMcpCatObservability(server, identity)
         expect(track).not.toHaveBeenCalled()
     })
-
-    function getIdentifyCallback(): () => Promise<unknown> {
-        const call = vi.mocked(track).mock.calls[0]!
-        const options = call[2] as { identify: () => Promise<unknown> }
-        return options.identify
-    }
-
-    function getEventTagsCallback(): () => Promise<Record<string, string>> {
-        const call = vi.mocked(track).mock.calls[0]!
-        const options = call[2] as { eventTags: () => Promise<Record<string, string>> }
-        return options.eventTags
-    }
-
-    function getEventPropertiesCallback(): () => Record<string, unknown> {
-        const call = vi.mocked(track).mock.calls[0]!
-        const options = call[2] as { eventProperties: () => Record<string, unknown> }
-        return options.eventProperties
-    }
 
     it('identify callback resolves identity from provider', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         const result = await getIdentifyCallback()()
-
-        expect(result).toEqual({
-            userId: 'user-123',
-            userData: {
-                region: 'us',
-                organization_id: 'org-789',
-                project_id: 'proj-101',
-            },
-        })
+        expect(result).toEqual({ userId: 'user-123' })
     })
 
-    it('identify callback skips undefined properties in userData', async () => {
-        const server = new McpServer({ name: 'test', version: '1.0.0' })
-        const identity = createMockIdentity({
-            getRegion: vi.fn().mockReturnValue(undefined),
-            getOrganizationId: vi.fn().mockReturnValue(undefined),
-            getProjectId: vi.fn().mockReturnValue(undefined),
-        })
-
-        initMcpCatObservability(server, identity)
-
-        const result = await getIdentifyCallback()()
-
-        expect(result).toEqual({
-            userId: 'user-123',
-            userData: {},
-        })
-    })
-
-    it('eventTags callback returns all string metadata as tags', async () => {
+    it('eventTags callback returns session_id when available', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         const result = await getEventTagsCallback()()
-
-        expect(result).toEqual({
-            $session_id: 'session-uuid-456',
-            mcp_client_name: 'claude-code',
-            mcp_client_version: '1.2.3',
-            mcp_protocol_version: '2024-11-05',
-            region: 'us',
-            organization_id: 'org-789',
-            project_id: 'proj-101',
-        })
+        expect(result).toEqual({ $session_id: 'session-uuid-456' })
     })
 
-    it('eventTags callback skips undefined values', async () => {
+    it('eventTags callback returns empty when session uuid is undefined', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity({
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getMcpClientName: vi.fn().mockReturnValue(undefined),
-            getMcpClientVersion: vi.fn().mockReturnValue(undefined),
-            getMcpProtocolVersion: vi.fn().mockReturnValue(undefined),
-            getRegion: vi.fn().mockReturnValue(undefined),
-            getOrganizationId: vi.fn().mockReturnValue(undefined),
-            getProjectId: vi.fn().mockReturnValue(undefined),
         })
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         const result = await getEventTagsCallback()()
-
         expect(result).toEqual({})
     })
 
-    it('eventProperties callback returns numeric and long-string metadata', () => {
+    it('eventProperties callback returns all metadata', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         const result = getEventPropertiesCallback()()
-
         expect(result).toEqual({
+            ai_product: 'mcp',
             mcp_version: 2,
             client_user_agent: 'test-agent/1.0',
+            mcp_client_name: 'claude-code',
+            mcp_client_version: '1.2.3',
+            mcp_protocol_version: '2024-11-05',
+            mcp_region: 'us',
         })
     })
 
-    it('eventProperties callback skips undefined values', () => {
+    it('eventProperties callback includes undefined values from provider', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity({
             getVersion: vi.fn().mockReturnValue(undefined),
             getClientUserAgent: vi.fn().mockReturnValue(undefined),
+            getMcpClientName: vi.fn().mockReturnValue(undefined),
+            getMcpClientVersion: vi.fn().mockReturnValue(undefined),
+            getMcpProtocolVersion: vi.fn().mockReturnValue(undefined),
+            getRegion: vi.fn().mockReturnValue(undefined),
         })
 
-        initMcpCatObservability(server, identity)
+        await initMcpCatObservability(server, identity)
 
         const result = getEventPropertiesCallback()()
-
-        expect(result).toEqual({})
+        expect(result).toEqual({
+            ai_product: 'mcp',
+            mcp_version: undefined,
+            client_user_agent: undefined,
+            mcp_client_name: undefined,
+            mcp_client_version: undefined,
+            mcp_protocol_version: undefined,
+            mcp_region: undefined,
+        })
     })
 
-    it('swallows errors if mcpcat.track throws', () => {
+    it('swallows errors if mcpcat.track throws', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
@@ -207,6 +178,6 @@ describe('initMcpCatObservability', () => {
             throw new Error('mcpcat init failed')
         })
 
-        expect(() => initMcpCatObservability(server, identity)).not.toThrow()
+        await expect(initMcpCatObservability(server, identity)).resolves.toBeUndefined()
     })
 })
