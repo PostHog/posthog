@@ -8090,6 +8090,15 @@ export namespace Schemas {
       tileId: number;
     }
 
+    export interface CopyExperimentToProject {
+      /** The team ID to copy the experiment to. */
+      target_team_id: number;
+      /** Optional feature flag key to use in the destination team. */
+      feature_flag_key?: string;
+      /** Optional name for the copied experiment. */
+      name?: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -11582,6 +11591,11 @@ export namespace Schemas {
        */
       useQueryV2?: boolean | null;
       /**
+       * Use V3 query path (denormalized ClickHouse table, no Postgres joins)
+       * @nullable
+       */
+      useQueryV3?: boolean | null;
+      /**
        * version of the node, used for schema migrations
        * @nullable
        */
@@ -13498,7 +13512,6 @@ export namespace Schemas {
        * @nullable
        */
       debug?: boolean | null;
-      filters_override?: DashboardFilter | null;
       /**
        * Maximum number of results to return. If not provided, returns all results.
        * @nullable
