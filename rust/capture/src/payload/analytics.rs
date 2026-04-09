@@ -154,17 +154,6 @@ async fn check_global_rate_limits(
     context: &ProcessingContext,
     events: &[RawEvent],
 ) -> Result<(), CaptureError> {
-    if let Some(limiter) = &state.global_rate_limiter_token {
-        let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
-        if let Some(limited) = limiter.is_limited(&cache_key, events.len() as u64).await {
-            debug_or_info!(context.chatty_debug_enabled,
-                context=?context,
-                details=?limited,
-                "global token rate limit applied");
-            return Err(CaptureError::GlobalRateLimitExceeded());
-        }
-    }
-
     if let Some(limiter) = &state.global_rate_limiter_token_distinctid {
         let mut is_rate_limited = false;
         for event in events {

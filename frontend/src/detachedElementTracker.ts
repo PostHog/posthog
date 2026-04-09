@@ -50,7 +50,13 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
     requestIdleCallbackCompat(async () => {
         try {
-            const { createReactMemoryScan } = await import('@memlab/lens/dist/memlens.lib.bundle.js')
+            const memlens = await import('@memlab/lens/dist/memlens.lib.bundle.js')
+            const createReactMemoryScan =
+                memlens.createReactMemoryScan ??
+                (memlens as unknown as { default: typeof memlens }).default?.createReactMemoryScan
+            if (!createReactMemoryScan) {
+                throw new Error('createReactMemoryScan not found in MemLens exports')
+            }
 
             state = 'ready'
 

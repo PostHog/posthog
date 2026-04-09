@@ -21,4 +21,9 @@ declare module '@memlab/lens/dist/memlens.lib.bundle.js' {
     }
 
     export function createReactMemoryScan(options?: MemLensScanOptions): MemLensScanner
+
+    const _default: {
+        createReactMemoryScan: typeof createReactMemoryScan
+    }
+    export default _default
 }
