@@ -69,6 +69,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
     endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
@@ -273,6 +274,8 @@ export interface LoaderOptions {
 
 export type ListFuse = Fuse<{
     name: string
+    posthogName: string | undefined
+    recentLabel: string | undefined
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
