@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
@@ -341,6 +342,17 @@ class TestProperty(BaseTest):
                 right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19T14:00:00Z")]),
             ),
         )
+
+    @freeze_time("2026-04-09T12:00:00Z")
+    def test_property_to_expr_date_operators_relative(self):
+        # is_date_before with relative date resolves to absolute datetime
+        result = self._property_to_expr({"type": "event", "key": "a", "value": "-10m", "operator": "is_date_before"})
+        assert isinstance(result, ast.CompareOperation)
+        assert result.op == ast.CompareOperationOp.Lt
+        assert isinstance(result.right, ast.Call)
+        assert result.right.name == "toDateTime"
+        assert isinstance(result.right.args[0], ast.Constant)
+        assert result.right.args[0].value == "2025-06-09 12:00:00"
 
     def test_property_to_expr_event_list(self):
         # positive

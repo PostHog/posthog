@@ -323,6 +323,21 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _resolve_date_value(value: ValueT) -> ValueT:
+    """Resolve relative date strings (e.g., '-10m', '7d') to absolute ISO datetime strings.
+
+    Absolute dates are returned as-is.
+    """
+    if not isinstance(value, str):
+        return value
+    from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+    parsed = relative_date_parse_for_feature_flag_matching(value)
+    if parsed is not None:
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
+    return value
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -439,7 +454,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=value)]),
+            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -453,7 +468,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=value)]),
+            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
@@ -461,7 +476,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=value)]),
+            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
