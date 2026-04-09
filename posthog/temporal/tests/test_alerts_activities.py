@@ -1,8 +1,17 @@
 import datetime as dt
 
+import pytest
+
 from temporalio.common import RetryPolicy
+from temporalio.testing import ActivityEnvironment
 
 from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.temporal.alerts.activities import (
+    enumerate_due_alerts_activity,
+    evaluate_alert_activity,
+    notify_alert_activity,
+    prepare_alert_activity,
+)
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY, ALERT_NOTIFY_RETRY_POLICY
 from posthog.temporal.alerts.types import (
     AlertInfo,
@@ -102,3 +111,39 @@ def test_alert_notify_retry_policy_is_valid():
     assert ALERT_NOTIFY_RETRY_POLICY.initial_interval == dt.timedelta(seconds=5)
     assert ALERT_NOTIFY_RETRY_POLICY.maximum_interval == dt.timedelta(minutes=2)
     assert ALERT_NOTIFY_RETRY_POLICY.backoff_coefficient == 2.0
+
+
+def test_activities_have_temporalio_activity_definition():
+    # Each Temporal activity has a __temporal_activity_definition attribute
+    # set by the @temporalio.activity.defn decorator. If any of these is
+    # missing, the activity won't be registerable on a worker.
+    for activity_fn in (
+        enumerate_due_alerts_activity,
+        prepare_alert_activity,
+        evaluate_alert_activity,
+        notify_alert_activity,
+    ):
+        assert hasattr(activity_fn, "__temporal_activity_definition"), (
+            f"{activity_fn.__name__} is missing the @temporalio.activity.defn decorator"
+        )
+
+
+@pytest.mark.asyncio
+async def test_prepare_alert_activity_stub_raises_not_implemented():
+    env = ActivityEnvironment()
+    with pytest.raises(NotImplementedError, match="follow-up PR"):
+        await env.run(prepare_alert_activity, PrepareAlertActivityInputs(alert_id="abc"))
+
+
+@pytest.mark.asyncio
+async def test_evaluate_alert_activity_stub_raises_not_implemented():
+    env = ActivityEnvironment()
+    with pytest.raises(NotImplementedError, match="follow-up PR"):
+        await env.run(evaluate_alert_activity, EvaluateAlertActivityInputs(alert_id="abc"))
+
+
+@pytest.mark.asyncio
+async def test_notify_alert_activity_stub_raises_not_implemented():
+    env = ActivityEnvironment()
+    with pytest.raises(NotImplementedError, match="follow-up PR"):
+        await env.run(notify_alert_activity, NotifyAlertActivityInputs(alert_id="abc", alert_check_id=1))
