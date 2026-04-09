@@ -332,6 +332,15 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
 
     Returns a normalized date string that ClickHouse can implicitly convert
     for comparison against both String and DateTime columns.
+
+    We normalize the string rather than wrapping in toDateTime() because
+    PropertySwapper may or may not wrap the LHS depending on whether the
+    property has a DateTime type definition. When it doesn't, the LHS is a
+    raw String from JSON extraction, and comparing String against DateTime
+    fails in ClickHouse ("no supertype"). A MySQL-format string works on
+    both sides: ClickHouse can implicitly parse it when the LHS is DateTime,
+    and it preserves chronological ordering in lexicographic comparison when
+    the LHS is String.
     """
     if not isinstance(value, str):
         return value
@@ -343,7 +352,10 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
         resolved = relative_date_parse(value, team.timezone_info)
         return resolved.strftime("%Y-%m-%d %H:%M:%S")
 
-    normalized = value.replace("T", " ")
+    # Strip ISO 8601 separators that ClickHouse can't implicitly convert.
+    # Timezone-less strings are safe: ClickHouse interprets them using the
+    # comparison column's timezone (UTC from PropertySwapper).
+    normalized = re.sub(r"(\d)T(\d)", r"\1 \2", value)
     if normalized.endswith("Z"):
         normalized = normalized[:-1]
     return normalized
