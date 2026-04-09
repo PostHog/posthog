@@ -2,21 +2,28 @@
 
 ## Overview
 
-The **Signals** product is a signal clustering and summarization pipeline. Signals from various PostHog products (experiments, web analytics, error tracking, session replay) get grouped into **SignalReports** via embedding similarity + LLM matching. When a group accumulates enough weight, a summary workflow runs a safety check, selects a repository, and then runs agentic report research before deciding whether the report is ready for a coding agent, deferred to a human, or rejected.
+The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, LLM analytics, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+
+Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple “summarize signals” LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers.
 
 ---
 
 ## Temporal Workflows
 
-Signal ingestion uses a three-stage pipeline: **emitter → buffer → grouping v2**. The emitter and buffer workflows are defined in `backend/temporal/emitter.py` and `backend/temporal/buffer.py`. The grouping v2 workflow is in `backend/temporal/grouping_v2.py` and delegates to `_process_signal_batch()` in `backend/temporal/grouping.py`. The summary workflow is defined in `backend/temporal/summary.py`, with its LLM activities split across dedicated files.
+Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping v2**. The emitter and buffer workflows are defined in `backend/temporal/emitter.py` and `backend/temporal/buffer.py`. The grouping v2 workflow is in `backend/temporal/grouping_v2.py` and delegates to the shared `_process_signal_batch()` implementation in `backend/temporal/grouping.py`. The report summary workflow is defined in `backend/temporal/summary.py`.
 
-The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but no longer used by `emit_signal()`.
+The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-All workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker via `posthog/temporal/ai/__init__.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker by `posthog/management/commands/start_temporal_worker.py`.
+
+Two additional Signals workflows also exist but are not part of the main report pipeline:
+
+- `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
+- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
 
 ### Signal Ingestion Pipeline (v2)
 
-The v1 `TeamSignalGroupingWorkflow` buffered raw `EmitSignalInputs` in memory and carried them over on `continue_as_new`. Under high signal volume the `continue_as_new` payload grew too large and failed. The v2 pipeline solves this by flushing buffered signals to S3, passing only lightweight object keys between workflows.
+The v1 `TeamSignalGroupingWorkflow` buffered raw `EmitSignalInputs` in memory and carried them over on `continue_as_new`. Under higher signal volume the `continue_as_new` payload could grow too large. The v2 pipeline fixes that by flushing buffered signals to object storage and passing only lightweight object keys between workflows.
 
 ```text
 emit_signal()                       SignalEmitterWorkflow              BufferSignalsWorkflow              TeamSignalGroupingV2Workflow
@@ -34,14 +41,14 @@ emit_signal()                       SignalEmitterWorkflow              BufferSig
      │                                     │                                  │                                  │
      │                                     │                           (buffer fills / timeout)                  │
      │                                     │                                  │                                  │
-     │                                     │                           activity: flush to S3                     │
-     │                                     │                                  ├──► S3: signals/signal_batches/<uuid>
+     │                                     │                           activity: safety filter + flush           │
+     │                                     │                                  ├──► object storage: signals/signal_batches/<uuid>
      │                                     │                                  │                                  │
      │                                     │                           activity: signal-with-start               │
      │                                     │                                  ├─ submit_batch(object_key) ──────►│
      │                                     │                                  │                                  │
-     │                                     │                           continue_as_new                    activity: read from S3
-     │                                     │                                  │                                  ├──► S3
+     │                                     │                           continue_as_new                    activity: read from object storage
+     │                                     │                                  │                                  ├──► object storage
      │                                     │                                  │                                  │
      │                                     │                                  │                           _process_signal_batch()
      │                                     │                                  │                                  │
@@ -57,15 +64,15 @@ Defined in `backend/temporal/emitter.py`.
 **Flow:**
 
 1. Run `submit_signal_to_buffer_activity`, which:
-   a. **Query** the buffer workflow's `get_buffer_size` query
-   b. If buffer is full (`>= BUFFER_MAX_SIZE`), **poll with jittered sleep** until space is available (heartbeating to stay alive)
-   c. **Signal** the buffer workflow's `submit_signal` handler with the signal
+   a. **Queries** the buffer workflow’s `get_buffer_size` query
+   b. If the buffer is full (`>= BUFFER_MAX_SIZE`), **polls with jittered sleep** until space is available, heartbeating while it waits
+   c. **Signals** the buffer workflow’s `submit_signal` handler with the signal
 
-This keeps `emit_signal()` fire-and-forget while the emitter workflow absorbs backpressure. The activity has a 1-hour `start_to_close_timeout` and 2-minute `heartbeat_timeout` to accommodate long waits under pressure.
+This keeps `emit_signal()` fire-and-forget while the emitter workflow absorbs backpressure. The activity currently uses a **3-hour** `start_to_close_timeout` and **10-minute** `heartbeat_timeout`.
 
 ### `BufferSignalsWorkflow` (`buffer-signals`)
 
-Buffers incoming signals in memory and periodically flushes them to S3. One instance per team, with workflow ID `buffer-signals-{team_id}`.
+Buffers incoming signals in memory and periodically flushes them to object storage. One instance per team, with workflow ID `buffer-signals-{team_id}`.
 
 Defined in `backend/temporal/buffer.py`.
 
@@ -74,123 +81,136 @@ Defined in `backend/temporal/buffer.py`.
 - New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
 - Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
 - The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (5s) elapses since the first signal arrived.
-- On flush: drains the buffer, runs the **safety filter** on all signals in parallel via `safety_filter_activity` (drops signals classified as unsafe — prompt injection, data exfiltration, etc.), then writes the safe signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running). If the entire batch is unsafe, the flush and grouping steps are skipped.
-- If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
-- Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
-- S3 objects are cleaned up by S3 lifecycle policies, not by the workflows.
+- On flush: drains the buffer, runs the **safety filter** on all signals in parallel via `safety_filter_activity`, writes the safe signals to object storage at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which starts the workflow if needed). If the entire batch is unsafe, the flush and grouping steps are skipped.
+- If the buffer is already full again after flushing (signals arrived during the flush activities), it loops immediately and flushes again rather than paying a `continue_as_new` restart cost.
+- Otherwise it calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
+- Stored batch objects are cleaned up by object-storage lifecycle policies, not by the workflows.
 
 ### `TeamSignalGroupingV2Workflow` (`team-signal-grouping-v2`)
 
-Long-running entity workflow that processes batches of signals from S3. One instance per team, with workflow ID `team-signal-grouping-v2-{team_id}`.
+Long-running entity workflow that processes batches of signals from object storage. One instance per team, with workflow ID `team-signal-grouping-v2-{team_id}`.
 
 Defined in `backend/temporal/grouping_v2.py`.
 
 **Architecture:**
 
-- Receives S3 object keys via `@workflow.signal` (`submit_batch`), sent by `BufferSignalsWorkflow`.
-- Pending object keys are buffered in memory as a `list[str]` — lightweight compared to the v1 approach of buffering full `EmitSignalInputs` objects.
-- The main loop waits for a batch key, downloads the signals from S3 via `read_signals_from_s3_activity`, then processes the full batch via `_process_signal_batch()` from `grouping.py`.
-- Caches type examples across batches with a TTL (`TYPE_EXAMPLES_CACHE_TTL`, 5 minutes).
+- Receives object keys via `@workflow.signal` (`submit_batch`), sent by `BufferSignalsWorkflow`.
+- Buffers pending object keys in memory as `list[str]`, which is much lighter than buffering full `EmitSignalInputs`.
+- The main loop waits for a batch key, downloads the signals via `read_signals_from_s3_activity`, then processes the full batch via `_process_signal_batch()` from `grouping.py`.
+- Caches signal type examples across batches with a TTL (`TYPE_EXAMPLES_CACHE_TTL`, 5 minutes).
 - Calls `continue_as_new` after each batch, carrying over any pending keys that arrived during processing.
+- Supports **pause/unpause** via `set_paused_until`, `clear_paused`, and `get_paused_state`. The API exposes this through `SignalProcessingViewSet`.
 - Errors processing a batch are caught and logged — the workflow continues to the next batch.
 
 ### `TeamSignalGroupingWorkflow` (`team-signal-grouping`) — v1, legacy
 
-A long-running entity workflow that serializes all signal grouping for a single team. Exactly one instance per team, with workflow ID `team-signal-grouping-{team_id}`. **No longer used by `emit_signal()` — superseded by the v2 pipeline above.**
+A long-running entity workflow that serializes all signal grouping for a single team. Exactly one instance per team, with workflow ID `team-signal-grouping-{team_id}`. **It is still registered, but `emit_signal()` no longer starts it.**
 
-**Architecture:**
+**What is still active:**
 
-- New signals arrive via `@workflow.signal` (`submit_signal`). The workflow maintains an internal `signal_buffer: list[EmitSignalInputs]` as a FIFO queue.
-- The main loop waits for buffered signals, processes them via `_process_signal_batch()` (with debouncing), and calls `continue_as_new` after `CONTINUE_AS_NEW_THRESHOLD` (20) signals to keep Temporal history bounded. Unprocessed signals in the buffer are carried over as workflow input.
-- Sequential processing eliminates race conditions where concurrent workflows could assign related signals to different reports (stale semantic search results, duplicate LLM matching decisions).
-- Errors processing a single signal are caught and logged — the workflow continues to the next signal.
+- The workflow class itself is legacy.
+- The shared `_process_signal_batch()` implementation in this file is still the active grouping implementation used by v2.
 
 **Signal processing flow** (per batch, in `_process_signal_batch()`):
 
-1. **Embed** all signal descriptions + **fetch signal type examples** from ClickHouse (parallel) → `get_embedding_activity`, `fetch_signal_type_examples_activity`
-2. **Generate 1-3 search queries** per signal via LLM (receives type examples for context) → `generate_search_queries_activity`
-3. **Embed each query** → parallel `get_embedding_activity` calls
-4. **Semantic search** ClickHouse `document_embeddings` for nearest neighbors per query → `run_signal_semantic_search_activity` (uses `cosineDistance()`)
-5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `match_signal_to_report_activity`
-6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold, **and emit to ClickHouse** via Kafka (embedding worker) — all in a single atomic operation → `assign_and_emit_signal_activity`
-7. **Wait for ClickHouse** — poll ClickHouse until the last emitted signal appears so subsequent batches can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
-8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, `ParentClosePolicy.ABANDON` so it survives `continue_as_new`, silently ignores `WorkflowAlreadyStartedError`)
+1. **Embed** all signal descriptions + **fetch signal type examples** from ClickHouse in parallel
+2. **Generate 1–3 search queries** per signal via LLM, using type examples for cross-source context
+3. **Embed each query**
+4. **Semantic search** the ClickHouse `document_embeddings` HogQL alias for nearest neighbors via `cosineDistance()`
+5. **LLM match** — decide whether the signal belongs to an existing report or needs a new one
+6. **Assign** the signal to a `SignalReport` in Postgres, increment counts/weights, check promotion threshold, and **emit** the signal into the embeddings pipeline in one atomic operation
+7. **Wait for ClickHouse** — poll until the just-emitted signals are query-visible so subsequent grouping decisions can find them
+8. If promoted (weight ≥ threshold), **spawn child** `SignalReportSummaryWorkflow` with `ParentClosePolicy.ABANDON`; `WorkflowAlreadyStartedError` is ignored
 
-Steps 1-4 run in parallel across all signals in the batch. Steps 5-7 run sequentially per signal, with earlier batch signals injected into later signals' candidate sets via local cosine distance.
+Steps 1–4 run in parallel across the batch. Steps 5–7 run sequentially per signal, and earlier-in-batch matches are injected into later signals’ candidate sets before the LLM match call.
 
 ### `SignalReportSummaryWorkflow` (`signal-report-summary`)
 
-Runs when a report is promoted to `candidate` status. Runs a safety check, selects a repository, and then runs agentic report research to determine the report's fate.
+Runs when a report is promoted to `candidate`. The current flow is **safety judge → repository selection → agentic research → state transition**.
+
+Defined in `backend/temporal/summary.py`.
 
 **Flow:**
 
-1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity` (no hard limit — fetches all signals for the report)
-2. **Mark in-progress** in Postgres and advance `signals_at_run` by `SIGNALS_AT_RUN_INCREMENT` (3), so the report must accumulate that many new signals before it can be promoted and re-summarised again → `mark_report_in_progress_activity`
-3. **Safety judge** → `report_safety_judge_activity` (`report_safety_judge.py`) — assess for prompt injection / manipulation
+1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`
+2. **Mark in-progress** in Postgres and advance `signals_at_run` by 3 → `mark_report_in_progress_activity`
+3. **Safety judge** → `report_safety_judge_activity`
+   - Evaluates the underlying signals for prompt injection / manipulation attempts
+   - Persists a `safety_judgment` artefact
 4. **Select repository** → `select_repository_activity` (`temporal/agentic/select_repository.py`) — see Repository Selection below
-   - If no repo selected → `mark_report_pending_input_activity`, **stop**
-5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`) — sandbox-backed multi-turn research using code and MCP data
-6. **Evaluate results**:
-   - If **unsafe** → `mark_report_failed_activity` with error, **stop**
-   - If **not actionable** → `reset_report_to_potential_activity` (weight → 0, status → `potential`), **stop**
-   - If **requires human input** → `mark_report_pending_input_activity` (status → `pending_input`, stores draft title/summary), **stop**
-   - If **immediately actionable** → continue
-7. **Mark ready** with the generated title and summary → `mark_report_ready_activity`
+   - If no repository is selected, the workflow synthesizes a “repository selection required” title/summary and transitions to `pending_input`
+5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
+   - Sandbox-backed multi-turn research over the selected repository plus MCP data
+   - Persists `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success
+6. **Apply the decision**:
+   - If **not actionable** → `reset_report_to_potential_activity` (weight resets to 0, status becomes `potential`)
+   - If **requires human input** → `mark_report_pending_input_activity`
+   - If **immediately actionable** → `mark_report_ready_activity`
+7. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
+8. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
 
-On any unhandled exception, the workflow catches and calls `mark_report_failed_activity`.
+On any unhandled exception, the workflow marks the report `failed` and re-raises.
 
-The grouping workflow uses a 1-hour `run_timeout` (resets on each `continue_as_new`). The summary workflow uses a 5-hour `execution_timeout` to allow the agentic path to finish. Most activities use 3-attempt retry policies; the sandbox-backed agentic report activity uses a single attempt to avoid spawning duplicate research tasks automatically.
+**Timeout / retry details:**
+
+- The grouping workflow starts the summary child with a **1-hour `execution_timeout`**, not 5 hours
+- The heavy step is the agentic research activity, which uses a **4-hour `start_to_close_timeout`** and **5-minute heartbeat timeout**
+- Most activities use 3-attempt retry policies
+- Repo selection and agentic research use single-attempt retries to avoid duplicate sandbox work
 
 #### Repository Selection
 
-Before running the agentic research, the workflow calls `select_repository_activity` (`temporal/agentic/select_repository.py`) — a separate Temporal activity that selects the most relevant repository from the team's GitHub integrations via `select_repository_for_report()` (`report_generation/select_repo.py`). Isolating repo selection in its own activity gives it independent retry/timeout semantics and avoids re-running selection if the longer research activity fails and retries.
+Before running the agentic research, the workflow calls `select_repository_activity` (`temporal/agentic/select_repository.py`) — a separate activity that selects the most relevant repository from the team’s GitHub integrations via `select_repository_for_report()` (`report_generation/select_repo.py`).
 
-- **Re-promoted report:** checks for an existing `repo_selection` artefact and reuses it (skips sandbox entirely).
-- **0 repos connected:** returns `None` → workflow transitions to `pending_input`.
-- **1 repo connected:** returns it directly (no sandbox needed).
-- **N repos connected:** spawns a single-turn sandbox agent using `PostHog/.github` as a lightweight dummy clone. The agent uses `gh` CLI (authenticated via the team's GitHub token) to explore candidate repos (`gh repo view`, `gh search code`) and picks the most relevant one.
+Keeping repository selection in its own activity gives it independent retry / timeout behavior and makes it reusable across re-promotions.
 
-The selection result is persisted as a `repo_selection` artefact on the report by `run_agentic_report_activity` (atomically alongside findings, actionability, and priority artefacts).
+- **Re-promoted report:** loads and reuses the latest `repo_selection` artefact if it contains a repository
+- **0 repos connected:** returns `None` → workflow transitions to `pending_input`
+- **1 repo connected:** returns it directly
+- **N repos connected:** runs a sandbox repo-discovery agent using `PostHog/.github` as a lightweight dummy clone; the agent uses `gh` CLI to inspect candidate repositories and choose the best match
+- The activity runs in a sandbox environment restricted to GitHub-related domains
 
 #### Re-promotion
 
-`READY` reports are re-promoted to `candidate` on every new signal, so the agentic report always reflects the latest evidence. On re-promotion:
+Reports are re-promoted when new evidence arrives, but not on every single signal forever. `signals_at_run` is advanced when a run starts, and the grouping logic only re-promotes when `signal_count >= signals_at_run`.
 
-- **Repo selection** reuses the previous `repo_selection` artefact (no sandbox re-run).
-- **Agentic research** loads previous findings, actionability, and priority from artefacts. Signals with matching `signal_id` in the previous findings get lightweight validation (reuse if still valid). Only new signals are fully investigated.
-- **Artefacts** from the previous run are deleted and replaced atomically (no duplicates).
-- **Workflow ID** includes `run_count` to avoid Temporal ID collisions with the previous execution.
+On re-promotion:
+
+- **Repo selection** reuses the previous `repo_selection` artefact when possible
+- **Agentic research** reconstructs previous findings / actionability / priority from artefacts and reuses prior work signal-by-signal when still valid
+- **Agentic artefacts** from the previous run are deleted and replaced atomically before writing the new run’s artefacts
+- **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
 
-Deletes a report and re-ingests its signals through the grouping pipeline. Useful when grouping decisions need to be re-evaluated (e.g., after improving LLM prompts, or when signals were incorrectly grouped).
+Deletes a report and re-ingests its signals through the current Signals ingestion pipeline. Useful when grouping decisions need to be re-evaluated after prompt or matching changes.
 
 Defined in `backend/temporal/reingestion.py`. Workflow ID: `signal-report-reingestion-{team_id}-{report_id}`.
 
 **Flow:**
 
-1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity` (reused from summary workflow). If no signals found, skips to step 3 (delete-only).
-2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity` — wraps the existing `soft_delete_report_signals()` helper from `api.py`, re-emitting each signal row with `metadata.deleted = true`.
-   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` (reused from grouping workflow) — polls until the last soft-deleted signal lands, so re-ingested signals don't find stale rows during semantic search.
-3. **Delete report** in Postgres → `delete_report_activity` — transitions the report to `deleted` status via `SignalReport.transition_to()`. Idempotent (no-ops if already deleted).
-4. **Re-ingest signals** → `reingest_signals_activity` — converts each `SignalData` to an `emit_signal()` call, which handles org guards and `signal_with_start` into the per-team `TeamSignalGroupingWorkflow`. Signals go through the full grouping pipeline (embed → search → LLM match → assign) and may end up in different reports.
+1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`. If no signals are found, the workflow deletes the report only.
+2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity`
+   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity`, so re-emitted signals do not race stale rows during semantic search
+3. **Delete report** in Postgres → `delete_report_activity`
+4. **Re-ingest signals** → `reingest_signals_activity`, which converts each `SignalData` back into an `emit_signal()` call
 
-All activities use 3-attempt retry policies. The soft-delete activity (step 2) is idempotent by design.
+`emit_signal()` now starts the **buffer + emitter + grouping v2** pipeline, so reingestion flows through the same active path as fresh Signals traffic.
 
 ### `SignalReportDeletionWorkflow` (`signal-report-deletion`)
 
-Soft-deletes a report and all its signals. Triggered by the `DELETE /signal_reports/{id}/` endpoint.
+Soft-deletes a report and all its signals. Triggered by `DELETE /signal_reports/{id}/`.
 
 Defined in `backend/temporal/deletion.py`. Workflow ID: `signal-report-deletion-{team_id}-{report_id}`.
 
 **Flow:**
 
-1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`. If no signals found, skips to step 3 (delete-only).
-2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity`.
-   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` — polls until the last soft-deleted signal lands.
-3. **Delete report** in Postgres → `delete_report_activity`.
+1. **Fetch signals** for the report from ClickHouse. If none are found, skip to report deletion.
+2. **Soft-delete signals** in ClickHouse
+   2b. **Wait for ClickHouse** until the deleted rows land
+3. **Delete report** in Postgres
 
-Shares all activities with the reingestion workflow — the only difference is that it stops after deletion (no re-ingestion step).
+This shares the same activities as reingestion; the only difference is that it stops after deletion.
 
 ---
 
@@ -245,7 +265,7 @@ any (except deleted) → suppressed
 
 ### `SignalReportArtefact`
 
-Binary artefacts attached to reports. Used for video segments and judge results.
+JSON artefacts attached to reports. Used for video segments, safety / actionability judgments, research findings, repo selection, and suggested reviewers.
 
 | Field     | Type              | Description                                |
 | --------- | ----------------- | ------------------------------------------ |
@@ -256,14 +276,20 @@ Binary artefacts attached to reports. Used for video segments and judge results.
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                                            |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                |
-| `actionability_judgment` | `{"choice": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool, "priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4"\|null}` |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                    |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "data_queried": "...", "verified": bool}`                                                                                         |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "..."}`                                                                                                                               |
+| Type                     | Content                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                     |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                         |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`   |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                             |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}` |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "..."}`                                                                                        |
+| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time |
+
+Notes:
+
+- The serializer still supports legacy `actionability_judgment` payloads that used `choice` instead of `actionability`.
+- Agentic report persistence deletes and replaces only the artefact types owned by the agentic path (`repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, `suggested_reviewers`). `safety_judgment` is written separately by the safety judge.
 
 **Indexes:** `(report)` (`signals_sig_report__idx`)
 
@@ -271,14 +297,22 @@ Binary artefacts attached to reports. Used for video segments and judge results.
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                          |
-| ---------------- | --------- | -------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                 |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics` (`SourceProduct` enum)     |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                       |
-| `config`         | JSONField | Source-specific configuration (e.g., `recording_filters`)            |
-| `created_by`     | FK → User | User who created the config (nullable)                               |
+| Field            | Type      | Description                                                                                                                                 |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                        |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `error_tracking` (`SourceProduct` enum)                           |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                              |
+| `config`         | JSONField | Source-specific configuration                                                                                                               |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                      |
+
+**Behavioral notes:**
+
+- `SignalSourceConfig.is_source_enabled()` special-cases `llm_analytics`: eval signals are always allowed at the model gate and are then further filtered by the eval workflow’s own config checks.
+- For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
+- The serializer exposes a computed `status` field:
+  - `session_analysis_cluster` derives status from the Temporal clustering workflow
+  - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 
 **Constraints:** Unique on `(team, source_product, source_type)`
 
@@ -323,12 +357,25 @@ Signals are soft-deleted by re-emitting the embedding row with `metadata.deleted
 
 ### HogQL Queries
 
-Activities query via `execute_hogql_query()` using the HogQL alias `document_embeddings`. All queries filter to `product = 'signals'` and `document_type = 'signal'`, and use `argMax(..., inserted_at)` grouped by `document_id` to handle deduplication from the `ReplacingMergeTree`. Key queries:
+The canonical ClickHouse / HogQL helpers live in `backend/temporal/signal_queries.py` and use the HogQL alias `document_embeddings`. Most read queries share a dedup subquery that uses `argMax(..., inserted_at)` grouped by `document_id`, which makes reads stable despite `ReplacingMergeTree` merge timing.
 
-1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): Fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type via `argMax(content, timestamp)`. Used to give the query generation LLM context about the heterogeneous signal landscape.
-2. **Semantic search** (`run_signal_semantic_search_activity`): Uses `cosineDistance(embedding, {embedding})` to find nearest neighbors that have a `report_id`, limited to the last 1 month.
-3. **Fetch for report** (`fetch_signals_for_report_activity`): Fetches all signals for a given `report_id`, ordered by timestamp ascending.
-4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): Polls for a specific `document_id` by exact `toDate(timestamp)` match and `inserted_at >= (now - 1 minute)`, confirming that _this specific ingestion_ landed before processing the next signal. Does not filter on `deleted` — if a signal was emitted into a deleted report it will still be found.
+All Signals queries filter to `product = 'signals'` and `document_type = 'signal'`. Key queries:
+
+1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type. Used to give the search-query generation LLM context about heterogeneous signal types.
+2. **Semantic search** (`run_signal_semantic_search_activity`): uses `cosineDistance(embedding, {embedding})` to find nearest neighbors with a non-empty `report_id`, limited to the last month.
+3. **Fetch for report** (`fetch_signals_for_report_activity`): fetches all non-deleted signals for a report, ordered by timestamp ascending.
+4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): polls for all emitted `document_id`s within a widened timestamp range (`min(timestamp)-2m` to `max(timestamp)+2m`) and `inserted_at >= now() - 30 minutes`, which avoids matching stale earlier emissions of the same IDs while tolerating precision loss and queueing delay. This query intentionally does **not** filter on `deleted`.
+5. **Filter reports by source product** (`fetch_report_ids_for_source_products`): used by the list API’s `source_product` filter. Note that it currently has a hard `LIMIT 300`.
+
+`execute_hogql_query_with_retry()` in `backend/temporal/clickhouse.py` wraps transient ClickHouse failures with heartbeat-safe retry behavior for activities.
+
+### Soft Deletion Caveat
+
+`soft_delete_report_signals()` lives in `backend/temporal/signal_queries.py` (with a compatibility re-export in `backend/utils.py`), not in `backend/api.py`.
+
+It soft-deletes report signals by re-emitting the same `document_id` and original `timestamp` with `metadata.deleted = true`, across all embedding models, so the new row replaces the original in the same `ReplacingMergeTree` partition.
+
+One implementation caveat: the helper currently fetches report signals with `limit=5000`. So while the intent is “delete all signals for the report”, very large reports can currently leave undeleted rows beyond that cap.
 
 ---
 
@@ -336,33 +383,34 @@ Activities query via `execute_hogql_query()` using the HogQL alias `document_emb
 
 ### Entry Point: `emit_signal()` (`backend/api.py`)
 
-The primary programmatic entry point. Called by other PostHog products to emit signals. Ensures the `BufferSignalsWorkflow` is running (idempotent start, catches `WorkflowAlreadyStartedError`), then fires-and-forgets a `SignalEmitterWorkflow` with a unique ID per signal. The emitter handles backpressure — `emit_signal()` itself returns immediately.
+The primary programmatic entry point. Called by other PostHog products and Signals-related workflows to emit signals.
 
-### Utility: `soft_delete_report_signals()` (`backend/api.py`)
+Current behavior:
 
-Centralized sync helper that soft-deletes all ClickHouse signals for a given report by re-emitting them with `metadata.deleted = true`, preserving original timestamps so rows replace originals via `ReplacingMergeTree`. Intentionally fetches all signals (including already-deleted ones) to be idempotent. Called by `soft_delete_report_signals_activity` (used by both deletion and reingestion workflows).
+1. Verifies org-level AI data processing approval
+2. Checks `SignalSourceConfig.is_source_enabled()`
+3. Validates the payload against `posthog.schema.SignalInput`
+4. Idempotently starts `BufferSignalsWorkflow`
+5. Fire-and-forget starts `SignalEmitterWorkflow`
 
-```python
-await emit_signal(
-    team=team,
-    source_product="experiments",
-    source_type="significance_reached",
-    source_id=str(experiment.id),
-    description="Experiment 'Homepage CTA' reached statistical significance...",
-    weight=0.8,
-    extra={"variant": "B", "p_value": 0.003},
-)
-```
+So `emit_signal()` now feeds the **buffer + emitter + grouping v2** path rather than signaling the legacy v1 grouping workflow directly.
 
-**Guards:**
+**Guards / validation:**
 
-- Team must have `is_ai_data_processing_approved` on their organization
+- The team’s organization must have `is_ai_data_processing_approved`
+- The source must be enabled by `SignalSourceConfig.is_source_enabled()`
+- Description length is capped at `MAX_SIGNAL_DESCRIPTION_TOKENS` (currently 8000 tokens)
+- The input must validate against the shared `SignalInput` schema
 
-Uses `signal_with_start` to atomically create the per-team `TeamSignalGroupingWorkflow` if it doesn't exist, or send a signal to the running instance.
+### Utility: `soft_delete_report_signals()`
+
+The canonical helper lives in `backend/temporal/signal_queries.py` (with a compatibility re-export in `backend/utils.py`), not in `backend/api.py`.
+
+It soft-deletes report signals by re-emitting them with `metadata.deleted = true` while preserving original timestamps so rows replace originals via `ReplacingMergeTree`. It intentionally includes already-deleted rows for idempotency, but currently fetches at most 5000 signals per report.
 
 ### REST Endpoints
 
-Registered directly in `posthog/api/__init__.py` (imported as `products.signals.backend.views`).
+Signals routes are registered in `posthog/api/__init__.py` and `posthog/urls.py`.
 
 #### `SignalViewSet` (DEBUG only)
 
@@ -370,9 +418,17 @@ Registered directly in `posthog/api/__init__.py` (imported as `products.signals.
 | ------ | ------- | ------------------------------------------- |
 | POST   | `/emit` | Manually emit a signal (debug/testing only) |
 
+#### `InternalSignalViewSet`
+
+Internal-only service-to-service endpoint authenticated via `X-Internal-Api-Secret`.
+
+| Method | Path                                            | Description                       |
+| ------ | ----------------------------------------------- | --------------------------------- |
+| POST   | `/api/projects/{team_id}/internal/signals/emit` | Emit a signal for a specific team |
+
 #### `SignalSourceConfigViewSet`
 
-Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` (scope: `INTERNAL`).
+Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` with scope object **`task`**.
 
 | Method | Path                           | Description               |
 | ------ | ------------------------------ | ------------------------- |
@@ -382,96 +438,167 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 | PATCH  | `/signal_source_configs/{id}/` | Update a config           |
 | DELETE | `/signal_source_configs/{id}/` | Delete a config           |
 
+Important side effects:
+
+- Creating or enabling a `session_analysis_cluster` config starts the clustering workflow
+- Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
+- Enabling data-import-backed sources can trigger external data syncs
+- Disabling a clustering config cancels the clustering workflow
+
 #### `SignalReportViewSet`
 
 Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Composed from `RetrieveModelMixin`, `ListModelMixin`, `DestroyModelMixin`, and `GenericViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
 
-| Method | Path                              | Description                                                                                                                                                                                                                                                                   |
-| ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param (comma-separated), searchable via `?search=`, ordered by `status,-updated_at` by default                                                                     |
-| GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                                                                                                                                                                                                      |
-| DELETE | `/signal_reports/{id}/`           | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow` and returns `202 Accepted`.                                                                                                                                                                       |
-| POST   | `/signal_reports/{id}/state/`     | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Validates transitions via `SignalReport.transition_to()`. Returns 409 on invalid transition, 400 on bad arguments. |
-| POST   | `/signal_reports/{id}/reingest/`  | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow` and returns `202 Accepted`. Returns `403` for non-staff users.                                                                                                            |
-| GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                                                                                                                                                                                                     |
-| GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                       |
+| Method | Path                                   | Description                                                                                                                                                                                                                                                                                                                         |
+| ------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/signal_reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, and `?ordering=`.                                                                                                                                                       |
+| GET    | `/signal_reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
+| DELETE | `/signal_reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
+| POST   | `/signal_reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
+| POST   | `/signal_reports/{id}/reingest/`       | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Returns `403` for non-staff users.                                                                                                  |
+| GET    | `/signal_reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
+| GET    | `/signal_reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
+| GET    | `/signal_reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
 
-**Ordering:** Configurable via `?ordering=` query param with comma-separated fields (e.g., `?ordering=status,-updated_at`). Supported fields: `status`, `signal_count`, `total_weight`, `created_at`, `updated_at`, `id`. The `status` field uses semantic pipeline stage ranking (ready=0, pending_input=1, in_progress=2, candidate=3, potential=4, failed=5, suppressed=6, deleted=7). Default: `status,-updated_at`.
+**Ordering:** Configurable via `?ordering=` with comma-separated fields. Supported fields: `status`, `is_suggested_reviewer`, `signal_count`, `total_weight`, `priority`, `created_at`, `updated_at`, `id`.
+
+The `status` ordering uses semantic pipeline stage ranking:
+
+- `ready=0`
+- `pending_input=1`
+- `in_progress=2`
+- `candidate=3`
+- `potential=4`
+- `failed=5`
+- `suppressed=6`
+- `deleted=7`
+
+Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
+
+#### `SignalProcessingViewSet`
+
+View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
+
+| Method | Path                          | Description                            |
+| ------ | ----------------------------- | -------------------------------------- |
+| GET    | `/signal_processing/`         | Return current pause state             |
+| PUT    | `/signal_processing/pause/`   | Pause grouping until a given timestamp |
+| POST   | `/signal_processing/unpause/` | Clear the paused state                 |
 
 ### Serializers (`backend/serializers.py`)
 
-- **`SignalSourceConfigSerializer`** — Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`. Validates that `recording_filters` in config is a dict when `source_product` is `session_replay`.
-- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`. The `priority` field (read-only) extracts P0–P4 from the latest `PRIORITY_JUDGMENT` artefact when present, otherwise returns `null`.
-- **`SignalReportArtefactSerializer`** — Exposes `id`, `type`, `content` (parsed from JSON text), `created_at`.
+- **`SignalSourceConfigSerializer`**
+  - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
+  - Validates that `recording_filters` in config is a JSON object for `session_replay`
+  - Computes `status` from the clustering workflow or external data import state depending on the source
+- **`SignalReportSerializer`**
+  - Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`, `actionability`, `already_addressed`, `is_suggested_reviewer`
+  - `priority` comes from the latest `PRIORITY_JUDGMENT` artefact
+  - `actionability` comes from the latest `ACTIONABILITY_JUDGMENT` artefact and supports both current (`actionability`) and legacy (`choice`) payloads
+  - `already_addressed` also comes from the latest actionability artefact
+- **`SignalReportArtefactSerializer`**
+  - Exposes `id`, `type`, `content`, `created_at`
+  - Parses JSON text into structured content
+  - For `suggested_reviewers`, enriches the stored GitHub-only payload with fresh PostHog org-member data at read time
 
 ---
 
 ## LLM Integration
 
-All LLM calls use **Claude Sonnet 4.5** (`claude-sonnet-4-5`) via the Anthropic SDK, wrapped with PostHog analytics tracking. Shared configuration and the generic `call_llm()` helper live in `backend/temporal/llm.py`.
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-4-5`).
+
+That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
+
+- Grouping-time query generation / matching / specificity checks use `call_llm()`
+- The buffer safety filter uses `call_llm()`
+- The report safety judge uses `call_llm()`
+- Eval-signal summarization uses `call_llm()`
+- **Repository selection** runs via the sandbox agent flow, not `call_llm()`
+- **Agentic report research** runs via `MultiTurnSession` in `report_generation/research.py`, not `call_llm()`
 
 ### `call_llm()` (`backend/temporal/llm.py`)
 
-A generic helper that abstracts the retry-validate-append-errors pattern used by all LLM calls. Takes a system prompt, user prompt, a `validate` function, and options for thinking, temperature, and retries. Returns the output of the validation function (generic over return type `T`).
+A generic helper that abstracts the retry / validate / append-errors pattern used by direct LLM calls. It takes a system prompt, user prompt, validation function, and options like `thinking`, `temperature`, and retries.
 
-Key behaviours:
+Key behaviors:
 
-- **Retry with conversation-style error correction:** On validation failure, the full response content (including thinking blocks when applicable) is appended as an assistant message, followed by the error as a user message, giving the LLM context to self-correct. For non-thinking calls, the assistant pre-fill `{` is re-appended after each error message.
-- **JSON enforcement:** For non-thinking calls, pre-fills the assistant response with `{` to prevent markdown fences. For thinking calls (where pre-fill is not supported), strips ` ```json ... ``` ` fences from the response if present.
-- **Extended thinking:** When `thinking=True`, enables Anthropic extended thinking with `budget_tokens = MAX_RESPONSE_TOKENS * 2` and `max_tokens = MAX_RESPONSE_TOKENS * 3`. Temperature is set to 1 (required by thinking). Full response blocks (including `ThinkingBlock`) are preserved in retry conversation history. Thinking is only enabled if the model is in the `ANTHROPIC_THINKING_MODELS` set.
-- **Debug logging:** In `DEBUG` mode, logs the raw LLM response text on validation failure.
+- **Retry with conversational self-correction:** on validation failure, the full response content is appended as an assistant message, followed by the validation error as a user message
+- **JSON enforcement:** for non-thinking calls, the helper pre-fills the assistant response with `{` to discourage markdown fences; for thinking calls it strips common fenced-JSON wrappers
+- **Extended thinking:** when `thinking=True` and the selected model supports it, enables Anthropic extended thinking with increased token budgets
+- **Debug logging:** in `DEBUG`, logs raw failed responses to help tune prompts / validators
 
-### Grouping LLM calls (`backend/temporal/llm.py`)
+### Grouping-time LLM calls
 
-#### `generate_search_queries()`
+The architecture doc previously attributed these functions to `backend/temporal/llm.py`, but that file is only the helper. The grouping-specific call sites live in `backend/temporal/grouping.py`.
 
-Generates 1-3 search queries from different angles (feature/component, behavior/issue, business impact). Accepts `signal_type_examples` — one example per `(source_product, source_type)` pair from the last month — which are included in the system prompt to give the LLM context about the heterogeneous signal landscape. The prompt explicitly instructs the LLM to generate queries that search _across_ signal types rather than generating one query per type. Queries are truncated to 2048 tokens for embedding. Temperature: 0.7.
+#### Search-query generation
 
-#### `match_signal_to_report()`
+Generates 1–3 cross-source search queries for a signal from different angles (feature/component, behavior/issue, impact), using recent signal type examples as context. Queries are truncated before embedding.
 
-Discriminated union response — the LLM must output `reason` as the first key (chain-of-thought before decision):
+#### Match-to-report decision
 
-- `{"reason": "...", "match_type": "existing", "signal_id": "<id>", "query_index": <int>}` → looked up to get `report_id` → `ExistingReportMatch` (with `MatchedMetadata` capturing parent signal, query, and reason)
-- `{"reason": "...", "match_type": "new", "title": "...", "summary": "..."}` → `NewReportMatch` (with `NoMatchMetadata` capturing reason and rejected signal IDs)
+Chooses between:
 
-Validation ensures the `signal_id` exists in the candidates and `query_index` is in range.
+- matching the signal to an existing report candidate
+- creating a new report candidate with title + summary
 
-Temperature: 0.2 (more deterministic).
+The validator ensures the returned `signal_id` and `query_index` are valid for the candidate set given to the model.
 
-### Summary LLM calls (each in its own file with activity + prompt + invocation)
+#### Match-specificity verification
 
-#### `summarize_signals()` (`backend/temporal/summarize_signals.py`)
+A second grouping-time LLM check used before broadening an existing report too aggressively.
 
-Takes a list of signals and produces a title (max 75 chars) + 2-4 sentence summary. The report is designed for consumption by both humans and coding agents. Temperature: 0.2.
+### Safety filter (`backend/temporal/safety_filter.py`)
 
-#### `safety_filter()` (`backend/temporal/safety_filter.py`)
+Per-signal safety classifier that runs in the buffer workflow before signals are flushed to object storage.
 
-Per-signal safety classifier that runs in the buffer workflow before signals are flushed to S3.
-Classifies each raw signal against a 7-category threat taxonomy: direct instruction injection, hidden/embedded instructions, encoded/obfuscated payloads, security-weakening requests, data exfiltration, social engineering, and code injection via patches.
+It classifies raw signal descriptions against a threat taxonomy including prompt injection, hidden instructions, encoded payloads, security weakening, data exfiltration, social engineering, and code injection.
 
-Returns `{"safe": bool, "threat_type": "...", "explanation": "..."}`. Explanation required when `safe` is `false`.
-If the LLM returns an empty response (e.g. provider safety filter triggered), the signal is treated as unsafe with threat type `provider_safety_filter`.
+Returns:
 
-This is the first line of defense — it catches adversarial signals before they consume embedding, query generation, or matching costs.
-The report-level safety judge (below) provides a second layer after grouping and summarization.
+- `{"safe": true, "threat_type": "", "explanation": ""}`
+- `{"safe": false, "threat_type": "...", "explanation": "..."}`
 
-#### `judge_report_safety()` (`backend/temporal/report_safety_judge.py`)
+If the provider returns an empty response, the signal is treated as unsafe with threat type `provider_safety_filter`.
 
-Assesses the report title, summary, and underlying signals for prompt injection and manipulation attempts. Checks for injected instructions targeting the coding agent, attempts to exfiltrate data, disable security features, introduce backdoors, or override system prompts.
+This is the first line of defense; it prevents adversarial signals from consuming embedding / search / matching work.
 
-Returns `{"choice": bool, "explanation": "..."}`. Explanation required when `choice` is `false`. Stores result as a `safety_judgment` artefact on the report. **Extended thinking enabled.**
+### Report safety judge (`backend/temporal/report_safety_judge.py`)
 
-#### `judge_report_actionability()` (`backend/temporal/actionability_judge.py`)
+Report-level safety review that runs **before** repository selection and agentic research. It evaluates the underlying grouped signals for prompt injection or manipulation attempts that could steer a downstream coding agent toward malicious actions.
 
-Assesses whether the report is actionable by a coding agent with MCP access to PostHog tools and code access to write PRs. Returns one of three outcomes via `ActionabilityChoice` enum:
+Returns `{"choice": bool, "explanation": "..."}` and stores the result as a `safety_judgment` artefact. Extended thinking is enabled.
 
-- **`immediately_actionable`** — The coding agent can take concrete action now (bug fixes, experiment reactions, feature flag cleanup, perf improvements, UX fixes, config changes, or deep investigation with jumping-off context). Explanation required.
-- **`requires_human_input`** — Potentially actionable but needs human judgment first (business context, trade-offs, multiple valid approaches, purely informational). Explanation required.
-- **`not_actionable`** — No useful code action can be derived (too vague, contradictory, insufficient evidence, expected behavior). Explanation required.
+Importantly, this judge currently assesses the **signals**, not a generated title/summary — those do not exist yet when the judge runs.
 
-The prompt is biased toward `immediately_actionable` over `requires_human_input` (if the agent has _any_ unambiguous actions), and toward `not_actionable` over `requires_human_input` (to filter noise).
+### Agentic research outputs (`backend/report_generation/research.py`)
 
-Stores result as an `actionability_judgment` artefact on the report. **Extended thinking enabled.**
+The old standalone summary / actionability judge files referenced in earlier docs no longer exist. Their responsibilities now live inside the multi-turn research flow and its persisted output models.
+
+The research flow produces:
+
+- **`SignalFinding`**
+  - `signal_id`
+  - `relevant_code_paths`
+  - `relevant_commit_hashes`
+  - `data_queried`
+  - `verified`
+- **`ActionabilityAssessment`**
+  - `explanation`
+  - `actionability`
+  - `already_addressed`
+- **`PriorityAssessment`**
+  - `explanation`
+  - `priority`
+- **`ReportPresentationOutput`**
+  - `title`
+  - `summary`
+
+These are assembled into `ReportResearchOutput`, then persisted by `run_agentic_report_activity`.
+
+### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
+
+Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
 
 ---
 
@@ -531,29 +658,42 @@ Signal {index}:
 
 ```text
 products/signals/
-├── ARCHITECTURE.md                 # This file
+├── ARCHITECTURE.md                  # This file
 ├── backend/
-│   ├── admin.py                    # Django admin for SignalReport + SignalReportArtefact
-│   ├── api.py                      # emit_signal() entry point + org-level guard
-│   ├── apps.py                     # Django app config
-│   ├── models.py                   # SignalReport, SignalReportArtefact, SignalSourceConfig
-│   ├── serializers.py              # DRF serializers (report, artefact, source config)
-│   ├── views.py                    # SignalViewSet (debug), SignalReportViewSet, SignalSourceConfigViewSet
-│   ├── github_issues/              # (empty — placeholder for GitHub issue ingestion)
+│   ├── admin.py                     # Django admin for SignalReport + SignalReportArtefact
+│   ├── api.py                       # emit_signal() entry point + source/org guards
+│   ├── apps.py                      # Django app config
+│   ├── models.py                    # SignalReport, SignalReportArtefact, SignalSourceConfig
+│   ├── serializers.py               # DRF serializers for source configs, reports, artefacts
+│   ├── utils.py                     # Compatibility re-exports for signal query helpers
+│   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalReportViewSet, SignalProcessingViewSet
+│   ├── github_issues/               # Placeholder directory
 │   ├── management/
+│   │   ├── AGENTS.md
 │   │   └── commands/
+│   │       ├── analyze_report.py
 │   │       ├── cleanup_signals.py
-│   │       ├── download_github_issues.py
-│   │       ├── ingest_github_issues.py
-│   │       └── ingest_video_segments.py
+│   │       ├── clear_eval_data.py
+│   │       ├── delete_all_signal_reports_for_team.py
+│   │       ├── export_session_video.py
+│   │       ├── ingest_signals_json.py
+│   │       ├── ingest_video_segments.py
+│   │       ├── list_signal_reports.py
+│   │       ├── parse_sandbox_log.py
+│   │       ├── select_repo.py
+│   │       ├── signal_pipeline_status.py
+│   │       └── summarize_single_session.py
 │   ├── report_generation/
-│   │   ├── AGENTS.md                # Documentation for report generation flow
-│   │   ├── research.py              # Multi-turn sandbox research orchestration + ReportResearchOutput
-│   │   ├── select_repo.py           # Repository selection — sandbox agent picks best repo from GitHub integrations
-│   │   └── fixtures/                # Test fixtures for local debug commands
+│   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
+│   │   ├── research.py              # Multi-turn sandbox research orchestration + output schemas
+│   │   ├── resolve_reviewers.py     # Suggested-reviewer resolution and enrichment helpers
+│   │   └── select_repo.py           # Repository selection sandbox flow
 │   ├── test/
-│   │   ├── test_signal_source_config_api.py
-│   │   └── test_agentic_report_activity.py
+│   │   ├── test_agentic_report_activity.py
+│   │   ├── test_api.py
+│   │   ├── test_resolve_user_id.py
+│   │   ├── test_signal_report_api.py
+│   │   └── test_signal_source_config_api.py
 │   ├── migrations/
 │   │   ├── 0001_initial.py
 │   │   ├── 0002_signalreport_clustering_fields.py
@@ -562,25 +702,32 @@ products/signals/
 │   │   ├── 0005_signalreportartefact_report_idx.py
 │   │   ├── 0006_signal_source_config.py
 │   │   ├── 0007_backfill_signal_source_config.py
-│   │   └── 0008_alter_signalsourceconfig_source_product_and_more.py
+│   │   ├── 0008_alter_signalsourceconfig_source_product_and_more.py
+│   │   ├── 0009_add_new_signal_report_statuses.py
+│   │   ├── 0010_add_data_import_signal_source_choices.py
+│   │   ├── 0011_add_error_tracking_signal_types.py
+│   │   ├── 0012_signalreport_run_count_and_more.py
+│   │   └── 0013_signalreport_suggested_reviewers.py
 │   └── temporal/
-│       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
-│       ├── agentic/                # Agentic report flow — repo selection + sandbox-backed research
-│       │   ├── report.py           # Agentic report research activity + gate activity + artefact persistence
-│       │   └── select_repository.py # Repository selection activity — picks best repo from GitHub integrations
-│       ├── emitter.py              # SignalEmitterWorkflow — ephemeral per-signal workflow for backpressure
-│       ├── buffer.py               # BufferSignalsWorkflow + S3 flush/read activities + backpressure activity
-│       ├── grouping_v2.py          # TeamSignalGroupingV2Workflow — processes S3 batches via _process_signal_batch
-│       ├── grouping.py             # TeamSignalGroupingWorkflow (v1, legacy) + _process_signal_batch + grouping activities
-│       ├── emit_eval_signal.py     # EmitEvalSignalWorkflow + activity — LLMA eval → signal (fire-and-forget from evals queue)
-│       ├── llm.py                  # call_llm() helper + shared LLM config + grouping LLM calls
-│       ├── deletion.py             # SignalReportDeletionWorkflow — soft-delete signals + delete report
-│       ├── reingestion.py          # SignalReportReingestionWorkflow + soft-delete/delete/reingest activities
-│       ├── summary.py              # SignalReportSummaryWorkflow + state management activities
-│       ├── summarize_signals.py    # Summarization LLM prompt + activity
-│       ├── safety_filter.py        # Per-signal safety classifier LLM prompt + activity (pre-buffer)
-│       ├── report_safety_judge.py  # Report-level safety judge LLM prompt + activity (stores artefact, uses thinking)
-│       ├── actionability_judge.py  # Actionability judge LLM prompt + activity (stores artefact, uses thinking)
-│       └── types.py                # Shared dataclasses + signal rendering helpers
-└── frontend/                       # Frontend components (not covered here)
+│       ├── __init__.py              # Registers Signals workflows and activities
+│       ├── agentic/
+│       │   ├── __init__.py          # Sandbox env / user-resolution helpers
+│       │   ├── report.py            # Agentic report activity + artefact persistence
+│       │   └── select_repository.py # Repository selection activity
+│       ├── backfill_error_tracking.py # Backfill recent error tracking issues as signals
+│       ├── buffer.py                # BufferSignalsWorkflow + object-storage flush/backpressure activities
+│       ├── clickhouse.py            # Retry wrapper for HogQL / ClickHouse activity queries
+│       ├── deletion.py              # SignalReportDeletionWorkflow
+│       ├── emit_eval_signal.py      # EmitEvalSignalWorkflow — eval result → signal
+│       ├── emitter.py               # SignalEmitterWorkflow — per-signal backpressure bridge
+│       ├── grouping.py              # Legacy v1 workflow + active shared grouping implementation
+│       ├── grouping_v2.py           # Active grouping v2 workflow + pause/unpause support
+│       ├── llm.py                   # Shared Anthropic helper + token limits / thinking config
+│       ├── reingestion.py           # SignalReportReingestionWorkflow
+│       ├── report_safety_judge.py   # Report-level safety judge activity
+│       ├── safety_filter.py         # Per-signal safety classifier activity
+│       ├── signal_queries.py        # Canonical HogQL helpers for fetch/search/soft-delete/wait
+│       ├── summary.py               # SignalReportSummaryWorkflow + report state transition activities
+│       └── types.py                 # Shared dataclasses + signal rendering helpers
+└── frontend/                        # Frontend components (not covered here)
 ```

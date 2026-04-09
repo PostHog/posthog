@@ -149,7 +149,10 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
-        setScheduleState: (scheduleState: ScheduleState) => ({ scheduleState }),
+        setScheduleState: (scheduleState: ScheduleState, source: 'picker' | 'natural_language' = 'picker') => ({
+            scheduleState,
+            source,
+        }),
         setScheduleStartsAt: (startsAt: string | null) => ({ startsAt }),
         setScheduleStartsAtFromPicker: (pickerDate: string | null) => ({ pickerDate }),
         setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
@@ -316,6 +319,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     const schedule = schedules[0]
                     return !!schedule && !isOneTimeSchedule(schedule.rrule)
                 },
+            },
+        ],
+        // Tracks which configuration methods the user touched during the current editing
+        // session, so we can attribute saved schedules to the natural language input vs picker.
+        scheduleConfigSources: [
+            { picker: false, natural_language: false } as { picker: boolean; natural_language: boolean },
+            {
+                setScheduleState: (state, { source }) => ({ ...state, [source]: true }),
+                setSchedules: () => ({ picker: false, natural_language: false }),
             },
         ],
     }),
@@ -588,6 +600,14 @@ export const workflowLogic = kea<workflowLogicType>([
                         await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
                     } else if (pendingSchedule !== null) {
                         await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                    }
+
+                    if (pendingSchedule !== null) {
+                        posthog.capture('workflows schedule saved', {
+                            workflow_id: workflowId,
+                            configured_via_picker: values.scheduleConfigSources.picker,
+                            configured_via_natural_language: values.scheduleConfigSources.natural_language,
+                        })
                     }
 
                     const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)

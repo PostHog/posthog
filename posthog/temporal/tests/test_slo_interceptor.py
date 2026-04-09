@@ -1,8 +1,10 @@
 import dataclasses
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import temporalio.activity
 import temporalio.workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -49,6 +51,22 @@ class TrackedBusinessFailureWorkflow:
         return "ok"
 
 
+@temporalio.activity.defn
+async def failing_activity() -> None:
+    raise ApplicationError("activity boom", type="ActivityBoom", non_retryable=True)
+
+
+@temporalio.workflow.defn(name="test-slo-activity-failure")
+class TrackedActivityFailureWorkflow:
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedWorkflowInput) -> str:
+        await temporalio.workflow.execute_activity(
+            failing_activity,
+            schedule_to_close_timeout=timedelta(seconds=10),
+        )
+        return "ok"
+
+
 @temporalio.workflow.defn(name="test-slo-untracked")
 class UntrackedWorkflow:
     @temporalio.workflow.run
@@ -92,6 +110,13 @@ pytestmark = [pytest.mark.asyncio]
             {"error_type": "ApplicationError", "error_message": "boom"},
         ),
         (
+            TrackedActivityFailureWorkflow,
+            _make_slo_config(),
+            True,
+            SloOutcome.FAILURE,
+            {"error_type": "ActivityBoom", "error_message": "ActivityBoom: activity boom"},
+        ),
+        (
             TrackedBusinessFailureWorkflow,
             _make_slo_config(),
             False,
@@ -99,7 +124,7 @@ pytestmark = [pytest.mark.asyncio]
             {"reason": "business logic"},
         ),
     ],
-    ids=["success_with_completion_props", "exception_failure", "business_logic_failure"],
+    ids=["success_with_completion_props", "exception_failure", "activity_failure_unwrap", "business_logic_failure"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 async def test_interceptor_emits_slo_events(
@@ -115,7 +140,7 @@ async def test_interceptor_emits_slo_events(
             env.client,
             task_queue="test-slo",
             workflows=[workflow_cls],
-            activities=[],
+            activities=[failing_activity],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -174,7 +199,7 @@ async def test_interceptor_skips_untracked_workflows(
             env.client,
             task_queue="test-slo",
             workflows=[workflow_cls],
-            activities=[],
+            activities=[failing_activity],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

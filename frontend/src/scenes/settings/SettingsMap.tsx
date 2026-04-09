@@ -456,7 +456,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Email channel',
                 component: <EmailSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {
@@ -516,7 +515,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
-                flag: 'ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-integrations',
@@ -543,7 +541,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
-                flag: '!ERROR_TRACKING_SETTINGS_SPLIT',
             },
             {
                 id: 'error-tracking-alerting',

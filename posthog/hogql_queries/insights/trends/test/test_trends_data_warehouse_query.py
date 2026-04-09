@@ -22,7 +22,9 @@ from posthog.schema import (
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
     PropertyOperator,
     TrendsFilter,
@@ -35,7 +37,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
@@ -146,7 +147,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     timestamp_field="created",
                     distinct_id_field="customer_email",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                    properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
                 )
             ],
         )
@@ -223,7 +224,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+            properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
         )
 
         with freeze_time("2023-01-07"):
@@ -480,7 +481,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                    properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
                 )
             ],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
@@ -554,18 +555,12 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            properties=clean_entity_properties(
-                [
-                    {"key": "prop_1", "value": "a", "operator": "exact", "type": "data_warehouse"},
-                    {"key": "prop_2", "value": "e", "operator": "exact", "type": "data_warehouse"},
-                    {
-                        "key": "prop_1",
-                        "value": "a",
-                        "operator": "exact",
-                        "type": "event",
-                    },  # This should be ignored for DW queries
-                ]
-            ),
+            properties=[
+                DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
+                DataWarehousePropertyFilter(key="prop_2", value="e", operator=PropertyOperator.EXACT),
+                EventPropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
+                # This should be ignored for DW queries
+            ],
         )
 
         with freeze_time("2023-01-07"):

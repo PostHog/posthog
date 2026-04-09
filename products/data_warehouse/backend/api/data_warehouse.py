@@ -804,7 +804,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             logger.warning("Failed to evaluate managed warehouse feature flag", team_id=self.team_id)
             return False
 
-    def _provisioning_request(self, method: str, path: str, json_body: dict | None = None) -> Response:
+    def _provisioning_request(
+        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None, timeout: int = 30
+    ) -> Response:
         """Proxy a request to the duckgres provisioning API."""
         if not self._is_managed_warehouse_enabled():
             return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
@@ -813,33 +815,55 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
 
         if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", team_id=self.team_id)
             return Response(
                 {"error": "Managed warehouse provisioning is not configured"},
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
 
-        # Use the PostHog organization_id as the duckgres org identifier
-        org_id = str(self.team.organization_id)
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        # Use the PostHog team_id as the duckgres org identifier.
+        # Paths starting with / are org-scoped, otherwise treated as absolute API paths.
+        team_id = str(self.team_id)
+        if path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
         headers = {}
         if token:
             headers["X-Duckgres-Internal-Secret"] = token
 
         try:
-            resp = http_requests.request(method, url, json=json_body, headers=headers, timeout=30)
-            return Response(resp.json(), status=resp.status_code)
+            resp = http_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
         except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", url=url, org_id=org_id)
+            logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
         except http_requests.ConnectionError:
-            logger.warning("Provisioning API unreachable", url=url, org_id=org_id)
+            logger.warning("Provisioning API connection refused", method=method, path=path, team_id=team_id)
             return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
-            logger.exception("Provisioning API error", url=url, org_id=org_id)
+            logger.exception("Provisioning API unexpected error", method=method, path=path, team_id=team_id)
             return Response(
                 {"error": "An error occurred contacting the provisioning service"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        if resp.status_code >= 400:
+            logger.warning(
+                "Provisioning API returned error",
+                method=method,
+                path=path,
+                team_id=team_id,
+                status_code=resp.status_code,
+                response_body=resp.text[:500],
+            )
+        else:
+            logger.info("Provisioning API request succeeded", method=method, path=path, team_id=team_id)
+
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"error": resp.text[:500]}
+        return Response(body, status=resp.status_code)
 
     @extend_schema(
         request=inline_serializer(
@@ -952,29 +976,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
-        if not self._is_managed_warehouse_enabled():
-            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
-
         name = request.query_params.get("name")
         if not name:
             return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
-        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
-
-        if not base_url:
-            return Response(
-                {"error": "Managed warehouse provisioning is not configured"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
-            )
-
-        url = f"{base_url.rstrip('/')}/api/v1/database-name/check"
-        headers = {}
-        if token:
-            headers["X-Duckgres-Internal-Secret"] = token
-
-        try:
-            resp = http_requests.request("GET", url, params={"name": name}, headers=headers, timeout=10)
-            return Response(resp.json(), status=resp.status_code)
-        except Exception:
-            return Response({"error": "Failed to check database name"}, status=status.HTTP_502_BAD_GATEWAY)
+        return self._provisioning_request("GET", "database-name/check", params={"name": name}, timeout=10)

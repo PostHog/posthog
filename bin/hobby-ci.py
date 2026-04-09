@@ -422,7 +422,9 @@ runcmd:
         except Exception as e:
             return False, f"Failed to upload setup script: {e}"
 
-        self.run_ssh_command(f"docker cp {remote_script} hobby-web-1:/tmp/setup.py", timeout=15)
+        cp_result = self.run_ssh_command(f"docker cp {remote_script} hobby-web-1:/tmp/setup.py", timeout=15)
+        if cp_result["exit_code"] != 0:
+            return False, f"Failed to copy setup script to container: {cp_result['stderr'][:200]}"
         result = self.run_ssh_command(
             "cd /hobby && sudo -E docker-compose -f docker-compose.yml exec -T web bash -c 'PYTHONPATH=/code:/python-runtime python /tmp/setup.py'",
             timeout=60,
@@ -440,16 +442,19 @@ runcmd:
 
         event_name = "hobby_ci_smoke_test"
         print(f"📤 Sending test event '{event_name}'...", flush=True)
-        capture_resp = requests.post(
-            f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-            json={
-                "api_key": project_api_token,
-                "event": event_name,
-                "properties": {"source": "hobby-ci"},
-                "distinct_id": "ci-test-user",
-            },
-            timeout=30,
-        )
+        try:
+            capture_resp = requests.post(
+                f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={
+                    "api_key": project_api_token,
+                    "event": event_name,
+                    "properties": {"source": "hobby-ci"},
+                    "distinct_id": "ci-test-user",
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Capture request failed: {e}"
         if capture_resp.status_code != 200:
             return False, f"Capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
 
@@ -1469,7 +1474,8 @@ def main():
         print("Fetching all docker-compose logs...", flush=True)
         try:
             result = ht.run_command_on_droplet(
-                "cd /hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=500 --no-log-prefix", timeout=60
+                "cd /hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=100 --no-color 2>&1 | head -5000",
+                timeout=120,
             )
             if result:
                 log_path = "/tmp/docker-compose-logs.txt"

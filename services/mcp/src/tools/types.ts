@@ -96,6 +96,8 @@ export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> =
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
+    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
+    mcpVersion?: number
 }
 
 export type ZodObjectAny = z.ZodType<any>

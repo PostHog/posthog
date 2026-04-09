@@ -57,7 +57,7 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 30  # 30 minutes
+SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
 
 
 class SandboxConfig(BaseModel):
@@ -100,7 +100,9 @@ class SandboxProtocol(Protocol):
 
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
-    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
+    def clone_repository(
+        self, repository: str, github_token: str | None = "", shallow: bool = True
+    ) -> ExecutionResult: ...
 
     def setup_repository(self, repository: str) -> ExecutionResult: ...
 

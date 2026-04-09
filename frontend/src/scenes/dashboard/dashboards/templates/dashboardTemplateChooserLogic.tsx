@@ -67,7 +67,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                 selection_type: 'template',
                 tile_location: tileLocation,
                 template_id: template.id,
-                template_name: template.template_name,
+                template_name: template.template_name.toLowerCase(),
                 is_featured: template.is_featured === true,
                 $feature_flag: FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT,
                 $feature_flag_response: props.experimentVariant,

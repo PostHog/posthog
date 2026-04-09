@@ -1,9 +1,6 @@
-import json
-import threading
+import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -17,8 +14,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
         event_timeout_seconds=5,
         poll_interval_seconds=0.1,
     )
@@ -61,293 +57,174 @@ class TestCaptureEvent:
 
 
 class TestFetchEventByUuid:
-    def test_sends_correct_hogql_query(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_sends_correct_clickhouse_query(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = []
 
-            client._fetch_event_by_uuid("test-uuid-123")
+        client._fetch_event_by_uuid("test-uuid-123")
 
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args[1]
+        mock_sync_execute.assert_called_once()
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
 
-            assert call_kwargs["headers"] == {"Authorization": "Bearer phx_personal_key"}
-            assert call_kwargs["timeout"] == (
-                PostHogClient.HTTP_CONNECT_TIMEOUT_SECONDS,
-                PostHogClient.HTTP_READ_TIMEOUT_SECONDS,
+        assert "WHERE team_id = %(team_id)s" in query
+        assert "uuid = %(event_uuid)s" in query
+        assert "timestamp >= %(min_timestamp)s" in query
+        assert params["team_id"] == 12345
+        assert params["event_uuid"] == "test-uuid-123"
+        assert params["min_timestamp"] == client._test_start_date.isoformat()
+        assert mock_sync_execute.call_args[1]["team_id"] == 12345
+
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_captured_event_when_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = [
+            (
+                uuid.UUID("00000000-0000-0000-0000-000000000123"),
+                "test_event",
+                "user_456",
+                {"key": "value"},
+                datetime(2024, 1, 1),
             )
+        ]
 
-            request_body = call_kwargs["json"]
-            assert request_body["query"]["kind"] == "HogQLQuery"
-            assert "WHERE uuid = {event_uuid}" in request_body["query"]["query"]
-            assert "timestamp >= {min_timestamp}" in request_body["query"]["query"]
-            assert request_body["query"]["values"]["event_uuid"] == "test-uuid-123"
-            assert "min_timestamp" in request_body["query"]["values"]
-            assert request_body["refresh"] == "force_blocking"
+        result = client._fetch_event_by_uuid("uuid-123")
 
-    def test_posts_to_correct_url(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
+        assert result is not None
+        assert isinstance(result, CapturedEvent)
+        assert result.uuid == "00000000-0000-0000-0000-000000000123"
+        assert result.event == "test_event"
+        assert result.distinct_id == "user_456"
+        assert result.properties == {"key": "value"}
 
-            client._fetch_event_by_uuid("test-uuid")
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_none_when_not_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = []
 
-            url = mock_post.call_args[0][0]
-            assert url == "https://test.posthog.com/api/projects/12345/query/"
+        result = client._fetch_event_by_uuid("nonexistent-uuid")
 
-    def test_returns_captured_event_when_found(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {
-                "results": [["uuid-123", "test_event", "user_456", '{"key": "value"}', "2024-01-01T00:00:00Z"]],
-                "columns": ["uuid", "event", "distinct_id", "properties", "timestamp"],
-            }
+        assert result is None
 
-            result = client._fetch_event_by_uuid("uuid-123")
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_parses_json_string_properties(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = [
+            (
+                uuid.UUID("00000000-0000-0000-0000-000000000123"),
+                "test_event",
+                "user_456",
+                '{"key": "value"}',
+                datetime(2024, 1, 1),
+            )
+        ]
 
-            assert result is not None
-            assert isinstance(result, CapturedEvent)
-            assert result.uuid == "uuid-123"
-            assert result.event == "test_event"
-            assert result.distinct_id == "user_456"
-            assert result.properties == {"key": "value"}
-            assert result.timestamp == "2024-01-01T00:00:00Z"
+        result = client._fetch_event_by_uuid("uuid-123")
 
-    def test_returns_none_when_not_found(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
-
-            result = client._fetch_event_by_uuid("nonexistent-uuid")
-
-            assert result is None
+        assert result is not None
+        assert result.properties == {"key": "value"}
 
 
 class TestFetchPersonByDistinctId:
-    def test_sends_correct_hogql_query_with_join(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_sends_correct_clickhouse_query(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = []
 
-            client._fetch_person_by_distinct_id("user_123")
+        client._fetch_person_by_distinct_id("user_123")
 
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args[1]
+        mock_sync_execute.assert_called_once()
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
 
-            request_body = call_kwargs["json"]
-            query = request_body["query"]["query"]
+        assert "FROM person p" in query
+        assert "JOIN person_distinct_id2 pdi" in query
+        assert "pdi.distinct_id = %(distinct_id)s" in query
+        assert "pdi.is_deleted = 0" in query
+        assert "p.is_deleted = 0" in query
+        assert params["team_id"] == 12345
+        assert params["distinct_id"] == "user_123"
 
-            assert "FROM persons p" in query
-            assert "JOIN person_distinct_ids pdi ON p.id = pdi.person_id" in query
-            assert "WHERE pdi.distinct_id = {distinct_id}" in query
-            assert request_body["query"]["values"] == {"distinct_id": "user_123"}
-
-    def test_returns_person_when_found(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {
-                "results": [["person-id-123", '{"email": "test@example.com", "name": "Test"}', "2024-01-01T00:00:00Z"]],
-                "columns": ["id", "properties", "created_at"],
-            }
-
-            result = client._fetch_person_by_distinct_id("user_123")
-
-            assert result is not None
-            assert isinstance(result, Person)
-            assert result.id == "person-id-123"
-            assert result.properties == {"email": "test@example.com", "name": "Test"}
-            assert result.created_at == "2024-01-01T00:00:00Z"
-
-    def test_returns_none_when_not_found(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
-
-            result = client._fetch_person_by_distinct_id("nonexistent-user")
-
-            assert result is None
-
-
-class MockHttpHandler(BaseHTTPRequestHandler):
-    """HTTP handler that returns configurable responses for testing retry behavior."""
-
-    # Use HTTP/1.0 to avoid keep-alive connection issues in tests
-    protocol_version = "HTTP/1.0"
-
-    queued_responses: list[dict[str, Any]] = []
-    call_count: int = 0
-
-    def do_POST(self) -> None:
-        MockHttpHandler.call_count += 1
-
-        if MockHttpHandler.queued_responses:
-            resp = MockHttpHandler.queued_responses.pop(0)
-            status_code = resp.get("status_code", 200)
-            body = resp.get("json", {"results": [], "columns": []})
-        else:
-            status_code = 200
-            body = {"results": [], "columns": []}
-
-        body_bytes = json.dumps(body).encode()
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body_bytes)))
-        self.end_headers()
-        self.wfile.write(body_bytes)
-
-    def log_message(self, format: str, *args: Any) -> None:
-        pass  # Suppress logging
-
-
-@pytest.fixture
-def mock_server() -> Generator[HTTPServer, None, None]:
-    """Create a test HTTP server on a random available port."""
-    MockHttpHandler.queued_responses = []
-    MockHttpHandler.call_count = 0
-
-    server = HTTPServer(("127.0.0.1", 0), MockHttpHandler)
-    thread = threading.Thread(target=server.serve_forever)
-    thread.daemon = True
-    thread.start()
-
-    yield server
-
-    server.shutdown()
-
-
-class TestHttpRetryBehavior:
-    """Test HTTP retry behavior using a real test server."""
-
-    def test_retries_on_500_error_then_succeeds(self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
-        )
-
-        MockHttpHandler.queued_responses = [
-            {"status_code": 500},
-            {"status_code": 500},
-            {"json": {"results": [], "columns": []}, "status_code": 200},
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_person_when_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = [
+            (
+                uuid.UUID("00000000-0000-0000-0000-000000000abc"),
+                {"email": "test@example.com", "name": "Test"},
+                datetime(2024, 1, 1),
+            )
         ]
 
-        client = PostHogClient(config, mock_posthog_sdk)
-        result = client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
+        result = client._fetch_person_by_distinct_id("user_123")
 
-        assert result == []
-        assert MockHttpHandler.call_count == 3
+        assert result is not None
+        assert isinstance(result, Person)
+        assert result.id == "00000000-0000-0000-0000-000000000abc"
+        assert result.properties == {"email": "test@example.com", "name": "Test"}
 
-    def test_retries_on_502_503_504_errors(self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
-        )
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_none_when_not_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = []
 
-        MockHttpHandler.queued_responses = [
-            {"status_code": 502},
-            {"status_code": 503},
-            {"status_code": 504},
-            {"json": {"results": [], "columns": []}, "status_code": 200},
-        ]
+        result = client._fetch_person_by_distinct_id("nonexistent-user")
 
-        client = PostHogClient(config, mock_posthog_sdk)
-        result = client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
+        assert result is None
 
-        assert result == []
-        assert MockHttpHandler.call_count == 4
-
-    def test_does_not_retry_on_400_error(self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
-        )
-
-        MockHttpHandler.queued_responses = [{"status_code": 400, "json": {"error": "Bad request"}}]
-
-        client = PostHogClient(config, mock_posthog_sdk)
-        with pytest.raises(Exception):
-            client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
-
-        assert MockHttpHandler.call_count == 1
-
-    def test_does_not_retry_on_429_rate_limit(self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
-        )
-
-        MockHttpHandler.queued_responses = [{"status_code": 429, "json": {"error": "Rate limited"}}]
-
-        client = PostHogClient(config, mock_posthog_sdk)
-        with pytest.raises(Exception):
-            client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
-
-        assert MockHttpHandler.call_count == 1
-
-    def test_returns_empty_list_on_404(self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
-        )
-
-        MockHttpHandler.queued_responses = [{"status_code": 404}]
-
-        client = PostHogClient(config, mock_posthog_sdk)
-        result = client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
-
-        assert result == []
-        assert MockHttpHandler.call_count == 1
-
-    def test_succeeds_on_first_try_when_server_healthy(
-        self, mock_server: HTTPServer, mock_posthog_sdk: MagicMock
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_filters_out_deleted_persons_and_distinct_ids(
+        self, mock_sync_execute: MagicMock, client: PostHogClient
     ) -> None:
-        port = mock_server.server_address[1]
-        config = Config(
-            api_host=f"http://127.0.0.1:{port}",
-            project_api_key="phc_test_key",
-            project_id="12345",
-            personal_api_key="phx_personal_key",
-            event_timeout_seconds=5,
-            poll_interval_seconds=0.1,
+        """Verify the query includes is_deleted = 0 filters for both person and person_distinct_id2.
+
+        Both tables are ReplacingMergeTree — without these filters, soft-deleted rows
+        can be returned before ClickHouse merges parts.
+        """
+        mock_sync_execute.return_value = []
+
+        client._fetch_person_by_distinct_id("user_123")
+
+        query = mock_sync_execute.call_args[0][0]
+        assert "p.is_deleted = 0" in query, "Missing is_deleted filter on person table"
+        assert "pdi.is_deleted = 0" in query, "Missing is_deleted filter on person_distinct_id2 table"
+
+
+class TestFetchEventsByPersonId:
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_includes_timestamp_filter(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = []
+
+        client._fetch_events_by_person_id("test-person-id", expected_event_uuids={"some-uuid"})
+
+        mock_sync_execute.assert_called_once()
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+
+        assert "timestamp >= %(min_timestamp)s" in query
+        assert params["min_timestamp"] == client._test_start_date.isoformat()
+
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_none_when_not_all_uuids_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        mock_sync_execute.return_value = [
+            (uuid.UUID("00000000-0000-0000-0000-000000000001"), "ev", "u", {}, datetime(2024, 1, 1))
+        ]
+
+        result = client._fetch_events_by_person_id(
+            "person-1", expected_event_uuids={"00000000-0000-0000-0000-000000000001", "missing-uuid"}
         )
 
-        MockHttpHandler.queued_responses = [{"json": {"results": [["value"]], "columns": ["col"]}, "status_code": 200}]
+        assert result is None
 
-        client = PostHogClient(config, mock_posthog_sdk)
-        result = client._execute_hogql_query_all("SELECT 1", {})
-        client.shutdown()
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_returns_events_when_all_uuids_found(self, mock_sync_execute: MagicMock, client: PostHogClient) -> None:
+        uuid1 = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        uuid2 = uuid.UUID("00000000-0000-0000-0000-000000000002")
+        mock_sync_execute.return_value = [
+            (uuid1, "ev1", "u1", {"k": "v1"}, datetime(2024, 1, 1)),
+            (uuid2, "ev2", "u2", {"k": "v2"}, datetime(2024, 1, 2)),
+        ]
 
-        assert result == [{"col": "value"}]
-        assert MockHttpHandler.call_count == 1
+        result = client._fetch_events_by_person_id("person-1", expected_event_uuids={str(uuid1), str(uuid2)})
+
+        assert result is not None
+        assert len(result) == 2
+        assert result[0].uuid == str(uuid1)
+        assert result[1].uuid == str(uuid2)
 
 
 class TestTimestampFiltering:
@@ -356,18 +233,3 @@ class TestTimestampFiltering:
         yesterday = today - timedelta(days=1)
 
         assert client._test_start_date == yesterday
-
-    def test_fetch_events_by_person_id_includes_timestamp_filter(self, client: PostHogClient) -> None:
-        with patch.object(client._session, "post") as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {"results": [], "columns": []}
-
-            client._fetch_events_by_person_id("test-person-id", expected_event_uuids={"some-uuid"})
-
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args[1]
-            request_body = call_kwargs["json"]
-
-            assert "timestamp >= {min_timestamp}" in request_body["query"]["query"]
-            assert "min_timestamp" in request_body["query"]["values"]
-            assert request_body["query"]["values"]["min_timestamp"] == client._test_start_date.isoformat()

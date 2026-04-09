@@ -5,6 +5,7 @@ import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    EventTriggerConfig,
     LinkedFeatureFlag,
     SessionRecordingTriggerGroup,
     SessionRecordingTriggerGroupsConfig,
@@ -184,12 +185,12 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                 const minDurationMs = team.session_recording_minimum_duration_milliseconds ?? undefined
                 const matchType = team.session_recording_trigger_match_type_config || 'all'
 
-                const events =
+                const events: EventTriggerConfig[] | undefined =
                     team.session_recording_event_trigger_config &&
                     team.session_recording_event_trigger_config.length > 0
-                        ? team.session_recording_event_trigger_config.filter(
-                              (e): e is string => typeof e === 'string' && e.length > 0
-                          )
+                        ? team.session_recording_event_trigger_config
+                              .filter((e): e is string => typeof e === 'string' && e.length > 0)
+                              .map((name) => ({ name }))
                         : undefined
 
                 const urls =

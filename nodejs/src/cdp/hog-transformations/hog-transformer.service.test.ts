@@ -140,6 +140,42 @@ describe('HogTransformer', () => {
             `)
         })
 
+        it('should expose elements_chain from $elements_chain property', async () => {
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Elements Chain Reader',
+                team_id: teamId,
+                enabled: true,
+                bytecode: [],
+                execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
+                hog: `
+                    let returnEvent := event
+                    if (event.elements_chain ilike '%button%') {
+                        returnEvent.event := 'button_click'
+                    }
+                    return returnEvent
+                `,
+            })
+            fn.bytecode = await compileHog(fn.hog)
+            await insertHogFunction(hub.postgres, teamId, fn)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
+
+            const event: PluginEvent = createPluginEvent(
+                {
+                    event: '$autocapture',
+                    properties: {
+                        $current_url: 'https://example.com',
+                        $elements_chain: 'button.btn:attr__class="btn-primary"',
+                    },
+                },
+                teamId
+            )
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.event).toBe('button_click')
+        })
+
         it('only allow modifying certain properties', async () => {
             const fn = createHogFunction({
                 type: 'transformation',

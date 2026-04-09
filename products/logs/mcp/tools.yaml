@@ -1,0 +1,136 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Logs
+feature: logs
+url_prefix: /logs
+ui_apps: {}
+tools:
+    query-logs:
+        operation: logs_query_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query logs
+        description_file: ./prompts/query-logs.md
+        response:
+            include:
+                - results
+    logs-attributes-list:
+        operation: logs_attributes_retrieve
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List log attributes
+        description: >
+            List available log attribute names for filtering. Use attribute_type "log" for log-level attributes or
+            "resource" for resource-level attributes (e.g. k8s labels).
+        response:
+            include:
+                - results
+                - count
+    logs-attribute-values-list:
+        operation: logs_values_retrieve
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List log attribute values
+        description: >
+            List values for a specific log attribute key. Use to discover what values exist for a given attribute before
+            building filters.
+        response:
+            include:
+                - results
+    logs-explain-log-with-ai-create:
+        operation: logs_explainLogWithAI_create
+        enabled: false
+    logs-views-list:
+        operation: logs_views_list
+        enabled: false
+    logs-views-create:
+        operation: logs_views_create
+        enabled: false
+    logs-views-retrieve:
+        operation: logs_views_retrieve
+        enabled: false
+    logs-views-update:
+        operation: logs_views_update
+        enabled: false
+    logs-views-partial-update:
+        operation: logs_views_partial_update
+        enabled: false
+    logs-views-destroy:
+        operation: logs_views_destroy
+        enabled: false
+    logs-alerts-list:
+        operation: logs_alerts_list
+        enabled: false
+    logs-alerts-create:
+        operation: logs_alerts_create
+        enabled: false
+    logs-alerts-retrieve:
+        operation: logs_alerts_retrieve
+        enabled: false
+    logs-alerts-update:
+        operation: logs_alerts_update
+        enabled: false
+    logs-alerts-partial-update:
+        operation: logs_alerts_partial_update
+        enabled: false
+    logs-alerts-destroy:
+        operation: logs_alerts_destroy
+        enabled: false
+    batch-exports-logs-retrieve:
+        operation: batch_exports_logs_retrieve
+        enabled: false
+    domains-scim-logs-retrieve:
+        operation: domains_scim_logs_retrieve
+        enabled: false
+    batch-exports-runs-logs-retrieve:
+        operation: batch_exports_runs_logs_retrieve
+        enabled: false
+    hog-flow-templates-logs-retrieve:
+        operation: hog_flow_templates_logs_retrieve
+        enabled: false
+    hog-flows-logs-retrieve:
+        operation: hog_flows_logs_retrieve
+        enabled: false
+    hog-functions-logs-retrieve:
+        operation: hog_functions_logs_retrieve
+        enabled: false
+    plugin-configs-logs-list:
+        operation: plugin_configs_logs_list
+        enabled: false
+    tasks-runs-logs-retrieve:
+        operation: tasks_runs_logs_retrieve
+        enabled: false
+    logs-alerts-simulate-create:
+        operation: logs_alerts_simulate_create
+        enabled: false
+    logs-export-create:
+        operation: logs_export_create
+        enabled: false
+    logs-has-logs-retrieve:
+        operation: logs_has_logs_retrieve
+        enabled: false
+    logs-services-create:
+        operation: logs_services_create
+        enabled: false
+    logs-sparkline-create:
+        operation: logs_sparkline_create
+        enabled: false

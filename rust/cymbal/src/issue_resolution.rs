@@ -36,6 +36,32 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
 }
 
+pub struct IssueWithFirstSeen {
+    pub id: Uuid,
+    pub team_id: i32,
+    pub status: IssueStatus,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub fingerprint_first_seen: Option<DateTime<Utc>>,
+}
+
+impl IssueWithFirstSeen {
+    pub fn into_issue(self) -> (Issue, Option<DateTime<Utc>>) {
+        (
+            Issue {
+                id: self.id,
+                team_id: self.team_id,
+                status: self.status,
+                name: self.name,
+                description: self.description,
+                created_at: self.created_at,
+            },
+            self.fingerprint_first_seen,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IssueStatus {
@@ -63,16 +89,14 @@ impl Issue {
         executor: E,
         team_id: i32,
         fingerprint: &str,
-    ) -> Result<Option<Self>, UnhandledError>
+    ) -> Result<Option<IssueWithFirstSeen>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let res = sqlx::query_as!(
-            Issue,
+            IssueWithFirstSeen,
             r#"
-            -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
-            -- generally a risky override of sqlx's normal type checking
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at
+            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -170,6 +194,9 @@ impl Issue {
 
         let reopened = !res.is_empty();
         if reopened {
+            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
+            // (fingerprint_issue_state, internal events) are not stale.
+            self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
         }
@@ -197,6 +224,81 @@ impl Issue {
 
         Ok(assignments)
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FingerprintIssueState {
+    pub team_id: i32,
+    pub fingerprint: String,
+    pub issue_id: Uuid,
+    pub issue_name: Option<String>,
+    pub issue_description: Option<String>,
+    pub issue_status: String,
+    pub assigned_user_id: Option<i64>,
+    pub assigned_role_id: Option<String>,
+    pub first_seen: String,
+    pub is_deleted: i8,
+    pub version: i64,
+}
+
+fn assignment_user_role_from_assignment(
+    assignment: Option<&Assignment>,
+) -> (Option<i64>, Option<String>) {
+    let Some(a) = assignment else {
+        return (None, None);
+    };
+    if let Some(uid) = a.user_id {
+        return (Some(i64::from(uid)), None);
+    }
+    if let Some(rid) = a.role_id {
+        return (None, Some(rid.to_string()));
+    }
+    (None, None)
+}
+
+impl FingerprintIssueState {
+    pub fn new(
+        issue: &Issue,
+        fingerprint: &str,
+        assignment: Option<&Assignment>,
+        first_seen: DateTime<Utc>,
+    ) -> Self {
+        let now = Utc::now().timestamp_millis();
+        let (assigned_user_id, assigned_role_id) = assignment_user_role_from_assignment(assignment);
+        Self {
+            team_id: issue.team_id,
+            fingerprint: fingerprint.to_string(),
+            issue_id: issue.id,
+            issue_name: issue.name.clone(),
+            issue_description: issue.description.clone(),
+            issue_status: issue.status.to_string(),
+            assigned_user_id,
+            assigned_role_id,
+            first_seen: first_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            is_deleted: 0,
+            version: now,
+        }
+    }
+}
+
+pub async fn send_fingerprint_issue_state(
+    context: &AppContext,
+    issue: &Issue,
+    fingerprint: &str,
+    assignment: Option<&Assignment>,
+    first_seen: DateTime<Utc>,
+) -> Result<(), UnhandledError> {
+    let msg = FingerprintIssueState::new(issue, fingerprint, assignment, first_seen);
+    send_iter_to_kafka(
+        &context.immediate_producer,
+        &context.config.fingerprint_issue_state_topic,
+        &[msg],
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, KafkaProduceError>>()
+    .map_err(UnhandledError::KafkaProduceError)?;
+    Ok(())
 }
 
 impl IssueFingerprintOverride {

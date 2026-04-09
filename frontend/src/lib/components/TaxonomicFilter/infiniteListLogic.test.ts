@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -127,6 +128,20 @@ describe('infiniteListLogic', () => {
             })
         })
 
+        it('toggles pinned rows and keeps the highlighted index in sync', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: null,
+            })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('event')
@@ -138,6 +153,23 @@ describe('infiniteListLogic', () => {
                         count: 3,
                         results: partial([partial({ name: 'event1' })]),
                     }),
+                })
+        })
+
+        it('resets pinned state when the search query changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('event')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    searchQuery: 'event',
+                    pinnedRowIndex: null,
+                    hasAppliedInitialPin: false,
                 })
         })
 
@@ -231,6 +263,69 @@ describe('infiniteListLogic', () => {
                             results: [{ name: 'All events', value: null }, ...mockEventDefinitions],
                         }),
                     })
+            })
+        })
+    })
+
+    describe('data warehouse pin lifecycle', () => {
+        beforeEach(() => {
+            const databaseLogic = databaseTableListLogic()
+            databaseLogic.mount()
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    orders: {
+                        id: 'orders',
+                        name: 'orders',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                    customers: {
+                        id: 'customers',
+                        name: 'customers',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                },
+                joins: [],
+            } as any)
+
+            dataWarehouseSettingsSceneLogic().mount()
+        })
+
+        it('reapplies the initial pin when the data warehouse tab becomes active again', async () => {
+            const dataWarehouseLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'test-data-warehouse-list',
+                listGroupType: TaxonomicFilterGroupType.DataWarehouse,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+                showNumericalPropsOnly: false,
+                groupType: TaxonomicFilterGroupType.DataWarehouse,
+                value: 'customers',
+            })
+            dataWarehouseLogic.mount()
+
+            await expectLogic(dataWarehouseLogic).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+            }).toMatchValues({
+                pinnedRowIndex: null,
+                hasAppliedInitialPin: false,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.DataWarehouse)
+            }).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
             })
         })
     })

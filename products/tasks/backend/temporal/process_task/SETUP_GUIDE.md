@@ -109,7 +109,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 1. **get_task_processing_context** — Loads the TaskRun from the database, validates the GitHub integration and repository, and builds a `TaskProcessingContext` carrying all the IDs needed by later activities
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a Docker sandbox (reusing a snapshot if one exists), clones the repository, and stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls `/health` until it responds
-4. **wait_condition** — The workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 5 minutes
+4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 30 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs, even on failure)
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.

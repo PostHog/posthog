@@ -46,9 +46,24 @@ jobs:
                         - Dockerfile
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
-                        - 'bin/*'
+                        # Hobby-specific scripts
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        # Docker runtime (Dockerfile CMD chain)
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
                         - 'bin/hobby-installer/**'
-                        - 'docker/*'
+                        - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       installer:
@@ -609,8 +624,8 @@ jobs:
 
                       console.log(`Updated deployment ${deploymentId} to ${state}`);
             - name: Fetch logs after test
-              if: always()
-              timeout-minutes: 10
+              if: env.TEST_EXIT_CODE != '0'
+              timeout-minutes: 5
               run: uv run bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}

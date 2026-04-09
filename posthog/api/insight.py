@@ -121,6 +121,7 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
+LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -190,6 +191,26 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return posthoganalytics.feature_enabled(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
+        str(distinct_id),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -463,6 +484,15 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "is_cached",
         )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        query = attrs.get("query") if "query" in attrs else None
+        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
+        if using_legacy_filters and is_legacy_insight_filters_blocked(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:

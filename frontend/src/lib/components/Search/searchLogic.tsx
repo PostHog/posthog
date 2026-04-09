@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -23,6 +23,7 @@ import { SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
+import { filterSearchItems } from './utils'
 
 // Types for command search results
 export interface SearchItem {
@@ -595,6 +596,17 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
                     record: { type: 'alerts' },
                 },
+                {
+                    id: 'misc-subscriptions',
+                    name: 'Subscriptions',
+                    displayName: 'Subscriptions',
+                    category: 'misc',
+                    href: urls.subscriptions(),
+                    icon: <IconNotification />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
+                    record: { type: 'subscriptions' },
+                },
             ],
         ],
         settingsItems: [
@@ -862,30 +874,12 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Filter items by search term
+                // Filter items by search term using Fuse.js fuzzy search
                 const filterBySearch = (items: SearchItem[]): SearchItem[] => {
                     if (!hasSearch) {
                         return items
                     }
-                    const searchLower = search.toLowerCase()
-                    return items.filter((item) => {
-                        const name = item.name.toLowerCase()
-                        const category = item.category.toLowerCase()
-                        if (name.includes(searchLower) || category.includes(searchLower)) {
-                            return true
-                        }
-                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
-                            return true
-                        }
-                        // Chunk matching: every word in the query must match somewhere
-                        const searchChunks = searchLower.split(' ').filter((s) => s)
-                        return searchChunks.every(
-                            (chunk) =>
-                                name.includes(chunk) ||
-                                category.includes(chunk) ||
-                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
-                        )
-                    })
+                    return filterSearchItems(items, search)
                 }
 
                 // Always show recents first - show loading skeleton until first load completes

@@ -49,6 +49,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     __test__ = False
 
     use_v2: bool = False
+    use_v3: bool = False
 
     # will be provided by inheritance from PostHogTestCase
     team: Team
@@ -204,6 +205,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
                     useQueryV2=self.use_v2,
+                    useQueryV3=self.use_v3,
                 ),
             )
             .calculate()

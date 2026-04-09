@@ -116,3 +116,27 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         db_table = "posthog_duckgresserver"
         verbose_name = "Duckgres server"
         verbose_name_plural = "Duckgres servers"
+
+
+class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team enablement of DuckLake warehouse backfills.
+
+    Controls which teams should be backfilled by the Dagster duckling sensors.
+    Catalog credentials are resolved from the team's organization via
+    DuckLakeCatalog/DuckgresServer — this model only tracks enablement.
+    """
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="ducklake_backfill",
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Whether warehouse backfills are enabled for this team",
+    )
+
+    class Meta:
+        db_table = "posthog_ducklakebackfill"
+        verbose_name = "DuckLake backfill"
+        verbose_name_plural = "DuckLake backfills"

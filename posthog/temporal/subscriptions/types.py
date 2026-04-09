@@ -6,6 +6,18 @@ from posthog.slo.types import SloConfig
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 
+class SubscriptionTriggerType:
+    """How a subscription delivery was triggered.
+
+    Plain string constants (not enum.Enum) because Temporal's
+    DefaultPayloadConverter mis-deserializes str enums as character lists.
+    """
+
+    SCHEDULED = "scheduled"  # Regular cron-based delivery
+    TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
+    MANUAL = "manual"  # User clicked "Test delivery"
+
+
 @dataclasses.dataclass
 class SubscriptionInfo:
     subscription_id: int
@@ -57,6 +69,7 @@ class ProcessSubscriptionWorkflowInputs:
     distinct_id: str = ""
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
+    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
 
 
 @dataclasses.dataclass
@@ -75,6 +88,7 @@ class TrackedSubscriptionInputs:
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
+    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
 
 
 @dataclasses.dataclass

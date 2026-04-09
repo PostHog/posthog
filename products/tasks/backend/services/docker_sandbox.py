@@ -147,6 +147,11 @@ class DockerSandbox:
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
+        # The skills dist directory is populated by CI but won't exist in local
+        # dev checkouts.  The Dockerfile COPYs it unconditionally, so ensure it
+        # exists (install-skills.sh already handles the empty-dir case).
+        os.makedirs(os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"), exist_ok=True)
+
         DockerSandbox._run(
             [
                 "docker",
@@ -514,7 +519,9 @@ class DockerSandbox:
 
         return result
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+    def clone_repository(
+        self, repository: str, github_token: Optional[str] = "", shallow: bool = True
+    ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -528,13 +535,14 @@ class DockerSandbox:
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
         org_path = f"/tmp/workspace/repos/{org}"
 
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
+            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
+        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
@@ -646,8 +654,11 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
+        # agentsh works reliably inside local Docker containers.
+        # For now we skip setup and ignore allowed_domains so that callers
+        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
+        allowed_domains = None
 
         mcp_servers_arg = ""
         if mcp_configs:

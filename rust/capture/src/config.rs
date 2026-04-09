@@ -100,7 +100,7 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    // --- Token-only limiter config ---
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
     #[envconfig(default = "5000000")]
