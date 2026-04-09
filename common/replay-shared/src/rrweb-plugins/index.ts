@@ -118,6 +118,10 @@ export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } 
                             }
                         })
                         .catch(() => {
+                            // Chunk load failure — fall back to native HLS if the browser supports it
+                            if (destroyed) {
+                                return
+                            }
                             if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
                                 videoEl.src = hlsSrc
                             }
