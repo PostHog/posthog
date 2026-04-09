@@ -1,6 +1,6 @@
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 import temporalio
@@ -597,7 +597,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
+            if source_type_enum == ExternalDataSourceType.POSTGRES:
+                postgres_source = cast(Any, new_source)
+                schemas = postgres_source.get_schemas(
+                    config,
+                    self.team_id,
+                    names=[instance.name],
+                    include_cdc_support=self._is_cdc_enabled(),
+                )
+            else:
+                schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
         except Exception as e:
             capture_exception(e)
             return Response(

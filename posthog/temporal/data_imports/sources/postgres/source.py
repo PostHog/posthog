@@ -25,9 +25,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
-    get_primary_key_columns,
     get_schemas as get_postgres_schemas,
-    pg_connection,
     postgres_source,
 )
 
@@ -151,12 +149,32 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         }
 
     def get_schemas(
-        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        include_cdc_support: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
+        # Resolve whether CDC PK info should be fetched. When True the PK
+        # query piggybacks on the same connection as the schema query — no
+        # extra SSH tunnel connections are opened.
+        include_pk_info = False
+        if include_cdc_support:
+            try:
+                from posthog.models import Team
+
+                from products.data_warehouse.backend.data_load.service import is_cdc_enabled_for_team
+
+                team = Team.objects.get(id=team_id)
+                include_pk_info = is_cdc_enabled_for_team(team)
+            except Exception as e:
+                capture_exception(e)
+
         with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_postgres_schemas(
+            db_schemas, pk_columns_by_table = get_postgres_schemas(
                 host=host,
                 port=port,
                 user=config.user,
@@ -164,7 +182,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 database=config.database,
                 schema=config.schema,
                 names=names,
+                include_pk_info=include_pk_info,
             )
+            tables_with_pks = set(pk_columns_by_table.keys())
+
             db_foreign_keys = get_postgres_foreign_keys(
                 host=host,
                 port=port,
@@ -187,23 +208,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 )
             else:
                 row_counts = {}
-
-            # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
-            # quirk on `information_schema` (rare but possible) only disables CDC
-            # advertising for this listing instead of breaking schema discovery for
-            # everyone — including non-CDC users.
-            try:
-                with pg_connection(
-                    host=host,
-                    port=port,
-                    user=config.user,
-                    password=config.password,
-                    database=config.database,
-                ) as conn:
-                    tables_with_pks = set(get_primary_key_columns(conn, config.schema, list(db_schemas.keys())).keys())
-            except Exception as e:
-                capture_exception(e)
-                tables_with_pks = set()
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(columns)

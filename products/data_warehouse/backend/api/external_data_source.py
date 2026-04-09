@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -1224,7 +1224,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id, True)
+            if source_type_model == ExternalDataSourceType.POSTGRES:
+                postgres_source = cast(Any, source)
+                schemas = postgres_source.get_schemas(
+                    source_config,
+                    self.team_id,
+                    True,
+                    include_cdc_support=self._is_cdc_enabled(),
+                )
+            else:
+                schemas = source.get_schemas(source_config, self.team_id, True)
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(

@@ -232,8 +232,15 @@ def get_schemas(
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
-) -> dict[str, list[tuple[str, str, bool]]]:
-    """Get all tables from PostgreSQL source schemas to sync."""
+    include_pk_info: bool = False,
+) -> tuple[dict[str, list[tuple[str, str, bool]]], dict[str, list[str]]]:
+    """Get all tables from PostgreSQL source schemas to sync.
+
+    Returns (schema_list, pk_columns_by_table). pk_columns_by_table is only
+    populated when ``include_pk_info=True``; otherwise it is an empty dict.
+    Both queries share the same connection so no extra SSH tunnel connections
+    are opened.
+    """
 
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -276,7 +283,12 @@ def get_schemas(
         for row in result:
             schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
-    return schema_list
+        # Reuse the same connection for PK lookup — no extra SSH tunnel connection.
+        pk_columns: dict[str, list[str]] = {}
+        if include_pk_info:
+            pk_columns = get_primary_key_columns(connection, schema, list(schema_list.keys()))
+
+    return schema_list, pk_columns
 
 
 def get_foreign_keys(
