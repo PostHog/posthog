@@ -95,9 +95,15 @@ export interface FilterNotNode {
 }
 
 export interface TestCase {
+    _key: string
     event_name: string
     distinct_id: string
     expected_result: 'drop' | 'ingest'
+}
+
+let testCaseCounter = 0
+export function nextTestCaseKey(): string {
+    return `tc${testCaseCounter++}`
 }
 
 export interface TestResult {
@@ -255,7 +261,12 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     formValues = { ...formValues, mode: 'dry_run' }
                 }
 
-                await api.create(`api/environments/${currentTeamId}/event_filter/`, formValues)
+                // Strip _key from test cases before sending to the API
+                const payload = {
+                    ...formValues,
+                    test_cases: formValues.test_cases.map(({ _key, ...tc }) => tc),
+                }
+                await api.create(`api/environments/${currentTeamId}/event_filter/`, payload)
                 lemonToast.success('Event filter saved')
             },
         },
@@ -362,7 +373,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         addTestCase: () => {
             const newCases = [
                 ...values.filterForm.test_cases,
-                { event_name: '', distinct_id: '', expected_result: 'drop' as const },
+                { _key: nextTestCaseKey(), event_name: '', distinct_id: '', expected_result: 'drop' as const },
             ]
             actions.setFilterFormValue('test_cases', newCases)
         },
@@ -387,7 +398,11 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             if (data.filter_tree?.type) {
                 actions.setFilterFormValue('filter_tree', data.filter_tree)
             }
-            actions.setFilterFormValue('test_cases', data.test_cases ?? [])
+            const testCases = (data.test_cases ?? []).map((tc: Omit<TestCase, '_key'>) => ({
+                ...tc,
+                _key: nextTestCaseKey(),
+            }))
+            actions.setFilterFormValue('test_cases', testCases)
         })
     }),
 ])

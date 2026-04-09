@@ -75,7 +75,14 @@ function ConditionEditor({
                 status={isEmpty ? 'danger' : undefined}
             />
             {onDelete && (
-                <LemonButton icon={<IconTrash />} size="xsmall" status="danger" onClick={onDelete} tooltip="Remove" />
+                <LemonButton
+                    icon={<IconTrash />}
+                    size="xsmall"
+                    status="danger"
+                    onClick={onDelete}
+                    tooltip="Remove"
+                    aria-label="Remove"
+                />
             )}
         </div>
     )

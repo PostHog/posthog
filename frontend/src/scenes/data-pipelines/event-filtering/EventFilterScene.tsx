@@ -14,9 +14,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -125,7 +124,7 @@ export function EventFilterScene(): JSX.Element {
             />
             <Form logic={eventFilterLogic} formKey="filterForm" enableFormOnSubmit>
                 <div className="space-y-4">
-                    <div className="border rounded p-3 text-sm">
+                    <LemonBanner type="info">
                         <p className="mb-1">
                             Event filtering is the most efficient way to drop unwanted events. Filters are evaluated
                             early in the ingestion pipeline, before transformations run.
@@ -136,7 +135,7 @@ export function EventFilterScene(): JSX.Element {
                             for simple drop rules based on event name or distinct ID, and only use transformations when
                             you need more complex logic.
                         </p>
-                    </div>
+                    </LemonBanner>
 
                     <div
                         className={`border rounded p-3 flex items-center justify-between ${
@@ -166,21 +165,22 @@ export function EventFilterScene(): JSX.Element {
                                 <div className="text-danger text-xs mt-1">Tests failing — will be saved as dry run</div>
                             )}
                         </div>
-                        <LemonSelect
+                        <LemonSegmentedButton
                             size="small"
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
                                 { value: 'dry_run', label: 'Dry run' },
-                                { value: 'live', label: 'Live' },
+                                {
+                                    value: 'live',
+                                    label: 'Live',
+                                    disabledReason:
+                                        !allTestsPass && filterForm.test_cases.length > 0
+                                            ? 'All test cases must pass before going live'
+                                            : undefined,
+                                },
                             ]}
                             value={filterForm.mode}
-                            onChange={(value) => {
-                                if (value === 'live' && !allTestsPass && filterForm.test_cases.length > 0) {
-                                    lemonToast.error('Cannot go live while test cases are failing')
-                                    return
-                                }
-                                setFilterFormValue('mode', value)
-                            }}
+                            onChange={(value) => setFilterFormValue('mode', value)}
                         />
                     </div>
 
@@ -189,7 +189,7 @@ export function EventFilterScene(): JSX.Element {
                     <div className="space-y-2">
                         <div className="flex items-start justify-between">
                             <div>
-                                <label className="font-semibold">Drop events matching</label>
+                                <LemonLabel>Drop events matching</LemonLabel>
                                 <p className="text-muted text-sm mb-0">
                                     Build a filter expression. Drag conditions and groups to reorder or move between
                                     groups. Maximum {EVENT_FILTER_MAX_CONDITIONS} conditions and{' '}
@@ -217,7 +217,7 @@ export function EventFilterScene(): JSX.Element {
                                 />
                             </div>
                             {showFilterFormErrors && filterFormErrors.mode && (
-                                <div className="text-danger text-sm mt-1">{filterFormErrors.mode}</div>
+                                <LemonBanner type="error">{filterFormErrors.mode}</LemonBanner>
                             )}
                             <DragOverlay>
                                 {activeNode ? (
@@ -248,10 +248,10 @@ export function EventFilterScene(): JSX.Element {
                     <LemonDivider />
 
                     {!allTestsPass && filterForm.mode === 'live' && (
-                        <div className="text-danger text-sm">
+                        <LemonBanner type="warning">
                             Some test cases are failing. The filter cannot go live until all tests pass. You can save
                             with tests failing, but the filter will be saved in dry run mode.
-                        </div>
+                        </LemonBanner>
                     )}
 
                     <div className="flex gap-2">

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { eventFilterLogic, TestCase, TestResult } from './eventFilterLogic'
 
@@ -12,7 +12,7 @@ export function EventFilterTestCases(): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between">
-                <label className="font-semibold">Test cases</label>
+                <LemonLabel>Test cases</LemonLabel>
                 {filterForm.test_cases.length > 0 && (
                     <LemonTag type={allTestsPass ? 'success' : 'danger'}>
                         {allTestsPass
@@ -32,7 +32,7 @@ export function EventFilterTestCases(): JSX.Element {
                         const result = testResults[i]
                         return (
                             <div
-                                key={i}
+                                key={tc._key}
                                 className={`border rounded font-mono text-sm ${
                                     result && !result.pass ? 'border-danger' : ''
                                 }`}
@@ -62,6 +62,7 @@ export function EventFilterTestCases(): JSX.Element {
                                         icon={<IconTrash />}
                                         size="xsmall"
                                         status="danger"
+                                        aria-label="Remove test case"
                                         onClick={() => removeTestCase(i)}
                                     />
                                 </div>
