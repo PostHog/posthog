@@ -156,6 +156,17 @@ class TestParseProjectConfigValidation:
         with pytest.raises(ValueError, match="Duplicate environment names.*production"):
             parse_project_config(content)
 
+    def test_empty_environments_table_raises(self):
+        content = dedent("""\
+            [project]
+            name = "Acme"
+            version = 1
+
+            [environments]
+        """)
+        with pytest.raises(ValueError, match="at least one environment"):
+            parse_project_config(content)
+
     def test_version_wrong_type_raises(self):
         content = dedent("""\
             [project]
@@ -163,6 +174,30 @@ class TestParseProjectConfigValidation:
             version = "1"
         """)
         with pytest.raises(ValueError, match="version must be an integer"):
+            parse_project_config(content)
+
+    def test_environment_name_wrong_type_raises(self):
+        content = dedent("""\
+            [project]
+            name = "Acme"
+            version = 1
+
+            [environment]
+            name = 42
+        """)
+        with pytest.raises(ValueError, match="name must be a string"):
+            parse_project_config(content)
+
+    def test_environments_name_wrong_type_raises(self):
+        content = dedent("""\
+            [project]
+            name = "Acme"
+            version = 1
+
+            [environments.prod]
+            name = 42
+        """)
+        with pytest.raises(ValueError, match="name must be a string"):
             parse_project_config(content)
 
     def test_models_directory_wrong_type_raises(self):
@@ -191,6 +226,10 @@ class TestParseDagConfig:
     def test_with_description(self):
         result = parse_dag_config('description = "Core metrics"')
         assert result.description == "Core metrics"
+
+    def test_with_name(self):
+        result = parse_dag_config('name = "Finance Pipeline"')
+        assert result.name == "Finance Pipeline"
 
     def test_full_config(self):
         content = dedent("""\
