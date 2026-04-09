@@ -39,15 +39,12 @@ export function CohortCriteriaRowBuilder({
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
     const rowShape = ROWS[type]
 
-    const cohortFilterLogicKey = `cohort_${groupIndex}_${index}`
-
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
             <div key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
-                    cohortFilterLogicKey,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
