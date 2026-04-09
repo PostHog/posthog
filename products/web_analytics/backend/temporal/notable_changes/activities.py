@@ -50,20 +50,31 @@ def _run_notable_changes_query(query: "WebNotableChangesQuery", team: "Team") ->
 @activity.defn
 async def get_eligible_team_ids() -> list[int]:
     from posthog.models import Team
+    from posthog.models.instance_setting import get_instance_setting
 
     @database_sync_to_async(thread_sensitive=False)
-    def _query() -> list[int]:
-        return list(
+    def _query() -> tuple[list[int], list[int]]:
+        allowed_ids: list[int] = get_instance_setting("WEB_NOTABLE_CHANGES_ALLOWED_TEAM_IDS")
+        qs = (
             Team.objects.filter(
                 organization__is_ai_data_processing_approved=True,
             )
             .exclude(is_demo=True)
             .exclude(organization__for_internal_metrics=True)
-            .values_list("id", flat=True)
         )
+        if allowed_ids:
+            qs = qs.filter(id__in=allowed_ids)
+        return list(qs.values_list("id", flat=True)), allowed_ids
 
-    team_ids = await _query()
-    await logger.ainfo("Found eligible teams for notable changes", count=len(team_ids))
+    team_ids, allowed_ids = await _query()
+
+    if allowed_ids:
+        await logger.ainfo(
+            "Filtered to allowed teams for notable changes", allowed=len(allowed_ids), count=len(team_ids)
+        )
+    else:
+        await logger.ainfo("Found eligible teams for notable changes", count=len(team_ids))
+
     return team_ids
 
 
