@@ -22,8 +22,14 @@ from hogli.core.manifest import REPO_ROOT
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
 
 
-def _is_test_file(path: str) -> bool:
-    """Check if a file path looks like a test file for any supported language."""
+def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
+    """Check if a file path looks like a test file for any supported language.
+
+    Args:
+        path: Repo-relative file path.
+        rs_cfg_test: Pre-computed set of .rs files containing #[cfg(test)].
+            When provided, avoids reading each .rs file from disk.
+    """
     name = PurePosixPath(path).name
     if path.endswith(".py"):
         return name.startswith("test_") or (name.startswith("eval_") and path.startswith("ee/hogai/eval/"))
@@ -36,11 +42,23 @@ def _is_test_file(path: str) -> bool:
     if path.endswith(".rs"):
         if path.endswith("_test.rs") or "/tests/" in path:
             return True
-        try:
-            return b"#[cfg(test)]" in (REPO_ROOT / path).read_bytes()
-        except OSError:
-            return False
+        if rs_cfg_test is not None:
+            return path in rs_cfg_test
     return False
+
+
+def _batch_find_rs_cfg_test(dir_path: str) -> set[str]:
+    """Batch-find .rs files containing inline #[cfg(test)] with a single grep."""
+    try:
+        result = subprocess.run(
+            ["grep", "-rl", "--include=*.rs", r"#\[cfg(test)\]", dir_path],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        return {line for line in result.stdout.strip().splitlines() if line}
+    except OSError:
+        return set()
 
 
 def _find_test_files_for_source(path: str) -> list[str]:
@@ -78,12 +96,15 @@ def _find_test_files_for_source(path: str) -> list[str]:
             candidates.append(str(tests_parent / f"{stem}.rs"))
             candidates.append(str(tests_parent / f"{stem}_test.rs"))
 
-    return [c for c in candidates if (REPO_ROOT / c).is_file() and _is_test_file(c)]
+    rs_cfg_test = _batch_find_rs_cfg_test(parent) if suffix == ".rs" else None
+    return [c for c in candidates if (REPO_ROOT / c).is_file() and _is_test_file(c, rs_cfg_test=rs_cfg_test)]
 
 
 def _find_test_files(dir_path: str) -> list[str]:
     """Find all test files recursively in a directory."""
     abs_dir = REPO_ROOT / dir_path
+    rs_cfg_test = _batch_find_rs_cfg_test(dir_path)
+
     test_files = []
     for p in sorted(abs_dir.rglob("*")):
         if p.is_file():
@@ -91,7 +112,7 @@ def _find_test_files(dir_path: str) -> list[str]:
                 rel = str(p.relative_to(REPO_ROOT))
             except ValueError:
                 continue
-            if _is_test_file(rel):
+            if _is_test_file(rel, rs_cfg_test=rs_cfg_test):
                 test_files.append(rel)
     return test_files
 
@@ -196,22 +217,41 @@ def _parse_package_json_name(package_json: Path) -> str | None:
         return None
 
 
-def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = None) -> str | None:
-    """Derive a cargo test module filter from a .rs file or directory path.
+@dataclass
+class _RustTestFilter:
+    """Filter for targeting a specific Rust test scope."""
 
-    For ``crate/src/utils/throttler.rs``, returns ``utils::throttler``.
-    For ``crate/src/utils/``, returns ``utils``.
-    For ``crate/src/utils/throttler.rs`` with node_id ``test_foo``, returns
-    ``utils::throttler::test_foo``.
-    Returns None for paths where a filter doesn't apply (e.g. lib.rs, main.rs, crate root).
+    # Module filter for unit tests (e.g. "utils::throttler"), used with `-- <filter>`
+    module: str | None = None
+    # Integration test binary name (e.g. "events"), used with `--test <name>`
+    integration_test: str | None = None
+
+
+def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = None) -> _RustTestFilter:
+    """Derive a cargo test filter from a .rs file or directory path.
+
+    For ``crate/src/utils/throttler.rs``, returns a module filter ``utils::throttler``.
+    For ``crate/tests/events.rs``, returns an integration test filter ``events``.
+    Returns an empty filter for paths where narrowing doesn't apply (e.g. lib.rs, crate root).
     """
     abs_path = REPO_ROOT / file_only
-    src_dir = crate_toml.parent / "src"
 
+    # Integration test files live under <crate>/tests/
+    tests_dir = crate_toml.parent / "tests"
+    try:
+        rel = abs_path.relative_to(tests_dir)
+        stem = PurePosixPath(rel).stem
+        if not abs_path.is_dir() and stem != "mod":
+            return _RustTestFilter(integration_test=stem)
+    except ValueError:
+        pass
+
+    # Unit tests live under <crate>/src/
+    src_dir = crate_toml.parent / "src"
     try:
         rel = abs_path.relative_to(src_dir)
     except ValueError:
-        return None
+        return _RustTestFilter()
 
     parts = list(rel.parts)
 
@@ -222,12 +262,12 @@ def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = 
             parts.pop()
 
     if not parts:
-        return None
+        return _RustTestFilter()
 
     if node_id:
         parts.append(node_id)
 
-    return "::".join(parts)
+    return _RustTestFilter(module="::".join(parts))
 
 
 def _find_workspace_toml(crate_toml: Path) -> Path | None:
@@ -235,7 +275,11 @@ def _find_workspace_toml(crate_toml: Path) -> Path | None:
     parent = crate_toml.parent.parent
     while parent == REPO_ROOT or REPO_ROOT in parent.parents:
         candidate = parent / "Cargo.toml"
-        if candidate.exists() and "[workspace]" in candidate.read_text():
+        try:
+            is_workspace = candidate.exists() and "[workspace]" in candidate.read_text()
+        except OSError:
+            is_workspace = False
+        if is_workspace:
             return candidate
         if parent == parent.parent:
             break
@@ -264,17 +308,22 @@ def _detect_rust_test(file_only: str, node_id: str | None = None) -> TestRunConf
     if workspace_toml and package_name:
         command.extend(["-p", package_name])
 
-    mod_filter = _rust_module_filter(file_only, crate_toml, node_id)
-    if mod_filter:
-        command.extend(["--", mod_filter])
+    test_filter = _rust_module_filter(file_only, crate_toml, node_id)
+    if test_filter.integration_test:
+        command.extend(["--test", test_filter.integration_test])
+        if node_id:
+            command.extend(["--", node_id])
+    elif test_filter.module:
+        command.extend(["--", test_filter.module])
 
     # Build description
+    filter_label = test_filter.integration_test or test_filter.module
     parts = ["Rust test (cargo test"]
     if workspace_toml and package_name:
         parts.append(f" -p {package_name}")
     parts.append(")")
-    if mod_filter:
-        parts.append(f" ({mod_filter})")
+    if filter_label:
+        parts.append(f" ({filter_label})")
     desc = "".join(parts)
 
     return TestRunConfig(test_type="rust", command=command, description=desc)
@@ -414,7 +463,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     ext = p.suffix
 
     # 1. Playwright E2E tests
-    if p.parts[0] == "playwright" and file_only.endswith(".spec.ts"):
+    if p.parts and p.parts[0] == "playwright" and file_only.endswith(".spec.ts"):
         return TestRunConfig(
             test_type="playwright",
             command=["pnpm", "exec", "playwright", "test", file_path],
@@ -521,15 +570,57 @@ def _get_changed_files() -> list[str]:
     return sorted(set(diff_vs_master + uncommitted))
 
 
-def _run_grouped(test_files: list[str], extra_args: list[str]) -> None:
-    """Group test files by type and run each group with its appropriate runner."""
-    groups: dict[str, list[tuple[str, TestRunConfig]]] = {}
+def _detect_all(test_files: list[str]) -> list[tuple[str, TestRunConfig]]:
+    """Detect test type for each file, skipping files with unknown types."""
+    results: list[tuple[str, TestRunConfig]] = []
     for f in test_files:
         try:
-            config = detect_test_type(f)
-            groups.setdefault(config.test_type, []).append((f, config))
+            results.append((f, detect_test_type(f)))
         except click.UsageError:
             click.secho(f"  Skipping (unknown type): {f}", fg="yellow")
+    return results
+
+
+def _has_mixed_extensions(dir_path: str) -> bool:
+    """Quick check whether a directory contains files with more than one test-relevant extension."""
+    abs_dir = REPO_ROOT / dir_path
+    extensions: set[str] = set()
+    for p in abs_dir.rglob("*"):
+        if p.is_file():
+            ext = p.suffix
+            if ext in (".py", ".ts", ".tsx", ".go", ".rs"):
+                extensions.add(ext)
+                if len(extensions) > 1:
+                    return True
+    return False
+
+
+def _check_multi_type(dir_path: str) -> tuple[list[tuple[str, TestRunConfig]], set[str]] | None:
+    """Check if a directory contains test files of multiple types.
+
+    Uses a cheap extension check to skip the expensive per-file detection in
+    the common single-type case. Returns None when only one (or zero) types
+    are found.
+    """
+    if not _has_mixed_extensions(dir_path):
+        return None
+
+    test_files = _find_test_files(dir_path)
+    if not test_files:
+        return None
+
+    detected = _detect_all(test_files)
+    types = {config.test_type for _, config in detected}
+    if len(types) > 1:
+        return detected, types
+    return None
+
+
+def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str]) -> None:
+    """Group pre-detected test files by type and run each group with its appropriate runner."""
+    groups: dict[str, list[tuple[str, TestRunConfig]]] = {}
+    for f, config in detected:
+        groups.setdefault(config.test_type, []).append((f, config))
 
     for test_type, entries in groups.items():
         if test_type in ("python", "python-eval"):
@@ -585,7 +676,7 @@ def _run_changed(extra_args: list[str]) -> None:
             click.echo(f"  {f}")
 
     click.echo()
-    _run_grouped(all_test_files, extra_args)
+    _run_grouped(_detect_all(all_test_files), extra_args)
 
 
 # ---------------------------------------------------------------------------
@@ -682,23 +773,17 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
     resolved = _resolve_to_repo_relative(file_path)
     abs_path = REPO_ROOT / resolved
 
-    # For directories, check if multiple test types are present and run each group
+    # For directories, check if multiple test types are present and run each group.
     if abs_path.is_dir():
-        test_files = _find_test_files(resolved)
-        if test_files:
-            types: set[str] = set()
-            for f in test_files:
-                try:
-                    types.add(detect_test_type(f).test_type)
-                except click.UsageError:
-                    pass
-            if len(types) > 1:
-                click.secho(
-                    f"Found {len(test_files)} test file(s) across {len(types)} type(s)",
-                    fg="cyan",
-                )
-                _run_grouped(test_files, list(ctx.args))
-                return
+        multi_type = _check_multi_type(resolved)
+        if multi_type is not None:
+            detected, types = multi_type
+            click.secho(
+                f"Found {len(detected)} test file(s) across {len(types)} type(s)",
+                fg="cyan",
+            )
+            _run_grouped(detected, list(ctx.args))
+            return
 
     config = detect_test_type(resolved)
     click.secho(f"Detected: {config.description}", fg="cyan")

@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import click
 from hogli.test_runner import (
+    _batch_find_rs_cfg_test,
+    _detect_all,
     _find_test_files_for_source,
     _is_test_file,
     _parse_porcelain_path,
@@ -112,6 +114,8 @@ class TestDetectTestType:
         assert "--manifest-path=rust/Cargo.toml" in config.command
         assert "-p" in config.command
         assert "capture" in config.command
+        assert "--test" in config.command
+        assert "events" in config.command
 
     def test_rust_standalone_cli(self) -> None:
         config = detect_test_type("cli/src/main.rs")
@@ -287,15 +291,29 @@ class TestIsTestFile:
             ("playwright/e2e/dashboards.spec.ts", True),
             ("playwright/e2e/helpers.ts", False),
             ("rust/capture/tests/events.rs", True),
-            ("rust/capture/src/api.rs", True),  # has #[cfg(test)] inline
             ("rust/capture/src/api_test.rs", True),
-            ("rust/capture/src/v1/util.rs", True),  # has #[cfg(test)] inline
             ("livestream/main_test.go", True),
             ("livestream/main.go", False),
         ]
     )
     def test_is_test_file(self, path: str, expected: bool) -> None:
         assert _is_test_file(path) == expected
+
+    @parameterized.expand(
+        [
+            ("rust/capture/src/api.rs",),
+            ("rust/capture/src/v1/util.rs",),
+        ]
+    )
+    def test_rs_inline_cfg_test_detected_with_batch(self, path: str) -> None:
+        rs_cfg_test = _batch_find_rs_cfg_test("rust/capture/src")
+        assert _is_test_file(path, rs_cfg_test=rs_cfg_test)
+
+    def test_rs_inline_cfg_test_not_detected_without_batch(self) -> None:
+        assert not _is_test_file("rust/capture/src/api.rs")
+
+    def test_rs_inline_cfg_test_absent_from_batch(self) -> None:
+        assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
 
 
 class TestParsePorcelainPath:
@@ -413,13 +431,13 @@ class TestRunChanged:
 class TestRunGrouped:
     @patch("hogli.test_runner._run")
     def test_mixed_python_and_jest(self, mock_run) -> None:
-        _run_grouped(
+        detected = _detect_all(
             [
                 "posthog/api/test/test_user.py",
                 "frontend/src/scenes/dashboard/Dashboard.test.tsx",
-            ],
-            [],
+            ]
         )
+        _run_grouped(detected, [])
         assert mock_run.call_count == 2
         commands = [call[0][0] for call in mock_run.call_args_list]
         python_cmd = next(c for c in commands if c[0] == "pytest")
@@ -429,21 +447,22 @@ class TestRunGrouped:
 
     @patch("hogli.test_runner._run")
     def test_passes_extra_args(self, mock_run) -> None:
-        _run_grouped(["posthog/api/test/test_user.py"], ["-v", "--tb=short"])
+        detected = _detect_all(["posthog/api/test/test_user.py"])
+        _run_grouped(detected, ["-v", "--tb=short"])
         command = mock_run.call_args[0][0]
         assert "-v" in command
         assert "--tb=short" in command
 
     @patch("hogli.test_runner._run")
     def test_jest_grouped_by_package(self, mock_run) -> None:
-        _run_grouped(
+        detected = _detect_all(
             [
                 "frontend/src/scenes/dashboard/Dashboard.test.tsx",
                 "frontend/src/lib/utils.test.ts",
                 "nodejs/tests/cdp/cdp-api.test.ts",
-            ],
-            [],
+            ]
         )
+        _run_grouped(detected, [])
         assert mock_run.call_count == 2
         commands = [call[0][0] for call in mock_run.call_args_list]
         frontend_cmd = next(c for c in commands if "--filter=@posthog/frontend" in c)
