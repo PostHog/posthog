@@ -5,6 +5,8 @@ from typing import Any, Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db.models import Q
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -44,7 +46,7 @@ def get_template_from_response(response, id):
 
 
 def ensure_baseline_global_dashboard_templates() -> None:
-    """Ensure named global seeds tests rely on (migrations also add a feature_flag-scoped 'Flagged Feature Usage')."""
+    """Ensure the two named global team-less seeds tests rely on (don't use total row count — other fixtures may fill the table)."""
     if not DashboardTemplate.objects.filter(
         template_name="Product analytics",
         team_id__isnull=True,
@@ -69,6 +71,11 @@ def ensure_baseline_global_dashboard_templates() -> None:
             variables=[],
             tags=[],
         )
+
+
+def _listable_dashboard_template_db_count(team_pk: int) -> int:
+    """Rows visible on default dashboard_templates list (mirrors `dangerously_get_queryset` without scope=)."""
+    return DashboardTemplate.objects.filter(Q(scope=DashboardTemplate.Scope.GLOBAL) | Q(team_id=team_pk)).count()
 
 
 variable_template = {
@@ -241,6 +248,7 @@ class TestDashboardTemplates(APIBaseTest):
         )
 
     def test_create_dashboard_template_duplicate_name_for_soft_deleted(self) -> None:
+        n0 = DashboardTemplate.objects_including_soft_deleted.count()
         # create first template (soft deleted)
         self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
@@ -254,8 +262,7 @@ class TestDashboardTemplates(APIBaseTest):
         )
 
         assert duplicate_response.status_code == status.HTTP_201_CREATED, duplicate_response
-        # Migrations: Product analytics (global) + Flagged Feature Usage (feature_flag); ensure_baseline adds FF global.
-        assert DashboardTemplate.objects_including_soft_deleted.count() == 5
+        assert DashboardTemplate.objects_including_soft_deleted.count() == n0 + 2
 
     @parameterized.expand(
         [
@@ -418,7 +425,7 @@ class TestDashboardTemplates(APIBaseTest):
         assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
 
     def test_non_staff_can_get_public_dashboard_templates(self) -> None:
-        assert DashboardTemplate.objects.count() == 3  # Seeded globals + feature_flag starter (see ensure_baseline)
+        global_seed_count = DashboardTemplate.objects.filter(scope=DashboardTemplate.Scope.GLOBAL).count()
         assert self.team.pk is not None
         new_org = Organization.objects.create(name="Test Org 2")
         new_team = Team.objects.create(name="Test Team 2", organization=new_org)
@@ -431,7 +438,7 @@ class TestDashboardTemplates(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert response.status_code == status.HTTP_200_OK, response
 
-        assert len(response.json()["results"]) == 2  # Global seed templates only (other org template is team-scoped)
+        assert len(response.json()["results"]) == global_seed_count  # Other org template is team-scoped elsewhere
 
         dashboard_template.scope = "global"
         dashboard_template.save()
@@ -439,14 +446,14 @@ class TestDashboardTemplates(APIBaseTest):
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert len(get_updated_response.json()["results"]) == 3
+        assert len(get_updated_response.json()["results"]) == global_seed_count + 1
         assert_template_equals(
             get_template_from_response(get_updated_response, dashboard_template.id),
             variable_template,
         )
 
     def test_non_staff_user_cannot_create_dashboard(self) -> None:
-        assert DashboardTemplate.objects.count() == 3  # seeded templates
+        n0 = DashboardTemplate.objects.count()
         self.user.is_staff = False
         self.user.save()
 
@@ -456,16 +463,16 @@ class TestDashboardTemplates(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response
 
-        assert DashboardTemplate.objects.count() == 3
+        assert DashboardTemplate.objects.count() == n0
 
     def test_get_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 3
+        n0 = DashboardTemplate.objects.count()
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 4
+        assert DashboardTemplate.objects.count() == n0 + 1
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}")
 
@@ -477,13 +484,13 @@ class TestDashboardTemplates(APIBaseTest):
         )
 
     def test_delete_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 3
+        n0 = DashboardTemplate.objects.count()
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 4
+        assert DashboardTemplate.objects.count() == n0 + 1
         dashboard_template = DashboardTemplate.objects.get(id=response.json()["id"])
 
         update_response = self.client.patch(
@@ -496,7 +503,10 @@ class TestDashboardTemplates(APIBaseTest):
         assert get_response.status_code == status.HTTP_200_OK, get_response
 
         assert get_template_from_response(get_response, dashboard_template.id) is None
-        assert len(get_response.json()["results"]) == 2  # Both global seed templates
+        assert (
+            len(get_response.json()["results"])
+            == DashboardTemplate.objects.filter(scope=DashboardTemplate.Scope.GLOBAL).count()
+        )
 
     def test_soft_deleted_dashboard_template_can_be_restored_via_patch(self) -> None:
         response = self.client.post(
@@ -526,13 +536,13 @@ class TestDashboardTemplates(APIBaseTest):
         assert get_template_from_response(list_response, template_id) is not None
 
     def test_non_staff_user_cannot_delete_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 3
+        n0 = DashboardTemplate.objects.count()
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 4
+        assert DashboardTemplate.objects.count() == n0 + 1
 
         self.user.is_staff = False
         self.user.save()
@@ -546,16 +556,16 @@ class TestDashboardTemplates(APIBaseTest):
         get_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_response.status_code == status.HTTP_200_OK, get_response
 
-        assert len(get_response.json()["results"]) == 3  # Two global seeds + the team template (delete did not apply)
+        assert len(get_response.json()["results"]) == _listable_dashboard_template_db_count(self.team.pk)
 
     def test_update_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 3
+        n0 = DashboardTemplate.objects.count()
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert DashboardTemplate.objects.count() == 4
+        assert DashboardTemplate.objects.count() == n0 + 1
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
