@@ -6016,11 +6016,7 @@ const api = {
 
         resolveByName(
             promptName: string,
-            params?: { version?: number
-                version_id?: string
-                offset?: number
-                before_version?: number
-                limit?: number }
+            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
         ): Promise<LLMPromptResolveResponse> {
             return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
         },

@@ -23,7 +23,7 @@ def ensure_person_join_for_team(team_id: int) -> None:
     sources = get_stripe_sources_for_team(team_id)
     for source in sources:
         if source.revenue_analytics_config_safe.enabled:
-            ensure_person_join(team_id, source.prefix)
+            ensure_person_join(team_id, source.prefix or "")
 
 
 def ensure_person_join(team_id: int, table_prefix: str = "") -> None:
@@ -42,7 +42,7 @@ def remove_person_join_for_team(team_id: int) -> None:
     sources = get_stripe_sources_for_team(team_id)
     for source in sources:
         if source.revenue_analytics_config_safe.enabled:
-            remove_person_join(team_id, source.prefix)
+            remove_person_join(team_id, source.prefix or "")
 
 
 def remove_person_join(team_id: int, table_prefix: str = "") -> None:
