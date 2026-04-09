@@ -325,6 +325,18 @@ def _create_session_recording_playlist(team: Team, label: str):
     return SessionRecordingPlaylist.objects.create(team=team, name=f"playlist_{label}", type="collection")
 
 
+def _create_support_ticket(team: Team, label: str):
+    from products.conversations.backend.models import Ticket
+
+    return Ticket.objects.create_with_number(
+        team=team,
+        channel_source="widget",
+        widget_session_id=f"session_{label}",
+        distinct_id=f"user_{label}",
+        status="new",
+    )
+
+
 def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
@@ -370,6 +382,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
+    ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
     ("teams", _create_team),
 ]
