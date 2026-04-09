@@ -49,6 +49,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
@@ -356,11 +357,89 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
+async def create_replay_count_metrics_schedule(client: Client):
+    """Create or update the schedule for the replay count metrics workflow.
+
+    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    """
+    replay_count_metrics_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "replay-count-metrics",
+            ReplayCountMetricsInput(),
+            id="replay-count-metrics-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Hourly at minute 0",
+                    minute=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "replay-count-metrics-schedule"):
+        await a_update_schedule(client, "replay-count-metrics-schedule", replay_count_metrics_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "replay-count-metrics-schedule",
+            replay_count_metrics_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_count_all_playlists_schedule(client: Client):
+    """Create or update the schedule for the playlist counting workflow.
+
+    This schedule runs hourly at minute 30, matching the previous Celery schedule.
+    Uses SKIP overlap policy to prevent overlapping runs.
+    """
+    count_all_playlists_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "count-all-playlists",
+            None,
+            id="count-all-playlists-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Hourly at minute 30",
+                    minute=[ScheduleRange(start=30, end=30)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(
+            overlap=ScheduleOverlapPolicy.SKIP,
+        ),
+    )
+
+    if await a_schedule_exists(client, "count-all-playlists-schedule"):
+        await a_update_schedule(client, "count-all-playlists-schedule", count_all_playlists_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "count-all-playlists-schedule",
+            count_all_playlists_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
+    create_count_all_playlists_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_batch_generation_summarization_schedule,
