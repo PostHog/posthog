@@ -615,7 +615,7 @@
         "chromium": 2.7,
         "webkit": 2.4
     },
-    "frontend/src/scenes/dashboard/DashboardTemplateEditor.stories.tsx": {
+    "frontend/src/scenes/dashboard/dashboards/templates/DashboardTemplateModal.stories.tsx": {
         "chromium": 10.1,
         "webkit": 2.9
     },

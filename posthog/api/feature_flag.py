@@ -537,10 +537,46 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 FeatureFlagEvaluationContext.objects.create(feature_flag=obj, evaluation_context=ctx)
 
         if to_add or to_remove:
+            self._log_evaluation_context_change(
+                obj,
+                before=sorted(current_context_names),
+                after=sorted(deduped_set),
+            )
+
             try:
                 set_feature_flags_for_team_in_cache(obj.team.project_id)
             except Exception as e:
                 capture_exception(e)
+
+    def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
+        from loginas.utils import is_impersonated_session
+
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        request = self.context.get("request")
+        was_impersonated = is_impersonated_session(request) if request else False
+
+        log_activity(
+            organization_id=obj.team.organization_id,
+            team_id=obj.team_id,
+            user=request.user if request else obj.last_modified_by,
+            was_impersonated=was_impersonated,
+            item_id=obj.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                name=obj.key,
+                changes=[
+                    Change(
+                        type="FeatureFlag",
+                        field="evaluation_contexts",
+                        action="changed",
+                        before=before,
+                        after=after,
+                    )
+                ],
+            ),
+        )
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)

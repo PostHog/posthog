@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 
@@ -464,6 +464,22 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 }
 
 # end of area to be removed
+
+
+def dashboard_template_from_creation_payload(template: dict[str, Any]) -> DashboardTemplate:
+    """Build an unsaved DashboardTemplate from create_from_template_json body.
+
+    The client may send API-shaped objects (e.g. nested ``created_by``). Only fields used for
+    dashboard instantiation are passed through; read-only / relation blobs are not unpacked into ``__init__``.
+    """
+    return DashboardTemplate(
+        template_name=template["template_name"],
+        dashboard_description=template["dashboard_description"],
+        dashboard_filters=template["dashboard_filters"],
+        tiles=template["tiles"],
+        tags=template.get("tags"),
+        variables=template.get("variables"),
+    )
 
 
 def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:

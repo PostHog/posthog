@@ -55,6 +55,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "dashboard_template",
     "experiment",
     "external_data_source",
     "feature_flag",

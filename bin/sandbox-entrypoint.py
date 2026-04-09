@@ -6,6 +6,12 @@ Two-phase startup:
   1. Root phase (UID 0): create sandbox user, configure system, bind-mount
      node_modules onto the cache volume, then re-exec as the sandbox user.
   2. User phase: install dependencies and launch mprocs inside tmux.
+
+Alternate user-phase mode (SANDBOX_MODE=cache-init): install all dependencies,
+run migrations, generate demo data, pre-build the Rust workspace, then exit.
+Used by `bin/sandbox create` to populate shared cache volumes before snapshotting
+the databases. Skips sshd/claude-auth/node_modules bind mount in the root phase
+since they're not needed for a one-off cache build.
 """
 
 from __future__ import annotations
@@ -203,9 +209,13 @@ def root_phase() -> None:
     run(["mount", "--bind", str(patched_gitfile), str(WORKSPACE / ".git")])
 
     export_environment(uid, gid)
-    start_sshd(uid, gid)
-    copy_claude_auth(uid, gid)
-    bind_mount_node_modules(uid, gid)
+
+    # Skip steps that aren't needed for a one-off cache build (no SSH access,
+    # no IDE, no pnpm install against a throwaway worktree).
+    if os.environ.get("SANDBOX_MODE") != "cache-init":
+        start_sshd(uid, gid)
+        copy_claude_auth(uid, gid)
+        bind_mount_node_modules(uid, gid)
 
     # Re-exec as the sandbox user.
     os.execvp("gosu", ["gosu", f"{uid}:{gid}", sys.executable, __file__, *sys.argv[1:]])
@@ -254,6 +264,28 @@ def fetch_rust_crates() -> None:
     info("Finished: cargo fetch.")
 
 
+def ensure_demo_data() -> None:
+    """Generate demo data on first boot; skip if already present."""
+    result = run_quiet(
+        [
+            "psql",
+            "-h",
+            "db",
+            "-U",
+            "posthog",
+            "-d",
+            "posthog",
+            "-tAc",
+            "SELECT 1 FROM posthog_user WHERE email='test@posthog.com' LIMIT 1",
+        ]
+    )
+    if result.stdout.strip() == b"1":
+        info("Demo data already present, skipping generation.")
+    else:
+        info("Generating demo data (first boot)...")
+        run(["python", "manage.py", "generate_demo_data"])
+
+
 def install_geoip() -> None:
     """Symlink the GeoIP database from the Docker image into the worktree."""
     mmdb = WORKSPACE / "share/GeoLite2-City.mmdb"
@@ -289,6 +321,12 @@ def generate_mprocs_config() -> None:
         lines = ["_posthog:", "  intents:"]
         for intent in intents.split(","):
             lines.append(f"  - {intent.strip()}")
+        # Migrations already ran in the entrypoint; skip autostart to avoid
+        # redundant Django startup overhead in phrocs.
+        lines.append("  skip_autostart:")
+        lines.append("  - migrate-postgres")
+        lines.append("  - migrate-clickhouse")
+        lines.append("  - migrate-persons-db")
         lines.append("procs: {}")
         config_file.write_text("\n".join(lines) + "\n")
 
@@ -402,9 +440,15 @@ def setup_jetbrains_background() -> None:
     os._exit(0)
 
 
-def user_phase() -> None:
-    PROGRESS_FILE.write_text("")
+def _setup_user_env() -> None:
+    """Shared env setup for user_phase and cache_init_phase.
 
+    Sets cache directory env vars, ensures the cargo target dir exists, chdirs
+    to /workspace, and marks the worktree as a safe git directory (the workspace
+    is a bind mount owned by the host UID, which differs from the sandbox user,
+    and Git 2.35.2+ refuses to operate in repos with mismatched ownership).
+    """
+    PROGRESS_FILE.write_text("")
     os.environ.update(
         {
             "HOME": str(SANDBOX_HOME),
@@ -419,20 +463,28 @@ def user_phase() -> None:
     )
     Path("/cache/cargo-target").mkdir(parents=True, exist_ok=True)
     os.chdir(WORKSPACE)
-
-    # The workspace is a bind mount owned by the host UID, which differs from
-    # the sandbox user. Git 2.35.2+ refuses to operate in repos with mismatched
-    # ownership unless explicitly allowed.
     run(["git", "config", "--global", "--add", "safe.directory", str(WORKSPACE)])
+
+
+def user_phase() -> None:
+    _setup_user_env()
 
     install_geoip()
     create_kafka_topics()
 
     # Run dependency installs in parallel.
-    # Migrations run later via phrocs (same as the normal dev stack).
+    # Migrations and demo data are chained after Python deps (uv ~1.5s)
+    # so they overlap with the slower pnpm/cargo installs.
+    # On subsequent boots phrocs migration processes handle any new
+    # migrations (usually a fast no-op).
+    def install_python_and_migrate() -> None:
+        install_python_deps()
+        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+        ensure_demo_data()
+
     with ThreadPoolExecutor() as pool:
         futures = {
-            pool.submit(install_python_deps): "python deps",
+            pool.submit(install_python_and_migrate): "python deps + migrations",
             pool.submit(install_node_deps): "node deps",
             pool.submit(fetch_rust_crates): "rust crates",
         }
@@ -462,6 +514,60 @@ def user_phase() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cache-init phase — one-shot cache warming for `bin/sandbox create`
+# ---------------------------------------------------------------------------
+
+
+def cache_init_phase() -> None:
+    """Warm all shared caches (uv, pnpm store, cargo target) and populate databases.
+
+    Runs inside `compose run` during `bin/sandbox create` when no database cache
+    exists. Exits when done so the host script can snapshot Postgres + ClickHouse.
+    """
+    _setup_user_env()
+
+    def install_python_and_migrate() -> None:
+        install_python_deps()
+        info("Running migrations...")
+        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+        info("Generating demo data (this takes a few minutes)...")
+        run(["python", "manage.py", "generate_demo_data", "--skip-flag-sync"])
+
+    def build_rust() -> None:
+        info("Pre-building Rust workspace...")
+        try:
+            run(
+                ["cargo", "build", "--workspace"],
+                cwd=str(WORKSPACE / "rust"),
+            )
+            info("Finished: cargo build.")
+        except subprocess.CalledProcessError as e:
+            # Non-fatal: even a partial build warms the cargo cache for subsequent
+            # boots. Cargo's stderr already streamed to the terminal so the error
+            # details are visible above; we just need to preserve the exit code
+            # for debugging.
+            info(f"Rust pre-build failed (exit {e.returncode}), continuing (cargo cache still warmed).")
+
+    # Run all three cache-warming streams in parallel. Python path is usually
+    # the critical path (migrations on a fresh DB take several minutes).
+    with ThreadPoolExecutor() as pool:
+        futures = {
+            pool.submit(install_python_and_migrate): "python + migrations + demo data",
+            pool.submit(install_node_deps): "node deps",
+            pool.submit(build_rust): "rust build",
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
+                raise
+
+    info("Cache init complete.")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -469,5 +575,7 @@ if __name__ == "__main__":
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     if os.getuid() == 0 and uid != 0:
         root_phase()
+    elif os.environ.get("SANDBOX_MODE") == "cache-init":
+        cache_init_phase()
     else:
         user_phase()

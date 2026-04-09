@@ -14,12 +14,65 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardTemplateEditorType,
     DashboardTile,
+    DashboardType,
     DashboardWidgetType,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+export function dashboardToSaveableTemplate(
+    dashboard: DashboardType<InsightModel> | null | undefined
+): DashboardTemplateEditorType | undefined {
+    if (!dashboard) {
+        return undefined
+    }
+    return {
+        template_name: dashboard.name,
+        dashboard_description: dashboard.description,
+        dashboard_filters: dashboard.filters,
+        tags: dashboard.tags || [],
+        tiles: dashboard.tiles
+            .filter((tile) => !tile.error)
+            .map((tile) => {
+                if (tile.text) {
+                    return {
+                        type: 'TEXT' as const,
+                        body: tile.text.body,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                if (tile.insight) {
+                    return {
+                        type: 'INSIGHT' as const,
+                        name: tile.insight.name,
+                        description: tile.insight.description || '',
+                        query: tile.insight.query,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                if (tile.button_tile) {
+                    return {
+                        button_tile: {
+                            url: tile.button_tile.url,
+                            text: tile.button_tile.text,
+                            placement: tile.button_tile.placement,
+                            style: tile.button_tile.style,
+                        },
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                throw new Error('Unknown tile type')
+            }),
+        variables: [],
+    }
+}
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
