@@ -26,6 +26,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication]
+    http_method_names = ["get", "post"]
 
     @extend_schema(
         responses={200: ConnectedAppSerializer(many=True)},

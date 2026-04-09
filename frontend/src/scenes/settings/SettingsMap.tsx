@@ -1686,11 +1686,11 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'user',
         id: 'user-connected-apps',
-        title: 'Connected apps',
+        title: 'Connected applications',
         settings: [
             {
                 id: 'connected-apps',
-                title: 'Connected apps',
+                title: 'Connected applications',
                 description:
                     'Applications that have been granted access to your PostHog account via OAuth. You can revoke access at any time.',
                 component: <ConnectedApps />,

@@ -13,7 +13,7 @@ export function ConnectedApps(): JSX.Element {
     const handleRevoke = (app: ConnectedApp): void => {
         LemonDialog.open({
             title: `Revoke access for ${app.name}?`,
-            description: `This will revoke all tokens and permissions granted to ${app.name}. The app will no longer be able to access your PostHog account.`,
+            description: `This will revoke all tokens and permissions granted to ${app.name}. The app will no longer be able to access your PostHog account. You can re-authorize it at any time through the application's own interface.`,
             primaryButton: {
                 children: 'Revoke',
                 status: 'danger',
@@ -49,16 +49,15 @@ export function ConnectedApps(): JSX.Element {
                                 </div>
                             )}
                             <span className="font-medium">{app.name}</span>
-                            {app.is_first_party && (
+                            {app.is_first_party ? (
                                 <LemonTag type="highlight" size="small">
                                     PostHog
                                 </LemonTag>
-                            )}
-                            {app.is_verified && !app.is_first_party && (
+                            ) : app.is_verified ? (
                                 <LemonTag type="success" size="small">
                                     Verified
                                 </LemonTag>
-                            )}
+                            ) : null}
                         </div>
                     ),
                 },
