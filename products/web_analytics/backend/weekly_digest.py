@@ -24,9 +24,20 @@ from posthog.tasks.email_utils import compute_week_over_week_change
 logger = structlog.get_logger(__name__)
 
 
+def _default_overview() -> dict:
+    return {
+        "visitors": {"current": 0, "previous": None, "change": None},
+        "pageviews": {"current": 0, "previous": None, "change": None},
+        "sessions": {"current": 0, "previous": None, "change": None},
+        "bounce_rate": {"current": 0.0, "previous": None, "change": None},
+        "avg_session_duration": {"current": "0s", "previous": "0s", "change": None},
+    }
+
+
 def get_overview_for_team(team: Team) -> dict:
     """Get visitors, pageviews, sessions, bounce rate and avg session duration with week-over-week comparison."""
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
+    result = _default_overview()
 
     try:
         query = WebOverviewQuery(
@@ -39,14 +50,12 @@ def get_overview_for_team(team: Team) -> dict:
         response = runner.calculate()
     except Exception:
         logger.exception("failed to query web overview", team_id=team.pk)
-        return {}
+        return result
 
     if not response.results:
-        return {}
+        return result
 
     items_by_key = {item.key: item for item in response.results}
-
-    result: dict = {}
 
     for key, output_key, higher_is_better in [
         ("visitors", "visitors", True),
@@ -225,7 +234,7 @@ def build_team_digest(team: Team) -> dict:
     }
 
 
-def auto_select_project_for_user(user, org_id, team_traffic_data: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user, team_traffic_data: dict[int, dict]) -> bool:
     """For first-time users who have no WA digest project settings, auto-select the project with the most visitors.
 
     Returns True if settings were updated (caller should refresh_from_db).

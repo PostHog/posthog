@@ -10,7 +10,6 @@ from products.web_analytics.dags import (
     web_preaggregated,
     web_preaggregated_asset_checks,
     web_preaggregated_team_selection,
-    weekly_digest,
 )
 
 from . import resources
@@ -23,7 +22,6 @@ schedules = [
     cache_warming.web_analytics_cache_warming_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
-    weekly_digest.web_analytics_weekly_digest_schedule,
 ]
 
 # Only include the backfill schedule when not in TEST mode
@@ -51,8 +49,6 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
         cache_favicons.cache_authorized_domain_favicons_job,
-        weekly_digest.web_analytics_weekly_digest_job,
-        weekly_digest.web_analytics_weekly_digest_test_job,
     ],
     schedules=schedules,
     resources=resources,
