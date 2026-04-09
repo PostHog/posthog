@@ -934,58 +934,10 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
-    # Intelligent test selection: compute which tests are affected by the PR's changes.
-    # Builds an import graph with grimp to map changed source files to their dependent
-    # test files.
-    # Outputs mode=selective (with affected test list) or mode=full (run everything).
-    compute-affected-tests:
-        needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name == 'pull_request'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        name: Compute affected tests
-        outputs:
-            mode: ${{ steps.compute.outputs.mode }}
-            affected_tests: ${{ steps.compute.outputs.affected_tests }}
-            core_shard_count: ${{ steps.compute.outputs.core_shard_count }}
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-
-            - name: Compute affected tests from import graph
-              id: compute
-              run: |
-                  CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')
-                  echo "Changed files: $CHANGED" >&2
-
-                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
-                  MODE=$(echo "$RESULT" | jq -r '.mode')
-                  echo "mode=$MODE" >> $GITHUB_OUTPUT
-
-                  if [ "$MODE" = "selective" ]; then
-                    TESTS=$(echo "$RESULT" | jq -r '.affected_tests | join(",")')
-                    COUNT=$(echo "$RESULT" | jq -r '.suggested_shards')
-                    echo "affected_tests=$TESTS" >> $GITHUB_OUTPUT
-                    echo "core_shard_count=$COUNT" >> $GITHUB_OUTPUT
-                    echo "Selective mode: $(echo "$RESULT" | jq -r '.affected_test_count') tests, $COUNT shards" >&2
-                  else
-                    REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
-                    echo "Full mode: $REASON" >&2
-                  fi
-
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions, compute-affected-tests]
-        if: |
-            always() &&
-            needs.changes.outputs.backend == 'true' &&
-            (needs.compute-affected-tests.result == 'success' || needs.compute-affected-tests.result == 'skipped')
+        needs: [changes, get_clickhouse_versions]
+        if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
@@ -996,27 +948,16 @@ jobs:
               env:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
-                  AFFECTED_MODE: ${{ needs.compute-affected-tests.outputs.mode }}
-                  AFFECTED_CORE_SHARDS: ${{ needs.compute-affected-tests.outputs.core_shard_count }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
-
-                  # When intelligent test selection is active, reduce Core shards
-                  CORE_SHARDS=38
-                  if [ "$AFFECTED_MODE" = "selective" ] && [ -n "$AFFECTED_CORE_SHARDS" ]; then
-                    CORE_SHARDS=$AFFECTED_CORE_SHARDS
-                    echo "Using selective test mode: $CORE_SHARDS Core shards (instead of 38)"
-                  fi
-                  CORE_RANGE=$((CORE_SHARDS + 1))
-
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" --argjson range "$CORE_RANGE" '
-                    [range(1; $range) | {
+                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                    [range(1; 39) | {
                       segment: "Core",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: $shards,
+                      concurrency: 38,
                       group: .,
                       artifact_key: ("core-" + (.|tostring)),
                       compat: false
@@ -1075,15 +1016,7 @@ jobs:
                   echo "Django matrix size: $(jq -r 'length' <<< "$include")"
 
     django:
-        needs:
-            [
-                changes,
-                turbo-discover,
-                detect-snapshot-mode,
-                get_clickhouse_versions,
-                build_django_matrix,
-                compute-affected-tests,
-            ]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -1312,8 +1245,6 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
-                  # Intelligent test selection: when set, conftest.py deselects tests not in this list
-                  AFFECTED_TEST_FILES: ${{ needs.compute-affected-tests.outputs.mode == 'selective' && needs.compute-affected-tests.outputs.affected_tests || '' }}
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e

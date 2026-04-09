@@ -1,0 +1,50 @@
+name: Backend CI - Test selection shadow
+
+on:
+    pull_request:
+        branches: [master]
+
+permissions:
+    contents: read
+
+jobs:
+    shadow-test-selection:
+        name: Shadow test selection
+        if: |
+            github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Compute affected tests (shadow mode)
+              run: |
+                  CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')
+                  echo "### Changed files" >&2
+                  echo "$CHANGED" | tr ' ' '\n' >&2
+
+                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>&1 | tail -1)
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+
+                  echo ""
+                  echo "### Shadow test selection result"
+                  echo "$RESULT" | jq .
+
+                  if [ "$MODE" = "selective" ]; then
+                    COUNT=$(echo "$RESULT" | jq -r '.affected_test_count')
+                    SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
+                    echo ""
+                    echo "**Would run $COUNT test files in $SHARDS shards (instead of 38)**"
+                    echo "Estimated savings: $((38 - SHARDS)) shards"
+                  else
+                    REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
+                    echo ""
+                    echo "**Would fall back to full run: $REASON**"
+                  fi

@@ -1,6 +1,5 @@
 import os
 import subprocess
-from pathlib import Path
 from urllib.parse import quote_plus
 
 import pytest
@@ -457,37 +456,3 @@ def _runs_on_internal_pr() -> bool:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Filter test collection to only affected tests when AFFECTED_TEST_FILES is set.
-
-    This env var is set by CI's compute-affected-tests job, which uses
-    import graph analysis to determine which tests are transitively
-    affected by the changed source files in a PR.
-
-    When unset, all collected tests run (default behavior).
-    """
-    affected_raw = os.environ.get("AFFECTED_TEST_FILES")
-    if not affected_raw:
-        return
-
-    repo_root = Path(__file__).parent.parent.resolve()
-    affected = set(affected_raw.split(","))
-
-    selected = []
-    deselected = []
-    for item in items:
-        try:
-            test_file = str(Path(item.fspath).relative_to(repo_root))
-        except (ValueError, TypeError):
-            selected.append(item)
-            continue
-        if test_file in affected:
-            selected.append(item)
-        else:
-            deselected.append(item)
-
-    if deselected:
-        config.hook.pytest_deselected(items=deselected)
-        items[:] = selected
