@@ -106,7 +106,6 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
         host=config.host,
         port=config.port,
         namespace=config.namespace,
-        server_root_ca_cert=config.server_client_root_ca,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,
         settings=FakeSettings(config.encryption_key)

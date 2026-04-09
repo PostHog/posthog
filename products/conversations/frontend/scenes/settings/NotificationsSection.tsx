@@ -16,7 +16,6 @@ export function NotificationsSection(): JSX.Element {
     return (
         <SceneSection
             title="Notifications"
-            className="mt-4"
             description="We recommend using workflows to set custom notifications, e.g. when a new ticket is created or a new message is received."
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
