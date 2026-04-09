@@ -425,6 +425,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/data/persons',
         iconType: 'persons',
     },
+    [Scene.AccountSocialConnected]: {
+        name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
@@ -934,6 +940,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],

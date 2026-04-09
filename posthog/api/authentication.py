@@ -2,6 +2,7 @@ import json
 import time
 import datetime
 from typing import Any, Optional, TypedDict, cast
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.conf import settings
@@ -136,9 +137,23 @@ def axes_locked_out(*args, **kwargs):
     )
 
 
+def _account_social_connected_next_url(*, provider: str, connect_from: str) -> str:
+    """Target for social-auth `next` after linking a provider to an existing session (see frontend AccountSocialConnected)."""
+    qs = {"provider": provider, "connect_from": connect_from}
+    return f"/account/social-connected?{urlencode(qs)}"
+
+
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     if not request.user.is_authenticated:
         request.session.flush()  # Only flush for fresh logins — keep session for authenticated users so the pipeline links the new social auth to their account
+    else:
+        connect_from = (request.GET.get("connect_from") or "").strip()
+        if connect_from:
+            # Reuse standard OAuth redirect (do_auth → session["next"]). Any SSO backend; anonymous logins never hit this branch.
+            mutable_get = request.GET.copy()
+            mutable_get["next"] = _account_social_connected_next_url(provider=backend, connect_from=connect_from)
+            request.GET = mutable_get
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
