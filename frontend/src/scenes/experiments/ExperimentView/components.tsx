@@ -24,6 +24,7 @@ import {
     LemonModal,
     LemonSelect,
     LemonSkeleton,
+    LemonSwitch,
     LemonTag,
     LemonTagType,
     LemonTextArea,
@@ -34,13 +35,14 @@ import {
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -60,12 +62,13 @@ import {
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getVariantColor } from '../utils'
+import { getVariantColor, isLegacyExperiment } from '../utils'
 
 export function VariantTag({
     variantKey,
@@ -213,9 +216,11 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
-    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
+    const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
     const { trigger, HogfettiComponent } = useHogfetti()
@@ -298,6 +303,13 @@ export function PageHeaderCustom(): JSX.Element {
                                 experiment={experiment}
                             />
                         )}
+                        {experiment && (
+                            <CopyExperimentToProjectModal
+                                isOpen={copyToProjectModalOpen}
+                                onClose={() => setCopyToProjectModalOpen(false)}
+                                experiment={experiment}
+                            />
+                        )}
                     </>
                 }
             />
@@ -311,15 +323,17 @@ export function PageHeaderCustom(): JSX.Element {
                             Duplicate
                         </ButtonPrimitive>
 
-                        {canCopyToProject && experiment?.id != null && (
+                        {hasMultipleProjects && (
                             <ButtonPrimitive
                                 menuItem
-                                onClick={() => router.actions.push(urls.resourceTransfer('Experiment', experiment.id))}
-                                data-attr="experiment-copy-to-project"
-                                tooltip="Copy this experiment to another project"
+                                onClick={() => setCopyToProjectModalOpen(true)}
+                                disabledReasons={{
+                                    'Copying is not supported for experiments using legacy metrics.':
+                                        isLegacyExperiment(experiment),
+                                }}
                             >
                                 <IconCopy />
-                                Copy to another project
+                                Copy to project
                             </ButtonPrimitive>
                         )}
 
@@ -421,6 +435,7 @@ export function PageHeaderCustom(): JSX.Element {
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
                     </ScenePanelActionsSection>
+                    <ExperimentDebugToggle />
                 </ScenePanel>
             )}
             <QuickSurveyModal
@@ -429,6 +444,28 @@ export function PageHeaderCustom(): JSX.Element {
                 onCancel={() => setSurveyModalOpen(false)}
             />
         </>
+    )
+}
+
+function ExperimentDebugToggle(): JSX.Element {
+    const { superpowersEnabled } = useValues(superpowersLogic)
+    const { showDebugPanel } = useValues(experimentLogic)
+    const { toggleDebugPanel } = useActions(experimentLogic)
+
+    if (!superpowersEnabled) {
+        return <></>
+    }
+
+    return (
+        <ScenePanelActionsSection>
+            <LemonSwitch
+                className="px-2 py-1"
+                checked={showDebugPanel}
+                onChange={toggleDebugPanel}
+                fullWidth
+                label="Debug panel"
+            />
+        </ScenePanelActionsSection>
     )
 }
 

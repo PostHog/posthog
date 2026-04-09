@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema, PropertyFilter } from './query'
 
 export const PromptListInputSchema = z.object({
@@ -338,8 +337,6 @@ export const SurveyResponseCountsSchema = z.object({})
 export const QueryRunInputSchema = z.object({
     query: InsightQuerySchema,
 })
-
-export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
 
 // Entity Search
 export const EntitySearchSchema = z.object({

@@ -16,9 +16,11 @@ from products.tasks.backend.temporal.metrics import StepTimer, increment_snapsho
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
-    get_github_token,
+    get_git_identity_env_vars,
     get_sandbox_api_url,
+    get_sandbox_github_token,
     get_sandbox_name_for_task,
+    parse_run_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -31,6 +33,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "POSTHOG_PROJECT_ID",
     "JWT_PUBLIC_KEY",
     "GITHUB_TOKEN",
+    "GH_TOKEN",
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
 }
@@ -89,7 +92,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if has_repo:
             assert github_integration_id is not None
             try:
-                github_token = get_github_token(github_integration_id) or ""
+                github_token = (
+                    get_sandbox_github_token(
+                        github_integration_id,
+                        run_id=ctx.run_id,
+                        state=ctx.state,
+                    )
+                    or ""
+                )
             except Exception as e:
                 raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {github_integration_id}",
@@ -142,18 +152,22 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if github_token:
             environment_variables["GITHUB_TOKEN"] = github_token
+            environment_variables["GH_TOKEN"] = github_token
 
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        environment_variables.update(get_git_identity_env_vars(task, ctx.state))
+
+        run_state = parse_run_state(ctx.state)
+
         # Set resume run ID independently of snapshot so conversation history
         # can be rebuilt from logs even when the filesystem snapshot has expired.
-        resume_from_run_id = (ctx.state or {}).get("resume_from_run_id", "")
-        if resume_from_run_id:
-            environment_variables["POSTHOG_RESUME_RUN_ID"] = resume_from_run_id
+        if run_state.resume_from_run_id:
+            environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
 
         # Check for resume snapshot (takes priority over integration-level snapshots)
-        resume_snapshot_ext_id = (ctx.state or {}).get("snapshot_external_id")
+        resume_snapshot_ext_id = run_state.snapshot_external_id
         if resume_snapshot_ext_id:
             used_snapshot = True
 

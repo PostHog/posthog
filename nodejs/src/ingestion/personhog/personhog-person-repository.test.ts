@@ -143,8 +143,8 @@ describe('PersonHogPersonRepository', () => {
         handlers = grpc.handlers
     })
 
-    function createRepo(grpcPercentage: number): PersonHogPersonRepository {
-        return new PersonHogPersonRepository(mockPostgres, grpcClient, grpcPercentage, 'test')
+    function createRepo(grpcPercentage: number, rolloutTeamIds: Set<number> = new Set()): PersonHogPersonRepository {
+        return new PersonHogPersonRepository(mockPostgres, grpcClient, grpcPercentage, rolloutTeamIds, 'test')
     }
 
     describe.each([
@@ -264,6 +264,67 @@ describe('PersonHogPersonRepository', () => {
 
                 expect(result).toEqual([])
             })
+        })
+    })
+
+    describe('team ID-based rollout', () => {
+        it('routes to gRPC when team ID is in rollout set (percentage 0)', async () => {
+            handlers.getPersonsByDistinctIds.mockReturnValue({
+                results: [
+                    {
+                        key: { teamId: BigInt(TEAM_ID), distinctId: 'user-123' },
+                        person: makeProtoPerson(),
+                    },
+                ],
+            })
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchPerson(TEAM_ID, 'user-123', { useReadReplica: true })
+
+            expect(result).toEqual(TEST_PERSON_WITH_DISTINCT_ID)
+            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalled()
+            expect(mockPostgres.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('routes to postgres when team ID is not in rollout set (percentage 0)', async () => {
+            mockPostgres.fetchPerson.mockResolvedValue(TEST_PERSON)
+
+            const repo = createRepo(0, new Set([999 as TeamId]))
+            const result = await repo.fetchPerson(TEAM_ID, 'user-123', { useReadReplica: true })
+
+            expect(result).toEqual(TEST_PERSON)
+            expect(mockPostgres.fetchPerson).toHaveBeenCalled()
+            expect(handlers.getPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('ignores percentage when team IDs are set', async () => {
+            mockPostgres.fetchPerson.mockResolvedValue(TEST_PERSON)
+
+            // percentage is 100 but team ID is not in the set — should use postgres
+            const repo = createRepo(100, new Set([999 as TeamId]))
+            const result = await repo.fetchPerson(TEAM_ID, 'user-123', { useReadReplica: true })
+
+            expect(result).toEqual(TEST_PERSON)
+            expect(mockPostgres.fetchPerson).toHaveBeenCalled()
+            expect(handlers.getPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('routes fetchPersonsByDistinctIds to gRPC when all team IDs are in rollout set', async () => {
+            handlers.getPersonsByDistinctIds.mockReturnValue({
+                results: [
+                    {
+                        key: { teamId: BigInt(TEAM_ID), distinctId: 'user-123' },
+                        person: makeProtoPerson(),
+                    },
+                ],
+            })
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchPersonsByDistinctIds([{ teamId: TEAM_ID, distinctId: 'user-123' }], true)
+
+            expect(result).toEqual([TEST_PERSON_WITH_DISTINCT_ID])
+            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalled()
+            expect(mockPostgres.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
         })
     })
 
