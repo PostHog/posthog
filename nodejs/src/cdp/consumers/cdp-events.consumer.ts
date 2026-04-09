@@ -9,6 +9,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { EventSubscription } from '../services/hogflows/event-subscriptions.service'
 import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
@@ -21,6 +22,8 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
+import { execHog } from '../utils/hog-exec'
+import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
@@ -66,16 +69,108 @@ export class CdpEventsConsumer<
             ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
+        // After matching events against triggers (which creates new invocations),
+        // also match against waiting wait_until_event subscriptions and wake any
+        // matched workflow jobs in postgres-v2.
+        const wakeWaitingTask = this.wakeWaitingWorkflows(invocationGlobals).catch((err) => {
+            captureException(err)
+            logger.error('🔴', 'Error waking waiting workflows', { err })
+        })
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+                wakeWaitingTask,
                 this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                 }),
             ]),
             invocations: invocationsToBeQueued,
+        }
+    }
+
+    /**
+     * For each event in the batch, look up any wait_until_event subscriptions
+     * for the same team + event_name + person_id, evaluate their property filters
+     * against the event, and wake any matched workflow jobs.
+     */
+    private async wakeWaitingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+        const subscriptionsService = this.eventSubscriptionsService
+        if (!subscriptionsService) {
+            return
+        }
+
+        const matchedJobIds = new Set<string>()
+
+        for (const globals of invocationGlobals) {
+            const personId = globals.person?.id
+            if (!personId) {
+                continue
+            }
+
+            const candidates = await subscriptionsService.findMatchingForEvent(
+                globals.project.id,
+                globals.event.event,
+                String(personId)
+            )
+
+            if (candidates.length === 0) {
+                continue
+            }
+
+            const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+
+            for (const candidate of candidates) {
+                const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
+                if (matched) {
+                    matchedJobIds.add(candidate.jobId)
+                }
+            }
+        }
+
+        if (matchedJobIds.size === 0) {
+            return
+        }
+
+        const woken = await subscriptionsService.wakeJobs([...matchedJobIds])
+        logger.info('⚡', 'Woke waiting workflows from event match', {
+            matched: matchedJobIds.size,
+            woken,
+        })
+    }
+
+    /**
+     * Evaluate a subscription's filter bytecode against the incoming event.
+     * If no bytecode is present (filter compilation not yet implemented at save
+     * time), the subscription matches on event_name alone (which the DB lookup
+     * already enforces).
+     */
+    private async evaluateSubscriptionFilters(
+        subscription: EventSubscription,
+        filterGlobals: ReturnType<typeof convertToHogFunctionFilterGlobal>
+    ): Promise<boolean> {
+        if (!subscription.bytecode || !Array.isArray(subscription.bytecode) || subscription.bytecode.length === 0) {
+            return true
+        }
+
+        try {
+            const result = await execHog(subscription.bytecode, { globals: filterGlobals })
+            if (result.error || !result.execResult || result.execResult.error) {
+                logger.warn('Subscription bytecode error, treating as no-match', {
+                    subscriptionId: subscription.id,
+                    error: String(result.error ?? result.execResult?.error),
+                })
+                return false
+            }
+            return result.execResult.result === true
+        } catch (err) {
+            logger.warn('Subscription filter evaluation threw, treating as no-match', {
+                subscriptionId: subscription.id,
+                error: String(err),
+            })
+            return false
         }
     }
 

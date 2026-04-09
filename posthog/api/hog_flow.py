@@ -172,6 +172,28 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
+        # Compile bytecode for wait_until_event subscriptions. Each entry in
+        # config.events has its own filters (event name + property filters)
+        # which the cdp-events consumer evaluates against incoming events to
+        # decide whether to wake the workflow. Unlike conditional branches,
+        # event filters ARE allowed (and required) here.
+        if data.get("type") == "wait_until_event":
+            events = data.get("config", {}).get("events", [])
+            if not isinstance(events, list):
+                if not is_draft:
+                    raise serializers.ValidationError({"config": "wait_until_event config.events must be a list"})
+            else:
+                for event in events:
+                    event_filters = event.get("filters")
+                    if event_filters:
+                        serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
+                        if is_draft:
+                            if serializer.is_valid():
+                                event["filters"] = serializer.validated_data
+                        else:
+                            serializer.is_valid(raise_exception=True)
+                            event["filters"] = serializer.validated_data
+
         return data
 
 

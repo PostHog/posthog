@@ -80,6 +80,16 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
             max_wait_duration: '5m',
         },
     },
+    {
+        type: 'wait_until_event',
+        name: 'Wait for event',
+        description: 'Wait until a specific event fires for the user, or until the timeout.',
+        branchEdges: 1,
+        config: {
+            events: [{ filters: {} }],
+            max_wait_duration: '7d',
+        },
+    },
 ]
 
 export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [

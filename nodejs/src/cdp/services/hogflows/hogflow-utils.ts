@@ -105,7 +105,12 @@ export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string =>
     return `[Action:${action.id}]`
 }
 
-const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']
+const DELAY_ACTION_TYPES: HogFlowAction['type'][] = [
+    'delay',
+    'wait_until_condition',
+    'wait_until_time_window',
+    'wait_until_event',
+]
 
 export function hasDelayActions(actions: HogFlowAction[]): boolean {
     return actions.some((action) => DELAY_ACTION_TYPES.includes(action.type))

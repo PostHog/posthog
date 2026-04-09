@@ -204,6 +204,21 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             max_wait_duration: z.string(),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('wait_until_event'),
+        config: z.object({
+            // OR semantics: any subscription matching wakes the workflow.
+            // Bytecode is compiled at save time and nested inside filters.
+            events: z.array(
+                z.object({
+                    filters: ActionFiltersSchema.optional().nullable(),
+                    name: z.string().optional(), // Custom name for the subscription
+                })
+            ),
+            max_wait_duration: z.string(),
+        }),
+    }),
 
     z.object({
         ..._commonActionFields,

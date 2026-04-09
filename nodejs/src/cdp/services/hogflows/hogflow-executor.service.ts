@@ -29,7 +29,9 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
+import { WaitUntilEventHandler } from './actions/wait_until_event'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { EventSubscriptionsService } from './event-subscriptions.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
     actionIdForLogging,
@@ -89,7 +91,8 @@ export class HogFlowExecutorService {
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
-        redis?: RedisV2
+        redis?: RedisV2,
+        eventSubscriptionsService?: EventSubscriptionsService
     ) {
         this.redis = redis ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
@@ -105,6 +108,7 @@ export class HogFlowExecutorService {
             wait_until_condition: new ConditionalBranchHandler(),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
+            wait_until_event: new WaitUntilEventHandler(eventSubscriptionsService ?? null),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
