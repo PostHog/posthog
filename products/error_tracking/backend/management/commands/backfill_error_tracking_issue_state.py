@@ -94,13 +94,14 @@ class Command(BaseCommand):
         since_last_flush = 0
         start_time = time.monotonic()
         current_team_id = None
+        version = int(time.time() * 1000)
 
         for fp in queryset.iterator(chunk_size=batch_size):
             if fp.team_id != current_team_id:
                 current_team_id = fp.team_id
                 logger.info("backfill_processing_team", team_id=current_team_id, produced_so_far=produced)
 
-            data = self._build_row(fp)
+            data = self._build_row(fp, version=version)
             producer.produce(
                 sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
                 topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
@@ -142,7 +143,7 @@ class Command(BaseCommand):
 
         return qs
 
-    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2) -> dict:
+    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2, *, version: int) -> dict:
         issue = fp.issue
         assignment = getattr(issue, "assignment", None)
 
@@ -156,8 +157,6 @@ class Command(BaseCommand):
 
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
-
-        version = int(time.time() * 1000)
 
         return {
             "team_id": fp.team_id,
