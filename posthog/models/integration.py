@@ -2249,18 +2249,26 @@ class GitHubIntegration:
 
         return None
 
-    def list_branches(self, repo: str) -> list[str]:
-        """List branches for a given repository via the GitHub API."""
+    def list_branches(self, repo: str, *, limit: int = 100, offset: int = 0) -> tuple[list[str], bool]:
+        """List branches for a given repository via the GitHub API.
+
+        Fetches only the GitHub pages needed to satisfy the requested
+        ``[offset, offset+limit)`` window. Returns a tuple of
+        ``(branch_names, has_more)`` where *has_more* indicates whether
+        additional branches exist beyond the returned window.
+        """
+        GITHUB_PER_PAGE = 100
+
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        def fetch(page: int = 1) -> requests.Response:
+        def fetch(page: int) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
             return requests.get(
-                f"https://api.github.com/repos/{repo}/branches?per_page=100&page={page}",
+                f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -2269,24 +2277,35 @@ class GitHubIntegration:
                 timeout=10,
             )
 
+        def extract_names(data: list) -> list[str]:
+            return [
+                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
+            ]
+
+        # Work out which GitHub pages cover the requested window.
+        first_page = offset // GITHUB_PER_PAGE + 1
+        skip = offset % GITHUB_PER_PAGE
+        needed = skip + limit
+
+        # Fetch the first required page (with 401-retry logic).
+        current_page = first_page
         try:
-            response = fetch()
+            response = fetch(current_page)
         except requests.RequestException:
             logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
-            return []
+            return [], False
 
         if response.status_code == 401:
             try:
                 self.refresh_access_token()
             except Exception:
                 logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                return []
-            else:
-                try:
-                    response = fetch()
-                except requests.RequestException:
-                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
-                    return []
+                return [], False
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                return [], False
 
         if response.status_code != 200:
             logger.warning(
@@ -2294,7 +2313,7 @@ class GitHubIntegration:
                 status_code=response.status_code,
                 repo=repo,
             )
-            return []
+            return [], False
 
         try:
             body = response.json()
@@ -2303,22 +2322,16 @@ class GitHubIntegration:
                 "GitHubIntegration: list_branches non-JSON response",
                 status_code=response.status_code,
             )
-            return []
+            return [], False
 
         if not isinstance(body, list):
-            return []
+            return [], False
 
-        def extract_names(data: list) -> list[str]:
-            return [
-                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
-            ]
+        all_fetched = extract_names(body)
+        has_next_page = 'rel="next"' in response.headers.get("Link", "")
 
-        all_branches = extract_names(body)
-
-        # Paginate through remaining pages (w/cap)
-        max_pages = 20
-        current_page = 1
-        while current_page < max_pages and 'rel="next"' in response.headers.get("Link", ""):
+        # Fetch subsequent pages until we have enough items.
+        while len(all_fetched) < needed and has_next_page:
             current_page += 1
             try:
                 response = fetch(current_page)
@@ -2338,9 +2351,13 @@ class GitHubIntegration:
                 break
             if not isinstance(body, list):
                 break
-            all_branches.extend(extract_names(body))
+            all_fetched.extend(extract_names(body))
+            has_next_page = 'rel="next"' in response.headers.get("Link", "")
 
-        return all_branches
+        result = all_fetched[skip : skip + limit]
+        has_more = has_next_page or (skip + limit < len(all_fetched))
+
+        return result, has_more
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
