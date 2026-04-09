@@ -13,9 +13,9 @@ import { teamLogic } from '~/scenes/teamLogic'
  * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
  */
 export function ExperimentsSettings(): JSX.Element {
-    const { currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
-    if (currentTeamLoading) {
+    if (currentTeamLoading && !currentTeam) {
         return <Spinner className="text-2xl" />
     }
 
