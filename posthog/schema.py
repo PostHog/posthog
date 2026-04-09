@@ -3972,8 +3972,8 @@ class SummaryOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    description: str
-    success: bool
+    description: str | None = None
+    success: bool | None = None
 
 
 class SessionReplayBlock(BaseModel):
