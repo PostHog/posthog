@@ -3374,7 +3374,7 @@ class TestExternalDataSource(APIBaseTest):
             data={"enabled": True},
         )
 
-        view_name = get_customer_revenue_view_name(source.prefix or "")
+        view_name = get_customer_revenue_view_name(source.prefix)
         assert DataWarehouseJoin.objects.filter(
             team=self.team,
             source_table_name=view_name,
@@ -3391,7 +3391,7 @@ class TestExternalDataSource(APIBaseTest):
             data={"enabled": True},
         )
 
-        view_name = get_customer_revenue_view_name(source.prefix or "")
+        view_name = get_customer_revenue_view_name(source.prefix)
         assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
 
         self.client.patch(

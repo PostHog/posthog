@@ -864,7 +864,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
-            ensure_person_join(self.team.pk, new_source_model.prefix or "")
+            ensure_person_join(self.team.pk, new_source_model.prefix)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 

@@ -29,8 +29,9 @@ class TestEnsurePersonJoin(BaseTest):
     def _get_active_joins(self):
         return DataWarehouseJoin.objects.filter(team=self.team).exclude(deleted=True)
 
-    def test_creates_join(self):
-        ensure_person_join(self.team.pk, "")
+    @parameterized.expand(["", None])
+    def test_creates_join(self, prefix):
+        ensure_person_join(self.team.pk, prefix)
 
         joins = self._get_active_joins()
         assert joins.count() == 1
@@ -71,11 +72,12 @@ class TestRemovePersonJoin(BaseTest):
     def _get_active_joins(self):
         return DataWarehouseJoin.objects.filter(team=self.team).exclude(deleted=True)
 
-    def test_soft_deletes_join(self):
-        ensure_person_join(self.team.pk, "")
+    @parameterized.expand(["", None])
+    def test_soft_deletes_join(self, prefix):
+        ensure_person_join(self.team.pk, prefix)
         assert self._get_active_joins().count() == 1
 
-        remove_person_join(self.team.pk, "")
+        remove_person_join(self.team.pk, prefix)
 
         assert self._get_active_joins().count() == 0
         assert DataWarehouseJoin.objects.filter(

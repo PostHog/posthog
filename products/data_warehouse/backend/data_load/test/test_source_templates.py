@@ -99,7 +99,7 @@ class TestCustomerRevenueViewPersonsJoin(RevenueAnalyticsTestBase):
         self.create_sources()
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.save()
-        self.view_name = get_customer_revenue_view_name(self.source.prefix or "")
+        self.view_name = get_customer_revenue_view_name(self.source.prefix)
 
     def test_persons_join_resolves_on_customer_view(self):
         _create_person(

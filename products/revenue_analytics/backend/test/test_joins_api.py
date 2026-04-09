@@ -42,7 +42,7 @@ class TestRevenueAnalyticsPersonJoinsAPI(APIBaseTest):
         response = self.client.post(self.url, data={"enabled": True})
 
         assert response.status_code == status.HTTP_200_OK
-        view_name = get_customer_revenue_view_name(source.prefix or "")
+        view_name = get_customer_revenue_view_name(source.prefix)
         assert (
             self._get_active_joins()
             .filter(
@@ -60,7 +60,7 @@ class TestRevenueAnalyticsPersonJoinsAPI(APIBaseTest):
 
         self.client.post(self.url, data={"enabled": True})
 
-        view_name = get_customer_revenue_view_name(source.prefix or "")
+        view_name = get_customer_revenue_view_name(source.prefix)
         assert self._get_active_joins().filter(source_table_name=view_name).exists()
 
         response = self.client.post(self.url, data={"enabled": False})
@@ -86,5 +86,5 @@ class TestRevenueAnalyticsPersonJoinsAPI(APIBaseTest):
 
         self.client.post(self.url, data={"enabled": True})
 
-        view_name = get_customer_revenue_view_name(source.prefix or "")
+        view_name = get_customer_revenue_view_name(source.prefix)
         assert not self._get_active_joins().filter(source_table_name=view_name).exists()
