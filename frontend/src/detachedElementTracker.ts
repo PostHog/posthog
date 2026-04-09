@@ -72,21 +72,24 @@ function requestIdleCallbackCompat(callback: () => void, timeout: number): void 
     }
 }
 
-let initialized = false
+let state: 'idle' | 'loading' | 'ready' = 'idle'
 
 export function startDetachedElementTracking(posthog: Capturable): void {
-    if (initialized) {
+    if (state !== 'idle') {
         return
     }
-    initialized = true
+    state = 'loading'
 
     requestIdleCallbackCompat(() => {
         loadMemLensScript()
             .then(() => {
                 if (!window.MemLens) {
                     console.warn('[detachedElementTracker] MemLens global not found after script load')
+                    state = 'idle'
                     return
                 }
+
+                state = 'ready'
 
                 const scan = window.MemLens.createReactMemoryScan({
                     scanIntervalMs: SCAN_INTERVAL_MS,
@@ -125,6 +128,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 })
             })
             .catch(() => {
+                state = 'idle'
                 console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
             })
     }, IDLE_TIMEOUT_MS)
