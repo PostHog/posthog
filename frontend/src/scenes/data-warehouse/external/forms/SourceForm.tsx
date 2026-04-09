@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
-import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect } from 'react'
+import { FieldName, Form, FormContext, Group } from 'kea-forms'
+import React, { useContext, useEffect } from 'react'
 
 import {
     LemonDivider,
@@ -241,6 +241,37 @@ export const sourceFieldToElement = (
     )
 }
 
+function SourceFields({
+    fields,
+    sourceConfig,
+    jobInputs,
+    isUpdateMode,
+    isPostgresDirectQuery,
+}: {
+    fields: SourceFieldConfig[]
+    sourceConfig: SourceConfig
+    jobInputs?: Record<string, any>
+    isUpdateMode: boolean
+    isPostgresDirectQuery: boolean
+}): JSX.Element {
+    const { logic: formLogic, formKey } = useContext(FormContext)
+    // Subscribe to live form values so the SSL toggle reacts to SSH tunnel changes
+    const allValues = useValues(formLogic!)
+    const payload = (allValues[formKey as keyof typeof allValues] as Record<string, any>)?.payload
+
+    const sshTunnelEnabled = payload?.ssh_tunnel?.enabled
+    const isSshTunnelEnabled = sshTunnelEnabled === true || sshTunnelEnabled === 'True' || sshTunnelEnabled === 'true'
+
+    return (
+        <>
+            {fields
+                .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                .filter((field) => field.name !== 'ssl_enabled' || isSshTunnelEnabled)
+                .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
+        </>
+    )
+}
+
 export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
     return (
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
@@ -381,16 +412,13 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields
-                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .filter(
-                        (field) =>
-                            field.name !== 'ssl_enabled' ||
-                            jobInputs?.ssh_tunnel?.enabled === true ||
-                            jobInputs?.ssh_tunnel?.enabled === 'True' ||
-                            jobInputs?.ssh_tunnel?.enabled === 'true'
-                    )
-                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
+                <SourceFields
+                    fields={availableSources[sourceConfig.name].fields}
+                    sourceConfig={sourceConfig}
+                    jobInputs={jobInputs}
+                    isUpdateMode={isUpdateMode}
+                    isPostgresDirectQuery={isPostgresDirectQuery}
+                />
             </Group>
             {showPrefix && !isPostgresDirectQuery && (
                 <LemonField
