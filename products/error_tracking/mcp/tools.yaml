@@ -124,7 +124,17 @@ tools:
         enabled: false
     error-tracking-issues-merge-create:
         operation: error_tracking_issues_merge_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Merge error tracking issues
+        description: >
+            Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id`
+            and the issues to merge into it as `ids`.
     error-tracking-issues-split-create:
         operation: error_tracking_issues_split_create
         enabled: false
