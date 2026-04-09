@@ -1747,11 +1747,6 @@ def capture_report(
     # which makes it harder to filter on in customer.io
     per_person_properties = {
         "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
-        "org_member_count": full_report_dict.get("organization_user_count", 0),
-        "org_project_count": full_report_dict.get("team_count", 0),
-        "org_dashboard_count": full_report_dict.get("dashboard_count", 0),
-        "org_ff_count": full_report_dict.get("ff_count", 0),
-        "org_survey_count": full_report_dict.get("survey_count", 0),
     }
 
     for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related("user"):
