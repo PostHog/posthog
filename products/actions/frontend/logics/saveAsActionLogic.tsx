@@ -7,26 +7,57 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { autoCaptureEventToDescription } from 'lib/utils'
+import { eventToActionStep, isAutocaptureWithElements } from 'scenes/activity/explore/saveActionFromEvent'
+import {
+    filterToActionStep,
+    generateActionNameFromFilter,
+} from 'scenes/insights/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
+import { ActionStepType, EventType, RecordingEventType } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
 import type { saveAsActionLogicType } from './saveAsActionLogicType'
-import { filterToActionStep, generateActionNameFromFilter } from './saveAsActionUtils'
+
+export interface OpenSaveAsActionDialogPayload {
+    suggestedName: string
+    step: ActionStepType
+    createInFolder?: string
+}
 
 export const saveAsActionLogic = kea<saveAsActionLogicType>([
-    path(['scenes', 'insights', 'filters', 'ActionFilter', 'ActionFilterRow', 'saveAsActionLogic']),
+    path(['products', 'actions', 'frontend', 'logics', 'saveAsActionLogic']),
     actions({
-        openSaveAsActionDialog: (filter: LocalFilter) => ({ filter }),
+        saveFromFilter: (filter: LocalFilter) => ({ filter }),
+        saveFromEvent: (event: EventType | RecordingEventType, dataAttributes: string[]) => ({
+            event,
+            dataAttributes,
+        }),
+        openSaveAsActionDialog: (payload: OpenSaveAsActionDialogPayload) => payload,
     }),
     afterMount(() => {
         actionsModel.mount()
     }),
-    listeners({
-        openSaveAsActionDialog: ({ filter }) => {
-            const suggestedName = generateActionNameFromFilter(filter)
-
+    listeners(({ actions }) => ({
+        saveFromFilter: ({ filter }) => {
+            actions.openSaveAsActionDialog({
+                suggestedName: generateActionNameFromFilter(filter),
+                step: filterToActionStep(filter),
+            })
+        },
+        saveFromEvent: ({ event, dataAttributes }) => {
+            if (!isAutocaptureWithElements(event)) {
+                return
+            }
+            actions.openSaveAsActionDialog({
+                suggestedName: autoCaptureEventToDescription(event),
+                step: eventToActionStep(event, dataAttributes),
+                createInFolder: 'Unfiled/Actions',
+            })
+        },
+        openSaveAsActionDialog: ({ suggestedName, step, createInFolder }) => {
             LemonDialog.openForm({
                 title: 'Save as action',
                 initialValues: { actionName: suggestedName },
@@ -44,9 +75,12 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
                     </LemonField>
                 ),
                 onSubmit: async ({ actionName }) => {
-                    const step = filterToActionStep(filter)
                     try {
-                        const action = await api.actions.create({ name: actionName, steps: [step] })
+                        const action = await api.actions.create({
+                            name: actionName,
+                            steps: [step],
+                            ...(createInFolder ? { _create_in_folder: createInFolder } : {}),
+                        })
                         actionsModel.findMounted()?.actions.loadActions()
                         lemonToast.success(
                             <>
@@ -60,5 +94,5 @@ export const saveAsActionLogic = kea<saveAsActionLogicType>([
                 },
             })
         },
-    }),
+    })),
 ])
