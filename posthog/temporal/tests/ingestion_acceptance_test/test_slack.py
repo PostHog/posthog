@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestResult, TestSuiteResult
+from posthog.temporal.ingestion_acceptance_test.runner import RunningTestInfo
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
 
 
@@ -205,7 +206,7 @@ class TestSendSlackTimeoutNotification:
         assert "Timed Out" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
-    def test_payload_contains_environment_and_timeout_info(self, mock_post: MagicMock, config: Config) -> None:
+    def test_payload_contains_environment_timeout_and_token_info(self, mock_post: MagicMock, config: Config) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
 
         send_slack_timeout_notification(config)
@@ -215,6 +216,7 @@ class TestSendSlackTimeoutNotification:
         assert "test.posthog.com" in context_text
         assert "12345" in context_text
         assert "600s" in context_text
+        assert "phc_test_k..." in context_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock) -> None:
@@ -229,3 +231,47 @@ class TestSendSlackTimeoutNotification:
 
         assert result is True
         mock_post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "running_tests, expected_in_text, not_expected_in_text",
+        [
+            (
+                [
+                    RunningTestInfo(name="TestAlias::test_alias", pending_poll="person with distinct_id 'abc-123'"),
+                    RunningTestInfo(name="TestMerge::test_merge", pending_poll="events for person 'person-789'"),
+                ],
+                [
+                    "TestAlias::test_alias",
+                    "person with distinct_id 'abc-123'",
+                    "TestMerge::test_merge",
+                    "Still running (2)",
+                ],
+                [],
+            ),
+            (
+                [RunningTestInfo(name="TestBasic::test_capture", pending_poll=None)],
+                ["TestBasic::test_capture"],
+                ["waiting for"],
+            ),
+        ],
+        ids=["with_poll_descriptions", "without_poll_description"],
+    )
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_payload_renders_running_tests(
+        self,
+        mock_post: MagicMock,
+        config: Config,
+        running_tests: list[RunningTestInfo],
+        expected_in_text: list[str],
+        not_expected_in_text: list[str],
+    ) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+
+        send_slack_timeout_notification(config, running_tests=running_tests)
+
+        payload = mock_post.call_args[1]["json"]
+        running_text = payload["blocks"][2]["text"]["text"]
+        for expected in expected_in_text:
+            assert expected in running_text
+        for not_expected in not_expected_in_text:
+            assert not_expected not in running_text

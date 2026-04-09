@@ -54,15 +54,18 @@ async def run_ingestion_acceptance_tests() -> dict:
     tests = discover_tests()
     client = PostHogClient(config, posthog_sdk)
     running_tests = RunningTests()
+    executor = ThreadPoolExecutor()
     try:
-        with ThreadPoolExecutor() as executor:
-            result: TestSuiteResult = await asyncio.wait_for(
-                asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
-                timeout=config.activity_timeout_seconds,
-            )
+        result: TestSuiteResult = await asyncio.wait_for(
+            asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
+            timeout=config.activity_timeout_seconds,
+        )
     except TimeoutError:
-        send_slack_timeout_notification(config, running_tests=running_tests.snapshot())
+        still_running = running_tests.snapshot_with_polls(client)
+        send_slack_timeout_notification(config, running_tests=still_running)
         raise
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     logger.info(
         "Ingestion acceptance tests completed",
