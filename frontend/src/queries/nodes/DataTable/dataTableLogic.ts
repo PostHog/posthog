@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { RequiredExcept } from 'lib/utils/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
@@ -62,6 +63,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
             dataNodeLogic({
                 key: props.dataNodeLogicKey ?? props.dataKey,
                 query: props.query.source,
@@ -107,13 +110,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, (_, props) => props.context],
+            (s) => [
+                s.sourceKind,
+                s.orderBy,
+                s.response,
+                s.columnsInResponse,
+                (_, props) => props.context,
+                s.currentTeam,
+            ],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
                 columnsInResponse: string[] | null,
-                context: QueryContext<DataTableNode> | undefined
+                context: QueryContext<DataTableNode> | undefined,
+                currentTeam: { timezone?: string } | null
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const queryResponse = response as AnyResponseType
@@ -139,18 +150,22 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     removeExpressionComment(column) === `-${orderKey}`
                             ) ?? -1
 
-                        // Add a label between results if the day changed for events with timestamp
+                        // Add a label between results if the day changed for events with timestamp.
+                        // Use the project timezone so date headers match the date filter.
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
+                            const tz = currentTeam?.timezone ?? 'UTC'
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (
                                     result &&
                                     lastResult &&
-                                    !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
+                                    !dayjs(result[orderKeyIndex])
+                                        .tz(tz)
+                                        .isSame(dayjs(lastResult[orderKeyIndex]).tz(tz), 'day')
                                 ) {
                                     newResults.push({
-                                        label: dayjs(result[orderKeyIndex]).format('LL'),
+                                        label: dayjs(result[orderKeyIndex]).tz(tz).format('LL'),
                                     })
                                 }
                                 newResults.push({ result })

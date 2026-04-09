@@ -2111,6 +2111,38 @@
             "description": "Human-readable name for the alert.",
             "type": "string"
         },
+        "schedule_restriction": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "blocked_windows": {
+                            "description": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+                            "items": {
+                                "properties": {
+                                    "end": {
+                                        "description": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+                                        "type": "string"
+                                    },
+                                    "start": {
+                                        "description": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["start", "end"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["blocked_windows"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables."
+        },
         "skip_weekend": {
             "anyOf": [
                 {
@@ -2120,7 +2152,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Skip alert evaluation on weekends (Saturday and Sunday)."
+            "description": "Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone)."
         },
         "snoozed_until": {
             "anyOf": [

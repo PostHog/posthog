@@ -2,6 +2,7 @@ import { LemonCard, Link } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { SecretApiKeySection } from './SecretApiKeySection'
 export function WorkflowsSection(): JSX.Element {
     return (
         <SceneSection
@@ -14,7 +15,6 @@ export function WorkflowsSection(): JSX.Element {
                     </Link>
                 </>
             }
-            className="mt-4"
         >
             <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                 <div className="flex flex-col gap-4">
@@ -89,6 +89,7 @@ export function WorkflowsSection(): JSX.Element {
                     </div>
                 </div>
             </LemonCard>
+            <SecretApiKeySection />
         </SceneSection>
     )
 }

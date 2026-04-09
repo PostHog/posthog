@@ -1451,7 +1451,8 @@ export interface OrganizationApi {
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
-    is_member_join_email_enabled?: boolean
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled: boolean
     readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null

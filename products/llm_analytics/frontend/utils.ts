@@ -38,6 +38,7 @@ import {
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    MultiModalContentItem,
 } from './types'
 
 export interface PagedSearchOrderFilters {
@@ -716,6 +717,48 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
     return roleMap[lowercased] || lowercased
 }
 
+const STRUCTURED_CONTENT_TYPES = new Set([
+    'text',
+    'output_text',
+    'input_text',
+    'function',
+    'image',
+    'input_image',
+    'image_url',
+    'file',
+    'audio',
+    'document',
+])
+
+function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
+    const trimmed = content.trim()
+    if (!trimmed.startsWith('[')) {
+        return content
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed)
+        if (
+            Array.isArray(parsed) &&
+            (parsed.length === 0 ||
+                parsed.every(
+                    (item) =>
+                        item &&
+                        typeof item === 'object' &&
+                        'type' in item &&
+                        typeof item.type === 'string' &&
+                        STRUCTURED_CONTENT_TYPES.has(item.type)
+                ))
+        ) {
+            return parsed as MultiModalContentItem[]
+        }
+    } catch {
+        // Keep the original text when it's not valid JSON.
+    }
+
+    return content
+}
+
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
@@ -818,7 +861,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             {
                 ...rawMessage,
                 role: roleToUse,
-                content: rawMessage.content,
+                content:
+                    typeof rawMessage.content === 'string'
+                        ? parseStringifiedStructuredContent(rawMessage.content)
+                        : rawMessage.content,
                 tool_calls: isOpenAICompatToolCallsArray(rawMessage.tool_calls)
                     ? parseOpenAIToolCalls(rawMessage.tool_calls)
                     : undefined,

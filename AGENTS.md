@@ -69,6 +69,7 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 
 ## CI / GitHub Actions
 
+- `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 
 ## Security

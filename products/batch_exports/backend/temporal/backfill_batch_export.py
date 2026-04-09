@@ -682,7 +682,6 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             settings.TEMPORAL_HOST,
             settings.TEMPORAL_PORT,
             settings.TEMPORAL_NAMESPACE,
-            settings.TEMPORAL_CLIENT_ROOT_CA,
             settings.TEMPORAL_CLIENT_CERT,
             settings.TEMPORAL_CLIENT_KEY,
         )
@@ -945,6 +944,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
                     maximum_attempts=0,
+                    non_retryable_error_types=["InvalidFilterError"],
                 ),
             )
 

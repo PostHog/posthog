@@ -94,6 +94,7 @@ alerts: PostgresTable = PostgresTable(
         "next_check_at": DateTimeDatabaseField(name="next_check_at"),
         "snoozed_until": DateTimeDatabaseField(name="snoozed_until"),
         "skip_weekend": BooleanDatabaseField(name="skip_weekend"),
+        "schedule_restriction": StringJSONDatabaseField(name="schedule_restriction"),
     },
 )
 
