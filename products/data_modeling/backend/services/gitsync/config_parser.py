@@ -41,6 +41,7 @@ An example repo layout with multiple environments and multiple DAGs is actually 
         ...
 """
 
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import timedelta
@@ -262,7 +263,8 @@ def serialize_project_config(
     ]
     if environments and len(environments) > 1:
         for env in environments:
-            lines.append(f"[environments.{env}]")
+            key = _slugify(env)
+            lines.append(f"[environments.{key}]")
             lines.append(f'name = "{_escape_toml(env)}"')
             lines.append("")
     else:
@@ -292,6 +294,14 @@ def serialize_dag_config(
     lines.append(f'sync_frequency = "{_escape_toml(sync_frequency)}"')
     lines.append("")
     return "\n".join(lines)
+
+
+def _slugify(value: str) -> str:
+    """Normalize a string to a lowercase kebab-case TOML bare key."""
+    from django.utils.text import slugify
+
+    value = slugify(value).replace("_", "-")
+    return re.sub(r"-+", "-", value)
 
 
 def _escape_toml(value: str) -> str:

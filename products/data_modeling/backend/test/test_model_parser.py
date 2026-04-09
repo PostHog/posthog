@@ -165,21 +165,15 @@ class TestParseModelFileValidation:
         with pytest.raises(ValueError, match="Line 2"):
             parse_model_file(content)
 
-    def test_mutually_exclusive_materialize_view(self):
-        content = dedent("""\
-            -- @materialize
-            -- @view
-            SELECT 1
-        """)
-        with pytest.raises(ValueError, match="Conflicting annotations.*@materialize.*@view"):
-            parse_model_file(content)
-
-    def test_mutually_exclusive_view_materialize(self):
-        content = dedent("""\
-            -- @view
-            -- @materialize
-            SELECT 1
-        """)
+    @pytest.mark.parametrize(
+        "first, second",
+        [
+            pytest.param("materialize", "view", id="materialize_then_view"),
+            pytest.param("view", "materialize", id="view_then_materialize"),
+        ],
+    )
+    def test_mutually_exclusive_materialize_view(self, first: str, second: str):
+        content = f"-- @{first}\n-- @{second}\nSELECT 1\n"
         with pytest.raises(ValueError, match="Conflicting annotations"):
             parse_model_file(content)
 

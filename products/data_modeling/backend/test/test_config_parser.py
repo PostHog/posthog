@@ -167,49 +167,33 @@ class TestParseProjectConfigValidation:
         with pytest.raises(ValueError, match="at least one environment"):
             parse_project_config(content)
 
-    def test_version_wrong_type_raises(self):
-        content = dedent("""\
-            [project]
-            name = "Acme"
-            version = "1"
-        """)
-        with pytest.raises(ValueError, match="version must be an integer"):
-            parse_project_config(content)
-
-    def test_environment_name_wrong_type_raises(self):
-        content = dedent("""\
-            [project]
-            name = "Acme"
-            version = 1
-
-            [environment]
-            name = 42
-        """)
-        with pytest.raises(ValueError, match="name must be a string"):
-            parse_project_config(content)
-
-    def test_environments_name_wrong_type_raises(self):
-        content = dedent("""\
-            [project]
-            name = "Acme"
-            version = 1
-
-            [environments.prod]
-            name = 42
-        """)
-        with pytest.raises(ValueError, match="name must be a string"):
-            parse_project_config(content)
-
-    def test_models_directory_wrong_type_raises(self):
-        content = dedent("""\
-            [project]
-            name = "Acme"
-            version = 1
-
-            [settings]
-            models_directory = 42
-        """)
-        with pytest.raises(ValueError, match="models_directory must be a string"):
+    @pytest.mark.parametrize(
+        "content, match",
+        [
+            pytest.param(
+                '[project]\nname = "Acme"\nversion = "1"',
+                "version must be an integer",
+                id="version_wrong_type",
+            ),
+            pytest.param(
+                '[project]\nname = "Acme"\nversion = 1\n\n[environment]\nname = 42',
+                "name must be a string",
+                id="environment_name_wrong_type",
+            ),
+            pytest.param(
+                '[project]\nname = "Acme"\nversion = 1\n\n[environments.prod]\nname = 42',
+                "name must be a string",
+                id="environments_name_wrong_type",
+            ),
+            pytest.param(
+                '[project]\nname = "Acme"\nversion = 1\n\n[settings]\nmodels_directory = 42',
+                "models_directory must be a string",
+                id="models_directory_wrong_type",
+            ),
+        ],
+    )
+    def test_wrong_type_raises(self, content: str, match: str):
+        with pytest.raises(ValueError, match=match):
             parse_project_config(content)
 
 
@@ -264,13 +248,16 @@ class TestParseDagConfigValidation:
         with pytest.raises(ValueError, match="Invalid sync_frequency"):
             parse_dag_config('sync_frequency = "2h"')
 
-    def test_sync_frequency_wrong_type_raises(self):
-        with pytest.raises(ValueError, match="sync_frequency must be a string"):
-            parse_dag_config("sync_frequency = 60")
-
-    def test_description_wrong_type_raises(self):
-        with pytest.raises(ValueError, match="description must be a string"):
-            parse_dag_config("description = 42")
+    @pytest.mark.parametrize(
+        "content, match",
+        [
+            pytest.param("sync_frequency = 60", "sync_frequency must be a string", id="sync_frequency_wrong_type"),
+            pytest.param("description = 42", "description must be a string", id="description_wrong_type"),
+        ],
+    )
+    def test_wrong_type_raises(self, content: str, match: str):
+        with pytest.raises(ValueError, match=match):
+            parse_dag_config(content)
 
 
 class TestSerializeProjectConfig:
