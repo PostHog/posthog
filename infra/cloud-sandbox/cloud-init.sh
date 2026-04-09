@@ -139,6 +139,37 @@ else
     log "Symlinked /var/lib/docker -> /mnt/nvme/docker"
 fi
 
+# Swap + zswap on NVMe. The instance has 32 GB RAM, which is enough for
+# steady state but tight during Rust builds / ClickHouse queries / big TS
+# type-checks. zswap compresses pages in RAM before they actually hit disk,
+# so hot anon pages get lz4 compression for free and cold pages spill to
+# NVMe with no hard cap.
+#
+# vm.swappiness=180 (kernel 5.8+ allows 0-200) strongly prefers swapping
+# anon heap over evicting file cache. The shared pnpm/cargo/uv caches and
+# node_modules are our hottest file-cache pages — losing them causes slow
+# rebuilds — while anon heap compresses ~2-3x for free in zswap. Keep file
+# cache alive, push anon into zswap.
+if [ -n "$NVME_DEV" ]; then
+    log "Setting up 32G swapfile on NVMe..."
+    fallocate -l 32G /mnt/nvme/swapfile
+    chmod 600 /mnt/nvme/swapfile
+    mkswap /mnt/nvme/swapfile >/dev/null
+    swapon /mnt/nvme/swapfile
+    log "Swap enabled: $(swapon --show=NAME,SIZE --noheadings | tr -s ' ')"
+
+    echo lz4      > /sys/module/zswap/parameters/compressor       || true
+    echo zsmalloc > /sys/module/zswap/parameters/zpool            || true
+    echo 20       > /sys/module/zswap/parameters/max_pool_percent || true
+    echo 1        > /sys/module/zswap/parameters/enabled          || true
+    log "zswap: enabled=$(cat /sys/module/zswap/parameters/enabled) compressor=$(cat /sys/module/zswap/parameters/compressor) max_pool_percent=$(cat /sys/module/zswap/parameters/max_pool_percent)"
+
+    echo "vm.swappiness=180" > /etc/sysctl.d/99-sandbox-swap.conf
+    sysctl --system >/dev/null
+else
+    log "WARNING: no NVMe device, skipping swap setup"
+fi
+
 log "Installing base dependencies..."
 # Pin overlay2 storage driver to match the build-cache archive.
 mkdir -p /etc/docker
@@ -252,6 +283,14 @@ log "Creating sandbox via bin/sandbox create..."
 export SANDBOX_HOSTNAME
 sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
 
+# Expose the sandbox web UI on port 80 of the Tailscale interface so users can
+# visit http://<hostname>/ without remembering the port number. The sandbox
+# proxy container is already published on the host at 48001 — Tailscale Serve
+# proxies tailnet traffic on port 80 to it.
+log "Exposing sandbox on port 80 via Tailscale Serve..."
+tailscale serve --bg --http=80 http://localhost:48001 \
+    || log "WARNING: tailscale serve failed — fall back to http://$SANDBOX_HOSTNAME:48001"
+
 log "Waiting for app to be healthy..."
 HEALTH_DEADLINE=$((SECONDS + 600))
 while [ "$SECONDS" -lt "$HEALTH_DEADLINE" ]; do
@@ -266,4 +305,4 @@ BOOT_STATUS="complete"
 log "Cloud sandbox boot complete at $(date)"
 log "Total boot time: ${SECONDS}s"
 log "Tailscale hostname: $SANDBOX_HOSTNAME"
-log "PostHog will be available at http://$SANDBOX_HOSTNAME:48001 once healthy"
+log "PostHog will be available at http://$SANDBOX_HOSTNAME/ once healthy"

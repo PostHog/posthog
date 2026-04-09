@@ -16,7 +16,6 @@ from _sandbox_lib import (
     BUILD_CACHE_TEMPLATE,
     CLOUD_CONFIG_FILE,
     CLOUD_INIT_TEMPLATE,
-    PORT_BASE,
     error,
     fatal,
     info,
@@ -519,7 +518,9 @@ def cmd_cloud_create(branch: str) -> None:
     print()
     success(f"Cloud sandbox ready for '{branch}'")
 
-    url = f"http://{hostname}:{PORT_BASE}"
+    # Tailscale Serve maps port 80 on the instance's tailnet interface to the
+    # sandbox proxy on 48001, so the canonical URL has no port.
+    url = f"http://{hostname}"
     subprocess.Popen(
         [sys.executable, "-c", f"import webbrowser; webbrowser.open({url!r})"],
         stdin=subprocess.DEVNULL,
@@ -575,7 +576,7 @@ def cmd_cloud_open(branch: str) -> None:
     import webbrowser
 
     _config, _instance, hostname = _require_instance(branch)
-    url = f"http://{hostname}:{PORT_BASE}"
+    url = f"http://{hostname}"
     info(f"Opening {url}...")
     webbrowser.open(url)
 
