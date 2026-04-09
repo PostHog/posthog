@@ -80,9 +80,7 @@ class TestSlackThreadHandler(TestCase):
         assert len(remove_calls) == 2
         assert remove_calls[0].kwargs["name"] == "seedling"
         assert remove_calls[1].kwargs["name"] == "eyes"
-        mock_client.reactions_add.assert_called_once_with(
-            channel="C001", timestamp="1234.5678", name="hedgehog"
-        )
+        mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):
