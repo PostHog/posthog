@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
@@ -9,11 +8,7 @@ import { connectedAppsLogic, ConnectedApp } from './connectedAppsLogic'
 
 export function ConnectedApps(): JSX.Element {
     const { connectedApps, connectedAppsLoading } = useValues(connectedAppsLogic)
-    const { loadConnectedApps, revokeApp } = useActions(connectedAppsLogic)
-
-    useEffect(() => {
-        loadConnectedApps()
-    }, [])
+    const { revokeApp } = useActions(connectedAppsLogic)
 
     const handleRevoke = (app: ConnectedApp): void => {
         LemonDialog.open({

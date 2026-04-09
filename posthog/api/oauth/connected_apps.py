@@ -1,4 +1,3 @@
-from django.db.models import Min
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -36,35 +35,21 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
     def list(self, request: Request) -> Response:
         now = timezone.now()
 
-        app_ids_with_dates = (
-            OAuthAccessToken.objects.filter(
-                user=request.user,
-                application__isnull=False,
-                expires__gt=now,
-            )
-            .values("application_id")
-            .annotate(
-                authorized_at=Min("created"),
-            )
-        )
-
-        app_map: dict[str, dict] = {}
-        for row in app_ids_with_dates:
-            app_map[str(row["application_id"])] = {
-                "authorized_at": row["authorized_at"],
-                "scopes": set(),
-            }
-
-        # Collect distinct scopes per app
         tokens = OAuthAccessToken.objects.filter(
             user=request.user,
             application__isnull=False,
             expires__gt=now,
-        ).values("application_id", "scope")
+        ).values("application_id", "scope", "created")
 
+        app_map: dict[str, dict] = {}
         for token in tokens:
             app_id = str(token["application_id"])
-            if app_id in app_map and token["scope"]:
+            if app_id not in app_map:
+                app_map[app_id] = {"authorized_at": token["created"], "scopes": set()}
+            else:
+                if token["created"] < app_map[app_id]["authorized_at"]:
+                    app_map[app_id]["authorized_at"] = token["created"]
+            if token["scope"]:
                 app_map[app_id]["scopes"].update(token["scope"].split())
 
         applications = OAuthApplication.objects.filter(id__in=app_map.keys())
@@ -96,27 +81,18 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
     def revoke(self, request: Request, pk: str | None = None) -> Response:
         now = timezone.now()
 
-        try:
-            application = OAuthApplication.objects.get(pk=pk)
-        except OAuthApplication.DoesNotExist:
-            return Response({"detail": "Application not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        has_tokens = OAuthAccessToken.objects.filter(
+        access_token = OAuthAccessToken.objects.filter(
             user=request.user,
-            application=application,
+            application_id=pk,
             expires__gt=now,
-        ).exists()
+        ).first()
 
-        if not has_tokens:
+        if not access_token:
             return Response(
                 {"detail": "No active connection found for this application."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        access_token = OAuthAccessToken.objects.filter(
-            user=request.user,
-            application=application,
-        ).first()
         revoke_oauth_session(access_token=access_token)
 
         return Response(status=status.HTTP_204_NO_CONTENT)

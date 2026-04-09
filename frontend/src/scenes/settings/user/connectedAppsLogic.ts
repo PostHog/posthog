@@ -1,4 +1,4 @@
-import { actions, kea, path } from 'kea'
+import { actions, events, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -37,5 +37,9 @@ export const connectedAppsLogic = kea<connectedAppsLogicType>([
                 },
             },
         ],
+    })),
+
+    events(({ actions }) => ({
+        afterMount: () => actions.loadConnectedApps(),
     })),
 ])
