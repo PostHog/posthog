@@ -14,7 +14,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { formatDate, isOperatorDate } from 'lib/utils'
+import { formatDate } from 'lib/utils'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
     CohortEventFiltersFieldProps,
@@ -116,23 +116,14 @@ export function CohortSelectorField({
  * the selected person property's type. Without this, DateTime properties like
  * "date_of_birth" would show irrelevant operators like "contains" or "maximum".
  *
- * Also auto-resets the operator when switching between DateTime and non-DateTime
- * properties so the user doesn't end up with an invalid operator selection.
+ * The operator auto-reset when switching between DateTime and non-DateTime
+ * properties is handled in cohortEditLogic's setCriteria listener.
  */
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
     const propDef = getPropertyDefinition(propertyKey, PropertyDefinitionType.Person)
     const isDateTime = propDef?.property_type === PropertyType.DateTime
-    const currentOperator = props.criteria?.operator as PropertyOperator | undefined
-
-    useEffect(() => {
-        if (isDateTime && (!currentOperator || !isOperatorDate(currentOperator))) {
-            props.onChange?.({ operator: PropertyOperator.IsDateExact })
-        } else if (!isDateTime && currentOperator && isOperatorDate(currentOperator)) {
-            props.onChange?.({ operator: PropertyOperator.Exact })
-        }
-    }, [isDateTime, propertyKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const fieldOptionGroupTypes = isDateTime
         ? [FieldOptionsType.SingleFieldDateOperators]
