@@ -51,7 +51,9 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
     const identifyResult = { userId: distinctId }
 
     try {
-        track(server, null, {
+        // If the MCP_CAT_PROJECT_ID is not set, use null. This will disable sending events to MCPcat.
+        // For production, we'll set this to the correct project ID.
+        track(server, env.MCP_CAT_PROJECT_ID ?? null, {
             enableReportMissing: false,
             enableToolCallContext: false,
             enableTracing: true, // Tracks tools and usage patterns
