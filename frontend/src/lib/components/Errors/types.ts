@@ -32,6 +32,7 @@ export type ErrorTrackingRuntime =
     | 'dart'
     | 'flutter'
     | 'dotnet'
+    | 'common-lisp'
     | 'unknown'
 
 export interface ErrorTrackingRawStackTrace {

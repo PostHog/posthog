@@ -1,5 +1,5 @@
 import { ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList } from './utils'
+import { getExceptionAttributes, getExceptionList, getRuntimeFromLib } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -169,5 +169,9 @@ describe('Error Display', () => {
             ingestionErrors: undefined,
             handled: true,
         })
+    })
+
+    it('maps posthog-cl $lib to the common-lisp runtime', () => {
+        expect(getRuntimeFromLib('posthog-cl')).toBe('common-lisp')
     })
 })

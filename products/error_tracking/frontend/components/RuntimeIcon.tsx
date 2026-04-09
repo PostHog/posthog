@@ -38,6 +38,8 @@ const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC> = {
     dart: IconDart,
     flutter: IconFlutter,
     ['react-native']: IconReact,
+    // Fallback to the logomark until a Common Lisp icon lands in @posthog/icons
+    ['common-lisp']: IconLogomark,
 
     unknown: IconLogomark,
 }

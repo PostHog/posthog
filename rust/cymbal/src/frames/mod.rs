@@ -10,6 +10,7 @@ use crate::{
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         apple::{AppleDebugImage, RawAppleFrame},
+        common_lisp::RawCommonLispFrame,
         custom::CustomFrame,
         dart::RawDartFrame,
         go::RawGoFrame,
@@ -54,6 +55,8 @@ pub enum RawFrame {
     Dart(RawDartFrame),
     #[serde(rename = "apple")]
     Apple(RawAppleFrame),
+    #[serde(rename = "common-lisp")]
+    CommonLisp(RawCommonLispFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -90,6 +93,7 @@ impl RawFrame {
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
+            RawFrame::CommonLisp(frame) => (to_vec(Ok(frame.into())), "common-lisp"),
             RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
             RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
@@ -145,6 +149,7 @@ impl RawFrame {
             RawFrame::Java(frame) => frame.symbol_set_ref(),
             // Frames with no symbol sets
             RawFrame::Python(_)
+            | RawFrame::CommonLisp(_)
             | RawFrame::Php(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
@@ -163,6 +168,7 @@ impl RawFrame {
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
+            RawFrame::CommonLisp(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
             RawFrame::Dart(raw) => raw.frame_id(),
@@ -483,6 +489,27 @@ mod test {
         match frame {
             RawFrame::Custom(_) => {}
             _ => panic!("Expected a custom frame"),
+        }
+    }
+
+    #[test]
+    fn ensure_common_lisp_frames_work() {
+        let data = r#"
+            {
+            "platform": "common-lisp",
+            "abs_path": "/home/user/project/src/foo.lisp",
+            "filename": "src/foo.lisp",
+            "function": "do-thing",
+            "package": "MY-APP",
+            "lambda_list": "(x &optional y)",
+            "in_app": true
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::CommonLisp(_) => {}
+            _ => panic!("Expected a common-lisp frame"),
         }
     }
 }

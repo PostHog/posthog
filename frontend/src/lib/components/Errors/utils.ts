@@ -55,6 +55,8 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'posthog-java':
         case 'analytics-java':
             return 'java'
+        case 'posthog-cl':
+            return 'common-lisp'
         default:
             return 'unknown'
     }
