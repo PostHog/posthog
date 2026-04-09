@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { IconAI, IconWarning } from '@posthog/icons'
+import { IconLlmAnalytics, IconWarning } from '@posthog/icons'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -74,18 +74,19 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     Visit issue
                 </LemonButton>
             ) : null}
-            {(event.event === '$ai_trace' || event.event === SurveyEventName.SENT) &&
-            '$ai_trace_id' in event.properties ? (
+            {'$ai_trace_id' in event.properties ? (
                 <LemonButton
                     fullWidth
-                    sideIcon={<IconAI />}
+                    sideIcon={<IconLlmAnalytics />}
                     data-attr="events-table-trace-link"
                     to={urls.llmAnalyticsTrace(
                         event.properties.$ai_trace_id,
-                        event.event === '$ai_trace' ? { event: event.id, exception_ts: event.timestamp } : {}
+                        event.event === '$ai_trace'
+                            ? { event: event.id, exception_ts: event.timestamp }
+                            : { event: event.id }
                     )}
                 >
-                    View LLM Trace
+                    View LLM trace
                 </LemonButton>
             ) : null}
             {insightUrl && (

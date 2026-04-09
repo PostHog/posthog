@@ -103,14 +103,16 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders(({ props }: { props: { insightId: string } }) => ({
+    loaders(({ props }: { props: { insightId?: number; experimentId?: number } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
                 loadDebugResponse: async () => {
                     const params = new URLSearchParams()
                     if (props.insightId) {
-                        params.append('insight_id', props.insightId)
+                        params.append('insight_id', String(props.insightId))
+                    } else if (props.experimentId) {
+                        params.append('experiment_id', String(props.experimentId))
                     }
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
@@ -267,10 +269,11 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
 
 interface DebugCHQueriesProps {
     insightId?: number | null
+    experimentId?: number | null
 }
 
-export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element {
-    const logic = debugCHQueriesLogic({ insightId })
+export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps): JSX.Element {
+    const logic = debugCHQueriesLogic({ insightId, experimentId: experimentId ?? undefined })
     const {
         debugResponseLoading,
         filteredQueries,

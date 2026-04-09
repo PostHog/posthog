@@ -42,7 +42,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info(
         "Loaded config",
         api_host=config.api_host,
-        project_id=config.project_id,
+        team_id=config.team_id,
     )
 
     posthog_sdk = posthoganalytics.Posthog(

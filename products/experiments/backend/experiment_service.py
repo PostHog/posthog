@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -78,10 +79,32 @@ class ExperimentService:
             raise ValidationError("End date must be after start date")
 
     @staticmethod
-    def validate_experiment_parameters(parameters: dict | None) -> None:
-        """Validate experiment parameters accepted by the API layer."""
+    def validate_variant_shapes(parameters: dict | None) -> None:
+        """Validate that variant entries are well-formed dicts with required keys.
+
+        This catches malformed input early before it reaches FeatureFlagSerializer,
+        preventing unhandled KeyError/AttributeError 500s.
+        """
         if not parameters:
             return
+        variants = parameters.get("feature_flag_variants", [])
+        for i, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                raise ValidationError(f"Feature flag variant at index {i} must be an object")
+            if "key" not in variant:
+                raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
+
+    @staticmethod
+    def validate_experiment_parameters(parameters: dict | None) -> None:
+        """Validate experiment parameters accepted by the API layer.
+
+        Includes shape validation plus count/control checks.
+        Called from the serializer where the full parameter set is available.
+        """
+        if not parameters:
+            return
+
+        ExperimentService.validate_variant_shapes(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -143,6 +166,61 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    VALID_STATS_METHODS = {"bayesian", "frequentist"}
+
+    EXPERIMENT_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "updated_at",
+        "-updated_at",
+        "name",
+        "-name",
+        "start_date",
+        "-start_date",
+        "end_date",
+        "-end_date",
+        "duration",
+        "-duration",
+        "status",
+        "-status",
+    }
+
+    ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "key",
+        "-key",
+        "name",
+        "-name",
+    }
+
+    @classmethod
+    def validate_stats_config(cls, stats_config: dict | None) -> None:
+        """Validate stats_config shape and method value."""
+        if not stats_config:
+            return
+        method = stats_config.get("method")
+        if method is not None and method not in cls.VALID_STATS_METHODS:
+            raise ValidationError(
+                f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
+            )
+
+    @staticmethod
+    def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
+        """Reject metrics with duplicate UUIDs across all provided metric lists."""
+        seen: set[str] = set()
+        for metrics in metric_lists:
+            if not metrics:
+                continue
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    continue
+                uuid = metric.get("uuid")
+                if uuid is not None:
+                    if uuid in seen:
+                        raise ValidationError(f"Duplicate metric UUID: '{uuid}'. Each metric must have a unique UUID.")
+                    seen.add(uuid)
+
     @staticmethod
     def validate_saved_metrics_ids(saved_metrics_ids: list | None, team_id: int) -> None:
         """Validate saved metric references accepted by the API layer."""
@@ -202,8 +280,10 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_variant_shapes(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
+        self.validate_stats_config(stats_config)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -223,6 +303,8 @@ class ExperimentService:
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -232,6 +314,8 @@ class ExperimentService:
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -239,6 +323,8 @@ class ExperimentService:
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
                 )
+
+        self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
 
         if metrics is not None:
             primary_ordering = list(primary_metrics_ordered_uuids or [])
@@ -595,6 +681,8 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1129,6 +1217,14 @@ class ExperimentService:
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
 
+        # --- validate updated fields ------------------------------------------
+        if "stats_config" in update_data:
+            self.validate_stats_config(update_data["stats_config"])
+
+        updated_primary = update_data.get("metrics", experiment.metrics)
+        updated_secondary = update_data.get("metrics_secondary", experiment.metrics_secondary)
+        self.validate_no_duplicate_metric_uuids(updated_primary, updated_secondary)
+
         # --- fingerprint recalculation -------------------------------------
         start_date = update_data.get("start_date", experiment.start_date)
         stats_config = update_data.get("stats_config", experiment.stats_config)
@@ -1259,7 +1355,13 @@ class ExperimentService:
         name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
-        """Duplicate an experiment as a new draft."""
+        """Duplicate an experiment as a new draft.
+
+        Warning: if feature_flag_key is None or matches the source experiment's
+        flag key, the duplicate will reuse the same FeatureFlag instance. This
+        means lifecycle operations on either experiment (pause, ship, etc.) will
+        affect both. Callers should provide a unique feature_flag_key.
+        """
         if feature_flag_key is None:
             feature_flag_key = source_experiment.feature_flag.key
 
@@ -1487,6 +1589,8 @@ class ExperimentService:
         order = query_params.get("order")
         if order:
             order_value = str(order)
+            if order_value not in self.EXPERIMENT_ORDER_ALLOWLIST:
+                raise ValidationError(f"Invalid order field: '{order_value}'")
             if order_value in ["duration", "-duration"]:
                 queryset = queryset.annotate(
                     computed_duration=Case(
@@ -1598,6 +1702,9 @@ class ExperimentService:
                 queryset = queryset.filter(eval_context_count__gt=0)
             else:
                 queryset = queryset.filter(eval_context_count=0)
+
+        if order and order not in self.ELIGIBLE_FLAGS_ORDER_ALLOWLIST:
+            raise ValidationError(f"Invalid order field: '{order}'")
 
         queryset = queryset.order_by(order or "-created_at")
 

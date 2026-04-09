@@ -3968,6 +3968,14 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SummaryOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    success: bool | None = None
+
+
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7482,6 +7490,7 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
+    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -20167,6 +20176,40 @@ class Response24(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
+    cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
+    derived_from_insight: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    is_materialized: bool | None = Field(
+        default=None,
+        description="Whether this endpoint's query results are materialized to S3",
+    )
+    name: str | None = None
+    query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
+        None
+    )
+    sync_frequency: DataWarehouseSyncInterval | None = Field(
+        default=None,
+        description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
+
+
 class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21015,49 +21058,6 @@ class IsExperimentFunnelsQuery(BaseModel):
 
 class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs1 | None = None
-
-
-class EndpointRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket_overrides: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Per-column bucket function overrides for range variable materialization."
-            " Keys are column names, values are bucket keys (hour, day, week, month)."
-        ),
-    )
-    cache_age_seconds: float | None = None
-    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
-    derived_from_insight: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
-    is_materialized: bool | None = Field(
-        default=None,
-        description="Whether this endpoint's query results are materialized to S3",
-    )
-    name: str | None = None
-    query: (
-        HogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | WebStatsTableQuery
-        | WebOverviewQuery
-        | None
-    ) = None
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Target a specific version for updates (optional, defaults to current version)"),
-    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):

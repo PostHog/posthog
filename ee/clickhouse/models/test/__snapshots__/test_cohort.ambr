@@ -273,8 +273,8 @@
                                  (SELECT person_id
                                   FROM cohortpeople
                                   WHERE cohort_id = 99999
-                                    AND team_id = 99999 ))))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                       join_algorithm = 'auto' ) ))
+                                    AND team_id = 99999))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                      join_algorithm = 'auto')))
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
