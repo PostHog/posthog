@@ -195,23 +195,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
         from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
-        with transaction.atomic():
-            self.sync_frequency_interval = None
-            self.last_run_at = None
-            self.latest_error = None
-            self.status = None
-            self.is_materialized = False
+        self.sync_frequency_interval = None
+        self.last_run_at = None
+        self.latest_error = None
+        self.status = None
+        self.is_materialized = False
 
-            # delete the materialized table reference
-            if self.table is not None:
-                self.table.soft_delete()
-                self.table_id = None
+        should_delete_saved_query_schedule: bool = False
+        try:
+            with transaction.atomic():
+                # delete the materialized table reference
+                if self.table is not None:
+                    self.table.soft_delete()
+                    self.table_id = None
 
-            delete_saved_query_schedule(self)
-
-            self.save()
-
-            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
+                should_delete_saved_query_schedule = True
+                self.save()
+                DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
+        finally:
+            if should_delete_saved_query_schedule:
+                delete_saved_query_schedule(self)
 
     def soft_delete(self):
         self.deleted = True
