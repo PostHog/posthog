@@ -22,7 +22,7 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -97,6 +97,7 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
+from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
@@ -302,6 +303,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             extra_summary_context__isnull=True,
         ).exists()
 
+    @extend_schema_field(OutcomeSerializer(allow_null=True))
     def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
         return getattr(obj, "summary_outcome", None)
 

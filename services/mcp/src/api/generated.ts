@@ -19730,6 +19730,20 @@ export namespace Schemas {
       SignalReport: 'signal_report',
     } as const;
 
+    /**
+     * Initial goal and session outcome coming from LLM.
+     */
+    export interface Outcome {
+      /**
+       * @minLength 1
+       * @maxLength 10000
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      success?: boolean | null;
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -21130,11 +21144,6 @@ export namespace Schemas {
       results: SessionRecordingExternalReference[];
     }
 
-    /**
-     * @nullable
-     */
-    export type SessionRecordingSummaryOutcome = {[key: string]: unknown} | null | null;
-
     export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
 
     export interface SessionRecording {
@@ -21179,8 +21188,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score: number | null;
       readonly has_summary: boolean;
-      /** @nullable */
-      readonly summary_outcome: SessionRecordingSummaryOutcome;
+      readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -24990,11 +24998,6 @@ export namespace Schemas {
       readonly team?: number;
     }
 
-    /**
-     * @nullable
-     */
-    export type PatchedSessionRecordingSummaryOutcome = {[key: string]: unknown} | null | null;
-
     export type PatchedSessionRecordingExternalReferencesItem = {[key: string]: unknown};
 
     export interface PatchedSessionRecording {
@@ -25039,8 +25042,7 @@ export namespace Schemas {
       /** @nullable */
       readonly activity_score?: number | null;
       readonly has_summary?: boolean;
-      /** @nullable */
-      readonly summary_outcome?: PatchedSessionRecordingSummaryOutcome;
+      readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }
