@@ -53,13 +53,22 @@ class TestParseModelFile:
         result = parse_model_file(content)
         assert result.description == "Monthly active users"
 
-    def test_description_quoted(self):
-        content = dedent("""\
-            -- @description "Monthly active users"
+    @pytest.mark.parametrize(
+        "desc",
+        [
+            '" monthly active users "',
+            ' " monthly active users " ',
+            " ' monthly active users ' ",
+            "' monthly active users '",
+        ],
+    )
+    def test_description_quoted(self, desc):
+        content = dedent(f"""\
+            -- @description {desc}
             SELECT 1
         """)
         result = parse_model_file(content)
-        assert result.description == "Monthly active users"
+        assert result.description == "monthly active users"
 
     def test_tags_directive(self):
         content = dedent("""\
@@ -222,7 +231,7 @@ class TestParseModelFileValidation:
             -- @tags
             SELECT 1
         """)
-        with pytest.raises(ValueError, match="@tags requires at least one tag"):
+        with pytest.raises(ValueError, match="@tags requires a value"):
             parse_model_file(content)
 
     def test_nullary_with_value_raises(self):

@@ -160,12 +160,16 @@ def parse_project_config(content: str) -> ProjectConfig:
             if not isinstance(env_data, dict):
                 raise ValueError(f"[environments.{key}] must be a table")
             env_name = env_data.get("name", key)
+            if not isinstance(env_name, str):
+                raise ValueError(f"[environments.{key}] name must be a string, got {type(env_name).__name__}")
             environments.append(EnvironmentConfig(name=env_name))
     elif has_single:
         env = data["environment"]
         if not isinstance(env, dict):
             raise ValueError("[environment] must be a table")
         env_name = env.get("name", "production")
+        if not isinstance(env_name, str):
+            raise ValueError(f"[environment] name must be a string, got {type(env_name).__name__}")
         environments.append(EnvironmentConfig(name=env_name))
     else:
         environments.append(EnvironmentConfig(name="production"))

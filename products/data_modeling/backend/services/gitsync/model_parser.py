@@ -19,7 +19,6 @@ Sync frequency is configured at the DAG level in posthog.toml, not per model.
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
 
 import structlog
 
@@ -44,8 +43,8 @@ class ParsedModelFile:
     def set_description(self, description: str):
         self.description = description
 
-    def set_tags(self, tags: list[str]):
-        self.tags = tags
+    def set_tags(self, tags: str):
+        self.tags = [t.strip() for t in tags.split(",") if t.strip()]
 
 
 # Matches lines like: -- @directive value
@@ -64,7 +63,7 @@ _NULLARY_DIRECTIVES: dict[str, Callable[[ParsedModelFile], None]] = {
 }
 
 # require exactly one value
-_UNARY_DIRECTIVES: dict[str, Callable[[ParsedModelFile, Any], None]] = {
+_UNARY_DIRECTIVES: dict[str, Callable[[ParsedModelFile, str], None]] = {
     "description": lambda x, y: x.set_description(y),
     "tags": lambda x, y: x.set_tags(y),
 }
@@ -77,14 +76,8 @@ _MUTUALLY_EXCLUSIVE: list[set[str]] = [
 ]
 
 
-def _parse_unary_value(directive: str, value: str, line_num: int) -> str | list[str]:
-    """Parse the value for a unary directive. Returns a string or list depending on the directive."""
-    if directive == "tags":
-        tags = [t.strip() for t in value.split(",") if t.strip()]
-        if not tags:
-            raise ValueError(f"Line {line_num}: @tags requires at least one tag")
-        return tags
-    # default: treated as a single string value
+def _parse_unary_value(directive: str, value: str, line_num: int) -> str:
+    """Parse the value for a unary directive. Returns the raw string value."""
     parsed = _unquote(value)
     if not parsed:
         raise ValueError(f"Line {line_num}: @{directive} requires a value")
@@ -191,8 +184,9 @@ def model_name_from_path(file_path: str) -> str:
 
 
 def _unquote(value: str) -> str:
-    """Remove surrounding quotes from a string value if present."""
+    """Remove surrounding single or double quotes from a string value if present."""
     value = value.strip()
-    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
-        return value[1:-1]
+    value = value.strip('"')
+    value = value.strip("'")
+    value = value.strip()
     return value
