@@ -31,7 +31,7 @@ import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJou
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
-import { FeedbackBanner } from './components/FeedbackBanner'
+import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
@@ -115,28 +115,32 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                     }}
                     actions={
                         isEditMode ? (
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-muted font-medium whitespace-nowrap">
-                                    {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
-                                </span>
-                                <LemonButton type="secondary" size="small" onClick={cancelChanges}>
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={saveChanges}
-                                    disabledReason={
-                                        accessControlDisabledReason ??
-                                        (stagedNodes.length === 0 ? 'No steps staged' : undefined)
-                                    }
-                                    loading={isSaving}
-                                >
-                                    Save
-                                </LemonButton>
-                            </div>
+                            <>
+                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted font-medium whitespace-nowrap">
+                                        {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
+                                    </span>
+                                    <LemonButton type="secondary" size="small" onClick={cancelChanges}>
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={saveChanges}
+                                        disabledReason={
+                                            accessControlDisabledReason ??
+                                            (stagedNodes.length === 0 ? 'No steps staged' : undefined)
+                                        }
+                                        loading={isSaving}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            </>
                         ) : activeTab === 'journeys' ? (
                             <>
+                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
                                 <CustomerJourneySelect />
                                 <LemonButton
                                     type="primary"
@@ -160,35 +164,37 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                 <DeleteJourneyButton />
                             </>
                         ) : (
-                            <AppShortcut
-                                name="CustomerAnalyticsSettings"
-                                keybind={[keyBinds.settings]}
-                                intent="Configure customer analytics"
-                                interaction="click"
-                                scope={Scene.CustomerAnalytics}
-                            >
-                                <LemonButton
-                                    icon={<IconGear />}
-                                    size="small"
-                                    type="secondary"
-                                    to={urls.customerAnalyticsConfiguration()}
-                                    onClick={() => {
-                                        addProductIntent({
-                                            product_type: ProductKey.CUSTOMER_ANALYTICS,
-                                            intent_context:
-                                                ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
-                                        })
-                                        reportCustomerAnalyticsDashboardConfigurationButtonClicked()
-                                    }}
-                                    tooltip="Configure customer analytics"
-                                    children="Configure"
-                                    data-attr="customer-analytics-config"
-                                />
-                            </AppShortcut>
+                            <>
+                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                                <AppShortcut
+                                    name="CustomerAnalyticsSettings"
+                                    keybind={[keyBinds.settings]}
+                                    intent="Configure customer analytics"
+                                    interaction="click"
+                                    scope={Scene.CustomerAnalytics}
+                                >
+                                    <LemonButton
+                                        icon={<IconGear />}
+                                        size="small"
+                                        type="secondary"
+                                        to={urls.customerAnalyticsConfiguration()}
+                                        onClick={() => {
+                                            addProductIntent({
+                                                product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                                intent_context:
+                                                    ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
+                                            })
+                                            reportCustomerAnalyticsDashboardConfigurationButtonClicked()
+                                        }}
+                                        tooltip="Configure customer analytics"
+                                        children="Configure"
+                                        data-attr="customer-analytics-config"
+                                    />
+                                </AppShortcut>
+                            </>
                         )
                     }
                 />
-                <FeedbackBanner feedbackButtonId="dashboard" />
                 {tabs.length > 1 ? (
                     <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
                 ) : (
