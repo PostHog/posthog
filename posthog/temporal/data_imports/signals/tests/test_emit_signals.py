@@ -164,20 +164,23 @@ class TestQueryNewRecords:
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
 
-    def test_returns_empty_on_query_error(self):
+    def test_reraises_on_query_error(self):
+        # Must NOT swallow exceptions: a silenced failure would look like an empty sync window,
+        # the parent workflow would advance last_synced_at, and the records would be permanently
+        # skipped. Re-raising lets the activity's retry policy handle transient HogQL/ClickHouse
+        # failures and surfaces persistent ones as a failed child workflow.
         config = _make_config()
 
         with (
             patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", side_effect=Exception("query failed")),
             patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed"),
         ):
-            records = data_warehouse_record_fetcher(
-                team=MagicMock(),
-                config=config,
-                context={"table_name": "test_table", "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
-            )
-
-        assert records == []
+            with pytest.raises(Exception, match="query failed"):
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={"table_name": "test_table", "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
+                )
 
 
 class TestBuildEmitterOutputs:
