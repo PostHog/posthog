@@ -69,6 +69,7 @@ export const CanvasReplayerPlugin = (
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
     const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
+    let destroyed = false
 
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
@@ -237,7 +238,7 @@ export const CanvasReplayerPlugin = (
         if (img && originalCanvas) {
             target.toBlob(
                 (blob) => {
-                    if (!blob) {
+                    if (!blob || destroyed) {
                         return
                     }
 
@@ -394,6 +395,8 @@ export const CanvasReplayerPlugin = (
         },
 
         destroy: () => {
+            destroyed = true
+
             for (const controller of controllerById.values()) {
                 controller.abort()
             }
