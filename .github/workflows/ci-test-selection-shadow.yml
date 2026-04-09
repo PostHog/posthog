@@ -28,8 +28,11 @@ jobs:
               run: uv run bin/find_affected_tests.py --check-sync
 
             - name: Compute affected tests (shadow mode)
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  CHANGED=$(git diff --name-only origin/master...HEAD | tr '\n' ' ')
+                  git fetch --no-tags origin "$BASE_SHA"
+                  CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD | tr '\n' ' ')
                   echo "### Changed files" >&2
                   echo "$CHANGED" | tr ' ' '\n' >&2
 
