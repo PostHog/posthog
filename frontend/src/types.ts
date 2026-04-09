@@ -1098,6 +1098,11 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
+export interface WorkflowVariablePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.WorkflowVariable
+    operator: PropertyOperator
+}
+
 export interface EmptyPropertyFilter {
     type?: PropertyFilterType.Empty
     value?: never
@@ -1125,6 +1130,7 @@ export type AnyPropertyFilter =
     | LogPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | WorkflowVariablePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
