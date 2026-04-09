@@ -106,6 +106,7 @@ devbox:
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:cleanup:disk: null
 devenv:
     dev:setup: null
     dev:generate: null

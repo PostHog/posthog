@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import os
 import errno
+import shutil
 import socket
+import subprocess
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, NoReturn
 
 import click
@@ -272,6 +275,7 @@ def devbox_help() -> None:
     click.echo("  hogli devbox:status      show current workspace status")
     click.echo("  hogli devbox:stop        stop the workspace")
     click.echo("  hogli devbox:destroy     delete the workspace and its data")
+    click.echo("  hogli devbox:cleanup:disk  free disk space (caches, build artifacts)")
     click.echo()
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
@@ -498,3 +502,103 @@ def devbox_forward(workspace_label: str | None, port: int) -> None:
     click.echo("Ctrl+C to stop")
     click.echo()
     port_forward_replace(name, port, 8010)
+
+
+def _gib(nbytes: int) -> str:
+    return f"{nbytes / 1024**3:.1f}G"
+
+
+def _run_cleanup_step(label: str, cmd: list[str]) -> int:
+    """Run a cleanup command, print its label, return bytes freed (best-effort)."""
+    click.echo(f"  {label}...", nl=False)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+        click.echo(" done")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        click.echo(" skipped (command unavailable)")
+    # Bytes freed is measured at the call site via disk_usage delta
+    return 0
+
+
+def _rm_dir(label: str, path: Path) -> int:
+    """Delete a directory and return the bytes it occupied (best-effort)."""
+    if not path.exists():
+        click.echo(f"  {label}... skipped (not found)")
+        return 0
+    try:
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    except OSError:
+        size = 0
+    click.echo(f"  {label}...", nl=False)
+    shutil.rmtree(path, ignore_errors=True)
+    click.echo(" done")
+    return size
+
+
+@cli.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
+@click.option(
+    "--cargo",
+    "prune_cargo",
+    is_flag=True,
+    help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
+)
+def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+    """Free disk space by removing caches and build artifacts that are safe to delete.
+
+    The default run is safe: it only removes orphaned packages, download caches,
+    and old Nix generations — none of which force a full rebuild on next use.
+    Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
+    Use --docker to also prune stopped containers.
+    """
+    home = Path.home()
+    disk_before = shutil.disk_usage(home).free
+
+    click.echo("Cleaning caches and build artifacts...")
+    click.echo()
+
+    freed = 0
+
+    # uv wheel/sdist cache
+    _run_cleanup_step("uv cache (~/.cache/uv)", ["uv", "cache", "clean"])
+
+    # sccache compiler cache
+    freed += _rm_dir("sccache (~/.cache/sccache)", home / ".cache" / "sccache")
+
+    # pnpm orphaned store entries
+    _run_cleanup_step("pnpm store (orphaned packages)", ["pnpm", "store", "prune"])
+
+    click.echo("  Nix garbage collection (old generations)...", nl=False)
+    try:
+        subprocess.run(["nix-collect-garbage", "-d"], check=True, capture_output=True)  # noqa: S603
+        click.echo(" done")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        click.echo(" skipped (nix-collect-garbage unavailable)")
+
+    # Cargo build artifacts — opt-in because removing them forces a full Rust recompile
+    if prune_cargo:
+        freed += _rm_dir("Cargo build artifacts (~/.cargo/target)", home / ".cargo" / "target")
+
+    if prune_docker:
+        click.echo("  Docker stopped containers...", nl=False)
+        try:
+            subprocess.run(["docker", "container", "prune", "-f"], check=True, capture_output=True)  # noqa: S603
+            click.echo(" done")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            click.echo(" skipped (Docker unavailable)")
+
+    disk_after = shutil.disk_usage(home).free
+    actually_freed = disk_after - disk_before
+
+    click.echo()
+    if actually_freed > 0:
+        click.echo(click.style(f"Freed {_gib(actually_freed)} of disk space.", fg="green"))
+    else:
+        click.echo("Nothing significant was freed (caches may already be empty).")
+
+    click.echo()
+    click.echo("Tips for more space:")
+    if not prune_cargo:
+        click.echo("  hogli devbox:cleanup:disk --cargo  remove Cargo artifacts (~/.cargo/target, forces recompile)")
+    if not prune_docker:
+        click.echo("  hogli devbox:cleanup:disk --docker           prune stopped containers")
