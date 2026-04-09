@@ -16,6 +16,10 @@ export type McpCatIdentityProvider = {
     getVersion: () => number | undefined
 }
 
+export function redactSensitiveInformation(text: string): string {
+    return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
+}
+
 export async function initMcpCatObservability(server: McpServer, identity: McpCatIdentityProvider): Promise<void> {
     // MCPCat initialization must never block MCP server startup
     // and we don't even need to do anything if the API key or host is not set
@@ -60,6 +64,7 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
             identify: async () => identifyResult,
             eventTags: () => eventTags,
             eventProperties: () => eventProperties,
+            redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
             exporters: {
                 posthog: {
                     type: 'posthog',

@@ -3,10 +3,34 @@ import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { initMcpCatObservability, type McpCatIdentityProvider } from '@/lib/mcpcat'
+import { initMcpCatObservability, redactSensitiveInformation, type McpCatIdentityProvider } from '@/lib/mcpcat'
 
 const TEST_API_KEY = 'test-api-key'
 const TEST_HOST = 'https://test.posthog.com'
+
+describe('redactSensitiveInformation', () => {
+    it.each([
+        // PostHog project tokens
+        ['Bearer phc_1a2b3c4d5e6f', '<redacted>'],
+        // PostHog personal API keys
+        ['Bearer phx_9z8y7x6w5v4u', '<redacted>'],
+        // OAuth access and refresh tokens
+        ['Bearer pha_access_token_value', '<redacted>'],
+        ['Bearer phr_refresh_token_value', '<redacted>'],
+        // Inside JSON strings
+        ['"Authorization": "Bearer phc_abc123"', '"Authorization": "<redacted>"'],
+        // Tokens with hyphens and dots (just in case we add them)
+        ['Bearer phc_abc-123.xyz', '<redacted>'],
+        // Multiple tokens
+        ['Bearer phc_token1 and Bearer pha_token2', '<redacted> and <redacted>'],
+        // No space after Bearer
+        ['Bearerphc_no_space', '<redacted>'],
+        // No match
+        ['no sensitive data here', 'no sensitive data here'],
+    ])('redacts %j to %j', (input, expected) => {
+        expect(redactSensitiveInformation(input)).toBe(expected)
+    })
+})
 
 describe('initMcpCatObservability', () => {
     beforeEach(() => {
