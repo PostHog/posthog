@@ -815,13 +815,9 @@ def social_create_user(
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
 
-        if not user.is_email_verified:
-            # Linking a social account verifies the email, but only wipe the password
-            # if the user is logging in fresh (not already authenticated) — otherwise
-            # they're just linking an additional provider and should keep their password.
+        if not user.is_email_verified and user.password is not None:
             logger.info(f"social_create_user_is_not_new_unverified_has_password")
-            if not strategy.request.user.is_authenticated and user.password is not None:
-                user.set_unusable_password()
+            user.set_unusable_password()
             user.is_email_verified = True
             user.save()
 
