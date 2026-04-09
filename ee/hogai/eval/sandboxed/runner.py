@@ -2,199 +2,130 @@ from __future__ import annotations
 
 import json
 import time
-import shlex
 import logging
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
-from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
 
-from .config import AgentArtifacts, SandboxedEvalCase, SandboxEvalConfig
-
-if TYPE_CHECKING:
-    from products.tasks.backend.services.docker_sandbox import DockerSandbox
+from .config import AgentArtifacts, SandboxedEvalCase
 
 logger = logging.getLogger(__name__)
 
-SANDBOX_WORKSPACE = "/tmp/workspace"
-SANDBOX_REPO_DIR = f"{SANDBOX_WORKSPACE}/eval-repo"
 
+async def run_eval_case(
+    case: SandboxedEvalCase,
+    context: CustomPromptSandboxContext,
+) -> AgentArtifacts:
+    """Run an eval case using the full Task → temporal workflow → log polling pipeline.
 
-class SandboxedEvalRunner:
-    """Orchestrates sandboxed agent evaluation runs.
-
-    Lifecycle:
-      1. ``setup_sandbox`` — creates a Docker sandbox and copies the repo fixture into it
-      2. ``run_agent`` — executes ``runAgent.mjs`` inside the sandbox
-      3. ``collect_artifacts`` — gathers git diff, test results, lint results
-      4. ``cleanup`` — destroys the sandbox
-
-    Callers should prefer the ``run_eval_case`` convenience method which wraps the full lifecycle.
+    Creates a real Task, triggers the temporal workflow (which provisions a sandbox,
+    starts agent-server, forwards the prompt, and cleans up), then parses the S3 logs
+    to extract artifacts for scoring.
     """
-
-    def __init__(
-        self,
-        config: SandboxEvalConfig | None = None,
-        mcp_configs: list[McpServerConfig] | None = None,
-    ):
-        self.config = config or SandboxEvalConfig()
-        self.mcp_configs = mcp_configs
-
-    def _build_sandbox_config(self, case_name: str) -> SandboxConfig:
-        env_vars = {**self.config.environment_variables}
-        return SandboxConfig(
-            name=f"eval-{case_name}",
-            memory_gb=self.config.sandbox_memory_gb,
-            cpu_cores=self.config.sandbox_cpu_cores,
-            disk_size_gb=self.config.sandbox_disk_size_gb,
-            default_execution_timeout_seconds=self.config.agent_timeout_seconds,
-            environment_variables=env_vars or None,
-        )
-
-    def setup_sandbox(self, case: SandboxedEvalCase, repo_path: Path) -> DockerSandbox:
-        """Create a sandbox and copy the repo fixture into it."""
-        from products.tasks.backend.services.docker_sandbox import DockerSandbox
-
-        sandbox_config = self._build_sandbox_config(case.name)
-        sandbox = DockerSandbox.create(sandbox_config)
-
-        # Copy repo files into the sandbox
-        sandbox.execute(f"mkdir -p {SANDBOX_REPO_DIR}")
-        _copy_directory_to_sandbox(sandbox, repo_path, SANDBOX_REPO_DIR)
-
-        # Initialize git inside the sandbox repo if not already a git repo
-        result = sandbox.execute(f"cd {SANDBOX_REPO_DIR} && git rev-parse --is-inside-work-tree 2>/dev/null")
-        if result.exit_code != 0:
-            sandbox.execute(f"cd {SANDBOX_REPO_DIR} && git init && git add -A && git commit -m 'initial commit'")
-
-        logger.info(f"Sandbox {sandbox.id} ready with repo fixture '{case.repo_fixture}'")
-        return sandbox
-
-    def run_agent(self, sandbox: DockerSandbox, case: SandboxedEvalCase) -> ExecutionResult:
-        """Run the agent inside the sandbox with the eval case prompt."""
-        mcp_arg = ""
-        if self.mcp_configs:
-            mcp_json = json.dumps([c.to_dict() for c in self.mcp_configs])
-            mcp_arg = f" --mcpServers {shlex.quote(mcp_json)}"
-
-        command = (
-            f"cd /scripts && node runAgent.mjs"
-            f" --repositoryPath {SANDBOX_REPO_DIR}"
-            f" --prompt {_shell_quote(case.prompt)}"
-            f" --max-turns {self.config.agent_max_turns}"
-            f"{mcp_arg}"
-        )
-
-        logger.info(f"Running agent in sandbox {sandbox.id} for case '{case.name}'")
-        return sandbox.execute(command, timeout_seconds=self.config.agent_timeout_seconds)
-
-    def collect_artifacts(
-        self,
-        sandbox: DockerSandbox,
-        case: SandboxedEvalCase,
-        agent_result: ExecutionResult,
-        duration_seconds: float,
-    ) -> AgentArtifacts:
-        """Collect all artifacts from the sandbox after the agent run."""
-        # Git diff
-        diff_result = sandbox.execute(f"cd {SANDBOX_REPO_DIR} && git diff HEAD")
-        git_diff = diff_result.stdout if diff_result.exit_code == 0 else ""
-
-        # Changed files
-        files_result = sandbox.execute(f"cd {SANDBOX_REPO_DIR} && git diff --name-only HEAD")
-        files_changed = (
-            [f.strip() for f in files_result.stdout.splitlines() if f.strip()] if files_result.exit_code == 0 else []
-        )
-
-        # Also include untracked files
-        untracked_result = sandbox.execute(f"cd {SANDBOX_REPO_DIR} && git ls-files --others --exclude-standard")
-        if untracked_result.exit_code == 0:
-            untracked = [f.strip() for f in untracked_result.stdout.splitlines() if f.strip()]
-            files_changed.extend(untracked)
-
-        # Run tests if expected
-        test_exit_code: int | None = None
-        test_output = ""
-        if case.expected.tests_should_pass is not None:
-            test_result = sandbox.execute(
-                f"cd {SANDBOX_REPO_DIR} && {case.test_command}",
-                timeout_seconds=120,
-            )
-            test_exit_code = test_result.exit_code
-            test_output = test_result.stdout + test_result.stderr
-
-        # Run lint if expected
-        lint_exit_code: int | None = None
-        lint_output = ""
-        if case.expected.lint_should_pass is not None:
-            lint_result = sandbox.execute(
-                f"cd {SANDBOX_REPO_DIR} && {case.lint_command}",
-                timeout_seconds=60,
-            )
-            lint_exit_code = lint_result.exit_code
-            lint_output = lint_result.stdout + lint_result.stderr
-
+    start = time.monotonic()
+    try:
+        last_message, full_log = await run_prompt(case.prompt, context)
+        duration = time.monotonic() - start
+        return _parse_artifacts_from_log(full_log or "", duration, agent_finished=True)
+    except Exception as e:
+        duration = time.monotonic() - start
+        logger.exception(f"Eval case '{case.name}' failed: {e}")
         return AgentArtifacts(
-            exit_code=agent_result.exit_code,
-            stdout=agent_result.stdout,
-            stderr=agent_result.stderr,
-            git_diff=git_diff,
-            files_changed=files_changed,
-            test_exit_code=test_exit_code,
-            test_output=test_output,
-            lint_exit_code=lint_exit_code,
-            lint_output=lint_output,
-            duration_seconds=duration_seconds,
+            exit_code=1,
+            stderr=str(e),
+            duration_seconds=duration,
         )
 
-    def cleanup(self, sandbox: DockerSandbox) -> None:
-        """Destroy the sandbox."""
+
+def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
+    """Extract scoring artifacts from JSONL agent logs."""
+    tool_outputs: list[dict] = []
+    has_error = False
+
+    for line in log_content.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
         try:
-            sandbox.destroy()
-            logger.info(f"Destroyed sandbox {sandbox.id}")
-        except Exception:
-            logger.exception(f"Failed to destroy sandbox {sandbox.id}")
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-    def run_eval_case(
-        self,
-        case: SandboxedEvalCase,
-        repo_path: Path,
-    ) -> AgentArtifacts:
-        """Run a full eval case lifecycle: setup → agent → collect → cleanup.
+        notification = entry.get("notification")
+        if not isinstance(notification, dict):
+            continue
 
-        This is the primary entry point for eval tasks.
-        """
-        sandbox = self.setup_sandbox(case, repo_path)
-        try:
-            start = time.monotonic()
-            agent_result = self.run_agent(sandbox, case)
-            duration = time.monotonic() - start
+        # Check for errors
+        if notification.get("method") == "_posthog/error":
+            has_error = True
 
-            artifacts = self.collect_artifacts(sandbox, case, agent_result, duration)
-            return artifacts
-        finally:
-            if self.config.cleanup_on_success:
-                self.cleanup(sandbox)
+        if notification.get("method") != "session/update":
+            continue
 
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            continue
 
-def _shell_quote(s: str) -> str:
-    """Quote a string for safe use in a shell command."""
-    import shlex
+        session_update = update.get("sessionUpdate")
+        if session_update in {"tool_call", "tool_call_update"}:
+            tool_outputs.append(update)
 
-    return shlex.quote(s)
+    # Extract git diff, file changes, test results from tool outputs
+    git_diff = ""
+    files_changed: list[str] = []
+    test_output = ""
+    test_exit_code: int | None = None
+    lint_output = ""
+    lint_exit_code: int | None = None
+    agent_output = ""
 
+    for tool in tool_outputs:
+        title = (tool.get("title") or "").lower()
+        content = tool.get("content")
+        text = ""
+        if isinstance(content, dict) and content.get("type") == "text":
+            text = content.get("text", "")
+        elif isinstance(content, str):
+            text = content
 
-def _copy_directory_to_sandbox(sandbox: DockerSandbox, src: Path, dest: str) -> None:
-    """Copy a local directory into the sandbox via tar."""
-    import subprocess
+        # Detect git diff output
+        if "git diff" in title and text:
+            git_diff = text
 
-    tar_proc = subprocess.run(
-        ["tar", "-cf", "-", "-C", str(src), "."],
-        capture_output=True,
+        # Detect git status / changed files
+        if ("git diff --name-only" in title or "git status" in title) and text:
+            files_changed.extend(f.strip() for f in text.splitlines() if f.strip())
+
+        # Detect test runs
+        if ("pytest" in title or "test" in title) and text:
+            test_output = text
+            # Infer exit code from pytest output patterns
+            if "passed" in text and "failed" not in text and "error" not in text.lower():
+                test_exit_code = 0
+            elif "failed" in text or "error" in text.lower():
+                test_exit_code = 1
+
+        # Detect lint runs
+        if ("ruff" in title or "lint" in title) and text:
+            lint_output = text
+            if "All checks passed" in text or not text.strip():
+                lint_exit_code = 0
+            else:
+                lint_exit_code = 1
+
+        # Accumulate all tool output for general context
+        if text:
+            agent_output += text + "\n"
+
+    return AgentArtifacts(
+        exit_code=0 if agent_finished and not has_error else 1,
+        stdout=agent_output[:10000],
+        stderr="",
+        git_diff=git_diff,
+        files_changed=files_changed,
+        test_exit_code=test_exit_code,
+        test_output=test_output[:5000],
+        lint_exit_code=lint_exit_code,
+        lint_output=lint_output[:5000],
+        duration_seconds=duration_seconds,
     )
-    if tar_proc.returncode != 0:
-        raise RuntimeError(f"Failed to create tar archive: {tar_proc.stderr.decode()}")
-
-    sandbox.write_file(f"{dest}/.repo.tar", tar_proc.stdout)
-    sandbox.execute(f"cd {dest} && tar -xf .repo.tar && rm .repo.tar")

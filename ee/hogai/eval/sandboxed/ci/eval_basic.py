@@ -5,9 +5,8 @@ To run:
 
 Example eval case pattern:
 
-    1. Build a synthetic repo fixture (see fixtures/repos.py)
-    2. Define a SandboxedEvalCase with prompt + expected outcomes
-    3. Call SandboxedPublicEval (or SandboxedPrivateEval) with scorers
+    1. Define a SandboxedEvalCase with prompt + expected outcomes
+    2. Call SandboxedPublicEval (or SandboxedPrivateEval) with scorers
 """
 
 from __future__ import annotations
@@ -19,13 +18,8 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase, SandboxedExpected
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, FilesModified, GitDiffNonEmpty, TestsPass
 
 
-@pytest.fixture
-def bugfix_fixtures():
-    return {"bugfix_calculator": "posthog/posthog"}
-
-
 @pytest.mark.django_db
-async def eval_bugfix(bugfix_fixtures, pytestconfig):
+async def eval_bugfix(sandbox_context, pytestconfig):
     cases = [
         SandboxedEvalCase(
             name="fix_divide_bug",
@@ -41,7 +35,6 @@ async def eval_bugfix(bugfix_fixtures, pytestconfig):
     await SandboxedPublicEval(
         experiment_name="sandboxed-bugfix",
         cases=cases,
-        repo_fixtures=bugfix_fixtures,
         scorers=[
             ExitCodeZero(),
             GitDiffNonEmpty(),
@@ -49,4 +42,5 @@ async def eval_bugfix(bugfix_fixtures, pytestconfig):
             TestsPass(),
         ],
         pytestconfig=pytestconfig,
+        sandbox_context=sandbox_context,
     )

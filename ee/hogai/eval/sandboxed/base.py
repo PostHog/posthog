@@ -3,49 +3,36 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 from braintrust import EvalAsync, EvalCase
 
-from .config import AgentArtifacts, SandboxedEvalCase, SandboxEvalConfig
-from .runner import SandboxedEvalRunner
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+
+from .config import AgentArtifacts, SandboxedEvalCase
+from .runner import run_eval_case
 
 
 async def SandboxedEval(
     experiment_name: str,
     cases: Sequence[SandboxedEvalCase],
-    repo_fixtures: dict[str, Path],
     scorers: Sequence[Any],
     pytestconfig: pytest.Config,
-    config: SandboxEvalConfig | None = None,
+    sandbox_context: CustomPromptSandboxContext,
     is_public: bool = False,
     no_send_logs: bool = True,
 ):
     """Run a sandboxed agent evaluation suite via Braintrust.
 
-    This wraps Braintrust's ``EvalAsync`` to handle the sandboxed agent lifecycle:
-    for each ``SandboxedEvalCase``, it provisions a Docker sandbox, runs the agent,
-    collects artifacts, and feeds them to the scorers.
-
-    Args:
-        experiment_name: Name for the Braintrust experiment.
-        cases: Eval cases to run.
-        repo_fixtures: Map of fixture name → local repo path (built by ``create_temp_repo``).
-        scorers: Braintrust-compatible scorers that receive ``AgentArtifacts`` as output.
-        pytestconfig: pytest config (for ``--eval`` case filtering).
-        config: Sandbox configuration (defaults to ``SandboxEvalConfig()``).
-        is_public: Whether to make the Braintrust experiment public.
-        no_send_logs: Whether to suppress log sending to Braintrust.
+    For each ``SandboxedEvalCase``, creates a Task, triggers the temporal workflow
+    (sandbox provisioning, agent-server, prompt delivery, cleanup), polls S3 logs
+    for results, and feeds parsed artifacts to the scorers.
     """
-    runner = SandboxedEvalRunner(config)
-
     # Filter cases by --eval flag if provided
     case_filter = pytestconfig.option.eval if hasattr(pytestconfig.option, "eval") else None
 
-    # Convert SandboxedEvalCase to Braintrust EvalCase
     eval_cases: list[EvalCase] = []
     for case in cases:
         if case_filter and case_filter not in case.name:
@@ -59,25 +46,14 @@ async def SandboxedEval(
         )
 
     async def task(input: dict[str, Any], expected: dict[str, Any] | None = None, **kwargs) -> dict[str, Any] | None:
-        case_name = input["name"]
-        prompt = input["prompt"]
-        fixture_name = input["repo_fixture"]
-
-        repo_path = repo_fixtures.get(fixture_name)
-        if repo_path is None:
-            return AgentArtifacts(
-                exit_code=-1,
-                stderr=f"Repo fixture '{fixture_name}' not found in repo_fixtures map",
-            ).model_dump()
-
         eval_case = SandboxedEvalCase(
-            name=case_name,
-            prompt=prompt,
-            repo_fixture=fixture_name,
+            name=input["name"],
+            prompt=input["prompt"],
+            repo_fixture=input.get("repo_fixture", ""),
         )
 
         try:
-            artifacts = runner.run_eval_case(eval_case, repo_path)
+            artifacts = await run_eval_case(eval_case, sandbox_context)
             return artifacts.model_dump()
         except Exception as e:
             return AgentArtifacts(
@@ -97,7 +73,7 @@ async def SandboxedEval(
         task=task,
         scores=scorers,
         timeout=timeout,
-        max_concurrency=2,  # sandboxed evals are resource-heavy
+        max_concurrency=2,
         is_public=is_public,
         no_send_logs=no_send_logs,
     )
