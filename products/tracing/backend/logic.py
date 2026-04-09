@@ -48,6 +48,14 @@ def _normalise_to_base64(value: str) -> str:
         return value
 
 
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -143,9 +151,12 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     span_filter.key = "duration_nano"
 
                     if isinstance(span_filter.value, list):
-                        span_filter.value = [str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value]
+                        span_filter.value = [
+                            str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+                        ]
                     else:
-                        span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+                        if _is_number(str(span_filter.value)):
+                            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
 
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
@@ -355,12 +366,13 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 is_root_span,
                 {where} as matched_filter
             FROM posthog.trace_spans
-            WHERE trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
+                "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
             },
         )
         assert isinstance(query, ast.SelectQuery)
