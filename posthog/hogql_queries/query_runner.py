@@ -118,6 +118,19 @@ QUERY_EXECUTION_DURATION = Histogram(
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
+SURVEY_QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_survey_query_execution_total",
+    "Query executions by category",
+    labelnames=["query_type", "query_name", "category", "error_type"],
+)
+
+SURVEY_QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_survey_query_execution_duration_seconds",
+    "Query execution duration in seconds",
+    labelnames=["query_type", "query_name"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
+
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
 
@@ -148,6 +161,20 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
+
+UNKNOWN_QUERY_METRIC_LABEL = "unknown"
+SURVEYS_PRODUCT_KEY = "surveys"
+
+
+def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
+    tags = getattr(query, "tags", None)
+    if getattr(tags, "productKey", None) != SURVEYS_PRODUCT_KEY:
+        return None
+
+    return {
+        "query_type": getattr(query, "kind", "Other"),
+        "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
+    }
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -1248,6 +1275,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
             if tags := getattr(self.query, "tags", None):
+                if tags.name:
+                    posthoganalytics.tag("query_name", tags.name)
+                    tag_queries(name=tags.name)
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
                     tag_queries(product=tags.productKey)
@@ -1395,19 +1425,33 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useMaterializedViews = True
 
         query_type = getattr(self.query, "kind", "Other")
+        survey_query_metric_labels = get_survey_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
             query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
             QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels, category="success", error_type="none"
+                ).inc()
         except Exception as e:
             QUERY_EXECUTION_TOTAL.labels(
                 query_type=query_type,
                 category=classify_query_error(e),
                 error_type=clickhouse_error_type(e),
             ).inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels,
+                    category=classify_query_error(e),
+                    error_type=clickhouse_error_type(e),
+                ).inc()
             raise
         finally:
-            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+            query_duration_seconds = perf_counter() - query_start
+            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
         fresh_response_dict = {
             **query_result.model_dump(),

@@ -162,7 +162,10 @@ export function InfiniteSelectResults({
     )
 
     const showDataWarehouseLoadingState =
-        openTab === TaxonomicFilterGroupType.DataWarehouse && totalListCount === 0 && isLocalDataLoading
+        (openTab === TaxonomicFilterGroupType.DataWarehouse ||
+            openTab === TaxonomicFilterGroupType.DataWarehouseProperties) &&
+        totalListCount === 0 &&
+        isLocalDataLoading
     const showEmptyState =
         !showDataWarehouseLoadingState &&
         totalListCount === 0 &&

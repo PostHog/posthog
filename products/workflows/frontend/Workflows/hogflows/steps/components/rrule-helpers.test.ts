@@ -6,6 +6,7 @@ import {
     buildSummary,
     computePreviewOccurrences,
     DEFAULT_STATE,
+    fakeUtcToReal,
     frequencyToRRule,
     getNthWeekdayOfMonth,
     isOneTimeSchedule,
@@ -173,7 +174,7 @@ describe('rrule-helpers', () => {
     })
 
     describe('computePreviewOccurrences', () => {
-        const startsAt = '2024-01-15T09:00:00'
+        const startsAt = '2030-01-15T09:00:00'
 
         it('returns 6 occurrences by default for never-ending schedule', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
@@ -210,9 +211,69 @@ describe('rrule-helpers', () => {
             for (let i = 1; i < result.length; i++) {
                 expect(result[i].getTime()).toBeGreaterThan(result[i - 1].getTime())
             }
-            expect(result[0].getUTCFullYear()).toBe(2024)
+            expect(result[0].getUTCFullYear()).toBe(2030)
             expect(result[0].getUTCMonth()).toBe(0) // January
             expect(result[0].getUTCDate()).toBe(15)
+        })
+
+        it('returns only future occurrences when dtstart is in the past', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'weekly', endType: 'never' }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            expect(result.length).toBeGreaterThan(0)
+            expect(result.length).toBeLessThanOrEqual(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
+
+        it('returns all future occurrences for finite schedules with past dtstart', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = {
+                ...DEFAULT_STATE,
+                frequency: 'monthly',
+                endType: 'after_count',
+                endCount: 50,
+            }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            // Should return more than 6 for finite schedules so OccurrencesList can show the collapse
+            expect(result.length).toBeGreaterThan(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
+    })
+
+    describe('fakeUtcToReal', () => {
+        const fakeDate = new Date(Date.UTC(2026, 3, 3, 19, 25, 0))
+
+        it.each([
+            {
+                label: 'reinterprets UTC values as the given timezone',
+                timezone: 'Europe/Riga',
+                expectedUtcHour: 16,
+                expectedUtcMinute: 25,
+            },
+            {
+                label: 'returns UTC-based dayjs when no timezone is given',
+                timezone: undefined,
+                expectedUtcHour: 19,
+                expectedUtcMinute: 25,
+            },
+        ])('$label', ({ timezone, expectedUtcHour, expectedUtcMinute }) => {
+            const real = fakeUtcToReal(fakeDate, timezone)
+            // Verify the result is in UTC when no timezone is given (not local browser time)
+            if (!timezone) {
+                expect(real.isUTC()).toBe(true)
+            }
+            expect(real.utc().hour()).toBe(expectedUtcHour)
+            expect(real.utc().minute()).toBe(expectedUtcMinute)
+        })
+
+        it('correctly identifies past occurrences across timezone offset', () => {
+            const real = fakeUtcToReal(fakeDate, 'Europe/Riga')
+            const afterInUtc = dayjs('2026-04-03T17:00:00Z')
+            expect(real.isBefore(afterInUtc)).toBe(true)
         })
     })
 
