@@ -11,6 +11,7 @@ from products.tasks.backend.services.sandbox import (
     SandboxStatus,
     SandboxTemplate,
     get_sandbox_class,
+    parse_sandbox_repo_mount_map,
 )
 
 
@@ -243,11 +244,11 @@ class TestDockerSandboxUnit:
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert DockerSandbox._parse_repo_mount_map() == {}
+            assert parse_sandbox_repo_mount_map() == {}
 
     def test_parse_repo_mount_map_valid(self, tmp_path):
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"PostHog/posthog:{tmp_path}"}):
-            result = DockerSandbox._parse_repo_mount_map()
+            result = parse_sandbox_repo_mount_map()
             assert result == {"posthog/posthog": str(tmp_path)}
 
     def test_parse_repo_mount_map_multiple(self, tmp_path):
@@ -256,16 +257,16 @@ class TestDockerSandboxUnit:
         dir_a.mkdir()
         dir_b.mkdir()
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"Org/repoA:{dir_a}, Org/repoB:{dir_b}"}):
-            result = DockerSandbox._parse_repo_mount_map()
+            result = parse_sandbox_repo_mount_map()
             assert result == {"org/repoa": str(dir_a), "org/repob": str(dir_b)}
 
     def test_parse_repo_mount_map_skips_nonexistent(self):
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": "Org/repo:/nonexistent/path"}):
-            assert DockerSandbox._parse_repo_mount_map() == {}
+            assert parse_sandbox_repo_mount_map() == {}
 
     def test_parse_repo_mount_map_skips_malformed(self, tmp_path):
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"no-slash:{tmp_path},,bad"}):
-            assert DockerSandbox._parse_repo_mount_map() == {}
+            assert parse_sandbox_repo_mount_map() == {}
 
     def test_clone_repository_skipped_when_mounted(self, tmp_path):
         sandbox = DockerSandbox.__new__(DockerSandbox)
@@ -305,7 +306,7 @@ class TestDockerSandboxUnit:
         docker_run_call = mock_run.call_args_list[-1]
         docker_args = docker_run_call[0][0]
         args_str = " ".join(docker_args)
-        assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog:ro" in args_str
+        assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

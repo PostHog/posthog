@@ -11,6 +11,7 @@ This module exports:
 
 from __future__ import annotations
 
+import os
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -205,6 +206,34 @@ _ExecuteFn = Callable[..., ExecutionResult]
 _logger = structlog.get_logger(__name__)
 
 
+def parse_sandbox_repo_mount_map() -> dict[str, str]:
+    """Parse SANDBOX_REPO_MOUNT_MAP into {lower(org/repo): expanded_local_path}.
+
+    Used by Docker sandbox for bind mounts and by task activities for user-facing logs.
+    Format: ``org/repo:/local/path,org2/repo2:~/other/path``
+    """
+    raw = os.environ.get("SANDBOX_REPO_MOUNT_MAP", "")
+    if not raw:
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":", 1)
+        if len(parts) != 2 or "/" not in parts[0]:
+            _logger.warning(f"Ignoring malformed SANDBOX_REPO_MOUNT_MAP entry: {entry}")
+            continue
+        repo_key = parts[0].strip().lower()
+        local_path = os.path.expanduser(parts[1].strip())
+        if not os.path.isdir(local_path):
+            _logger.warning(f"SANDBOX_REPO_MOUNT_MAP: path does not exist, skipping: {local_path}")
+            continue
+        result[repo_key] = os.path.abspath(local_path)
+    return result
+
+
 def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
@@ -304,6 +333,7 @@ __all__ = [
     "SANDBOX_TTL_SECONDS",
     "SandboxBase",
     "WORKING_DIR",
+    "parse_sandbox_repo_mount_map",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

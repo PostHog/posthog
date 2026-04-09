@@ -47,6 +47,7 @@ from .sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    parse_sandbox_repo_mount_map,
     wait_for_health_check,
 )
 
@@ -82,33 +83,6 @@ class DockerSandbox(SandboxBase):
         if self._host_port is None:
             return None
         return f"http://localhost:{self._host_port}"
-
-    @staticmethod
-    def _parse_repo_mount_map() -> dict[str, str]:
-        """Parse SANDBOX_REPO_MOUNT_MAP into {lower(org/repo): expanded_local_path}.
-
-        Format: ``org/repo:/local/path,org2/repo2:~/other/path``
-        """
-        raw = os.environ.get("SANDBOX_REPO_MOUNT_MAP", "")
-        if not raw:
-            return {}
-
-        result: dict[str, str] = {}
-        for entry in raw.split(","):
-            entry = entry.strip()
-            if not entry:
-                continue
-            parts = entry.split(":", 1)
-            if len(parts) != 2 or "/" not in parts[0]:
-                logger.warning(f"Ignoring malformed SANDBOX_REPO_MOUNT_MAP entry: {entry}")
-                continue
-            repo_key = parts[0].strip().lower()
-            local_path = os.path.expanduser(parts[1].strip())
-            if not os.path.isdir(local_path):
-                logger.warning(f"SANDBOX_REPO_MOUNT_MAP: path does not exist, skipping: {local_path}")
-                continue
-            result[repo_key] = os.path.abspath(local_path)
-        return result
 
     @staticmethod
     def _find_available_port() -> int:
@@ -305,12 +279,12 @@ class DockerSandbox(SandboxBase):
             host_port = DockerSandbox._find_available_port()
             port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
 
-            mount_map = DockerSandbox._parse_repo_mount_map()
+            mount_map = parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
             for repo_key, local_path in mount_map.items():
                 org, repo = repo_key.split("/", 1)
                 container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
-                volume_args.extend(["-v", f"{local_path}:{container_path}:ro"])
+                volume_args.extend(["-v", f"{local_path}:{container_path}"])
 
             docker_args = [
                 "docker",
@@ -556,7 +530,7 @@ class DockerSandbox(SandboxBase):
         return result
 
     def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
-        mount_map = DockerSandbox._parse_repo_mount_map()
+        mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
