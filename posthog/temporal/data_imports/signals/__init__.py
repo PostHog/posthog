@@ -1,4 +1,5 @@
 from posthog.temporal.data_imports.signals.registry import (
+    RecordFetcher,
     SignalEmitter,
     SignalEmitterOutput,
     SignalSourceTableConfig,
@@ -7,6 +8,7 @@ from posthog.temporal.data_imports.signals.registry import (
 )
 
 __all__ = [
+    "RecordFetcher",
     "SignalEmitter",
     "SignalEmitterOutput",
     "SignalSourceTableConfig",

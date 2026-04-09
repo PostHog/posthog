@@ -242,7 +242,7 @@ function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
 function operationIdToPascal(operationId: string): string {
     return operationId
-        .split('_')
+        .split(/[_.]/)
         .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
         .join('')
 }

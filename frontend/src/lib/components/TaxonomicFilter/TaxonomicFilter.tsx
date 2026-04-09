@@ -34,6 +34,7 @@ export function TaxonomicFilter({
     metadataSource,
     eventNames,
     schemaColumns,
+    schemaColumnsLoading,
     height,
     width,
     excludedProperties,
@@ -49,6 +50,7 @@ export function TaxonomicFilter({
     hogQLGlobals,
     definitionPopoverRenderer,
     minSearchQueryLength,
+    suggestedFiltersLabel,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -69,6 +71,7 @@ export function TaxonomicFilter({
         optionsFromProp,
         eventNames,
         schemaColumns,
+        schemaColumnsLoading,
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
@@ -83,6 +86,7 @@ export function TaxonomicFilter({
         maxContextOptions,
         hogQLGlobals,
         minSearchQueryLength,
+        suggestedFiltersLabel,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

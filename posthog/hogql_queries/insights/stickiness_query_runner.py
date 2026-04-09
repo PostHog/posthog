@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from posthog.schema import (
     ActionsNode,
     CachedStickinessQueryResponse,
+    DataWarehouseEventsModifier,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
@@ -64,7 +65,25 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+    def __post_init__(self):
+        self.update_hogql_modifiers()
         self.series = self.setup_series()
+
+    def update_hogql_modifiers(self) -> None:
+        datawarehouse_modifiers = []
+        for series in self.query.series:
+            if isinstance(series, DataWarehouseNode):
+                datawarehouse_modifiers.append(
+                    DataWarehouseEventsModifier(
+                        table_name=series.table_name,
+                        timestamp_field=series.timestamp_field,
+                        id_field=series.id_field,
+                        distinct_id_field=series.distinct_id_field,
+                    )
+                )
+
+        self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -120,26 +139,46 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         )
 
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
+        from_table = ast.Field(
+            chain=[
+                series_with_extra.series.table_name
+                if isinstance(series_with_extra.series, DataWarehouseNode)
+                else "events"
+            ]
+        )
+
+        # Produce one row per (aggregation_target, start_of_interval) pair.
         inner_query = parse_select(
             """
-            SELECT
-                {aggregation} as aggregation_target,
-                {start_of_interval} as start_of_interval,
-            FROM events e
-            SAMPLE {sample}
-            WHERE {where_clause}
-            GROUP BY aggregation_target, start_of_interval
-            HAVING {having_clause}
-        """,
+                SELECT
+                    {aggregation} as aggregation_target,
+                    {start_of_interval} as start_of_interval,
+                FROM {from_table} e
+                WHERE {where_clause}
+                GROUP BY aggregation_target, start_of_interval
+                HAVING {having_clause}
+            """,
             {
                 "aggregation": self._aggregation_expressions(series_with_extra.series),
                 "start_of_interval": self.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"])),
-                "sample": self._sample_value(),
+                "from_table": from_table,
                 "where_clause": self.where_clause(series_with_extra),
                 "having_clause": self._having_clause(),
             },
         )
+        inner_query = cast(ast.SelectQuery, inner_query)
+        inner_query.select_from = ast.JoinExpr(
+            table=from_table,
+            alias="e",
+            sample=(
+                ast.SampleExpr(sample_value=self._sample_value())
+                if not isinstance(series_with_extra.series, DataWarehouseNode)
+                else None
+            ),
+        )
 
+        # Count how many distinct intervals each aggregation target appeared in.
+        # e.g. person A -> 3, person B -> 1, person C -> 3
         middle_query = parse_select(
             """
             SELECT
@@ -153,6 +192,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             {"inner_query": inner_query},
         )
 
+        # Count how many aggregation targers had activity in exactly N intervals.
+        # e.g. num_intervals=1 -> num_actors=1, num_intervals=3 -> num_actors=2
         outer_query = parse_select(
             """
             SELECT
