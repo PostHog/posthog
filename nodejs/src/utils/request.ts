@@ -347,7 +347,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation
-export async function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
+export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
     let parsed: URL
     try {
         parsed = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url)
@@ -365,10 +365,5 @@ export async function legacyFetch(input: RequestInfo, options?: RequestInit): Pr
     requestOptions.dispatcher = sharedSecureAgent
     requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
 
-    inflightExternalRequests.inc()
-    try {
-        return await undiciFetch(parsed.toString(), requestOptions)
-    } finally {
-        inflightExternalRequests.dec()
-    }
+    return undiciFetch(parsed.toString(), requestOptions)
 }
