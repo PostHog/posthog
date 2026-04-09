@@ -20,6 +20,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    parse_run_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -158,14 +159,15 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
+        run_state = parse_run_state(ctx.state)
+
         # Set resume run ID independently of snapshot so conversation history
         # can be rebuilt from logs even when the filesystem snapshot has expired.
-        resume_from_run_id = (ctx.state or {}).get("resume_from_run_id", "")
-        if resume_from_run_id:
-            environment_variables["POSTHOG_RESUME_RUN_ID"] = resume_from_run_id
+        if run_state.resume_from_run_id:
+            environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
 
         # Check for resume snapshot (takes priority over integration-level snapshots)
-        resume_snapshot_ext_id = (ctx.state or {}).get("snapshot_external_id")
+        resume_snapshot_ext_id = run_state.snapshot_external_id
         if resume_snapshot_ext_id:
             used_snapshot = True
 

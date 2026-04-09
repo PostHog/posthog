@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+
+from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
@@ -14,10 +17,38 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import Task
 
 
-PR_AUTHORSHIP_MODE_USER = "user"
-PR_AUTHORSHIP_MODE_BOT = "bot"
-RUN_SOURCE_MANUAL = "manual"
-RUN_SOURCE_SIGNAL_REPORT = "signal_report"
+class PrAuthorshipMode(StrEnum):
+    USER = "user"
+    BOT = "bot"
+
+
+class RunSource(StrEnum):
+    MANUAL = "manual"
+    SIGNAL_REPORT = "signal_report"
+
+
+class RunState(BaseModel, extra="allow"):
+    pr_authorship_mode: PrAuthorshipMode | None = None
+    pr_base_branch: str | None = None
+    run_source: RunSource | None = None
+    signal_report_id: str | None = None
+    resume_from_run_id: str | None = None
+    snapshot_external_id: str | None = None
+    sandbox_id: str | None = None
+    sandbox_url: str | None = None
+    sandbox_connect_token: str | None = None
+    sandbox_environment_id: str | None = None
+    pending_user_message: str | None = None
+    pending_user_message_ts: str | None = None
+    slack_thread_url: str | None = None
+    interaction_origin: str | None = None
+    slack_sent_relay_ids: list[str] | None = None
+
+
+def parse_run_state(state: dict[str, Any] | None) -> RunState:
+    return RunState.model_validate(state or {})
+
+
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
@@ -119,8 +150,8 @@ def get_cached_github_user_token(run_id: str) -> str | None:
 def get_sandbox_github_token(
     github_integration_id: int | None, *, run_id: str, state: dict[str, Any] | None = None
 ) -> str | None:
-    authorship_mode = (state or {}).get("pr_authorship_mode")
-    if authorship_mode == PR_AUTHORSHIP_MODE_USER:
+    run_state = parse_run_state(state)
+    if run_state.pr_authorship_mode == PrAuthorshipMode.USER:
         github_user_token = get_cached_github_user_token(run_id)
         if not github_user_token:
             raise ValueError(
@@ -184,7 +215,7 @@ def build_sandbox_environment_variables(
     return env_vars
 
 
-def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> str:
+def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
     """Return the effective PR authorship mode for a run.
 
     Newer cloud runs store the mode in ``TaskRun.state``. Older user-created
@@ -192,14 +223,12 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> s
     """
     from products.tasks.backend.models import Task as TaskModel
 
-    mode = (state or {}).get("pr_authorship_mode")
-    if mode in {PR_AUTHORSHIP_MODE_USER, PR_AUTHORSHIP_MODE_BOT}:
-        return mode
+    run_state = parse_run_state(state)
+    if run_state.pr_authorship_mode is not None:
+        return run_state.pr_authorship_mode
 
     return (
-        PR_AUTHORSHIP_MODE_USER
-        if task.origin_product == TaskModel.OriginProduct.USER_CREATED
-        else PR_AUTHORSHIP_MODE_BOT
+        PrAuthorshipMode.USER if task.origin_product == TaskModel.OriginProduct.USER_CREATED else PrAuthorshipMode.BOT
     )
 
 
@@ -210,7 +239,7 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
     code@posthog.com).
     """
-    if get_pr_authorship_mode(task, state) != PR_AUTHORSHIP_MODE_USER:
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return {}
 
     user = task.created_by

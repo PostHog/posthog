@@ -63,7 +63,7 @@ from .serializers import (
 from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
-from .temporal.process_task.utils import PR_AUTHORSHIP_MODE_USER, cache_github_user_token
+from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
 
 logger = logging.getLogger(__name__)
 
@@ -264,27 +264,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Invalid resume_from_run_id"}, status=400)
 
             # Derive snapshot_external_id from the validated previous run
-            snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
+            prev_state = parse_run_state(previous_run.state)
             extra_state = extra_state or {}
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
-            if snapshot_ext_id:
-                extra_state["snapshot_external_id"] = snapshot_ext_id
+            if prev_state.snapshot_external_id:
+                extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
 
-            prev_sandbox_env_id = (previous_run.state or {}).get("sandbox_environment_id")
-            if prev_sandbox_env_id and sandbox_environment_id is None:
-                sandbox_environment_id = prev_sandbox_env_id
+            if prev_state.sandbox_environment_id and sandbox_environment_id is None:
+                sandbox_environment_id = prev_state.sandbox_environment_id
 
-            previous_state = previous_run.state or {}
             if pr_authorship_mode is None:
-                pr_authorship_mode = previous_state.get("pr_authorship_mode")
+                pr_authorship_mode = prev_state.pr_authorship_mode
             if run_source is None:
-                run_source = previous_state.get("run_source")
+                run_source = prev_state.run_source
             if signal_report_id is None:
-                signal_report_id = previous_state.get("signal_report_id")
-            if branch is None:
-                previous_base_branch = previous_state.get("pr_base_branch")
-                if isinstance(previous_base_branch, str):
-                    branch = previous_base_branch
+                signal_report_id = prev_state.signal_report_id
+            if branch is None and prev_state.pr_base_branch is not None:
+                branch = prev_state.pr_base_branch
 
         for key, value in {
             "pr_base_branch": branch,
@@ -297,7 +293,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 extra_state[key] = value
 
         # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
-        if pr_authorship_mode == PR_AUTHORSHIP_MODE_USER and task.repository and not github_user_token:
+        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
             return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
 
         if sandbox_environment_id is not None:
@@ -322,7 +318,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
 
-        if github_user_token and pr_authorship_mode == PR_AUTHORSHIP_MODE_USER:
+        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
@@ -862,16 +858,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        state = task_run.state or {}
+        run_state = parse_run_state(task_run.state)
 
-        sandbox_url = state.get("sandbox_url")
-        if not sandbox_url:
+        if not run_state.sandbox_url:
             return Response(
                 ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self._is_valid_sandbox_url(sandbox_url):
+        if not self._is_valid_sandbox_url(run_state.sandbox_url):
             logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
             return Response(
                 ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
@@ -884,8 +879,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             distinct_id=request.user.distinct_id,
         )
 
-        sandbox_connect_token = state.get("sandbox_connect_token")
-
         command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
             "method": request.validated_data["method"],
@@ -897,9 +890,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             agent_response = self._proxy_command_to_agent_server(
-                sandbox_url=sandbox_url,
+                sandbox_url=run_state.sandbox_url,
                 connection_token=connection_token,
-                sandbox_connect_token=sandbox_connect_token,
+                sandbox_connect_token=run_state.sandbox_connect_token,
                 payload=command_payload,
             )
 

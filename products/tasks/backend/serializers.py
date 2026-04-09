@@ -10,12 +10,7 @@ from posthog.storage import object_storage
 
 from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
-from .temporal.process_task.utils import (
-    PR_AUTHORSHIP_MODE_BOT,
-    PR_AUTHORSHIP_MODE_USER,
-    RUN_SOURCE_MANUAL,
-    RUN_SOURCE_SIGNAL_REPORT,
-)
+from .temporal.process_task.utils import PrAuthorshipMode, RunSource
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
@@ -363,8 +358,8 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
 class TaskRunCreateRequestSerializer(serializers.Serializer):
     """Request body for creating a new task run"""
 
-    PR_AUTHORSHIP_MODE_CHOICES = [PR_AUTHORSHIP_MODE_USER, PR_AUTHORSHIP_MODE_BOT]
-    RUN_SOURCE_CHOICES = [RUN_SOURCE_MANUAL, RUN_SOURCE_SIGNAL_REPORT]
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
 
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
