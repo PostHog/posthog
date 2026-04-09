@@ -26,6 +26,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
     ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
 )
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
@@ -113,6 +114,7 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
                     changes=changes,
                 ),
             )
+            sync_issues_to_clickhouse(issue_ids=[updated_instance.id], team_id=team.id)
 
         return updated_instance
 
@@ -175,6 +177,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=issue.team_id)
         return Response({"success": True})
 
     @action(methods=["POST"], detail=True)
@@ -186,6 +189,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         ):
             raise ValidationError("fingerprints must be a list of objects with a 'fingerprint' string field")
         new_issues = issue.split(fingerprints=fingerprints)
+        sync_issues_to_clickhouse(issue_ids=[issue.id] + [i.id for i in new_issues], team_id=issue.team_id)
         return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
@@ -196,6 +200,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assign_issue(
             instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
         )
+        sync_issues_to_clickhouse(issue_ids=[instance.id], team_id=instance.team_id)
 
         return Response({"success": True})
 
@@ -279,6 +284,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     assign_issue(
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
+
+        sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
 
         return Response({"success": True})
 
