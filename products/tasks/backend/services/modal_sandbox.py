@@ -487,7 +487,9 @@ class ModalSandbox:
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            # Skip blobs over 128kB during clone — large test snapshots and auto-generated files
+            # get fetched on demand. Most code files are well under this limit.
+            f"git clone --single-branch --filter=blob:limit=128k{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
