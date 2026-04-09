@@ -183,13 +183,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return {
                         ...state,
                         aggregation_group_type_index: value,
-                        groups: state.groups.map(({ aggregation_group_type_index: perConditionAgg, ...rest }) => {
-                            const previousEffective = perConditionAgg ?? state.aggregation_group_type_index ?? null
+                        groups: state.groups.map((group) => {
+                            const previousEffective =
+                                group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
                             // Use == to treat null and undefined equivalently
                             const scopeChanged = previousEffective != value
                             return {
-                                ...rest,
-                                properties: scopeChanged ? [] : rest.properties,
+                                ...group,
+                                aggregation_group_type_index: undefined,
+                                properties: scopeChanged ? [] : group.properties,
                             }
                         }),
                     }
