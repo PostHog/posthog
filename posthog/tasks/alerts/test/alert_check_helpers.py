@@ -11,6 +11,11 @@ for every assertion.
 Patches targeting the notification functions should point at this module, e.g.::
 
     @patch("posthog.tasks.alerts.test.alert_check_helpers.send_notifications_for_breaches")
+
+TODO: Delete this helper once the prepare/evaluate/notify activities land in
+https://github.com/PostHog/posthog/pull/53835 and the trends tests drive the
+Temporal activities directly. Keeping it around is a temporary scaffold so
+PR4 can ship independently of the activity bodies.
 """
 
 import traceback
