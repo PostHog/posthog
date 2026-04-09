@@ -114,9 +114,9 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                     }}
                     actions={
-                        isEditMode ? (
-                            <>
-                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                        <>
+                            <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                            {isEditMode ? (
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-muted font-medium whitespace-nowrap">
                                         {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
@@ -137,35 +137,31 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                         Save
                                     </LemonButton>
                                 </div>
-                            </>
-                        ) : activeTab === 'journeys' ? (
-                            <>
-                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
-                                <CustomerJourneySelect />
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    to={urls.customerJourneyTemplates()}
-                                    data-attr="new-journey"
-                                    disabledReason={accessControlDisabledReason}
-                                >
-                                    New journey
-                                </LemonButton>
-                                {activeJourney && (
+                            ) : activeTab === 'journeys' ? (
+                                <>
+                                    <CustomerJourneySelect />
                                     <LemonButton
-                                        type="secondary"
+                                        type="primary"
                                         size="small"
-                                        to={`${urls.customerJourneyEdit(activeJourney.id)}?insightId=${activeJourney.insight}`}
-                                        data-attr="edit-journey"
+                                        to={urls.customerJourneyTemplates()}
+                                        data-attr="new-journey"
+                                        disabledReason={accessControlDisabledReason}
                                     >
-                                        Edit
+                                        New journey
                                     </LemonButton>
-                                )}
-                                <DeleteJourneyButton />
-                            </>
-                        ) : (
-                            <>
-                                <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                                    {activeJourney && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            to={`${urls.customerJourneyEdit(activeJourney.id)}?insightId=${activeJourney.insight}`}
+                                            data-attr="edit-journey"
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    )}
+                                    <DeleteJourneyButton />
+                                </>
+                            ) : (
                                 <AppShortcut
                                     name="CustomerAnalyticsSettings"
                                     keybind={[keyBinds.settings]}
@@ -191,8 +187,8 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                         data-attr="customer-analytics-config"
                                     />
                                 </AppShortcut>
-                            </>
-                        )
+                            )}
+                        </>
                     }
                 />
                 {tabs.length > 1 ? (
