@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -87,6 +87,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -99,6 +100,7 @@ import {
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
+    DataWarehouseProvisioningStatus,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -171,8 +173,8 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
-    PropertyGroupFilter,
     PropertyDefinitionType,
+    PropertyGroupFilter,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -213,6 +215,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import {
     ColumnConfigurationApi,
@@ -223,6 +226,7 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -740,6 +744,10 @@ export class ApiRequest {
 
     public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
+    }
+
+    public logsServices(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('services')
     }
 
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
@@ -1381,6 +1389,11 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
     }
 
+    // # Data Modeling DAGs
+    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -1589,8 +1602,12 @@ export class ApiRequest {
     }
 
     // Queries
-    public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+    public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
+        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        if (queryKind) {
+            return apiRequest.addPathComponent(queryKind)
+        }
+        return apiRequest
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -1989,6 +2006,70 @@ function getDistinctId(): string | undefined {
     return posthog.get_distinct_id()
 }
 
+// TEMPORARY DEBUG — remove once livestream 401 root cause is identified.
+// Decodes the (unverified) JWT payload from an Authorization header and captures
+// a PostHog event so we can aggregate which claim shape is causing 401s. Sensitive
+// fields are masked.
+function captureLivestream401Debug(url: string, authHeader: string | undefined, serverErrorData: any): void {
+    try {
+        const props: Record<string, any> = {
+            url,
+            server_message: serverErrorData?.message || serverErrorData?.error,
+        }
+        if (!authHeader) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'no_auth_header' })
+            return
+        }
+        const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/)
+        if (!bearerMatch) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'not_bearer' })
+            return
+        }
+        const parts = bearerMatch[1].split('.')
+        if (parts.length !== 3) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'malformed_jwt',
+                jwt_parts: parts.length,
+            })
+            return
+        }
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '==='.slice((b64.length + 3) % 4)
+        const payload = JSON.parse(atob(padded))
+        const now = Math.floor(Date.now() / 1000)
+        const apiTokenMasked =
+            typeof payload.api_token === 'string'
+                ? payload.api_token.slice(0, 4) + `***(len=${payload.api_token.length})`
+                : `<${typeof payload.api_token}>`
+        posthog.capture('livestream_401_debug', {
+            ...props,
+            decode_status: 'ok',
+            team_id: payload.team_id,
+            team_id_type: typeof payload.team_id,
+            user_id: payload.user_id,
+            user_id_type: typeof payload.user_id,
+            organization_id: payload.organization_id,
+            organization_id_type: typeof payload.organization_id,
+            api_token_masked: apiTokenMasked,
+            api_token_type: typeof payload.api_token,
+            aud: payload.aud,
+            aud_type: Array.isArray(payload.aud) ? 'array' : typeof payload.aud,
+            exp: payload.exp,
+            now_epoch: now,
+            exp_seconds_remaining: typeof payload.exp === 'number' ? payload.exp - now : null,
+            token_is_expired: typeof payload.exp === 'number' ? payload.exp < now : null,
+            claim_keys: Object.keys(payload).sort(),
+        })
+    } catch (e) {
+        posthog.capture('livestream_401_debug', {
+            url,
+            decode_status: 'exception',
+            decode_error: String(e),
+        })
+    }
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -2144,7 +2225,7 @@ const api = {
             }
             return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
-        async listVersions(name: string): Promise<EndpointVersionType[]> {
+        async listVersions(name: string): Promise<CountedPaginatedResponse<EndpointVersionType>> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
     },
@@ -2558,6 +2639,17 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
+            services: {
+                service_name: string
+                log_count: number
+                error_count: number
+                error_rate: number
+            }[]
+            sparkline: { time: string; service_name: string; count: number }[]
+        }> {
+            return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
@@ -4801,9 +4893,22 @@ const api = {
         },
     },
 
+    dataModelingDags: {
+        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
+            return await new ApiRequest().dataModelingDags().get()
+        },
+        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDags().create({ data })
+        },
+    },
+
     dataModelingNodes: {
-        async list(): Promise<PaginatedResponse<DataModelingNode>> {
-            return await new ApiRequest().dataModelingNodes().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
+            const req = new ApiRequest().dataModelingNodes()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -4823,7 +4928,7 @@ const api = {
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
         },
-        async dagIds(): Promise<{ dag_ids: string[] }> {
+        async dagIds(): Promise<{ dag_ids: Array<{ id: string; name: string }> }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage(
@@ -4834,8 +4939,12 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
-            return await new ApiRequest().dataModelingEdges().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
+            const req = new ApiRequest().dataModelingEdges()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
     },
 
@@ -4998,6 +5107,42 @@ const api = {
         async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
             return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
+
+        async provisionWarehouse(
+            databaseName: string,
+            options?: ApiMethodOptions
+        ): Promise<{ status: string; org: string; username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('provision')
+                .create({ data: { database_name: databaseName }, ...options } as any)
+        },
+
+        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('deprovision')
+                .create(options as any)
+        },
+
+        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
+            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
+        },
+
+        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('check-database-name')
+                .withQueryString({ name })
+                .get()
+        },
+
+        async resetPassword(): Promise<{ username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('reset_password')
+                .create({} as any)
+        },
     },
 
     externalDataSchemas: {
@@ -5128,6 +5273,9 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
+        },
+        async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
+            await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
         },
     },
 
@@ -5482,10 +5630,7 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-        ): Promise<{
-            users_affected: number
-            total_users: number
-        }> {
+        ): Promise<BlastRadiusApi> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
         async createHogFlowBatchJob(
@@ -5569,8 +5714,8 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleFullUrl(true)
+    queryURL: (queryKind?: string): string => {
+        return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -5582,6 +5727,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
+            queryKind?: string
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5590,7 +5736,14 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({
+        const bodyKind = (query as { kind?: string }).kind
+        const pathKind = queryOptions?.queryKind
+
+        if (pathKind && pathKind !== bodyKind) {
+            throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
+        }
+
+        return await new ApiRequest().query(undefined, bodyKind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -5613,6 +5766,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+            queryKind?: string
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -5621,7 +5775,13 @@ const api = {
             query,
             tags,
         })
-        return await new ApiRequest().query().create({
+        if (queryOptions?.queryKind && queryOptions.queryKind !== hogQLQuery.kind) {
+            throw new Error(
+                `Query kind mismatch: path kind "${queryOptions.queryKind}" does not match body kind "${hogQLQuery.kind}".`
+            )
+        }
+
+        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
@@ -6026,6 +6186,11 @@ const api = {
             body: data !== undefined ? JSON.stringify(data) : undefined,
             signal: abortController.signal,
             onopen: async (response) => {
+                // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
+                // livestream endpoints so the generic stream helper stays quiet.
+                // Remove together with captureLivestream401Debug once root cause is known.
+                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After')
                     if (retryAfter) {
@@ -6039,6 +6204,18 @@ const api = {
                     } catch {
                         // If JSON parsing fails, leave errorData empty
                     }
+                    // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
+                    // identify which failure mode is producing the livestream auth baseline.
+                    // Remove once root cause is known.
+                    if (response.status === 401) {
+                        captureLivestream401Debug(url, headers?.Authorization, errorData)
+                    } else if (isLivestreamUrl) {
+                        posthog.capture('livestream_sse_non_ok_non_401', {
+                            url,
+                            status: response.status,
+                            server_message: errorData?.message || errorData?.error,
+                        })
+                    }
                     onError(
                         new ApiError(
                             errorData.error || `Request failed with status ${response.status}`,
@@ -6048,6 +6225,11 @@ const api = {
                         )
                     )
                     abortController.abort()
+                } else if (isLivestreamUrl) {
+                    posthog.capture('livestream_sse_opened', {
+                        url,
+                        status: response.status,
+                    })
                 }
             },
             onmessage: onMessage,

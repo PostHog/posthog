@@ -1,38 +1,35 @@
-import { useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonCalendarSelectInput, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonInput,
+    LemonSearchableSelect,
+    LemonSelect,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { timeZoneLabel } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { workflowLogic } from '../../../workflowLogic'
 import { OccurrencesList } from './OccurrencesList'
 import {
     buildSummary,
     computePreviewOccurrences,
-    DEFAULT_STATE,
     FREQUENCY_OPTIONS,
     getNthWeekdayOfMonth,
-    isOneTimeSchedule,
-    ONE_TIME_RRULE,
     NTH_LABELS,
-    parseRRuleToState,
-    stateToRRule,
+    parseNaturalLanguage,
+    scheduleToText,
     WEEKDAY_FULL_LABELS,
     WEEKDAY_LABELS,
     WEEKDAY_PILL_LABELS,
 } from './rrule-helpers'
 import type { FrequencyOption, MonthlyMode, ScheduleState } from './rrule-helpers'
-
-type ScheduleConfig = {
-    rrule: string
-    starts_at: string
-    timezone?: string
-}
-
-interface RecurringSchedulePickerProps {
-    schedule?: ScheduleConfig | null
-    onChange: (schedule: ScheduleConfig | null) => void
-}
 
 interface FrequencyPickerProps {
     state: ScheduleState
@@ -228,10 +225,14 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
                                 ? `${previewOccurrences.length} occurrences`
                                 : 'Next occurrences'}
                         </span>
-                        {timezone && timezone !== dayjs.tz.guess() ? ` in ${timezone}` : ''}
+                        {timezone ? ` in ${timezone}` : ''}
                     </div>
                     <div className="space-y-1.5">
-                        <OccurrencesList occurrences={previewOccurrences} isFinite={state.endType !== 'never'} />
+                        <OccurrencesList
+                            occurrences={previewOccurrences}
+                            isFinite={state.endType !== 'never'}
+                            timezone={timezone}
+                        />
                     </div>
                 </div>
             )}
@@ -239,61 +240,119 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
     )
 }
 
-export function RecurringSchedulePicker({ schedule, onChange }: RecurringSchedulePickerProps): JSX.Element {
-    const isOneTime = schedule ? isOneTimeSchedule(schedule.rrule) : false
-    const isRepeating = !!schedule && !isOneTime
-    const [state, setState] = useState<ScheduleState>(() =>
-        schedule && !isOneTime ? parseRRuleToState(schedule.rrule) : { ...DEFAULT_STATE }
+function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (timezone: string) => void }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const options = useMemo(
+        () =>
+            Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
+                value: tz,
+                label: timeZoneLabel(tz, offset),
+            })),
+        [preflight?.available_timezones]
     )
 
-    // Keep start date and timezone in local state so they persist when toggling repeat off
-    const [localStartsAt, setLocalStartsAt] = useState<string | null>(schedule?.starts_at || null)
-    const [localTimezone, setLocalTimezone] = useState<string>(schedule?.timezone || dayjs.tz.guess())
+    return (
+        <LemonSearchableSelect
+            value={value}
+            options={options}
+            onChange={(val) => val && onChange(val)}
+            searchPlaceholder="Search timezones..."
+            fullWidth
+        />
+    )
+}
 
-    const startsAt = schedule?.starts_at || localStartsAt
-    const timezone = schedule?.timezone || localTimezone
+function NaturalLanguageScheduleInput({
+    state,
+    startsAt,
+    onStateChange,
+}: {
+    state: ScheduleState
+    startsAt: string | null
+    onStateChange: (state: ScheduleState) => void
+}): JSX.Element {
+    const currentText = scheduleToText(state, startsAt)
+    const [text, setText] = useState(currentText)
+    const [isFocused, setIsFocused] = useState(false)
+    const [hasError, setHasError] = useState(false)
 
-    const emitChange = (newState: ScheduleState, newStartsAt: string | null, newTimezone: string): void => {
-        if (!newStartsAt) {
-            return
-        }
-        const rrule = stateToRRule(newState, newStartsAt)
-        onChange({ rrule, starts_at: newStartsAt, timezone: newTimezone })
-    }
+    const handleChange = useCallback(
+        (value: string) => {
+            setText(value)
+            if (!value.trim()) {
+                setHasError(false)
+                return
+            }
+            const parsed = parseNaturalLanguage(value)
+            if (parsed) {
+                setHasError(false)
+                onStateChange(parsed)
+            } else {
+                setHasError(true)
+            }
+        },
+        [onStateChange]
+    )
+
+    // Sync text from picker changes when not focused
+    const displayText = isFocused ? text : currentText
+
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonInput
+                value={displayText}
+                onChange={handleChange}
+                onFocus={() => {
+                    setIsFocused(true)
+                    setText(currentText)
+                    setHasError(false)
+                }}
+                onBlur={() => setIsFocused(false)}
+                placeholder='e.g. "every week on Monday and Wednesday"'
+                fullWidth
+                size="small"
+                status={hasError && isFocused ? 'danger' : undefined}
+            />
+            <span className="text-xs text-muted">
+                Type a schedule in plain English to update the picker below, or use the controls directly.
+            </span>
+        </div>
+    )
+}
+
+export function RecurringSchedulePicker(): JSX.Element {
+    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
 
     const previewOccurrences = useMemo(() => {
-        if (!isRepeating || !startsAt) {
+        if (!isScheduleRepeating || !scheduleStartsAt) {
             return []
         }
-        return computePreviewOccurrences(state, startsAt, timezone)
+        return computePreviewOccurrences(scheduleState, scheduleStartsAt, scheduleTimezone)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
-        isRepeating,
-        startsAt,
-        timezone,
-        state.frequency,
-        state.interval,
-        state.weekdays,
-        state.monthlyMode,
-        state.endType,
-        state.endDate,
-        state.endCount,
+        isScheduleRepeating,
+        scheduleStartsAt,
+        scheduleTimezone,
+        scheduleState.frequency,
+        scheduleState.interval,
+        scheduleState.weekdays,
+        scheduleState.monthlyMode,
+        scheduleState.endType,
+        scheduleState.endDate,
+        scheduleState.endCount,
     ])
 
-    const summary = isRepeating ? buildSummary(state, startsAt) : null
+    const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt) : null
 
-    const monthlyDayLabel = startsAt ? `Day ${dayjs(startsAt).date()}` : 'Day N'
-    const monthlyNthLabel = startsAt
+    const monthlyDayLabel = scheduleStartsAt ? `Day ${dayjs(scheduleStartsAt).date()}` : 'Day N'
+    const monthlyNthLabel = scheduleStartsAt
         ? (() => {
-              const { n, weekday } = getNthWeekdayOfMonth(dayjs(startsAt))
+              const { n, weekday } = getNthWeekdayOfMonth(dayjs(scheduleStartsAt))
               return `${NTH_LABELS[n - 1]} ${WEEKDAY_FULL_LABELS[weekday]}`
           })()
         : 'Nth weekday'
-
-    const handleStateChange = (newState: ScheduleState): void => {
-        setState(newState)
-        emitChange(newState, startsAt, timezone)
-    }
 
     return (
         <div className="flex flex-col gap-3 w-full">
@@ -301,99 +360,97 @@ export function RecurringSchedulePicker({ schedule, onChange }: RecurringSchedul
                 <div className="flex-1 min-w-0">
                     <LemonCalendarSelectInput
                         buttonProps={{ fullWidth: true }}
+                        format="MMMM D, YYYY h:mm A"
                         clearable
-                        value={startsAt ? dayjs(startsAt) : null}
+                        value={
+                            scheduleStartsAt
+                                ? dayjs(scheduleStartsAt).tz(scheduleTimezone).tz(dayjs.tz.guess(), true)
+                                : null
+                        }
                         onChange={(date) => {
-                            const newStartsAt = date ? date.startOf('minute').toISOString() : null
-                            const browserTimezone = dayjs.tz.guess()
-                            setLocalStartsAt(newStartsAt)
-                            setLocalTimezone(browserTimezone)
-                            if (newStartsAt) {
-                                if (isRepeating) {
-                                    emitChange(state, newStartsAt, browserTimezone)
-                                } else {
-                                    onChange({
-                                        rrule: ONE_TIME_RRULE,
-                                        starts_at: newStartsAt,
-                                        timezone: browserTimezone,
-                                    })
-                                }
-                            } else {
-                                onChange(null)
-                            }
+                            setScheduleStartsAtFromPicker(date ? date.toISOString() : null)
                         }}
                         granularity="minute"
-                        selectionPeriod="upcoming"
+                        // Recurring schedules use the start date as an anchor for rrule computation,
+                        // so past dates are valid. One-time schedules must be in the future.
+                        selectionPeriod={isScheduleRepeating ? undefined : 'upcoming'}
                         showTimeToggle={false}
                     />
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-muted text-sm">Repeat</span>
-                    <LemonSwitch
-                        checked={isRepeating}
-                        onChange={(checked) => {
-                            const startDate = localStartsAt || startsAt || new Date().toISOString()
-                            setLocalStartsAt(startDate)
-                            if (checked) {
-                                emitChange(state, startDate, timezone)
-                            } else if (startDate) {
-                                // Downgrade to one-time schedule
-                                onChange({
-                                    rrule: ONE_TIME_RRULE,
-                                    starts_at: startDate,
-                                    timezone,
-                                })
-                            }
-                        }}
-                    />
-                </div>
+                {scheduleStartsAt && (
+                    <div className="w-22 shrink-0">
+                        <LemonSwitch
+                            label="Repeat"
+                            checked={isScheduleRepeating}
+                            onChange={(checked) => setScheduleRepeating(checked)}
+                        />
+                    </div>
+                )}
             </div>
-            {startsAt && (
-                <div className="text-xs text-muted -mt-1">
-                    Schedule timezone: {timezone} ({dayjs(startsAt).tz(timezone).format('h:mm A')})
-                    {timezone !== dayjs.tz.guess() && (
-                        <>
-                            {' '}
-                            · Your time: {dayjs(startsAt).format('h:mm A')} {dayjs.tz.guess()}
-                        </>
+            {scheduleStartsAt && (
+                <div className="flex flex-col gap-1 -mt-1">
+                    <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                            <TimezoneMenuPicker
+                                value={scheduleTimezone}
+                                onChange={(newTimezone) => {
+                                    setScheduleTimezone(newTimezone, scheduleTimezone)
+                                }}
+                            />
+                        </div>
+                        <div className="w-22 shrink-0" />
+                    </div>
+                    {scheduleTimezone !== dayjs.tz.guess() && (
+                        <span className="text-xs text-muted">
+                            Schedule: {dayjs(scheduleStartsAt).tz(scheduleTimezone).format('h:mm A')} {scheduleTimezone}{' '}
+                            · Your time: {dayjs(scheduleStartsAt).format('h:mm A')} {dayjs.tz.guess()}
+                        </span>
                     )}
                 </div>
             )}
 
-            {isRepeating && (
+            {scheduleStartsAt && isScheduleRepeating && (
+                <NaturalLanguageScheduleInput
+                    state={scheduleState}
+                    startsAt={scheduleStartsAt}
+                    onStateChange={(newState) => setScheduleState(newState, 'natural_language')}
+                />
+            )}
+
+            {scheduleStartsAt && isScheduleRepeating && (
                 <>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <FrequencyPicker state={state} onStateChange={handleStateChange} />
-                        {state.frequency === 'weekly' && (
-                            <WeekdayPicker state={state} onStateChange={handleStateChange} />
+                        <FrequencyPicker state={scheduleState} onStateChange={setScheduleState} />
+                        {scheduleState.frequency === 'weekly' && (
+                            <WeekdayPicker state={scheduleState} onStateChange={setScheduleState} />
                         )}
-                        {state.frequency === 'monthly' && (
+                        {scheduleState.frequency === 'monthly' && (
                             <MonthlyModePicker
-                                state={state}
-                                onStateChange={handleStateChange}
+                                state={scheduleState}
+                                onStateChange={setScheduleState}
                                 monthlyDayLabel={monthlyDayLabel}
                                 monthlyNthLabel={monthlyNthLabel}
                             />
                         )}
                     </div>
 
-                    <EndTypePicker state={state} onStateChange={handleStateChange} />
+                    <EndTypePicker state={scheduleState} onStateChange={setScheduleState} />
 
-                    {state.frequency === 'monthly' &&
-                        state.monthlyMode === 'day_of_month' &&
-                        startsAt &&
-                        dayjs(startsAt).date() >= 29 && (
+                    {scheduleState.frequency === 'monthly' &&
+                        scheduleState.monthlyMode === 'day_of_month' &&
+                        scheduleStartsAt &&
+                        dayjs(scheduleStartsAt).date() >= 29 && (
                             <div className="text-xs text-warning">
-                                Some months don't have a {dayjs(startsAt).format('Do')}. Those months will be skipped.
-                                Use "Last day" to run on the last day of every month instead.
+                                Some months don't have a {dayjs(scheduleStartsAt).format('Do')}. Those months will be
+                                skipped. Use "Last day" to run on the last day of every month instead.
                             </div>
                         )}
 
                     <SchedulePreview
-                        state={state}
+                        state={scheduleState}
                         summary={summary}
                         previewOccurrences={previewOccurrences}
-                        timezone={timezone}
+                        timezone={scheduleTimezone}
                     />
                 </>
             )}

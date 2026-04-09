@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -10,6 +9,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -136,6 +136,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        setPreferredEditor: (editor: 'guided' | 'full') => ({ editor }),
         handleMaxSurveyCreated: (
             toolOutput: {
                 survey_id?: string
@@ -335,6 +336,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 setSurveyToDuplicate: (_, { survey }) => survey,
             },
         ],
+        // Remembers which editor (guided wizard vs full editor) the user last
+        // chose. Used on "new survey" landing pages to redirect to their
+        // preferred editor automatically.
+        preferredEditor: [
+            'guided' as 'guided' | 'full',
+            { persist: true },
+            {
+                setPreferredEditor: (_, { editor }) => editor,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: (_, __, action) => {
@@ -415,10 +426,9 @@ export const surveysLogic = kea<surveysLogicType>([
 
                 if (searchTerm) {
                     // Always do frontend search first for better UX
-                    const fuseResults = new Fuse(searchedSurveys, {
+                    const fuseResults = createFuse(searchedSurveys, {
                         keys: ['key', 'name'],
                         ignoreLocation: true,
-                        threshold: 0.3,
                     })
                         .search(searchTerm)
                         .map((result) => result.item)

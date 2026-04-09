@@ -550,6 +550,7 @@ export function InsightMeta({
                                             export_format: ExporterFormat.PNG,
                                             insight: insight.id,
                                             dashboard: insightLogicProps.dashboardId,
+                                            export_context: exportContext,
                                         },
                                         {
                                             export_format: ExporterFormat.CSV,

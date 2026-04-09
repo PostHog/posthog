@@ -41,6 +41,14 @@ export const userLogic = kea<userLogicType>([
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateETWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateETWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateMemberJoinEmailForOrganization: (organizationId: string, enabled: boolean) => ({
+            organizationId,
+            enabled,
+        }),
+        updateMemberJoinEmailForAllOrganizations: (organizationIds: string[], enabled: boolean) => ({
+            organizationIds,
+            enabled,
+        }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
     })),
     forms(({ actions }) => ({
@@ -342,6 +350,40 @@ export const userLogic = kea<userLogicType>([
                 notification_settings: {
                     ...values.user.notification_settings,
                     error_tracking_weekly_digest_project_enabled: etProjectSettings,
+                },
+            })
+        },
+        updateMemberJoinEmailForOrganization: ({ organizationId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    organization_member_join_email_disabled: {
+                        ...values.user.notification_settings.organization_member_join_email_disabled,
+                        [organizationId]: !enabled,
+                    },
+                },
+            })
+        },
+        updateMemberJoinEmailForAllOrganizations: ({ organizationIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const organizationMemberJoinEmailDisabled = {
+                ...values.user.notification_settings.organization_member_join_email_disabled,
+            }
+            organizationIds.forEach((id) => {
+                organizationMemberJoinEmailDisabled[id] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    organization_member_join_email_disabled: organizationMemberJoinEmailDisabled,
                 },
             })
         },

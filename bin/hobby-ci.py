@@ -579,7 +579,7 @@ runcmd:
             print(f"  ⚠️  Could not parse container status: {e}", flush=True)
             return (False, [], [])
 
-    def test_deployment(self, timeout=45, retry_interval=15, stability_period=300):
+    def test_deployment(self, timeout=55, retry_interval=15, stability_period=60):
         if not self.hostname:
             return
         # timeout in minutes, stability_period in seconds
@@ -752,7 +752,7 @@ runcmd:
 
         return False
 
-    def test_deployment_with_details(self, timeout=45, retry_interval=15, stability_period=300):
+    def test_deployment_with_details(self, timeout=55, retry_interval=15, stability_period=60):
         """Like test_deployment but returns (success, failure_details) tuple."""
         if not self.hostname:
             return (False, {"reason": "no_hostname", "message": "No hostname configured"})

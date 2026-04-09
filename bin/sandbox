@@ -614,17 +614,15 @@ def _ensure_cache_volumes() -> None:
         docker_volume_run(vol, "chmod 777 /data")
 
 
-
 def _init_cache_cleanup(port: int, worktree: str) -> None:
     info("Cleaning up cache init containers...")
     compose("sandbox-cache-init", port, worktree, "down", "-v", "-t", "0", check=False, capture=True)
-    shutil.rmtree(worktree, ignore_errors=True)
-    run(["git", "worktree", "prune"], check=False)
+    _remove_worktree(worktree)
 
 
 def init_cache_from_master() -> None:
-    """Boot a temporary stack, generate demo data, and snapshot both databases."""
-    info("No database cache found. Building cache (one-time setup, ~10 min)...")
+    """Run migrations, generate demo data, pre-build Rust, and snapshot databases."""
+    info("No database cache found. Building from master (one-time setup, ~10 min)...")
 
     init_project = "sandbox-cache-init"
     init_port = 47999
@@ -644,14 +642,19 @@ def init_cache_from_master() -> None:
         fatal("Could not check out cache branch for cache init.")
 
     try:
-        info("Building and starting containers...")
-        compose(init_project, init_port, init_worktree, "up", "-d", "--build", capture=True)
+        # Run the entrypoint in cache-init mode. `compose run` handles building
+        # the image, starting + health-checking dependencies (via `depends_on`),
+        # invoking the entrypoint, and removing the container on exit. The
+        # entrypoint's cache_init_phase warms uv/pnpm/cargo caches, runs
+        # migrations, and generates demo data, then exits.
+        info("Running cache-init entrypoint...")
+        compose(
+            init_project, init_port, init_worktree,
+            "run", "--rm", "--build",
+            "-e", "SANDBOX_MODE=cache-init",
+            "app",
+        )
 
-        info("Waiting for master to boot...")
-        if not wait_for_health(f"http://localhost:{init_port}/_health", f"{init_project}-app-1"):
-            fatal("Cache init failed. See logs above.")
-
-        # TODO: Make sure rust finishes before snapshotting
         # Snapshot postgres (stop first for consistency)
         info("Snapshotting databases...")
         compose(init_project, init_port, init_worktree, "stop", "db", capture=True)
@@ -1045,7 +1048,11 @@ def cmd_destroy(branch: str, clean: bool = False) -> None:
     # entry is missing, derive profiles from the compose file to ensure nothing
     # is orphaned.
     profiles = resolve_docker_profiles(entry.intents) if entry else sorted(_all_sandbox_profiles())
-    compose(project, port, worktree, "down", "-v", "-t", "0", check=False, capture=True, profiles=profiles)
+    result = compose(project, port, worktree, "down", "-v", "-t", "0", check=False, capture=True, profiles=profiles)
+
+    if result.returncode != 0:
+        error(f"Docker teardown failed for '{project}' (is Docker running?). Registry entry preserved for retry.")
+        return
 
     if clean and entry and entry.worktree:
         _remove_worktree(entry.worktree)
@@ -1185,8 +1192,10 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
     # Wait for tmux then attach (replaces this process).
     # The entrypoint installs deps before starting tmux, so there's a
     # brief window where the container is running but tmux isn't ready.
-    info("Attaching to mprocs... (detach with Ctrl-b d)")
-    deadline = time.monotonic() + 60
+    # Show entrypoint progress while waiting so the user knows what's happening.
+    info("Waiting for phrocs... (showing entrypoint progress)")
+    seen_steps: set[str] = set()
+    deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         result = run(
             ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}", container,
@@ -1195,9 +1204,22 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
         )
         if result.returncode == 0:
             break
+
+        # Show entrypoint progress from the container's progress file.
+        progress = run(
+            ["docker", "exec", container, "cat", "/tmp/sandbox-progress"],
+            check=False, capture=True,
+        )
+        for line in (progress.stdout or "").splitlines():
+            step = line.strip()
+            if step and step not in seen_steps:
+                seen_steps.add(step)
+                print(f"  {step}")
+
         time.sleep(2)
     else:
-        fatal("Timed out waiting for mprocs. Run `sandbox logs <branch>` to investigate.")
+        fatal("Timed out waiting for phrocs. Run `sandbox logs <branch>` to investigate.")
+    info("Attaching to phrocs... (detach with Ctrl-b d)")
     _attach_tmux(container)
 
 
@@ -1206,7 +1228,7 @@ def cmd_shell(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to mprocs in {container}... (detach with Ctrl-b d)")
+    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d)")
     _attach_tmux(container)
 
 
@@ -1232,7 +1254,11 @@ def cmd_nuke() -> None:
     for branch in list(registry.list_all()):
         cmd_destroy(branch)
     # Don't rebuild the cache here — it will be rebuilt on the next `sandbox create`.
-    clear_volume(DB_CACHE_VOLUME)
+    try:
+        clear_volume(DB_CACHE_VOLUME)
+    except subprocess.CalledProcessError:
+        error("Failed to clear DB cache volume (is Docker running?). Containers may still exist.")
+        return
     success("All sandboxes destroyed and cache cleared.")
 
 
@@ -1287,7 +1313,7 @@ examples:
     for name, help_text in [
         ("start", "Start a stopped sandbox"),
         ("stop", "Stop a sandbox (preserves state)"),
-        ("shell", "Attach to the mprocs UI"),
+        ("shell", "Attach to the phrocs UI"),
         ("code", "Open VSCode attached to the sandbox container"),
         ("idea", "Open JetBrains Gateway for the sandbox"),
         ("logs", "Tail logs from a sandbox"),

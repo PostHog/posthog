@@ -144,6 +144,9 @@ class ExternalTicketView(APIView):
                 "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
                 "assignee": assignee,
                 "url": session_context.get("current_url"),
+                "slack_channel_id": ticket.slack_channel_id,
+                "slack_thread_ts": ticket.slack_thread_ts,
+                "slack_team_id": ticket.slack_team_id,
                 "tags": tags,
             }
         )
