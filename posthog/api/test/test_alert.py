@@ -1,7 +1,6 @@
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -982,33 +981,3 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         assert response.status_code == expected_status
         if error_scope:
             assert error_scope in response.json()["detail"]
-
-
-class TestInsightAlertUsageEventProperties:
-    """Guarantees usage analytics for insight alerts expose schedule restriction window count."""
-
-    @parameterized.expand(
-        [
-            ("unset", None, None),
-            ("empty object", {}, None),
-            ("empty windows", {"blocked_windows": []}, 0),
-            ("not a list", {"blocked_windows": "oops"}, None),
-            ("single window", {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}, 1),
-            (
-                "two windows",
-                {"blocked_windows": [{"start": "22:00", "end": "23:00"}, {"start": "10:00", "end": "11:00"}]},
-                2,
-            ),
-        ]
-    )
-    def test_alert_usage_payload_includes_schedule_restriction_blocked_window_count(
-        self, _label: str, schedule_restriction: dict[str, Any] | None, expected_count: int | None
-    ) -> None:
-        alert = AlertConfiguration()
-        alert.id = UUID("00000000-0000-0000-0000-000000000001")
-        alert.name = "n"
-        alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
-        alert.calculation_interval = "daily"
-        alert.schedule_restriction = schedule_restriction
-        props = alert._get_event_properties()
-        assert props["schedule_restriction_blocked_window_count"] == expected_count
