@@ -168,3 +168,26 @@ def test_alerts_module_exports_workflows_and_activities():
     assert evaluate_alert_activity in ACTIVITIES
     assert notify_alert_activity in ACTIVITIES
     assert len(ACTIVITIES) == 4
+
+
+def test_alerts_workflows_registered_on_analytics_platform_worker():
+    from django.conf import settings
+
+    from posthog.management.commands.start_temporal_worker import ACTIVITIES_DICT, WORKFLOWS_DICT
+    from posthog.temporal.alerts import (
+        ACTIVITIES as ALERT_ACTIVITIES,
+        WORKFLOWS as ALERT_WORKFLOWS,
+    )
+
+    queue_workflows = WORKFLOWS_DICT[settings.ANALYTICS_PLATFORM_TASK_QUEUE]
+    queue_activities = ACTIVITIES_DICT[settings.ANALYTICS_PLATFORM_TASK_QUEUE]
+
+    for workflow_cls in ALERT_WORKFLOWS:
+        assert workflow_cls in queue_workflows, (
+            f"{workflow_cls.__name__} not registered on ANALYTICS_PLATFORM_TASK_QUEUE"
+        )
+
+    for activity_fn in ALERT_ACTIVITIES:
+        assert activity_fn in queue_activities, (
+            f"{activity_fn.__name__} not registered on ANALYTICS_PLATFORM_TASK_QUEUE"
+        )
