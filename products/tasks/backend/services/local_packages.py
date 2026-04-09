@@ -11,7 +11,6 @@ Only active in DEBUG mode — production always uses the registry image.
 from __future__ import annotations
 
 import os
-import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,16 +75,3 @@ def get_local_posthog_code_packages() -> tuple[LocalPackage, ...] | None:
         return None
 
     return packages
-
-
-def hash_local_package_sources(packages: tuple[LocalPackage, ...]) -> str:
-    """Hash each package's dist/ by (path, size, mtime). Cache-key for live mounts."""
-    digest = hashlib.sha256()
-    for package in packages:
-        for file in sorted(package.build_output_path.rglob("*")):
-            if not file.is_file():
-                continue
-            stat = file.stat()
-            rel = file.relative_to(package.build_output_path).as_posix()
-            digest.update(f"{package.name}/{rel}:{stat.st_size}:{stat.st_mtime_ns}\n".encode())
-    return digest.hexdigest()[:16]

@@ -8,22 +8,8 @@ from unittest.mock import patch
 from products.tasks.backend.services.local_packages import (
     BUILD_OUTPUT_SUBDIR,
     PACKAGE_NAMES,
-    LocalPackage,
     get_local_posthog_code_packages,
-    hash_local_package_sources,
 )
-
-
-def _make_package(root: Path, name: str) -> LocalPackage:
-    return LocalPackage(
-        name=name,
-        source_path=root / "packages" / name,
-        sandbox_install_path=f"/scripts/node_modules/@posthog/{name}",
-    )
-
-
-def _make_packages(root: Path) -> tuple[LocalPackage, ...]:
-    return tuple(_make_package(root, name) for name in PACKAGE_NAMES)
 
 
 def _populate_monorepo(root: Path, *, with_dist: bool = True, package_names: tuple[str, ...] = PACKAGE_NAMES) -> Path:
@@ -81,36 +67,3 @@ class TestGetLocalPosthogCodePackages:
         assert packages[0].sandbox_install_path == "/scripts/node_modules/@posthog/agent"
         assert packages[0].sandbox_build_output_path == "/scripts/node_modules/@posthog/agent/dist"
         assert packages[0].build_output_path == fake_monorepo / "packages" / "agent" / "dist"
-
-
-class TestHashLocalPackageSources:
-    def test_stable_hash_for_unchanged_files(self, fake_monorepo: Path) -> None:
-        packages = _make_packages(fake_monorepo)
-        assert hash_local_package_sources(packages) == hash_local_package_sources(packages)
-
-    def test_hash_changes_when_file_content_changes(self, fake_monorepo: Path) -> None:
-        packages = _make_packages(fake_monorepo)
-        before = hash_local_package_sources(packages)
-
-        (fake_monorepo / "packages" / "agent" / "dist" / "index.js").write_text("console.log('agent-v2');\n")
-
-        assert hash_local_package_sources(packages) != before
-
-    def test_hash_changes_when_file_added(self, fake_monorepo: Path) -> None:
-        packages = _make_packages(fake_monorepo)
-        before = hash_local_package_sources(packages)
-
-        (fake_monorepo / "packages" / "agent" / "dist" / "extra.js").write_text("new file\n")
-
-        assert hash_local_package_sources(packages) != before
-
-    def test_hash_distinguishes_packages(self, fake_monorepo: Path, tmp_path: Path) -> None:
-        other = _populate_monorepo(tmp_path / "other")
-        assert hash_local_package_sources(_make_packages(fake_monorepo)) != hash_local_package_sources(
-            _make_packages(other)
-        )
-
-    def test_hash_is_sixteen_char_hex(self, fake_monorepo: Path) -> None:
-        result = hash_local_package_sources(_make_packages(fake_monorepo))
-        assert len(result) == 16
-        int(result, 16)

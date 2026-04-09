@@ -32,7 +32,7 @@ from products.tasks.backend.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from products.tasks.backend.services.local_packages import get_local_posthog_code_packages, hash_local_package_sources
+from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
 from products.tasks.backend.services.sandbox import wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -125,14 +125,8 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
+@lru_cache(maxsize=2)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
-    packages = get_local_posthog_code_packages()
-    source_hash = hash_local_package_sources(packages) if packages else ""
-    return _get_template_image_cached(template, source_hash)
-
-
-@lru_cache(maxsize=8)
-def _get_template_image_cached(template: SandboxTemplate, source_hash: str) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -146,8 +140,6 @@ def _get_template_image_cached(template: SandboxTemplate, source_hash: str) -> m
     else:
         image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
 
-    if source_hash and template == SandboxTemplate.DEFAULT_BASE:
-        logger.info("Attaching local @posthog package mounts to Modal image (source_hash=%s)", source_hash)
     return _attach_local_package_mounts(image, template)
 
 
