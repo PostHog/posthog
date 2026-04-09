@@ -290,7 +290,7 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_date_operators(self):
-        # is_date_before wraps RHS in toDateTime()
+        # is_date_before normalizes ISO 8601 to MySQL format
         self.assertEqual(
             self._property_to_expr(
                 {"type": "event", "key": "a", "value": "2026-03-19T14:00:00Z", "operator": "is_date_before"}
@@ -298,10 +298,10 @@ class TestProperty(BaseTest):
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["properties", "a"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19T14:00:00Z")]),
+                right=ast.Constant(value="2026-03-19 14:00:00"),
             ),
         )
-        # is_date_after wraps RHS in toDateTime()
+        # is_date_after normalizes ISO 8601 to MySQL format
         self.assertEqual(
             self._property_to_expr(
                 {"type": "event", "key": "a", "value": "2026-03-19T14:00:00Z", "operator": "is_date_after"}
@@ -309,29 +309,29 @@ class TestProperty(BaseTest):
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
                 left=ast.Field(chain=["properties", "a"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19T14:00:00Z")]),
+                right=ast.Constant(value="2026-03-19 14:00:00"),
             ),
         )
-        # is_date_exact wraps RHS in toDateTime()
+        # is_date_exact passes date-only values through unchanged
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "2026-03-19", "operator": "is_date_exact"}),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["properties", "a"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19")]),
+                right=ast.Constant(value="2026-03-19"),
             ),
         )
-        # generic lt does NOT wrap RHS in toDateTime()
+        # generic lt does NOT normalize
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
             self._parse_expr("properties.a < '3'"),
         )
-        # generic gt does NOT wrap RHS in toDateTime()
+        # generic gt does NOT normalize
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
             self._parse_expr("properties.a > '3'"),
         )
-        # person property with is_date_before wraps RHS in toDateTime()
+        # person property with is_date_before normalizes ISO 8601
         self.assertEqual(
             self._property_to_expr(
                 {"type": "person", "key": "inserted_at", "value": "2026-03-19T14:00:00Z", "operator": "is_date_before"}
@@ -339,7 +339,7 @@ class TestProperty(BaseTest):
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["person", "properties", "inserted_at"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value="2026-03-19T14:00:00Z")]),
+                right=ast.Constant(value="2026-03-19 14:00:00"),
             ),
         )
 
@@ -349,10 +349,8 @@ class TestProperty(BaseTest):
         result = self._property_to_expr({"type": "event", "key": "a", "value": "-10m", "operator": "is_date_before"})
         assert isinstance(result, ast.CompareOperation)
         assert result.op == ast.CompareOperationOp.Lt
-        assert isinstance(result.right, ast.Call)
-        assert result.right.name == "toDateTime"
-        assert isinstance(result.right.args[0], ast.Constant)
-        assert result.right.args[0].value == "2025-06-09 12:00:00"
+        assert isinstance(result.right, ast.Constant)
+        assert result.right.value == "2025-06-09 12:00:00"
 
     def test_property_to_expr_event_list(self):
         # positive

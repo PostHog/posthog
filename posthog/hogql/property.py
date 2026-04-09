@@ -323,19 +323,30 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _resolve_date_value(value: ValueT) -> ValueT:
-    """Resolve relative date strings (e.g., '-10m', '7d') to absolute ISO datetime strings.
+def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
+    """Resolve and normalize a date value for IS_DATE_* operators.
 
-    Absolute dates are returned as-is.
+    Handles two cases:
+    - Relative dates (e.g. "-7d", "-10m"): resolved to absolute datetime using team timezone
+    - ISO 8601 dates (e.g. "2026-03-19T14:00:00Z"): normalized to MySQL format ("2026-03-19 14:00:00")
+
+    Returns a normalized date string that ClickHouse can implicitly convert
+    for comparison against both String and DateTime columns.
     """
     if not isinstance(value, str):
         return value
-    from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
-    parsed = relative_date_parse_for_feature_flag_matching(value)
-    if parsed is not None:
-        return parsed.strftime("%Y-%m-%d %H:%M:%S")
-    return value
+    relative_regex = r"^-?[0-9]+[hdwmqysHDWMQY]"
+    if re.match(relative_regex, value):
+        from posthog.utils import relative_date_parse
+
+        resolved = relative_date_parse(value, team.timezone_info)
+        return resolved.strftime("%Y-%m-%d %H:%M:%S")
+
+    normalized = value.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1]
+    return normalized
 
 
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
@@ -451,10 +462,11 @@ def _expr_to_compare_op(
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
+        assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
+            right=ast.Constant(value=_resolve_date_value(value, team)),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -465,18 +477,20 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
+        assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
+            right=ast.Constant(value=_resolve_date_value(value, team)),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
+        assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=expr,
-            right=ast.Call(name="toDateTime", args=[ast.Constant(value=_resolve_date_value(value))]),
+            right=ast.Constant(value=_resolve_date_value(value, team)),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
