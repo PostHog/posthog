@@ -238,16 +238,16 @@ class UserSerializer(serializers.ModelSerializer):
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()
+        # Use all() to hit the prefetch cache from get_queryset
+        return bool(instance.social_auth.all())
 
     def get_github_login(self, instance: User) -> Optional[str]:
-        from social_django.models import UserSocialAuth
-
-        sa = UserSocialAuth.objects.filter(provider="github", user=instance).only("extra_data").first()
-        if sa and isinstance(sa.extra_data, dict):
-            login = sa.extra_data.get("login")
-            if login:
-                return str(login)
+        # Use all() to hit the prefetch cache from get_queryset; filter in Python
+        for sa in instance.social_auth.all():
+            if sa.provider == "github" and isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
         return None
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
@@ -560,7 +560,7 @@ class UserViewSet(
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
-        return queryset
+        return queryset.prefetch_related("social_auth")
 
     def get_serializer_context(self):
         return {
