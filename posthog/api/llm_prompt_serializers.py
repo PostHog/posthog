@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt
+from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
@@ -26,14 +26,14 @@ def validate_prompt_name_value(value: str) -> str:
     return value
 
 
-def validate_prompt_payload_size(prompt_payload: Any) -> Any:
-    prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-    if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+def validate_prompt_payload_size(prompt_payload: Any) -> str:
+    normalized = normalize_prompt_to_string(prompt_payload)
+    if len(normalized.encode("utf-8")) > MAX_PROMPT_PAYLOAD_BYTES:
         raise serializers.ValidationError(
             f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
             code="max_size",
         )
-    return prompt_payload
+    return normalized
 
 
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
@@ -119,7 +119,7 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
     )
 
-    def validate_prompt(self, value: Any) -> Any:
+    def validate_prompt(self, value: Any) -> str:
         return validate_prompt_payload_size(value)
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -196,10 +196,16 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if "prompt" in data and not isinstance(data["prompt"], str):
+            data["prompt"] = normalize_prompt_to_string(data["prompt"])
+        return data
+
     def validate_name(self, value: str) -> str:
         return validate_prompt_name_value(value)
 
-    def validate_prompt(self, value: Any) -> Any:
+    def validate_prompt(self, value: Any) -> str:
         return validate_prompt_payload_size(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
