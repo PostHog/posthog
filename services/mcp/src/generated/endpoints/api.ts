@@ -214,6 +214,7 @@ export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefourTypeDefau
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefiveTypeDefault = `data_warehouse_person_property`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnesixTypeDefault = `error_tracking_issue`
 export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverridePropertiesItemTwozeroTypeDefault = `workflow_variable`
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
     client_query_id: zod
@@ -1129,6 +1130,57 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             type: zod
                                 .enum(['revenue_analytics'])
                                 .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                ])
+                                .nullish(),
+                        }),
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.string().nullish(),
+                            operator: zod.enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'is_set',
+                                'is_not_set',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'between',
+                                'not_between',
+                                'min',
+                                'max',
+                                'in',
+                                'not_in',
+                                'is_cleaned_path_exact',
+                                'flag_evaluates_to',
+                                'semver_eq',
+                                'semver_neq',
+                                'semver_gt',
+                                'semver_gte',
+                                'semver_lt',
+                                'semver_lte',
+                                'semver_tilde',
+                                'semver_caret',
+                                'semver_wildcard',
+                                'icontains_multi',
+                                'not_icontains_multi',
+                            ]),
+                            type: zod
+                                .enum(['workflow_variable'])
+                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemTwozeroTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
