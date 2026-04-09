@@ -8090,6 +8090,15 @@ export namespace Schemas {
       tileId: number;
     }
 
+    export interface CopyExperimentToProject {
+      /** The team ID to copy the experiment to. */
+      target_team_id: number;
+      /** Optional feature flag key to use in the destination team. */
+      feature_flag_key?: string;
+      /** Optional name for the copied experiment. */
+      name?: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
