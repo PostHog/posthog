@@ -454,67 +454,6 @@ def _run_changed(extra_args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --affected: find test files affected by changed source files
-# ---------------------------------------------------------------------------
-
-
-def _run_affected(extra_args: list[str]) -> None:
-    """Find all test files affected by changed source files and run them."""
-    changed = _get_changed_files()
-    py_files = [f for f in changed if f.endswith(".py")]
-
-    if not py_files:
-        click.secho("No Python files changed on this branch.", fg="yellow")
-        raise SystemExit(0)
-
-    # Build import graph and find affected tests in one step
-    result = subprocess.run(
-        ["uv", "run", str(REPO_ROOT / "bin" / "find_affected_tests.py"), "--changed-files", " ".join(py_files)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        click.secho(f"find_affected_tests.py failed: {result.stderr}", fg="red")
-        raise SystemExit(1)
-
-    import json
-
-    output = json.loads(result.stdout.strip())
-
-    if output["mode"] == "full":
-        reason = output.get("reason", "unknown")
-        click.secho(f"Full test run needed: {reason}", fg="yellow")
-        click.secho("Falling back to --changed behavior.", fg="yellow")
-        _run_changed(extra_args)
-        return
-
-    affected_tests = output.get("affected_tests", [])
-    if not affected_tests:
-        click.secho("No affected test files found.", fg="yellow")
-        raise SystemExit(0)
-
-    # Filter to only Python test files
-    test_files = [f for f in affected_tests if _is_test_file(f)]
-    if not test_files:
-        click.secho("No affected Python test files found.", fg="yellow")
-        raise SystemExit(0)
-
-    click.secho(f"Found {len(test_files)} affected test file(s) from {len(py_files)} changed file(s):", fg="cyan")
-    for f in test_files[:20]:
-        click.echo(f"  {f}")
-    if len(test_files) > 20:
-        click.echo(f"  ... and {len(test_files) - 20} more")
-    click.echo()
-
-    # Run all affected Python tests in a single pytest invocation
-    config = detect_test_type(test_files[0])
-    command = config.command[:-1] + test_files
-    click.secho(f"Running {len(test_files)} affected Python test file(s)...", fg="cyan")
-    _run(command + extra_args, env=config.env if config.env else None, cwd=config.cwd)
-
-
 # ---------------------------------------------------------------------------
 # --watch: re-run tests on file changes
 # ---------------------------------------------------------------------------
@@ -575,7 +514,6 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "  hogli test posthog/api/test/test_user.py::TestUser::test_create\n"
         "  hogli test playwright/e2e/sql-editor.spec.ts\n"
         "  hogli test --changed\n"
-        "  hogli test --affected\n"
         "  hogli test livestream/\n"
         "  hogli test products/visual_review/"
     ),
@@ -583,21 +521,10 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 )
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests for files changed on the current branch")
-@click.option("--affected", is_flag=True, help="Run all tests affected by changed files (uses import graph)")
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, affected: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
-    if affected:
-        if file_path:
-            raise click.UsageError("Cannot combine --affected with a file path.")
-        if watch:
-            raise click.UsageError("Cannot combine --affected with --watch.")
-        if changed:
-            raise click.UsageError("Cannot combine --affected with --changed.")
-        _run_affected(list(ctx.args))
-        return
-
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")
@@ -608,7 +535,7 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, affec
 
     if not file_path:
         raise click.UsageError(
-            "Missing argument FILE_PATH.\n\nUsage: hogli test [OPTIONS] FILE_PATH\n       hogli test --changed\n       hogli test --affected"
+            "Missing argument FILE_PATH.\n\nUsage: hogli test [OPTIONS] FILE_PATH\n       hogli test --changed"
         )
 
     if watch:
