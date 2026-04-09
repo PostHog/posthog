@@ -73,16 +73,25 @@ jobs:
                   PR=${{ github.event.pull_request.number }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
                   REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  FALLBACK_DEBUG=$(jq -r '.reviewer.fallback_debug_summary // ""' /tmp/review.json 2>/dev/null || echo "")
+                  WORKFLOW_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  BODY="$REASONING"
+                  FAIL_BODY="Review agent failed — check the [workflow run](${WORKFLOW_RUN_URL}) and re-apply the label to retry."
+
+                  if [ "$VERDICT" != "APPROVED" ] && [ -n "$FALLBACK_DEBUG" ]; then
+                    BODY=$(printf '%s\n\nDebug note: %s\nWorkflow run: %s' "$BODY" "$FALLBACK_DEBUG" "$WORKFLOW_RUN_URL")
+                    FAIL_BODY=$(printf '%s\n\nDebug note: %s\nWorkflow run: %s' "$FAIL_BODY" "$FALLBACK_DEBUG" "$WORKFLOW_RUN_URL")
+                  fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$REASONING" \
+                    GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$BODY" \
                       --repo ${{ github.repository }}
                   elif [ -n "$REASONING" ]; then
-                    gh pr review "$PR" --comment --body "$REASONING" \
+                    gh pr review "$PR" --comment --body "$BODY" \
                       --repo ${{ github.repository }}
                   else
                     gh pr comment "$PR" \
-                      --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
+                      --body "$FAIL_BODY" \
                       --repo ${{ github.repository }}
                   fi
 

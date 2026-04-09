@@ -10,18 +10,24 @@ import json
 import asyncio
 import textwrap
 import subprocess
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ResultMessage,
+    query as claude_query,
+)
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
 try:
-    from posthoganalytics.ai.claude_agent_sdk import query
+    from posthoganalytics.ai.claude_agent_sdk import query as posthog_query
 
     _POSTHOG_AI_AVAILABLE = True
 except ImportError:
-    from claude_agent_sdk import query  # type: ignore[no-redef]
+    posthog_query = None
 
     _POSTHOG_AI_AVAILABLE = False
 
@@ -199,10 +205,58 @@ class Reviewer:
     def __init__(self, repo_root: Path, *, verbose: bool = False):
         self.repo_root = repo_root
         self.verbose = verbose
+        self._fallback_debug_summary: str | None = None
 
     def review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
         """Claude explores the repo and produces a verdict."""
         return asyncio.run(self._review(pr, classification, gate_context))
+
+    def _should_fallback_to_plain_sdk(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return "api key is required" in message
+
+    def _package_version(self, package_name: str) -> str:
+        try:
+            return version(package_name)
+        except PackageNotFoundError:
+            return "unknown"
+
+    def _build_fallback_debug_summary(self, error: Exception) -> str:
+        return (
+            "PostHog Claude instrumentation failed before review started; "
+            f"fell back to plain Claude SDK. "
+            f"error={type(error).__name__}: {error}. "
+            f"posthoganalytics={self._package_version('posthoganalytics')}, "
+            f"claude-agent-sdk={self._package_version('claude-agent-sdk')}"
+        )
+
+    async def _query_with_fallback(
+        self,
+        *,
+        prompt: Any,
+        options: ClaudeAgentOptions,
+        posthog_kwargs: dict,
+    ):
+        if _POSTHOG_AI_AVAILABLE and posthog_query is not None:
+            yielded_message = False
+            try:
+                async for message in posthog_query(prompt=prompt, options=options, **posthog_kwargs):
+                    yielded_message = True
+                    yield message
+                return
+            except Exception as error:
+                if yielded_message or not self._should_fallback_to_plain_sdk(error):
+                    raise
+                self._fallback_debug_summary = self._build_fallback_debug_summary(error)
+                print(
+                    "\033[2m"
+                    f"  PostHog instrumentation failed before review started ({error}); "
+                    "retrying with plain Claude SDK."
+                    "\033[0m"
+                )
+
+        async for message in claude_query(prompt=prompt, options=options):
+            yield message
 
     async def _review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
         diff_path = self._write_diff_file(pr)
@@ -240,7 +294,7 @@ class Reviewer:
             }
 
         structured_output = None
-        async for message in query(prompt=prompt, options=options, **posthog_kwargs):
+        async for message in self._query_with_fallback(prompt=prompt, options=options, posthog_kwargs=posthog_kwargs):
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
             if isinstance(message, ResultMessage):
@@ -257,7 +311,10 @@ class Reviewer:
 
         if structured_output is None:
             raise RuntimeError("Reviewer agent returned no structured output")
-        return _validate_verdict(structured_output)
+        validated_output = _validate_verdict(structured_output)
+        if self._fallback_debug_summary:
+            validated_output["fallback_debug_summary"] = self._fallback_debug_summary
+        return validated_output
 
     def _log_tool_call(self, block: ToolUseBlock) -> None:
         name = block.name
