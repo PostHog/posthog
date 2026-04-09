@@ -335,6 +335,25 @@ describe('experimentsLogic', () => {
             expect(router.actions.push).toHaveBeenCalledWith(expect.stringContaining('/999'))
         })
 
+        it('copies experiment to the selected target team', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            api.create.mockResolvedValue(copiedExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    featureFlagKey: 'new-flag',
+                })
+            }).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${mockExperiment.id}/copy_to_project`),
+                { target_team_id: 456, feature_flag_key: 'new-flag' }
+            )
+        })
+
         it('adds experiment to list', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)

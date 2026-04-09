@@ -336,7 +336,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     featureFlagKey?: string
                     name?: string
                 }) => {
-                    const data: Record<string, any> = { target_project_id: payload.targetProjectId }
+                    const data: Record<string, any> = { target_team_id: payload.targetTeamId }
                     if (payload.featureFlagKey) {
                         data.feature_flag_key = payload.featureFlagKey
                     }
