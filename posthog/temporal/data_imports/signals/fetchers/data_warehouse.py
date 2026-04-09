@@ -64,7 +64,8 @@ def data_warehouse_record_fetcher(
         result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
     except Exception as e:
         logger.exception(f"Error querying new records: {e}", **extra)
-        return []
+        # Raising to avoid creating permanent gaps in emitted signals, in hope the activity will fix itself on the restart
+        raise
     if not result.results or not result.columns:
         return []
     return [dict(zip(result.columns, row)) for row in result.results]
