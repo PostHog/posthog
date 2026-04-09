@@ -483,13 +483,14 @@ class ModalSandbox:
         org_path = f"/tmp/workspace/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
+        # files get fetched on demand. Shallow clones are already small enough.
+        blob_filter = "" if shallow else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            # Skip blobs over 128kB during clone — large test snapshots and auto-generated files
-            # get fetched on demand. Most code files are well under this limit.
-            f"git clone --single-branch --filter=blob:limit=128k{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
