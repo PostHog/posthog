@@ -40,6 +40,9 @@ pub struct Config {
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
 
+    #[envconfig(default = "clickhouse_error_tracking_fingerprint_issue_state")]
+    pub fingerprint_issue_state_topic: String,
+
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 

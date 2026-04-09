@@ -18,6 +18,8 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueFullApi,
+    ErrorTrackingIssueMergeRequestApi,
+    ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
@@ -719,14 +721,14 @@ export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueMergeRequestApi: ErrorTrackingIssueMergeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueMergeResponseApi> => {
+    return apiMutator<ErrorTrackingIssueMergeResponseApi>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueMergeRequestApi),
     })
 }
 
