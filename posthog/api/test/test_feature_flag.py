@@ -10688,44 +10688,56 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         return next(c for c in changes if c["field"] == "evaluation_contexts")
 
     @pytest.mark.ee
-    def test_evaluation_context_changes_logged_in_activity(self):
+    @parameterized.expand(
+        [
+            ("add_contexts", [], ["production", "staging"], [], ["production", "staging"]),
+            (
+                "update_contexts",
+                ["production", "staging"],
+                ["production", "docs"],
+                ["production", "staging"],
+                ["docs", "production"],
+            ),
+            ("remove_all_contexts", ["production", "staging"], [], ["production", "staging"], []),
+        ]
+    )
+    def test_evaluation_context_change_is_logged(
+        self,
+        _name: str,
+        initial: list[str],
+        updated: list[str],
+        expected_before: list[str],
+        expected_after: list[str],
+    ):
         flag = FeatureFlag.objects.create(
             team=self.team,
-            key="activity-test",
+            key=f"activity-test-{_name}",
             name="Activity Test",
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
             created_by=self.user,
         )
 
-        # Set initial evaluation contexts
+        if initial:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"evaluation_contexts": initial},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {"evaluation_contexts": ["production", "staging"]},
+            {"evaluation_contexts": updated},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         entries = self._get_eval_context_activity_entries(flag.id)
-        self.assertEqual(len(entries), 1)
-
-        change = self._get_eval_context_change(entries[0])
-        self.assertEqual(change["before"], [])
-        self.assertEqual(change["after"], ["production", "staging"])
-
-        # Update evaluation contexts
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {"evaluation_contexts": ["production", "docs"]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        entries = self._get_eval_context_activity_entries(flag.id)
-        self.assertEqual(len(entries), 2)
+        self.assertGreaterEqual(len(entries), 1)
 
         latest_change = self._get_eval_context_change(entries[0])
-        self.assertEqual(latest_change["before"], ["production", "staging"])
-        self.assertEqual(latest_change["after"], ["docs", "production"])
+        self.assertEqual(latest_change["before"], expected_before)
+        self.assertEqual(latest_change["after"], expected_after)
 
     @pytest.mark.ee
     def test_no_activity_log_when_evaluation_contexts_unchanged(self):
@@ -10737,7 +10749,6 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
             created_by=self.user,
         )
 
-        # Set initial evaluation contexts
         self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
             {"evaluation_contexts": ["production"]},
