@@ -259,6 +259,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
+                "creation_mode": "scratch",
             },
         )
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
@@ -3260,6 +3261,47 @@ class TestExperimentCRUD(APILicensedTest):
             0,
         )
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_duplicate_experiment_reports_creation_mode(self, mock_report_user_action: MagicMock) -> None:
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "duplicate-analytics-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+        mock_report_user_action.reset_mock()
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+        duplicate_experiment = duplicate_response.json()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "experiment created",
+            {
+                "experiment_id": duplicate_experiment["id"],
+                "experiment_name": duplicate_experiment["name"],
+                "feature_flag_key": duplicate_experiment["feature_flag_key"],
+                "type": duplicate_experiment["type"],
+                "status": duplicate_experiment["status"],
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+                "creation_mode": "duplicate",
+            },
+            team=self.team,
+            request=ANY,
+        )
+
     def test_copy_experiment_to_project(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
 
@@ -3326,6 +3368,49 @@ class TestExperimentCRUD(APILicensedTest):
         # Verify experiment was created in the target team
         target_experiment = Experiment.objects.get(id=copied_experiment["id"])
         self.assertEqual(target_experiment.team_id, target_team.id)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_copy_experiment_to_project_reports_creation_mode(self, mock_report_user_action: MagicMock) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "copy-analytics-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+        mock_report_user_action.reset_mock()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/copy_to_project/",
+            {"target_team_id": target_team.id},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_201_CREATED)
+        copied_experiment = copy_response.json()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "experiment created",
+            {
+                "experiment_id": copied_experiment["id"],
+                "experiment_name": copied_experiment["name"],
+                "feature_flag_key": copied_experiment["feature_flag_key"],
+                "type": copied_experiment["type"],
+                "status": copied_experiment["status"],
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+                "creation_mode": "copy_to_project",
+            },
+            team=target_team,
+            request=ANY,
+        )
 
     def test_copy_experiment_to_project_creates_disabled_flag(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
