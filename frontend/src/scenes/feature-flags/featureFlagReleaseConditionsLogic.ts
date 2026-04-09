@@ -183,13 +183,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return {
                         ...state,
                         aggregation_group_type_index: value,
-                        groups: state.groups.map((group): FeatureFlagGroupTypeWithSortKey => {
+                        groups: state.groups.map((group) => {
                             const previousEffective =
                                 group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
                             // Use == to treat null and undefined equivalently
                             const scopeChanged = previousEffective != value
                             return {
                                 ...group,
+                                sort_key: group.sort_key,
                                 aggregation_group_type_index: undefined,
                                 properties: scopeChanged ? [] : group.properties,
                             }
@@ -266,12 +267,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     aggregation_group_type_index: null,
                     // Each condition inherits the global aggregation type as its
                     // per-condition value, so properties remain valid
-                    groups: state.groups.map(
-                        (group): FeatureFlagGroupTypeWithSortKey => ({
-                            ...group,
-                            aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
-                        })
-                    ),
+                    groups: state.groups.map((group) => ({
+                        ...group,
+                        sort_key: group.sort_key,
+                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
+                    })),
                 }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
