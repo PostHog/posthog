@@ -10687,7 +10687,6 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         changes = entry.detail["changes"]
         return next(c for c in changes if c["field"] == "evaluation_contexts")
 
-    @pytest.mark.ee
     @parameterized.expand(
         [
             ("add_contexts", [], ["production", "staging"], [], ["production", "staging"]),
