@@ -1,17 +1,24 @@
 import pytest
 
+import orjson
+
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.stripe.stripe import _webhook_table_transformer
 
 
 def _make_event(event_id: str, obj_id: str, event_created: int, obj_fields: dict | None = None) -> dict:
-    """Build a Stripe event dict matching the schema produced by _transform_webhook_table."""
+    """Build a Stripe event dict matching the schema produced by _transform_webhook_table.
+
+    The data column is a JSON string, matching what production produces after
+    _transform_webhook_table parses payload_json via orjson.loads and then
+    table_from_py_list serializes nested dicts to JSON strings.
+    """
     obj = {"id": obj_id, "object": "customer", "balance": 0, **(obj_fields or {})}
     return {
         "id": event_id,
         "object": "event",
         "created": event_created,
-        "data": {"object": obj},
+        "data": orjson.dumps({"object": obj}).decode(),
     }
 
 
