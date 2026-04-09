@@ -114,6 +114,20 @@ export const themeLogic = kea<themeLogicType>([
                 prefersColorSchemeMedia.addEventListener('change', onPrefersColorSchemeChange)
                 return () => prefersColorSchemeMedia.removeEventListener('change', onPrefersColorSchemeChange)
             }, 'prefersColorSchemeListener')
+
+            // In storybook visual tests, the test-runner switches themes by setting body[theme].
+            // kea selectors are memoized and won't re-evaluate on DOM changes alone.
+            // Listen for the custom event dispatched by the test-runner to force re-evaluation.
+            if (document.body.classList.contains('storybook-test-runner')) {
+                cache.disposables.add(() => {
+                    const onThemeChange = (e: Event): void => {
+                        const theme = (e as CustomEvent).detail?.theme
+                        actions.syncDarkModePreference(theme === 'dark')
+                    }
+                    window.addEventListener('posthog-theme-change', onThemeChange)
+                    return () => window.removeEventListener('posthog-theme-change', onThemeChange)
+                }, 'storybookThemeChangeListener')
+            }
         },
     })),
 ])

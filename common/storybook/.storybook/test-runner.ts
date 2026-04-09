@@ -109,6 +109,36 @@ module.exports = {
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
 
+    // Custom prepare replaces the default page.goto with retry logic.
+    // The storybook http-server has brief periods of unresponsiveness in CI,
+    // especially under webkit. Without retry, a single server hiccup fails
+    // the entire test suite for that story file (page.goto runs in
+    // CustomEnvironment.setup, before jest retry can help).
+    async prepare({ page }: { page: Page }) {
+        const targetURL = process.env.TARGET_URL || 'http://127.0.0.1:6006'
+        const iframeURL = new URL('iframe.html', targetURL).toString()
+
+        const maxRetries = 2
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await page.goto(iframeURL, { waitUntil: 'load' })
+                return
+            } catch (err: any) {
+                if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
+                    throw new Error(
+                        `Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${err.message}`
+                    )
+                }
+                if (attempt < maxRetries && err.message?.includes('Timeout')) {
+                    // eslint-disable-next-line no-console
+                    console.warn(`[test-runner] page.goto attempt ${attempt} timed out, retrying...`)
+                    continue
+                }
+                throw err
+            }
+        }
+    },
+
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
@@ -275,8 +305,11 @@ async function takeSnapshotWithTheme(
 ): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
-    // Set the right theme
-    await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
+    // Set the right theme and notify kea so isDarkModeOn re-evaluates
+    await page.evaluate((theme: SnapshotTheme) => {
+        document.body.setAttribute('theme', theme)
+        window.dispatchEvent(new CustomEvent('posthog-theme-change', { detail: { theme } }))
+    }, theme)
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
