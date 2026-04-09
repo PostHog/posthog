@@ -905,6 +905,22 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type WorkflowVariablePropertyFilterApiType =
+    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
+
+export const WorkflowVariablePropertyFilterApiType = {
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: WorkflowVariablePropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** @nullable */
@@ -935,6 +951,7 @@ export interface DashboardFilterApi {
               | LogPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
           )[]
         | null
 }
