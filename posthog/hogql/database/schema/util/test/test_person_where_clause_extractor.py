@@ -60,15 +60,19 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(new_select, ast.SelectQuery)
         assert isinstance(new_select.select_from, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join.next_join, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join.next_join.next_join, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join.next_join.next_join.table, ast.SelectQuery)
 
-        assert new_select.select_from.next_join.next_join.alias == "events__pdi"
-        assert new_select.select_from.next_join.next_join.next_join.alias == "events__pdi__person"
+        pdi_join = new_select.select_from.next_join
+        while pdi_join is not None and pdi_join.alias != "events__pdi":
+            pdi_join = pdi_join.next_join
+        assert pdi_join is not None, "events__pdi join not found"
 
-        where = new_select.select_from.next_join.next_join.next_join.table.where
+        person_join = pdi_join.next_join
+        while person_join is not None and person_join.alias != "events__pdi__person":
+            person_join = person_join.next_join
+        assert person_join is not None, "events__pdi__person join not found"
+        assert isinstance(person_join.table, ast.SelectQuery)
+
+        where = person_join.table.where
         if where is None:
             return None
 

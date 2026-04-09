@@ -1,5 +1,8 @@
+from django.conf import settings
+
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_APP_METRICS2,
+    CONSUMER_GROUP_APP_METRICS2_WS,
     KAFKA_COLUMNS_WITH_PARTITION,
     kafka_engine,
     ttl_period,
@@ -122,6 +125,57 @@ FROM {KAFKA_APP_METRICS2_TABLE}
 
 
 TRUNCATE_APP_METRICS2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {APP_METRICS2_SHARDED_TABLE}"
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_APP_METRICS2_WS_TABLE = f"kafka_{APP_METRICS2_TABLE}_ws"
+APP_METRICS2_WS_MV_TABLE = f"{APP_METRICS2_TABLE}_ws_mv"
+
+DROP_APP_METRICS2_WS_MV_TABLE_SQL = f"DROP TABLE IF EXISTS {APP_METRICS2_WS_MV_TABLE}"
+DROP_KAFKA_APP_METRICS2_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_APP_METRICS2_WS_TABLE}"
+
+KAFKA_APP_METRICS2_WS_TABLE_SQL = (
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS2_WS_TABLE}
+(
+    team_id Int64,
+    timestamp DateTime64(6, 'UTC'),
+    app_source LowCardinality(String),
+    app_source_id String,
+    instance_id String,
+    metric_kind String,
+    metric_name String,
+    count Int64
+)
+ENGINE={
+        kafka_engine(
+            topic=KAFKA_APP_METRICS2,
+            group=CONSUMER_GROUP_APP_METRICS2_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        )
+    }
+"""
+)
+
+APP_METRICS2_WS_MV_TABLE_SQL = (
+    lambda target_table=APP_METRICS2_WRITABLE_TABLE: f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {APP_METRICS2_WS_MV_TABLE}
+TO {target_table}
+AS SELECT
+team_id,
+timestamp,
+app_source,
+app_source_id,
+instance_id,
+metric_kind,
+metric_name,
+count,
+_timestamp,
+_offset,
+_partition
+FROM {KAFKA_APP_METRICS2_WS_TABLE}
+"""
+)
 
 INSERT_APP_METRICS2_SQL = """
 INSERT INTO sharded_app_metrics2 (
