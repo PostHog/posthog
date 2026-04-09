@@ -325,11 +325,10 @@ export function PageHeaderCustom(): JSX.Element {
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => setCopyToProjectModalOpen(true)}
-                                disabledReason={
-                                    isLegacyExperiment(experiment)
-                                        ? 'Copying is not supported for experiments using legacy metrics.'
-                                        : undefined
-                                }
+                                disabledReasons={{
+                                    'Copying is not supported for experiments using legacy metrics.':
+                                        isLegacyExperiment(experiment),
+                                }}
                             >
                                 <IconCopy />
                                 Copy to project

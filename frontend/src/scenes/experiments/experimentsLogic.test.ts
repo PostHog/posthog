@@ -1,9 +1,9 @@
 import { api } from 'lib/api.mock'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -372,11 +372,9 @@ describe('experimentsLogic', () => {
                 })
             }).toFinishAllListeners()
 
-            const toastOptions = toastSpy.mock.calls.at(-1)?.[1] as
-                | { button?: { action?: () => void } }
-                | undefined
+            const toastOptions = toastSpy.mock.calls.at(-1)?.[1] as { button?: { action?: () => void } } | undefined
 
-            expect(toastOptions?.button?.action).toBeDefined()
+            expect(toastOptions?.button?.action).not.toBeUndefined()
             expect(() => toastOptions?.button?.action?.()).toThrow('navigation-called')
             expect(projectSpy).toHaveBeenCalledWith(123, expect.stringContaining('/999'))
         })

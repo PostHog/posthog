@@ -40,6 +40,7 @@ export function CopyExperimentToProjectModal({
             ?.filter((team) => team.id !== currentTeam?.id)
             .map((team) => ({ value: team.id, label: team.name }))
             .sort((a, b) => a.label.localeCompare(b.label)) || []
+    const onlyTeamOptionValue = teamOptions.length === 1 ? teamOptions[0].value : null
 
     const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
     const [experimentName, setExperimentName] = useState('')
@@ -58,10 +59,10 @@ export function CopyExperimentToProjectModal({
     const selectedTeam = currentOrganization?.teams?.find((team) => team.id === selectedTeamId)
 
     useEffect(() => {
-        if (isOpen && teamOptions.length === 1 && selectedTeamId === null) {
-            handleTeamChange(teamOptions[0].value)
+        if (isOpen && onlyTeamOptionValue !== null && selectedTeamId === null) {
+            handleTeamChange(onlyTeamOptionValue)
         }
-    }, [isOpen, selectedTeamId, teamOptions])
+    }, [isOpen, onlyTeamOptionValue, selectedTeamId])
 
     const fetchTargetFlags = async (projectId: number, filters: Partial<FeatureFlagsFilters>): Promise<void> => {
         setTargetFlagsLoading(true)
