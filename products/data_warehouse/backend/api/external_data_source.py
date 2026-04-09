@@ -188,8 +188,10 @@ def get_direct_postgres_connection_metadata(
 
     from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
+    ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+    has_ssh_tunnel = bool(ssh_tunnel and ssh_tunnel.enabled)
     ssl_enabled_config = getattr(source_config, "ssl_enabled", None)
-    ssl_enabled = ssl_enabled_config.enabled if ssl_enabled_config else True
+    ssl_enabled = ssl_enabled_config.enabled if ssl_enabled_config and has_ssh_tunnel else True
     require_ssl = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE and ssl_enabled
 
     try:

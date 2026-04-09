@@ -459,6 +459,7 @@ class TestSSLRequirement:
 
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
+        config.ssh_tunnel = mock.MagicMock(enabled=True)
         config.ssl_enabled = mock.MagicMock(enabled=False)
 
         mock_inputs = mock.MagicMock()
