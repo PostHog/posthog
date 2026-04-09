@@ -24,6 +24,7 @@ import {
     LemonModal,
     LemonSelect,
     LemonSkeleton,
+    LemonSwitch,
     LemonTag,
     LemonTagType,
     LemonTextArea,
@@ -34,6 +35,7 @@ import {
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -421,6 +423,7 @@ export function PageHeaderCustom(): JSX.Element {
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
                     </ScenePanelActionsSection>
+                    <ExperimentDebugToggle />
                 </ScenePanel>
             )}
             <QuickSurveyModal
@@ -429,6 +432,28 @@ export function PageHeaderCustom(): JSX.Element {
                 onCancel={() => setSurveyModalOpen(false)}
             />
         </>
+    )
+}
+
+function ExperimentDebugToggle(): JSX.Element {
+    const { superpowersEnabled } = useValues(superpowersLogic)
+    const { showDebugPanel } = useValues(experimentLogic)
+    const { toggleDebugPanel } = useActions(experimentLogic)
+
+    if (!superpowersEnabled) {
+        return <></>
+    }
+
+    return (
+        <ScenePanelActionsSection>
+            <LemonSwitch
+                className="px-2 py-1"
+                checked={showDebugPanel}
+                onChange={toggleDebugPanel}
+                fullWidth
+                label="Debug panel"
+            />
+        </ScenePanelActionsSection>
     )
 }
 

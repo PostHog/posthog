@@ -1828,6 +1828,7 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
+    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }
