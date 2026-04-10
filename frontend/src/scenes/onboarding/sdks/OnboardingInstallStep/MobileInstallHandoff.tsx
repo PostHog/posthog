@@ -97,14 +97,17 @@ export function MobileInstallHandoff({
             // Real failure (not user cancellation) — fall back to copy so
             // the user still has a way to get the link off this device.
             // copyToClipboard shows its own toast for success/failure.
-            await handleCopy()
+            // Don't re-capture 'clicked' — we already captured it above with method: 'native_share'.
+            await handleCopy(false)
         }
     }
 
-    const handleCopy = async (): Promise<void> => {
+    const handleCopy = async (shouldCapture = true): Promise<void> => {
         const success = await copyToClipboard(buildHandoffUrl(), 'install link')
         if (success) {
-            posthog.capture('mobile install handoff clicked', { method: 'copy_link' })
+            if (shouldCapture) {
+                posthog.capture('mobile install handoff clicked', { method: 'copy_link' })
+            }
             setShareState('sent')
         } else {
             posthog.capture('mobile install handoff copy failed')

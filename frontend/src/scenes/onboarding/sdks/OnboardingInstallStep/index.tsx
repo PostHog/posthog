@@ -110,6 +110,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         linkOpenedCapturedRef.current = true
         posthog.capture('mobile install handoff link opened')
         params.delete('handoff')
+        params.delete('step')
         const newSearch = params.toString()
         const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
         window.history.replaceState(null, '', newUrl)
