@@ -18,12 +18,10 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.organization import OrganizationMembership
-from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.error_tracking.backend.logic import ErrorTrackingIssueService, IssueAssignmentService
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
     ErrorTrackingIssueFingerprintV2,
 )
@@ -193,8 +191,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assignee = request.data.get("assignee", None)
         instance = self.get_object()
 
-        assign_issue(
-            instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
+        IssueAssignmentService.assign_issue(
+            issue=instance,
+            assignee=assignee,
+            organization=self.organization,
+            user=request.user,
+            team_id=self.team_id,
+            was_impersonated=is_impersonated_session(request),
         )
 
         return Response({"success": True})
@@ -245,39 +248,28 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         with transaction.atomic():
             if action == "set_status":
-                new_status = get_status_from_string(status)
+                new_status = ErrorTrackingIssueService.get_status_from_string(status)
                 if new_status is None:
                     raise ValidationError("Invalid status")
-                for issue in issues:
-                    _ = log_activity(
-                        organization_id=self.organization.id,
-                        team_id=self.team_id,
-                        user=request.user,
-                        was_impersonated=is_impersonated_session(request),
-                        item_id=issue.id,
-                        scope="ErrorTrackingIssue",
-                        activity="updated",
-                        detail=Detail(
-                            name=issue.name,
-                            changes=[
-                                Change(
-                                    type="ErrorTrackingIssue",
-                                    action="changed",
-                                    field="status",
-                                    before=issue.status,
-                                    after=new_status,
-                                )
-                            ],
-                        ),
-                    )
-
-                issues.update(status=new_status)
+                ErrorTrackingIssueService.bulk_set_status(
+                    issues=issues,
+                    new_status=new_status,
+                    organization_id=self.organization.id,
+                    team_id=self.team_id,
+                    user=request.user,
+                    was_impersonated=is_impersonated_session(request),
+                )
             elif action == "assign":
                 assignee = request.data.get("assignee", None)
 
                 for issue in issues:
-                    assign_issue(
-                        issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
+                    IssueAssignmentService.assign_issue(
+                        issue=issue,
+                        assignee=assignee,
+                        organization=self.organization,
+                        user=request.user,
+                        team_id=self.team_id,
+                        was_impersonated=is_impersonated_session(request),
                     )
 
         return Response({"success": True})
@@ -307,73 +299,3 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
-
-
-def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
-    assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
-    serialized_assignment_before = (
-        ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
-    )
-
-    if assignee:
-        if assignee["type"] == "user":
-            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
-                raise ValidationError("Assignee user does not belong to this organization.")
-        elif assignee["type"] == "role":
-            from ee.models.rbac.role import Role
-
-            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
-                raise ValidationError("Assignee role does not belong to this organization.")
-
-        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
-        assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
-            issue_id=issue.id,
-            defaults={
-                "team_id": issue.team_id,
-                "user_id": None if assignee["type"] != "user" else assignee["id"],
-                "role_id": None if assignee["type"] != "role" else assignee["id"],
-            },
-        )
-
-        send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
-
-        serialized_assignment_after = (
-            ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
-        )
-    else:
-        if assignment_before:
-            assignment_before.delete()
-        serialized_assignment_after = None
-
-    log_activity(
-        organization_id=organization.id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(issue.id),
-        scope="ErrorTrackingIssue",
-        activity="assigned",
-        detail=Detail(
-            name=issue.name,
-            changes=[
-                Change(
-                    type="ErrorTrackingIssue",
-                    field="assignee",
-                    before=serialized_assignment_before,
-                    after=serialized_assignment_after,
-                    action="changed",
-                )
-            ],
-        ),
-    )
-
-
-def get_status_from_string(status: str) -> ErrorTrackingIssue.Status | None:
-    match status:
-        case "active":
-            return ErrorTrackingIssue.Status.ACTIVE
-        case "resolved":
-            return ErrorTrackingIssue.Status.RESOLVED
-        case "suppressed":
-            return ErrorTrackingIssue.Status.SUPPRESSED
-    return None
