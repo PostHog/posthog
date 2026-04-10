@@ -237,6 +237,8 @@ Key requirements:
 - The `tasks` feature flag enabled at 100%
 - Temporal running (starts automatically via phrocs with `./bin/start`)
 
+**Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
+
 ## Questions?
 
 If you're unsure whether a sandboxed agent is the right fit for your use case,
