@@ -95,7 +95,7 @@ class DummyExportInputs(BaseBatchExportInputs):
     """Inputs for the Dummy export workflow."""
 
     exception_to_raise: str | None = None
-    records_failed_count: int = 0
+    records_failed_count: int | None = None
 
 
 @dataclass(kw_only=True)
@@ -103,7 +103,7 @@ class DummyInsertInputs(BatchExportInsertInputs):
     """Inputs for the Dummy insert activity."""
 
     exception_to_raise: str | None = None
-    records_failed_count: int = 0
+    records_failed_count: int | None = None
 
 
 @workflow.defn(name="dummy-export", failure_exception_types=[workflow.NondeterminismError])
@@ -182,7 +182,7 @@ async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> Ba
         exception_cls = globals()[inputs.exception_to_raise]
         raise exception_cls()
     records_failed = inputs.records_failed_count
-    records_completed = 100 - records_failed
+    records_completed = 100 - (records_failed or 0)
     return BatchExportResult(
         records_completed=records_completed,
         bytes_exported=100,
