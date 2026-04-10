@@ -9,8 +9,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="experiment",
-            name="exposure_preaggregation_enabled",
+        # Phase 1: remove field from Django state only; keep the DB column so old code
+        # still running during deploy doesn't crash reading a missing column.
+        # A follow-up migration will drop the column for real after a full deploy cycle.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="experiment",
+                    name="exposure_preaggregation_enabled",
+                ),
+            ],
+            database_operations=[],
         ),
     ]
