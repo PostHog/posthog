@@ -45,7 +45,7 @@ tables:
         engine: Distributed
         source: sharded_tophog
         sharding_key: 'cityHash64(toString(key))'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_tophog
 
     tophog:

@@ -45,7 +45,7 @@ tables:
         engine: Distributed
         source: sharded_app_metrics
         sharding_key: 'rand()'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_app_metrics
 
     app_metrics:

@@ -87,7 +87,7 @@ tables:
         engine: Distributed
         source: sharded_sessions
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_sessions
 
     sessions:
@@ -119,7 +119,7 @@ tables:
         engine: Distributed
         source: new_sessions
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_sessions
 
     new_sessions_mv:
@@ -134,5 +134,5 @@ tables:
         engine: Distributed
         source: sharded_sessions
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_sessions
