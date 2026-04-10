@@ -289,17 +289,23 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-        metric_events_cte_str = """
+        session_id_column = (
+            """
+                        properties.$session_id AS session_id,"""
+            if not self.funnel_steps_data_disabled
+            else ""
+        )
+
+        metric_events_cte_str = f"""
                 metric_events AS (
                     SELECT
-                        {entity_key} AS entity_id,
-                        {variant_property} as variant,
+                        {{entity_key}} AS entity_id,
+                        {{variant_property}} as variant,
                         timestamp,
-                        uuid,
-                        properties.$session_id AS session_id,
+                        uuid,{session_id_column}
                         -- step_0, step_1, ... step_N columns added programmatically below
                     FROM events
-                    WHERE ({exposure_predicate} OR {funnel_steps_filter})
+                    WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
                 )
         """
 
