@@ -429,3 +429,14 @@ def sandbox_context(demo_org_team_user) -> CustomPromptSandboxContext:
     """Build a sandbox context for the eval harness using the demo team/user."""
     _org, team, user = demo_org_team_user
     return CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+
+
+@pytest.fixture(scope="session")
+def posthog_client() -> Generator:
+    """PostHog analytics client for capturing eval traces and evaluation events to US production."""
+    from posthog.ph_client import get_client
+
+    client = get_client("US")
+    yield client
+    if client:
+        client.shutdown()

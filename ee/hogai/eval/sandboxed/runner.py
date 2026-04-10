@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,6 +19,8 @@ __all__ = ["run_eval_case"]
 @dataclass
 class EvalCaseResult:
     artifacts: AgentArtifacts
+    trace_id: str = ""
+    raw_log: str = ""
     conversation: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -26,7 +29,8 @@ async def run_eval_case(
     context: CustomPromptSandboxContext,
 ) -> EvalCaseResult:
     """Run an eval case using the full Task -> temporal workflow -> log polling pipeline."""
-    logger.info("Starting eval case '%s' with prompt: %.100s...", case.name, case.prompt)
+    trace_id = str(uuid.uuid4())
+    logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
     try:
         last_message, full_log = await run_prompt(
@@ -47,12 +51,13 @@ async def run_eval_case(
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
         conversation = _extract_conversation(full_log)
-        return EvalCaseResult(artifacts=artifacts, conversation=conversation)
+        return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log, conversation=conversation)
     except Exception as e:
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
         return EvalCaseResult(
             artifacts=AgentArtifacts(exit_code=1, stderr=str(e), duration_seconds=duration),
+            trace_id=trace_id,
         )
 
 
