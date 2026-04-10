@@ -95,9 +95,10 @@ export function CreateFromLegacyModal({
                                     {group.conditions.events && group.conditions.events.length > 0 && (
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <span className="text-muted">Event</span>
-                                            {group.conditions.events.map((event) => (
-                                                <LemonSnack key={event}>{event}</LemonSnack>
-                                            ))}
+                                            {group.conditions.events.map((event) => {
+                                                const name = typeof event === 'string' ? event : event.name
+                                                return <LemonSnack key={name}>{name}</LemonSnack>
+                                            })}
                                             <span className="text-muted">occurred</span>
                                         </div>
                                     )}

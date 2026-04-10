@@ -431,13 +431,7 @@ class SessionMinTimestampWhereClauseExtractorV1(SessionMinTimestampWhereClauseEx
 
 
 class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseExtractor):
-    # Wrap in toStartOfHour() to match the raw_sessions sorting key, which uses
-    # toStartOfHour(fromUnixTimestamp(intDiv(...))). Without this wrapper, ClickHouse
-    # can't use the primary key index for timestamp range filtering.
-    timestamp_field = ast.Call(
-        name="toStartOfHour",
-        args=[uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=["raw_sessions", "session_id_v7"]))],
-    )
+    timestamp_field = uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=["raw_sessions", "session_id_v7"]))
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
 

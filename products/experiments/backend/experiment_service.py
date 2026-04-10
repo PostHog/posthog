@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -46,6 +46,8 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
+
+ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -278,6 +280,7 @@ class ExperimentService:
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
+        creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         self.validate_variant_shapes(parameters)
@@ -385,6 +388,7 @@ class ExperimentService:
             experiment,
             serializer_context=serializer_context,
             event_source=event_source,
+            creation_mode=creation_mode,
         )
 
         return experiment
@@ -399,12 +403,14 @@ class ExperimentService:
         *,
         serializer_context: dict | None,
         event_source: EventSource | None,
+        creation_mode: ExperimentCreationMode,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
             return
 
         analytics_metadata = experiment.get_analytics_metadata()
+        analytics_metadata["creation_mode"] = creation_mode
         if event_source is not None:
             analytics_metadata["source"] = event_source
 
@@ -529,14 +535,19 @@ class ExperimentService:
 
     def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
         """Apply team-level defaults to stats_config."""
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
         result = dict(stats_config or {})
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
         if not result.get("method"):
-            default_method = self.team.default_experiment_stats_method or "bayesian"
+            default_method = config.default_experiment_stats_method or "bayesian"
             result["method"] = default_method
 
-        if self.team.default_experiment_confidence_level is not None:
-            confidence_level = float(self.team.default_experiment_confidence_level)
+        if config.default_experiment_confidence_level is not None:
+            confidence_level = float(config.default_experiment_confidence_level)
             bayesian_config = result.get("bayesian") or {}
             frequentist_config = result.get("frequentist") or {}
             if bayesian_config.get("ci_level") is None:
@@ -1347,27 +1358,35 @@ class ExperimentService:
     # Duplication
     # ------------------------------------------------------------------
 
-    def duplicate_experiment(
+    def clone_experiment(
         self,
         source_experiment: Experiment,
         *,
+        target_team: Team | None = None,
         feature_flag_key: str | None = None,
         name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
-        """Duplicate an experiment as a new draft.
+        """Clone an experiment as a new draft, optionally into a different project.
 
         Warning: if feature_flag_key is None or matches the source experiment's
         flag key, the duplicate will reuse the same FeatureFlag instance. This
         means lifecycle operations on either experiment (pause, ship, etc.) will
         affect both. Callers should provide a unique feature_flag_key.
         """
+        target = target_team or self.team
+        is_cross_project = target.id != self.team.id
         if feature_flag_key is None:
             feature_flag_key = source_experiment.feature_flag.key
 
         parameters = deepcopy(source_experiment.parameters) or {}
-        if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
+
+        # Reuse variants from an existing flag in the target project.
+        # For cross-project clones we always check the target; for same-project
+        # clones we only check when the key differs from the source flag.
+        should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        if should_check_existing:
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
 
@@ -1377,44 +1396,77 @@ class ExperimentService:
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
         if name:
-            duplicate_name = name
+            clone_name = name
         else:
             base_name = f"{source_experiment.name} (Copy)"
-            duplicate_name = base_name
+            clone_name = base_name
             counter = 1
-            while Experiment.objects.filter(team_id=self.team.id, name=duplicate_name, deleted=False).exists():
-                duplicate_name = f"{base_name} {counter}"
+            while Experiment.objects.filter(team_id=target.id, name=clone_name, deleted=False).exists():
+                clone_name = f"{base_name} {counter}"
                 counter += 1
 
-        saved_metrics_data = []
-        for link in source_experiment.experimenttosavedmetric_set.all():
-            saved_metrics_data.append(
-                {
-                    "id": link.saved_metric.id,
-                    "metadata": link.metadata,
-                }
-            )
+        # Saved metrics are team-scoped — only copy for same-project clones.
+        saved_metrics_data: list[dict] | None = None
+        if not is_cross_project:
+            saved_metrics_data = [
+                {"id": link.saved_metric.id, "metadata": link.metadata}
+                for link in source_experiment.experimenttosavedmetric_set.all()
+            ] or None
 
-        duplicate_description = source_experiment.description or ""
-        duplicate_type = source_experiment.type or "product"
-
-        return self.create_experiment(
-            name=duplicate_name,
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
+        creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
+        return service.create_experiment(
+            name=clone_name,
             feature_flag_key=feature_flag_key,
-            description=duplicate_description,
-            type=duplicate_type,
+            description=source_experiment.description or "",
+            type=source_experiment.type or "product",
             parameters=parameters,
             filters=source_experiment.filters,
-            metrics=source_experiment.metrics,
-            metrics_secondary=source_experiment.metrics_secondary,
+            metrics=deepcopy(source_experiment.metrics),
+            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
             exposure_criteria=source_experiment.exposure_criteria,
-            saved_metrics_ids=saved_metrics_data or None,
+            saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
             exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
             only_count_matured_users=source_experiment.only_count_matured_users,
+            serializer_context=serializer_context,
+            creation_mode=creation_mode,
+        )
+
+    def duplicate_experiment(
+        self,
+        source_experiment: Experiment,
+        *,
+        feature_flag_key: str | None = None,
+        name: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft."""
+        return self.clone_experiment(
+            source_experiment,
+            feature_flag_key=feature_flag_key,
+            name=name,
+            serializer_context=serializer_context,
+        )
+
+    def copy_experiment_to_project(
+        self,
+        source_experiment: Experiment,
+        target_team: Team,
+        *,
+        feature_flag_key: str | None = None,
+        name: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft in a different project."""
+        return self.clone_experiment(
+            source_experiment,
+            target_team=target_team,
+            feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=serializer_context,
         )
 

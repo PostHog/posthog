@@ -4,6 +4,7 @@ import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PostgresRouter } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
@@ -173,20 +174,18 @@ export function createCdpCoreServices(
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         new IngestionOutputs({
-            [APP_METRICS_OUTPUT]: [
-                {
-                    producer: deps.kafkaProducer,
-                    topic: config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-                    producerName: 'default',
-                },
-            ],
-            [LOG_ENTRIES_OUTPUT]: [
-                {
-                    producer: deps.kafkaProducer,
-                    topic: config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
-                    producerName: 'default',
-                },
-            ],
+            [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+                APP_METRICS_OUTPUT,
+                config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+                deps.kafkaProducer,
+                'default'
+            ),
+            [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
+                LOG_ENTRIES_OUTPUT,
+                config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                deps.kafkaProducer,
+                'default'
+            ),
         }),
         deps.internalCaptureService,
         deps.teamManager

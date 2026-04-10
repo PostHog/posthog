@@ -28,7 +28,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
               run: |
-                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector"
+                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review"
 
                   OWNER="${REPO%/*}"
                   REPO_NAME="${REPO#*/}"
