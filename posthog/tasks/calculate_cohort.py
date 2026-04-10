@@ -693,6 +693,11 @@ def trigger_cohort_backfill_task(team_id: int, cohort_id: int) -> None:
     """
     Trigger backfill for a realtime cohort with person properties.
     Uses the existing temporal workflow for consistency.
+
+    TODO: Extract the core logic from backfill_precalculated_person_properties
+    into a standalone function (e.g. posthog.cohorts.backfill.run_backfill)
+    so this task, the management command, and the admin view can all call it
+    directly instead of going through call_command/argparse.
     """
     from django.core.management import call_command
 

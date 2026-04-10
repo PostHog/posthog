@@ -934,6 +934,71 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         filters_hash = _extract_person_property_filters(cohort)
         self.assertEqual(filters_hash, "")
 
+    def test_extract_person_property_filters_order_independence(self):
+        """Test that _extract_person_property_filters produces same hash regardless of child order"""
+        # Create two cohorts with same conditions but different order
+        cohort_order_1 = self._create_cohort(
+            name="Test Cohort Order 1",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@example.com"],
+                            "operator": "exact",
+                            "conditionHash": "condition_1",
+                            "bytecode": [1, 2, 3],
+                        },
+                        {
+                            "key": "age",
+                            "type": "person",
+                            "value": [25],
+                            "operator": "gte",
+                            "conditionHash": "condition_2",
+                            "bytecode": [4, 5, 6],
+                        },
+                    ],
+                }
+            },
+        )
+
+        cohort_order_2 = self._create_cohort(
+            name="Test Cohort Order 2",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "age",
+                            "type": "person",
+                            "value": [25],
+                            "operator": "gte",
+                            "conditionHash": "condition_2",
+                            "bytecode": [4, 5, 6],
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@example.com"],
+                            "operator": "exact",
+                            "conditionHash": "condition_1",
+                            "bytecode": [1, 2, 3],
+                        },
+                    ],
+                }
+            },
+        )
+
+        hash_1 = _extract_person_property_filters(cohort_order_1)
+        hash_2 = _extract_person_property_filters(cohort_order_2)
+
+        # Both hashes should be identical despite different child order
+        self.assertEqual(hash_1, hash_2)
+        # And both should be non-empty since they have person property filters
+        self.assertTrue(len(hash_1) > 0)
+
     def test_person_property_filters_changed_new_cohort(self):
         """Test that _person_property_filters_changed returns True for new cohorts"""
         cohort = self._create_cohort(name="Test Cohort")

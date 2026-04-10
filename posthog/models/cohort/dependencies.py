@@ -219,6 +219,9 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
                     children.append(normalized_child)
 
             if children:
+                # Sort children by their JSON representation to make order-independent
+                # For AND/OR operations, the order shouldn't matter logically
+                children.sort(key=lambda x: json.dumps(x, sort_keys=True))
                 return {"type": node_type, "children": children}
             return None
 
@@ -279,6 +282,12 @@ def cohort_pre_save(sender, instance, **kwargs):
     try:
         # Skip non-realtime cohorts to avoid extra DB queries
         if not instance.pk or instance.cohort_type != CohortType.REALTIME:
+            instance._previous_person_property_filters = ""
+            return
+
+        # Check if filters field is being updated - if not, skip the expensive DB read
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "filters" not in update_fields:
             instance._previous_person_property_filters = ""
             return
 
