@@ -76,15 +76,17 @@ export function TaxonomicBreakdownFilter({
             : BREAKDOWN_DOCS_URL
 
     const composedDisabledReason = ((): ReactElement | string | undefined => {
-        const reason = disabledReason ?? addBreakdownDisabledReason ?? undefined
-        if (!reason) {
-            return reason
+        if (disabledReason) {
+            return disabledReason
+        }
+        if (!addBreakdownDisabledReason) {
+            return undefined
         }
 
         return (
             <span className="flex flex-col gap-1.5 not-italic">
                 <span>
-                    {reason}{' '}
+                    {addBreakdownDisabledReason}{' '}
                     <Link to={breakdownDocsUrl} target="_blank" className="not-italic font-semibold">
                         Read the docs
                     </Link>
