@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -71,6 +72,10 @@ describe('NewDashboardModal', () => {
         mockedDashboardTemplatesLogic.mockReturnValue(mockTemplatesLogic)
 
         mockedUseValues.mockImplementation((logic) => {
+            if (logic === featureFlagLogic) {
+                return { featureFlags: {} }
+            }
+
             if (logic === newDashboardLogic) {
                 return {
                     newDashboardModalVisible: true,
