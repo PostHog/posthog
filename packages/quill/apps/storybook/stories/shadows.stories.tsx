@@ -19,10 +19,9 @@ const shadowClass: Record<ShadowKey, string> = {
     sm: 'shadow-sm',
     md: 'shadow-md',
     lg: 'shadow-lg',
-    elevate: 'shadow-elevate',
 }
 
-const shadowOrder: ShadowKey[] = ['sm', 'md', 'lg', 'elevate']
+const shadowOrder: ShadowKey[] = ['sm', 'md', 'lg']
 
 function ShadowSwatch({ name }: { name: ShadowKey }): React.ReactElement {
     const value = shadow[name]
@@ -57,33 +56,6 @@ export const AllShadows: Story = {
                     <ShadowSwatch key={name} name={name} />
                 ))}
             </div>
-        </div>
-    ),
-}
-
-/**
- * Regression story for the `shadow-elevate` token. The shadow is a 3px solid
- * drop shadow that matches the current border color — the "raised button"
- * look. If `--shadow-elevate` ever regresses to reference an undefined
- * variable, the colored bar under the card disappears and this story breaks
- * visually.
- */
-export const Elevate: Story = {
-    render: () => (
-        <div className="p-12">
-            <button
-                type="button"
-                className="px-6 py-3 rounded-md bg-card border border-border text-foreground shadow-elevate hover:translate-y-0.5 hover:shadow-none transition-all"
-            >
-                Raised button (shadow-elevate)
-            </button>
-            <p className="mt-6 text-xs text-muted-foreground font-mono max-w-md">
-                Token value: {shadow.elevate}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground max-w-md">
-                The 3px coloured bar under the button must be visible in both light and dark themes. If it's missing,
-                the token is referencing an undefined CSS variable — see REVIEW.md item #1.
-            </p>
         </div>
     ),
 }

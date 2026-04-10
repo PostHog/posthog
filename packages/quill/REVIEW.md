@@ -15,24 +15,6 @@ Use this file as a backlog. Check things off as they land.
 
 ## Bugs (do first, low effort, real breakage)
 
-- [x] **1. `--shadow-elevate` references an undefined variable** ✅
-      `packages/tokens/src/shadow.ts` defined
-      `elevate: '0 3px 0 var(--border-3000-light)'`. `--border-3000-light`
-      is a PostHog-app-only variable declared in
-      `frontend/src/styles/base.scss` — it does not exist in quill's
-      `color-system.css`, so any external consumer that used
-      `shadow-elevate` got an invalid shadow that silently fell back. No
-      quill primitive or downstream consumer in the monorepo actually uses
-      the utility, so the fix was safe. **Fixed** by pointing `elevate` at
-      `var(--border)`, which is defined in quill's own color system and
-      resolves correctly in both light and dark modes (a net improvement
-      over the original, which was hardcoded to the light-mode border
-      colour regardless of theme). Regression coverage added via a new
-      `Tokens/Shadows` Storybook story at
-      `apps/storybook/stories/shadows.stories.tsx` — the `Elevate` story
-      visually fails if the token ever regresses to referencing an
-      undefined variable.
-
 - [ ] **2. `theme-shape.css` has a hidden dependency on `color-system.css`**
       `--radius-*` is defined as `calc(var(--radius) - 4px)`. `--radius` only
       exists if the consumer has loaded `color-system.css`. Importing
@@ -249,17 +231,16 @@ Use this file as a backlog. Check things off as they land.
 
 If tackling one at a time, recommended order:
 
-1. **#1** (shadow-elevate bug) — 5 minutes, real breakage.
-2. **#2 + #3** (hidden coupling) — half an hour, unblocks safe file splits.
-3. **#6** (delete the `colors.css` lie) — 15 minutes of deletion.
-4. **#18** (token contrast tests) — 30 minutes, protects the whole palette.
-5. **#7** (pre-compile Tailwind) — the big one, probably a day. Eliminates
+1. **#2 + #3** (hidden coupling) — half an hour, unblocks safe file splits.
+2. **#6** (delete the `colors.css` lie) — 15 minutes of deletion.
+3. **#18** (token contrast tests) — 30 minutes, protects the whole palette.
+4. **#7** (pre-compile Tailwind) — the big one, probably a day. Eliminates
    the root cause of most other issues on this list.
-6. **#9** (collapse to one package) — half a day, massive DX improvement.
-7. **#10 + #11** (vendor peer deps) — naturally falls out of #7.
-8. **#21** (pack-and-install smoke test) — protects against future regressions.
-9. **#4 + #5** (rem base audit + version bump) — blocks a real release.
-10. Everything else — hygiene, can be done opportunistically.
+5. **#9** (collapse to one package) — half a day, massive DX improvement.
+6. **#10 + #11** (vendor peer deps) — naturally falls out of #7.
+7. **#21** (pack-and-install smoke test) — protects against future regressions.
+8. **#4 + #5** (rem base audit + version bump) — blocks a real release.
+9. Everything else — hygiene, can be done opportunistically.
 
 Grade today: **B-** as a pragmatic improvement, **D** against "best DS
 package ever." The gap between the two is almost entirely #7 + #9.
