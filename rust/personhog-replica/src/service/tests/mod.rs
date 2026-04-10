@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+    DeletePersonsRequest, GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
 };
+use rstest::rstest;
 use tonic::Request;
 
 use mocks::FailingStorage;
@@ -102,4 +103,84 @@ async fn test_query_error_on_group_operation_returns_internal() {
 
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Internal);
+}
+
+// ============================================================
+// DeletePersons tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_persons_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[rstest]
+#[case::too_many_uuids(
+    (0..1001).map(|i| format!("00000000-0000-0000-0000-{i:012}")).collect(),
+    "1000"
+)]
+#[case::invalid_uuid(vec!["not-a-valid-uuid".to_string()], "Invalid UUID")]
+#[tokio::test]
+async fn test_delete_persons_invalid_input(
+    #[case] person_uuids: Vec<String>,
+    #[case] expected_message: &str,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains(expected_message));
+}
+
+#[tokio::test]
+async fn test_delete_persons_empty_uuids_returns_zero() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec![],
+        }))
+        .await;
+
+    assert_eq!(result.unwrap().get_ref().deleted_count, 0);
+}
+
+#[rstest]
+#[case::single_uuid(vec!["00000000-0000-0000-0000-000000000001".to_string()])]
+#[case::exactly_1000((0..1000).map(|i| format!("00000000-0000-0000-0000-{i:012}")).collect())]
+#[tokio::test]
+async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids,
+        }))
+        .await;
+
+    assert!(result.is_ok());
 }

@@ -268,6 +268,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         error_tracking_issue_assigned: false,
         error_tracking_weekly_digest: true,
         discussions_mentioned: false,
+        organization_member_join_email_disabled: {},
     },
     anonymize_data: false,
     allow_impersonation: true,

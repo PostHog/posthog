@@ -175,6 +175,7 @@ export type HogExecutorExecuteOptions = {
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
+    maxFetchRetries?: number
 }
 
 export class HogExecutorService {
@@ -338,7 +339,7 @@ export class HogExecutorService {
                 }
 
                 if (queueParamsType === 'fetch') {
-                    result = await this.executeFetch(nextInvocation)
+                    result = await this.executeFetch(nextInvocation, options)
                 } else if (queueParamsType === 'email') {
                     result = await this.emailService.executeSendEmail(nextInvocation)
                 } else {
@@ -603,7 +604,8 @@ export class HogExecutorService {
 
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
@@ -693,7 +695,8 @@ export class HogExecutorService {
 
             addLog('error', message)
 
-            if (canRetry && result.invocation.state.attempts < this.config.fetchRetries) {
+            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            if (canRetry && result.invocation.state.attempts < maxRetries) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params

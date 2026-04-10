@@ -20,17 +20,19 @@ const (
 )
 
 var (
-	colorYellow      = sharedpalette.ColorYellow
-	colorBlue        = sharedpalette.ColorBlue
-	colorBrightWhite = sharedpalette.ColorBrightWhite
-	colorBrightBlack = sharedpalette.ColorBrightBlack
-	colorGreen       = sharedpalette.ColorGreen
-	colorRed         = sharedpalette.ColorRed
-	colorBlack       = sharedpalette.ColorBlack
-	brandYellow      = sharedpalette.BrandYellow
-	brandBlue        = sharedpalette.BrandBlue
-	brandRed         = sharedpalette.BrandRed
-	brandBlack       = sharedpalette.BrandBlack
+	colorYellow       = sharedpalette.ColorYellow
+	colorBlue         = sharedpalette.ColorBlue
+	colorGreen        = sharedpalette.ColorGreen
+	colorRed          = sharedpalette.ColorRed
+	colorBlack        = sharedpalette.ColorBlack
+	colorWhite        = sharedpalette.ColorWhite
+	colorBrightWhite  = sharedpalette.ColorBrightWhite
+	colorBrightBlack  = sharedpalette.ColorBrightBlack
+	colorBrightYellow = sharedpalette.ColorBrightYellow
+	brandYellow       = sharedpalette.BrandYellow
+	brandBlue         = sharedpalette.BrandBlue
+	brandRed          = sharedpalette.BrandRed
+	brandBlack        = sharedpalette.BrandBlack
 )
 
 // Outer width of the process list column (including border)
@@ -111,6 +113,9 @@ var (
 			Bold(true).
 			Foreground(colorYellow).
 			Background(colorBrightBlack)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(colorBrightYellow)
 )
 
 func statusIconChar(s process.Status) string {
@@ -163,21 +168,33 @@ func borderFor(isDark, focused bool) lipgloss.Style {
 	return s
 }
 
-func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, innerW int, isDark bool) string {
-	nameW := max(innerW-2, 0) // 1 padding + 1 icon
-	selBg := subtleBg(isDark)
+type sidebarRow struct {
+	icon      string
+	name      string
+	iconColor color.Color
+	selected  bool
+	unread    bool
+	innerW    int
+	isDark    bool
+}
 
-	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor)
-	if selected {
-		iconStyle = iconStyle.Bold(true).Background(selBg)
+func renderSidebarRow(r sidebarRow) string {
+	nameW := max(r.innerW-2, 0) // 1 padding + 1 icon
+	selBg := subtleBg(r.isDark)
+
+	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(r.iconColor)
+	if r.selected {
+		iconStyle = iconStyle.Background(selBg)
 	}
 
 	nameStyle := lipgloss.NewStyle().Width(nameW)
-	if selected {
-		nameStyle = nameStyle.Bold(true).Background(selBg)
+	if r.selected {
+		nameStyle = nameStyle.Background(selBg)
+	} else if r.unread {
+		nameStyle = nameStyle.Bold(true)
 	}
 
-	return iconStyle.Render(icon) + nameStyle.Render(" "+name)
+	return iconStyle.Render(r.icon) + nameStyle.Render(" "+r.name)
 }
 
 func helpStyles() help.Styles {

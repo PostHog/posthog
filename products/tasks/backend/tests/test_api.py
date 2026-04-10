@@ -19,6 +19,7 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 # Test RSA private key for JWT tests (RS256)
 TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
@@ -319,6 +320,125 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
         mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"pending_user_message": "Read the attached file first"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(
+            task_run.state["pending_user_message"],
+            "Read the attached file first",
+        )
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
+        task = self.create_task()
+        github_user_token = "ghu_test_token"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "branch": "main",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": github_user_token,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "user"
+        assert task_run.state["run_source"] == "manual"
+        assert task_run.state["pr_base_branch"] == "main"
+        assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resume_carries_forward_pr_authorship_metadata(self, mock_workflow):
+        task = self.create_task()
+        github_user_token = "ghu_resume_token"
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "pr_authorship_mode": "bot",
+                "run_source": "signal_report",
+                "signal_report_id": "report-123",
+                "pr_base_branch": "main",
+                "snapshot_external_id": "snap-1",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "resume_from_run_id": str(previous_run.id),
+                "pending_user_message": "Please continue",
+                "github_user_token": github_user_token,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "bot"
+        assert task_run.state["run_source"] == "signal_report"
+        assert task_run.state["signal_report_id"] == "report-123"
+        assert task_run.state["snapshot_external_id"] == "snap-1"
+        assert task_run.state["pr_base_branch"] == "main"
+        # Token not cached for bot-authored runs even if the client sends one
+        assert get_cached_github_user_token(str(task_run.id)) is None
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
@@ -780,6 +900,31 @@ class TestTaskRunAPI(BaseTaskAPITest):
         input_arg = mock_post_slack_update.call_args[0][0]
         self.assertEqual(input_arg.run_id, str(run.id))
         self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+
+    def test_partial_update_merges_output_dict(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"head_branch": "posthog-code/update-readme"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/2"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(
+            run.output,
+            {
+                "head_branch": "posthog-code/update-readme",
+                "pr_url": "https://github.com/org/repo/pull/2",
+            },
+        )
 
     @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):

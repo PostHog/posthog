@@ -24,6 +24,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.detector import check_trends_alert_with_detector
+from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
@@ -226,7 +227,7 @@ def check_alert_task(
 )
 def check_alert(alert_id: str) -> None:
     try:
-        alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
+        alert = AlertConfiguration.objects.select_related("insight", "team").get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
@@ -260,7 +261,16 @@ def check_alert(alert_id: str) -> None:
 
         # ignore alert check until due again
         alert.next_check_at = next_check_time(alert)
-        alert.save()
+        alert.save(update_fields=["next_check_at"])
+        return
+
+    if is_utc_datetime_blocked(alert, now):
+        logger.info(
+            "Skipping alert check because of schedule restriction (quiet hours)",
+            alert_id=alert.id,
+        )
+        alert.next_check_at = next_unblocked_utc(alert, now)
+        alert.save(update_fields=["next_check_at"])
         return
 
     if alert.snoozed_until:

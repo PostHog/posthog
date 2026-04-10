@@ -34,6 +34,7 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -569,6 +570,7 @@ def property_to_expr(
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
         | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[

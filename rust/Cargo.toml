@@ -38,6 +38,7 @@ members = [
     "common/hogvm",
     "kafka-assigner",
     "kafka-assigner-proto",
+    "ingestion-consumer",
     "kafka-deduplicator",
     "personhog-common",
     "personhog-coordination",

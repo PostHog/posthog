@@ -184,6 +184,28 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
+        "shallow,expected_in_command,not_expected_in_command",
+        [
+            (True, "--depth 1", None),
+            (False, "--single-branch", "--depth"),
+        ],
+    )
+    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                command = mock_execute.call_args[0][0]
+
+                assert expected_in_command in command
+                if not_expected_in_command:
+                    assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
         [
             ("PostHog/posthog", "task-123", "run-456", "background"),
@@ -246,7 +268,8 @@ class TestDockerSandboxUnit:
         assert "nohup" in command
         assert "./node_modules/.bin/agent-server" in command
 
-    def test_start_agent_server_passes_allowed_domains(self):
+    def test_start_agent_server_ignores_allowed_domains_in_docker(self):
+        """allowed_domains is intentionally ignored in Docker sandbox until agentsh works reliably."""
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -268,11 +291,10 @@ class TestDockerSandboxUnit:
                         allowed_domains=["example.com"],
                     )
 
-        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
+        mock_setup_agentsh.assert_not_called()
         command = mock_execute.call_args_list[0][0][0]
-        assert "--allowedDomains" in command
-        assert "agentsh exec" in command
-        assert "env -0 > /tmp/agent-env" in command
+        assert "--allowedDomains" not in command
+        assert "agentsh exec" not in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

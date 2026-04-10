@@ -80,6 +80,9 @@ jobs:
                     - release: capture-logs
                       digest_key: capture-logs
                       values_key: image
+                    - release: ingestion-consumer
+                      digest_key: ingestion-consumer
+                      values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
                       values_key: image

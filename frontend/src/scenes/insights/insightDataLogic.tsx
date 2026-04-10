@@ -121,10 +121,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     }
 
                     try {
-                        const response = await api.insights.generateMetadata({
-                            kind: NodeKind.InsightVizNode,
-                            source: insightQuery,
-                        })
+                        const query =
+                            insightQuery.kind === NodeKind.ActorsQuery
+                                ? insightQuery
+                                : { kind: NodeKind.InsightVizNode, source: insightQuery }
+                        const response = await api.insights.generateMetadata(query)
 
                         eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
 

@@ -267,7 +267,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         downstreams = _get_downstream_lookup(edge_lookup)
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
-        # all levels to be a friendlier neighbor to duckgres infrastructure
+        # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(

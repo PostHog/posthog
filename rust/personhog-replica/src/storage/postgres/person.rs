@@ -296,6 +296,76 @@ impl PersonLookup for PostgresStorage {
             .collect())
     }
 
+    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64> {
+        if uuids.is_empty() {
+            return Ok(0);
+        }
+
+        let client = current_client_name();
+        let labels = [
+            ("operation".to_string(), "delete_persons".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.primary_pool.begin().await?;
+
+        // Delete distinct_id rows first — the FK on posthog_persondistinctid.person_id
+        // is NO ACTION, so the person delete would fail if these still exist.
+        let did_result = sqlx::query!(
+            r#"
+            DELETE FROM posthog_persondistinctid
+            WHERE team_id = $1
+              AND person_id IN (SELECT id FROM posthog_person WHERE team_id = $1 AND uuid = ANY($2))
+            "#,
+            team_id as i32,
+            uuids
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_distinct_ids_for_persons".to_string(),
+                ),
+                ("pool".to_string(), "primary".to_string()),
+                ("client".to_string(), client.to_string()),
+            ],
+            did_result.rows_affected() as f64,
+        );
+
+        // Delete person rows. posthog_featureflaghashkeyoverride rows cascade
+        // automatically at the DB level (ON DELETE CASCADE).
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2)
+            "#,
+            team_id as i32,
+            uuids
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                ("operation".to_string(), "delete_persons".to_string()),
+                ("pool".to_string(), "primary".to_string()),
+                ("client".to_string(), client.to_string()),
+            ],
+            result.rows_affected() as f64,
+        );
+
+        tx.commit().await?;
+
+        Ok(result.rows_affected() as i64)
+    }
+
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],

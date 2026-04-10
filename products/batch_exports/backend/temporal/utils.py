@@ -1,5 +1,6 @@
 import re
 import uuid
+import random
 import typing
 import asyncio
 import functools
@@ -257,8 +258,28 @@ def make_retryable_with_exponential_backoff(
     exponential_backoff_coefficient: int = 2,
     retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
     is_exception_retryable: typing.Callable[[Exception], bool] = lambda _: True,
+    max_delay_jitter: int | float = 3,
 ) -> typing.Callable[_P, collections.abc.Coroutine[typing.Any, typing.Any, _Result]]:
-    """Retry the provided async `func` until `max_attempts` is reached."""
+    """Retry the provided async `func` until `max_attempts` is reached.
+
+    All units are in seconds.
+
+    Arguments:
+        func: The coroutine to retry.
+        timeout: How long to wait for the coroutine to run.
+        max_attempts: Limit number of retry attempts. Set to 0 for no limit.
+        initial_retry_delay: Delay for the first retry.
+        max_retry_delay: Maximum possible delay between any attempts.
+        exponential_backoff_coefficient: Exponential factor used to scale
+            `initial_retry_delay`.
+        retryable_exceptions: Tuple of exceptions that should be retried. Anything else
+            will be re-raised.
+        is_exception_retryable: Function called with a caught exception to further
+            determine whether it can be retried or not. This is useful for when, for
+            example, the same exception class can be retried or not depending on a code
+            or message attribute.
+        max_delay_jitter: Maximum jitter added to every retry delay.
+    """
 
     @functools.wraps(func)
     async def inner(*args: _P.args, **kwargs: _P.kwargs) -> _Result:
@@ -276,6 +297,7 @@ def make_retryable_with_exponential_backoff(
 
                 await asyncio.sleep(
                     min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                    + random.uniform(0, max_delay_jitter)
                 )
 
             else:

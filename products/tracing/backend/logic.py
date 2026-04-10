@@ -174,12 +174,44 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        return QueryDateRange(
+        qdr = QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
             interval_count=2,
             now=dt.datetime.now(),
+        )
+
+        _step = (qdr.date_to() - qdr.date_from()) / 50
+        interval_type = IntervalType.SECOND
+
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
+
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
+
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
         )
 
     @cached_property

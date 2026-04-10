@@ -33,6 +33,7 @@ export interface IntegrationSettingsModalState {
     integration: NativeMarketingSource | null
     initialTab: IntegrationSettingsTab
     initialUtmValue: string
+    initialCampaignName: string
 }
 
 export interface TestMappingResult {
@@ -109,8 +110,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         openIntegrationSettingsModal: (
             integration: NativeMarketingSource,
             initialTab: IntegrationSettingsTab,
-            initialUtmValue: string
-        ) => ({ integration, initialTab, initialUtmValue }),
+            initialUtmValue: string,
+            initialCampaignName: string = ''
+        ) => ({ integration, initialTab, initialUtmValue, initialCampaignName }),
         closeIntegrationSettingsModal: true,
         testMapping: (tableId: string, sourceMap: SourceMap) => ({ tableId, sourceMap }),
         setTestMappingResult: (tableId: string, result: TestMappingResult) => ({ tableId, result }),
@@ -264,19 +266,25 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 integration: null,
                 initialTab: 'mappings',
                 initialUtmValue: '',
+                initialCampaignName: '',
             } as IntegrationSettingsModalState,
             {
-                openIntegrationSettingsModal: (_, { integration, initialTab, initialUtmValue }) => ({
+                openIntegrationSettingsModal: (
+                    _,
+                    { integration, initialTab, initialUtmValue, initialCampaignName }
+                ) => ({
                     isOpen: true,
                     integration,
                     initialTab,
                     initialUtmValue,
+                    initialCampaignName,
                 }),
                 closeIntegrationSettingsModal: () => ({
                     isOpen: false,
                     integration: null,
                     initialTab: 'mappings',
                     initialUtmValue: '',
+                    initialCampaignName: '',
                 }),
             },
         ],

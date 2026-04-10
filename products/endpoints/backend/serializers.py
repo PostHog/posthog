@@ -74,6 +74,9 @@ class EndpointRequestSerializer(serializers.Serializer):
 class EndpointMaterializationSerializer(serializers.Serializer):
     """Materialization status for an endpoint version."""
 
+    name = serializers.CharField(
+        help_text="URL-safe endpoint name.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",
@@ -172,6 +175,29 @@ class EndpointResponseSerializer(serializers.Serializer):
     columns = EndpointColumnSerializer(
         many=True,
         help_text="Column names and types from the query's SELECT clause.",
+    )
+
+
+class EndpointRunResponseSerializer(serializers.Serializer):
+    """Response from executing an endpoint query."""
+
+    name = serializers.CharField(help_text="URL-safe endpoint name that was executed.")
+    results = serializers.ListField(
+        required=False,
+        help_text="Query result rows. Each row is a list of values matching the columns order.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Column names from the query SELECT clause.",
+    )
+    hasMore = serializers.BooleanField(
+        required=False,
+        help_text="Whether more results are available beyond the limit.",
+    )
+    endpoint_version = serializers.IntegerField(
+        required=False,
+        help_text="Version number of the endpoint that was executed.",
     )
 
 

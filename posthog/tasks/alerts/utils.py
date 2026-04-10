@@ -23,6 +23,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
+from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
@@ -167,15 +168,8 @@ def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
     return now_local.isoweekday() in [6, 7]
 
 
-def next_check_time(alert: AlertConfiguration) -> datetime:
-    """
-    Rule by calculation interval
-
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
-    """
+def _next_check_time_core(alert: AlertConfiguration) -> datetime:
+    """Nominal next check instant before schedule_restriction snapping."""
     now = datetime.now(pytz.UTC)
     team_timezone = pytz.timezone(alert.team.timezone)
 
@@ -185,31 +179,55 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
         case AlertCalculationInterval.DAILY:
             # Get the next date in the specified timezone
             tomorrow_local = datetime.now(team_timezone) + relativedelta(days=1)
-
             # set hour to 1 AM
             # only replacing hour and not minute/second... to distribute execution of all daily alerts
             one_am_local = tomorrow_local.replace(hour=1)
-
             # Convert to UTC
             return one_am_local.astimezone(pytz.utc)
         case AlertCalculationInterval.WEEKLY:
             next_monday_local = datetime.now(team_timezone) + relativedelta(days=1, weekday=MO(1))
-
             # Set the hour to around 3 AM on next Monday
             next_monday_1am_local = next_monday_local.replace(hour=3)
-
             # Convert to UTC
             return next_monday_1am_local.astimezone(pytz.utc)
         case AlertCalculationInterval.MONTHLY:
             next_month_local = datetime.now(team_timezone) + relativedelta(months=1)
-
             # Set hour to 4 AM on first day of next month
             next_month_1am_local = next_month_local.replace(day=1, hour=4)
-
             # Convert to UTC
             return next_month_1am_local.astimezone(pytz.utc)
         case _:
             raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
+
+
+def next_check_time(alert: AlertConfiguration) -> datetime:
+    """
+    Rule by calculation interval
+
+    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
+    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
+    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
+    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
+    """
+    candidate = _next_check_time_core(alert)
+    return snap_candidate_utc_to_schedule_restriction(alert, candidate)
+
+
+def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -> datetime:
+    """
+    After persisting a new schedule_restriction (or clearing it), compute next_check_at like
+    ``mark_for_recheck`` + ``next_check_time`` (same as the worker after a check).
+
+    We temporarily clear ``next_check_at`` so the interval math uses *now* (not a stale future instant).
+    Otherwise a previously snapped time (e.g. first minute after quiet hours) can stick at 4pm local
+    even when it is still morning and earlier hourly runs are allowed.
+    """
+    old_next = alert.next_check_at
+    try:
+        alert.next_check_at = None
+        return next_check_time(alert)
+    finally:
+        alert.next_check_at = old_next
 
 
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:

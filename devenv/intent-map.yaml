@@ -188,7 +188,7 @@ capabilities:
 # Intents map to products/features developers work on
 intents:
     product_analytics:
-        description: 'Core product analytics - insights, funnels, trends'
+        description: 'Core product analytics (insights, funnels, trends)'
         capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
 
     error_tracking:

@@ -253,6 +253,7 @@ const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
 const FeatureFlagsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,

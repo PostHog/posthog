@@ -165,6 +165,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
             _registered_method=True,
         )
+        self.DeletePersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeletePersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class PersonHogServiceServicer:
@@ -298,6 +304,17 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def DeletePersons(self, request, context):
+        """Person deletes
+        WARNING: This is a write operation on person data. It should route to the leader
+        once personhog-leader supports deletes. Currently routed through the replica
+        (which uses the primary Postgres pool) as a temporary measure.
+        TODO: Migrate routing to leader before personhog-leader goes live.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_PersonHogServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -405,6 +422,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.UpdatePersonProperties,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.SerializeToString,
+        ),
+        "DeletePersons": grpc.unary_unary_rpc_method_handler(
+            servicer.DeletePersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -1036,6 +1058,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeletePersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeletePersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.FromString,
             options,
             channel_credentials,
             insecure,

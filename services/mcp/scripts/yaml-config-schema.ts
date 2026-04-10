@@ -21,6 +21,8 @@ export const ToolConfigSchema = z
             .strict()
             .optional(),
         input_schema: z.string().optional(),
+        /** Optional TypeScript type expression used for the generated handler return type and request generic. */
+        response_type: z.string().optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),

@@ -34,6 +34,7 @@ export function TaxonomicFilter({
     metadataSource,
     eventNames,
     schemaColumns,
+    schemaColumnsLoading,
     height,
     width,
     excludedProperties,
@@ -49,6 +50,7 @@ export function TaxonomicFilter({
     hogQLGlobals,
     definitionPopoverRenderer,
     minSearchQueryLength,
+    suggestedFiltersLabel,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -69,6 +71,7 @@ export function TaxonomicFilter({
         optionsFromProp,
         eventNames,
         schemaColumns,
+        schemaColumnsLoading,
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
@@ -83,6 +86,7 @@ export function TaxonomicFilter({
         maxContextOptions,
         hogQLGlobals,
         minSearchQueryLength,
+        suggestedFiltersLabel,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -143,10 +147,13 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus'> &
+    } & Pick<
+        LemonInputPropsText,
+        'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
+    > &
         Pick<TooltipProps, 'docLink'>
 >(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, docLink, autoFocus = true, ...props },
+    { searchInputRef, onClose, onChange, docLink, autoFocus = true, placeholder, ...props },
     ref
 ): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
@@ -171,7 +178,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             data-attr="taxonomic-filter-searchfield"
             type="search"
             fullWidth
-            placeholder={`Search ${searchPlaceholder}`}
+            placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
             suffix={
                 <>

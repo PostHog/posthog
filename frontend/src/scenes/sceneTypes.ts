@@ -57,6 +57,7 @@ export enum Scene {
     Experiment = 'Experiment',
     Experiments = 'Experiments',
     Exports = 'Exports',
+    Subscriptions = 'Subscriptions',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
@@ -341,6 +342,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Customer analytics (only journey scenes — configuration uses project-level admin)
+    [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
+    [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
     // LLM Analytics
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,

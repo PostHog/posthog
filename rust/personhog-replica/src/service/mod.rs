@@ -12,7 +12,8 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    DeletePersonsRequest, DeletePersonsResponse, DistinctIdWithVersion,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -294,6 +295,38 @@ impl PersonHogReplica for PersonHogReplicaService {
         Ok(Response::new(GetDistinctIdsForPersonsResponse {
             person_distinct_ids,
         }))
+    }
+
+    // ============================================================
+    // Person deletes
+    // ============================================================
+
+    async fn delete_persons(
+        &self,
+        request: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let deleted_count = self
+            .storage
+            .delete_persons(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
+
+        Ok(Response::new(DeletePersonsResponse { deleted_count }))
     }
 
     // ============================================================

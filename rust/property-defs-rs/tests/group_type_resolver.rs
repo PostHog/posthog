@@ -188,6 +188,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn delete_persons(
+        &self,
+        _: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------
