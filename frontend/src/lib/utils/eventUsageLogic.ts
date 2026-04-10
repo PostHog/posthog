@@ -49,6 +49,7 @@ import {
     ChartDisplayType,
     CohortType,
     DashboardMode,
+    DashboardTemplateScope,
     DashboardTile,
     DashboardWidgetType,
     DashboardType,
@@ -558,6 +559,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_id: string
             template_name: string
             template_variable_count: number
+            template_scope: DashboardTemplateScope | null
         }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,

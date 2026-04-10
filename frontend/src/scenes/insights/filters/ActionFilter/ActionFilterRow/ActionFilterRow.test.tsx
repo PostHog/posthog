@@ -477,6 +477,24 @@ describe('ActionFilterRow', () => {
             expect(screen.getByText('sum(price)')).toBeInTheDocument()
         })
 
+        it('defaults HogQL math expression to person_id for stickiness insights', async () => {
+            const { logic, setFilters } = setup({ insight: InsightType.STICKINESS })
+            renderRow(logic, {
+                mathAvailability: MathAvailability.All,
+                insightType: InsightType.STICKINESS,
+            })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+            await waitFor(() => expect(screen.getByText('SQL expression')).toBeInTheDocument())
+            await userEvent.click(screen.getByText('SQL expression'))
+
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })]),
+                })
+            )
+        })
+
         it('does not show math selector inline for FunnelsOnly (it goes in the popup menu)', () => {
             const { logic } = setup({ insight: InsightType.FUNNELS })
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
