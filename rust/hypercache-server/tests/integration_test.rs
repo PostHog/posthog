@@ -575,5 +575,8 @@ async fn test_health_endpoints() -> anyhow::Result<()> {
     let resp = reqwest::get(server.url("/_readiness")).await?;
     assert_eq!(resp.status(), 200);
 
+    let resp = reqwest::get(server.url("/_liveness")).await?;
+    assert_eq!(resp.status(), 200);
+
     Ok(())
 }

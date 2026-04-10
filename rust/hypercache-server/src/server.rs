@@ -3,6 +3,7 @@ use std::{future::Future, net::SocketAddr, sync::Arc};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig};
 use health::HealthRegistry;
+use time;
 use tokio::net::TcpListener;
 
 use crate::config::Config;
@@ -61,6 +62,9 @@ where
         };
 
     let liveness = HealthRegistry::new("liveness");
+    let liveness_handle = liveness
+        .register("server".to_string(), time::Duration::seconds(120))
+        .await;
 
     let app = crate::router::router(
         surveys_hypercache_reader,
@@ -68,6 +72,9 @@ where
         liveness,
         config,
     );
+
+    // Report healthy now that all HyperCacheReaders are initialized and the router is built
+    liveness_handle.report_healthy().await;
 
     tracing::info!(
         "listening on {:?}",

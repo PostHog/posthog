@@ -29,6 +29,7 @@ tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 regex = { workspace = true }
+time = { workspace = true }
 url = "2.5"
 
 [dev-dependencies]
