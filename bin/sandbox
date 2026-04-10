@@ -655,10 +655,16 @@ def init_cache_from_master() -> None:
         # entrypoint's cache_init_phase warms uv/pnpm/cargo caches, runs
         # migrations, and generates demo data, then exits.
         info("Running cache-init entrypoint...")
+        # Let callers (e.g. the cloud cache builder) opt out of the expensive
+        # cargo pre-build, since the cloud archive strips the target dir anyway.
+        extra_env: list[str] = []
+        if os.environ.get("SANDBOX_SKIP_CARGO_PREBUILD"):
+            extra_env = ["-e", "SANDBOX_SKIP_CARGO_PREBUILD=1"]
         compose(
             init_project, init_port, init_worktree,
             "run", "--rm", "--build",
             "-e", "SANDBOX_MODE=cache-init",
+            *extra_env,
             "app",
         )
 

@@ -539,6 +539,14 @@ def cache_init_phase() -> None:
         run(["python", "manage.py", "generate_demo_data", "--skip-flag-sync"])
 
     def build_rust() -> None:
+        # The cloud cache builder strips the cargo target dir from the archive
+        # before upload (it's too big to extract on the hot path), so there's
+        # no point pre-building on that builder — the work would be thrown
+        # away. Local cache builds still pre-build to keep subsequent boots
+        # fast.
+        if os.environ.get("SANDBOX_SKIP_CARGO_PREBUILD"):
+            info("Skipping Rust pre-build (SANDBOX_SKIP_CARGO_PREBUILD set).")
+            return
         info("Pre-building Rust workspace...")
         try:
             run(
