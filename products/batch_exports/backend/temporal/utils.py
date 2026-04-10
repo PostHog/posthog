@@ -267,7 +267,7 @@ def make_retryable_with_exponential_backoff(
     Arguments:
         func: The coroutine to retry.
         timeout: How long to wait for the coroutine to run.
-        max_attempts: Limit number of retry attempts. Set to 0 or `None` for no limit.
+        max_attempts: Limit number of retry attempts. Set to `None` for no limit.
         initial_retry_delay: Delay for the first retry.
         max_retry_delay: Maximum possible delay between any attempts.
         exponential_backoff_coefficient: Exponential factor used to scale
