@@ -1068,6 +1068,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 minimum_detectable_effect: 5,
                 filter_test_accounts: true,
                 draft: options.draft !== undefined ? options.draft : true,
+                allow_unknown_events: true,
             })
 
             expect(createResult.success).toBe(true)
@@ -1458,6 +1459,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 minimum_detectable_effect: 10,
                 filter_test_accounts: true,
                 draft: true,
+                allow_unknown_events: true,
             })
 
             expect(createResult.success).toBe(true)

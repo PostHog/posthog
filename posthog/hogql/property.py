@@ -763,6 +763,9 @@ def property_to_expr(
         elif property.type == "log":
             chain = [property.key]
             property.key = ""
+        elif property.type == "span":
+            chain = [property.key]
+            property.key = ""
         elif scope == "log_resource":
             # log resource attributes are stored in a separate table as `attribute_key` and `attribute_value`
             # columns. The `attribute_key` filter needs to be added separately outside of property_to_expr

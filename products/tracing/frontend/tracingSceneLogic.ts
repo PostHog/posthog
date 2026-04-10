@@ -71,7 +71,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setServiceNames: () => {
             actions.syncUrlAndRunQuery()
         },
-        setSearchTerm: () => {
+        setFilterGroup: () => {
             actions.syncUrlAndRunQuery()
         },
         setOrderBy: () => {
