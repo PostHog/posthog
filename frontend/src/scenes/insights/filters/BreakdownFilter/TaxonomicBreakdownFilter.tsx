@@ -159,7 +159,7 @@ export function TaxonomicBreakdownFilter({
                 {tags}
                 <TaxonomicBreakdownButton
                     disabledReason={composedDisabledReason}
-                    disabledReasonInteractive={canEditInSqlEditor && !!composedDisabledReason}
+                    disabledReasonInteractive={!!composedDisabledReason}
                     size={size}
                 />
             </div>
