@@ -114,10 +114,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                     SourceFieldSwitchGroupConfig(
                         name="ssl_enabled",
-                        label="Require SSL/TLS?",
+                        label="Require TLS through tunnel?",
                         default=True,
                         fields=[],
-                        caption="Disable if your database does not support SSL/TLS.",
+                        caption="Disable if your database does not support TLS.",
                     ),
                 ],
             ),
