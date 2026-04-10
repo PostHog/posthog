@@ -33,16 +33,12 @@ function makeBadges(positions: number[]): PositionedBadge[] {
     }))
 }
 
-/** [leftPx, rightPx, annotationCount] */
-type ExpectedCluster = [number, number, number]
+type ExpectedCluster = [leftPx: number, rightPx: number, annotationCount: number]
 
 describe('clusterAnnotationBadges', () => {
     it.each<{ name: string; positions: number[]; expected: ExpectedCluster[] }>([
         { name: 'merges two overlapping badges', positions: [10, 20], expected: [[10, 20, 2]] },
         {
-            // Regression: chained merging lets a cluster span more than minSpacingPx
-            // (0→22→44 each within 24 of the previous). The rightPx field must track the
-            // full extent so tick suppression sees the interior.
             name: 'chains into a cluster that spans more than minSpacingPx',
             positions: [0, 22, 44],
             expected: [[0, 44, 3]],
@@ -63,9 +59,6 @@ describe('clusterAnnotationBadges', () => {
 })
 
 describe('tickOverlapsAnyCluster', () => {
-    // Regression for Greptile P2: the chained cluster at 0,22,44 spans leftPx=0..rightPx=44.
-    // A tick at 56 is only 12px from the last badge but 56px from the anchor — previously the
-    // anchor-only check let it slip through.
     const chained = clusterAnnotationBadges(makeBadges([0, 22, 44]), MIN_BADGE_SPACING_PX)
 
     it('suppresses a tick inside a chained cluster (regression)', () => {

@@ -11,8 +11,6 @@ export interface AnnotationBadgeCluster {
     dateRange: [Dayjs, Dayjs]
     annotations: DatedAnnotationType[]
     leftPx: number
-    /** Rightmost badge absorbed into the cluster. A chained cluster can span more than
-     *  minSpacingPx, so callers doing overlap checks need the full extent, not just leftPx. */
     rightPx: number
 }
 
