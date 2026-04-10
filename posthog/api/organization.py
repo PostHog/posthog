@@ -125,6 +125,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         read_only_fields = [
             "id",
@@ -142,6 +143,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         extra_kwargs = {
             "slug": {
@@ -336,6 +338,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Please cancel your subscription first in the billing page."
                     )
 
+        if organization.is_pending_deletion:
+            raise exceptions.ValidationError("This organization is already being deleted.")
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         teams = list(organization.teams.only("id", "name").all())
@@ -344,8 +349,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization_id = organization.pk
         organization_name = organization.name
 
-        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
-        organization.memberships.all().delete()
+        # Mark as pending deletion
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email

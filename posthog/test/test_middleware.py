@@ -1379,6 +1379,37 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
 
+    def test_pending_deletion_redirects_non_api_paths(self):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/organization-pending-deletion")
+
+    def test_pending_deletion_allows_pending_deletion_page(self):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get("/organization-pending-deletion")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_pending_deletion_skips_api_paths(self):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_pending_deletion_does_not_redirect_to_deactivated(self):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get("/some-page")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/organization-pending-deletion")
+        self.assertNotIn("deactivated", response.headers["Location"])
+
 
 class TestCSPMiddleware(APIBaseTest):
     def test_non_html_response_gets_strict_csp(self):
