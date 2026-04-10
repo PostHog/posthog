@@ -30,6 +30,8 @@ interface AppShortcutBase {
     scope?: 'global' | keyof typeof Scene
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Easter egg enabler */
+    hidden?: boolean
 }
 
 interface AppShortcutWithRef extends AppShortcutBase {
@@ -190,10 +192,19 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             // Since single key shortcuts trigger eagerly, sequence shortcuts need to
             // check for collisions before being implemented. We could also make this
             // "lazy" but that would result in a noticeable lag in app for single key
-            // shortcuts. My preference is the eager way
-            const singleKeyMatch = values.registeredAppShortcuts.find((shortcut) =>
-                shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
-            )
+            // shortcuts. My preference is the eager way.
+            //
+            // Exception: if a sequence is already in progress (we've buffered at least
+            // one key within the timeout), suppress single-key shortcuts so that
+            // sequences whose intermediate letters happen to match a single-key binding
+            // (e.g. PEPE contains 'e', which is bound to "edit" on the dashboard
+            // scene) can still complete.
+            const singleKeyMatch =
+                cache.sequenceKeys.length === 0
+                    ? values.registeredAppShortcuts.find((shortcut) =>
+                          shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
+                      )
+                    : undefined
 
             if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
                 event.preventDefault()

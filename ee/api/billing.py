@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
@@ -492,13 +492,27 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = self._get_org_required()
 
         code = request.data.get("code")
-        if not code:
-            raise ValidationError({"code": "This field is required."})
+        campaign_slug = request.data.get("campaign_slug")
+        if not code and not campaign_slug:
+            raise ValidationError({"detail": "Either 'code' or 'campaign_slug' is required."})
+        if code and campaign_slug:
+            raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
+
+        payload = {"code": code} if code else {"campaign_slug": campaign_slug}
 
         billing_manager = self.get_billing_manager()
 
         try:
-            res = billing_manager.claim_coupon(organization, {"code": code})
+            res = billing_manager.claim_coupon(organization, payload)
+            if campaign_slug:
+                report_user_action(
+                    request.user,
+                    "billing cheat code redeemed",
+                    properties={
+                        "campaign_slug": campaign_slug,
+                        "campaign_name": res.get("campaign") if isinstance(res, dict) else None,
+                    },
+                )
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
