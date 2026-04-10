@@ -1,7 +1,7 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -60,6 +60,11 @@ pub fn router(
         .route(
             "/array/:token/config.js",
             any(remote_config::config_js_endpoint),
+        )
+        // Explicit 404 for sourcemap requests to avoid high-cardinality unmatched paths in metrics
+        .route(
+            "/array/:token/config.js.map",
+            any(|| ready(StatusCode::NOT_FOUND)),
         )
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 

@@ -578,5 +578,10 @@ async fn test_health_endpoints() -> anyhow::Result<()> {
     let resp = reqwest::get(server.url("/_liveness")).await?;
     assert_eq!(resp.status(), 200);
 
+    // Sourcemap requests should 404 with a matched route (not unmatched)
+    let resp =
+        reqwest::get(server.url("/array/phc_test/config.js.map")).await?;
+    assert_eq!(resp.status(), 404);
+
     Ok(())
 }
