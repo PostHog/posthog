@@ -212,12 +212,15 @@ interfaces = [
     "products.error_tracking.backend.facade",
     # Presentation HTTP surface.
     "products.error_tracking.backend.presentation.views",
-    # Infra / framework interfaces.
+    # Infra / framework interfaces (canonical public paths).
     "products.error_tracking.backend.apps",
+    "products.error_tracking.backend.infra",
+    "products.error_tracking.dags",
+    # Legacy shim paths kept public for FROZEN ClickHouse migrations only.
+    # New code must import from `backend.infra.*`. Do not add new consumers here.
     "products.error_tracking.backend.embedding",
     "products.error_tracking.backend.indexed_embedding",
     "products.error_tracking.backend.sql",
-    "products.error_tracking.dags",
     # Test-only sanctioned helper for external tests.
     "products.error_tracking.backend.test.factories",
 ]
