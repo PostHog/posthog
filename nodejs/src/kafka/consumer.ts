@@ -31,6 +31,7 @@ import { normalizeSessionId } from '~/utils/utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
+import { withStallWarning } from '../utils/promise-stall-warning'
 import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
@@ -825,7 +826,16 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await withStallWarning(this.backgroundTask[0].promise, {
+                            name: 'consumer_backpressure_wait',
+                            stallThresholdMs: 30_000,
+                            context: {
+                                topic: this.config.topic,
+                                groupId: this.config.groupId,
+                                backgroundTaskCount: this.backgroundTask.length,
+                                oldestTaskAgeMs: Date.now() - this.backgroundTask[0].createdAt,
+                            },
+                        })
                         stopTimer()
                     }
                 }

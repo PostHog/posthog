@@ -14,6 +14,7 @@ import { Counter, Summary } from 'prom-client'
 
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
+import { withStallWarning } from '../utils/promise-stall-warning'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -136,19 +137,25 @@ export class KafkaProducerWrapper {
                     [key]: value,
                 })) ?? []
 
-            const result = await new Promise((resolve, reject) => {
-                this.producer.produce(
-                    topic,
-                    null,
-                    value,
-                    key,
-                    Date.now(),
-                    kafkaHeaders,
-                    (error: any, offset: NumberNullUndefined) => {
-                        return error ? reject(error) : resolve(offset)
-                    }
-                )
-            })
+            const result = await withStallWarning(
+                new Promise((resolve, reject) => {
+                    this.producer.produce(
+                        topic,
+                        null,
+                        value,
+                        key,
+                        Date.now(),
+                        kafkaHeaders,
+                        (error: any, offset: NumberNullUndefined) => {
+                            return error ? reject(error) : resolve(offset)
+                        }
+                    )
+                }),
+                {
+                    name: 'kafka_produce_callback',
+                    context: { topic, producerName: this.name },
+                }
+            )
 
             kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
