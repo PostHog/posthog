@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,6 +15,7 @@ import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
 import { BatchExportRunsLogicProps, batchExportRunsLogic } from './batchExportRunsLogic'
 import { BatchExportContext } from './types'
+import { statusToLemonTagType } from './utils'
 
 function isRunInProgress(run: BatchExportRun): boolean {
     return ['Running', 'Starting'].includes(run.status)
@@ -455,7 +456,7 @@ export function BatchExportRunIcon({
     const latestRun = runs[0]
 
     const status = combineFailedStatuses(latestRun.status)
-    const tagType = lemonTagTypeForRunStatus(status, latestRun.records_failed)
+    const tagType = statusToLemonTagType(status, { recordsFailed: latestRun.records_failed })
 
     return (
         <Tooltip
@@ -505,24 +506,4 @@ function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | st
         )
     }
     return humanFriendlyNumber(run.records_completed)
-}
-
-function lemonTagTypeForRunStatus(status: BatchExportRun['status'], records_failed?: number): LemonTagType {
-    switch (status) {
-        case 'Completed':
-            return records_failed && records_failed > 0 ? 'warning' : 'success'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'primary'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'warning'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'danger'
-        default:
-            return 'default'
-    }
 }

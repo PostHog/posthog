@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,6 +13,7 @@ import { BatchExportBackfill } from '~/types'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
 import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
+import { statusToLemonTagType, statusToProgressStrokeColor } from './utils'
 
 export function BatchExportBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id, context })
@@ -84,7 +85,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                         render: (_, backfill) => {
                             const status = backfill.status
                             return (
-                                <LemonTag type={backfillStatusToLemonTagType(status)} size="medium">
+                                <LemonTag type={statusToLemonTagType(status)} size="medium">
                                     {status}
                                 </LemonTag>
                             )
@@ -111,7 +112,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                                     <span className="flex gap-2 items-center">
                                         <LemonProgress
                                             percent={progress.progress * 100}
-                                            strokeColor={backfillStatusToProgressStrokeColor(status)}
+                                            strokeColor={statusToProgressStrokeColor(status)}
                                             className="min-w-[80px]"
                                         />
                                         <span className="flex-shrink-0 whitespace-nowrap">{label}</span>
@@ -245,46 +246,6 @@ function BackfillCancelButton({
             />
         </span>
     )
-}
-
-function backfillStatusToLemonTagType(status: BatchExportBackfill['status']): LemonTagType {
-    switch (status) {
-        case 'Completed':
-            return 'success'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'primary'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'warning'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'danger'
-        default:
-            return 'default'
-    }
-}
-
-function backfillStatusToProgressStrokeColor(status: BatchExportBackfill['status']): string {
-    switch (status) {
-        case 'Completed':
-            return 'var(--success)'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'var(--color-accent)'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'var(--warning)'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'var(--danger)'
-        default:
-            return 'var(--color-border-primary)'
-    }
 }
 
 const backfillIsCancelable = (status: BatchExportBackfill['status']): boolean => {
