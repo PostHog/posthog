@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -64,9 +65,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (nameSortedDashboards): Fuse => {
-                return new FuseClass(nameSortedDashboards || [], {
+                return createFuse(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
-                    threshold: 0.3,
                 })
             },
         ],

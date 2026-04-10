@@ -653,10 +653,7 @@ class SignalReportViewSet(
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
-        """
-        Delete a report and re-ingest its signals through the grouping pipeline.
-        Staff-only: the requesting user must have is_staff=True.
-        """
+        """Re-ingest a report's signals. Staff-only."""
         if not request.user.is_staff:
             return Response(
                 {"error": "Only staff users can reingest reports."},

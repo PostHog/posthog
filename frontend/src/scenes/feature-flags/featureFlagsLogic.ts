@@ -104,6 +104,7 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+    NOTIFICATIONS = 'notifications',
     EXPOSURE = 'exposure',
     Analysis = 'analysis',
     USAGE = 'usage',

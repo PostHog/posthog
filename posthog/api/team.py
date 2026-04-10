@@ -199,9 +199,6 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
-    "experiment_recalculation_time",
-    "default_experiment_confidence_level",
-    "default_experiment_stats_method",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -1544,6 +1541,38 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="experiments_config",
+    )
+    def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage experiment configuration for this environment."""
+        from rest_framework import serializers
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = TeamExperimentsConfig
+                fields = [
+                    "experiment_recalculation_time",
+                    "default_experiment_confidence_level",
+                    "default_experiment_stats_method",
+                ]
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+        if request.method == "PATCH":
+            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response.Response(serializer.data)
+
+        return response.Response(TeamExperimentsConfigSerializer(config).data)
 
     @action(
         methods=["GET", "POST", "DELETE"],

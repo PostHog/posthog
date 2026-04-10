@@ -362,6 +362,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
         ],
+        suggestedFiltersLabel: [
+            () => [(_, props) => props.suggestedFiltersLabel],
+            (suggestedFiltersLabel) => suggestedFiltersLabel,
+        ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -409,6 +413,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
                 s.metadataSource,
+                s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
@@ -426,6 +431,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
                 metadataSource: AnyDataNode,
+                suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
@@ -1218,9 +1224,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'On this page',
                     },
                     {
-                        name: 'Suggested filters',
-                        searchPlaceholder: 'suggested filters',
-                        categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
+                        name: suggestedFiltersLabel ?? 'Suggested filters',
+                        searchPlaceholder: (suggestedFiltersLabel ?? 'Suggested filters').toLowerCase(),
+                        categoryLabel: (count: number) =>
+                            (suggestedFiltersLabel ?? 'Suggested filters') + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
                         isMetaGroup: true,
@@ -1233,7 +1240,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => 'Suggested filters',
+                        getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
                     {
                         name: 'Recent',

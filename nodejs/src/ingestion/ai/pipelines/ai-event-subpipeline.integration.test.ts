@@ -4,6 +4,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
@@ -63,7 +64,7 @@ function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
 }
 
 function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) {
-    const mockProduce = jest.fn().mockResolvedValue(undefined)
+    const mockOutputs = createMockIngestionOutputs<AiOutputs>()
 
     const config: AiEventSubpipelineConfig = {
         options: {
@@ -74,43 +75,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
         },
-        outputs: new IngestionOutputs({
-            [EVENTS_OUTPUT]: [
-                {
-                    topic: 'events_topic',
-                    producer: { produce: mockProduce } as any,
-                    producerName: 'test',
-                },
-            ],
-            [AI_EVENTS_OUTPUT]: [
-                {
-                    topic: 'ai_events_topic',
-                    producer: { produce: mockProduce } as any,
-                    producerName: 'test',
-                },
-            ],
-            [INGESTION_WARNINGS_OUTPUT]: [
-                {
-                    topic: 'ingestion_warnings_topic',
-                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-                    producerName: 'test',
-                },
-            ],
-            [PERSONS_OUTPUT]: [
-                {
-                    topic: 'persons_topic',
-                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-                    producerName: 'test',
-                },
-            ],
-            [PERSON_DISTINCT_IDS_OUTPUT]: [
-                {
-                    topic: 'person_distinct_ids_topic',
-                    producer: { queueMessages: jest.fn().mockResolvedValue(undefined) } as any,
-                    producerName: 'test',
-                },
-            ],
-        }),
+        outputs: mockOutputs,
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
         } as any,
@@ -135,7 +100,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
 
     return {
         pipeline: createAiEventSubpipeline(newPipelineBuilder<AiEventSubpipelineInput>(), config).build(),
-        mockProduce,
+        mockOutputs,
         config,
     }
 }
@@ -144,12 +109,20 @@ function createInput(event: PluginEvent): AiEventSubpipelineInput {
     return { message, event, team, headers }
 }
 
-function getProduceCall(mockProduce: jest.Mock) {
-    expect(mockProduce).toHaveBeenCalledTimes(1)
-    const call = mockProduce.mock.calls[0][0]
-    const event = parseJSON(call.value.toString())
+type AiOutputs =
+    | typeof EVENTS_OUTPUT
+    | typeof AI_EVENTS_OUTPUT
+    | typeof INGESTION_WARNINGS_OUTPUT
+    | typeof PERSONS_OUTPUT
+    | typeof PERSON_DISTINCT_IDS_OUTPUT
+
+function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>) {
+    expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    const outputName = mockOutputs.produce.mock.calls[0][0]
+    const call = mockOutputs.produce.mock.calls[0][1]
+    const event = parseJSON(call.value!.toString())
     return {
-        topic: call.topic as string,
+        outputName: outputName as string,
         key: call.key as string,
         headers: call.headers as Record<string, string>,
         event,
@@ -173,7 +146,7 @@ describe('AI event subpipeline integration', () => {
             },
         })
 
-        const { pipeline, mockProduce } = buildPipeline({
+        const { pipeline, mockOutputs } = buildPipeline({
             // Hog transform adds a property with un-normalized casing
             hogTransformer: {
                 transformEventAndProduceMessages: (e: PluginEvent) =>
@@ -187,10 +160,10 @@ describe('AI event subpipeline integration', () => {
         const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
-        const { topic, event: produced, properties } = getProduceCall(mockProduce)
+        const { outputName, event: produced, properties } = getProduceCall(mockOutputs)
 
-        // Emit step: correct topic
-        expect(topic).toBe('events_topic')
+        // Emit step: correct output
+        expect(outputName).toBe(EVENTS_OUTPUT)
 
         // Event identity preserved
         expect(produced.event).toBe('$ai_generation')
@@ -225,11 +198,11 @@ describe('AI event subpipeline integration', () => {
             },
         })
 
-        const { pipeline, mockProduce } = buildPipeline()
+        const { pipeline, mockOutputs } = buildPipeline()
         const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
-        const { event: produced, properties } = getProduceCall(mockProduce)
+        const { event: produced, properties } = getProduceCall(mockOutputs)
 
         // Personless: person_mode is propertyless, person properties are empty
         expect(produced.person_mode).toBe('propertyless')
@@ -242,7 +215,7 @@ describe('AI event subpipeline integration', () => {
     it('hog transform dropping event short-circuits the pipeline', async () => {
         const event = createAiEvent()
 
-        const { pipeline, mockProduce } = buildPipeline({
+        const { pipeline, mockOutputs } = buildPipeline({
             hogTransformer: {
                 transformEventAndProduceMessages: () => Promise.resolve({ event: null, invocationResults: [{}] }),
             } as any,
@@ -250,6 +223,6 @@ describe('AI event subpipeline integration', () => {
 
         const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.DROP)
-        expect(mockProduce).not.toHaveBeenCalled()
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
     })
 })
