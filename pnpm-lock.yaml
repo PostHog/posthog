@@ -1774,15 +1774,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
-      '@posthog/quill-blocks':
+      '@posthog/quill':
         specifier: workspace:^
-        version: link:../../packages/blocks
-      '@posthog/quill-components':
-        specifier: workspace:^
-        version: link:../../packages/components
-      '@posthog/quill-primitives':
-        specifier: workspace:^
-        version: link:../../packages/primitives
+        version: link:../../packages/quill
       '@posthog/quill-tokens':
         specifier: workspace:^
         version: link:../../packages/tokens
@@ -1795,15 +1789,9 @@ importers:
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
-      shadcn:
-        specifier: ^4.0.2
-        version: 4.1.2(@cfworker/json-schema@4.1.1)(@types/node@22.18.8)(typescript@5.8.3)
       tailwindcss:
         specifier: ^4.1.17
         version: 4.2.1
-      tw-animate-css:
-        specifier: ^1.4.0
-        version: 1.4.0
     devDependencies:
       '@storybook/addon-docs':
         specifier: ^7.6.4
