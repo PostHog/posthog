@@ -273,7 +273,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return []
                 }
-                const firstDate = dayjsLocalToTimezone(dates[0], timezone).startOf(intervalUnit)
+                // `dates[0]` is already interval-aligned by the query pipeline — do NOT apply
+                // `.startOf(intervalUnit)` here. Dayjs's default locale uses Sunday as the week
+                // start, so on Monday-aligned weekly data `startOf('week')` would shift firstDate
+                // backward by a day and bias every fractional `dataIndex` by ~1/7.
+                const firstDate = dayjsLocalToTimezone(dates[0], timezone)
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {

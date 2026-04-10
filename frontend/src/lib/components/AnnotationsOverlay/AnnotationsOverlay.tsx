@@ -23,27 +23,15 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
+import {
+    AnnotationBadgeCluster,
+    MIN_BADGE_SPACING_PX,
+    tickOverlapsAnyCluster,
+    useAnnotationClusters,
+} from './useAnnotationClusters'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
-/**
- * Minimum pixel spacing between annotation badge centers. Annotation groups whose rendered
- * pixel positions fall within this distance are clustered into a single badge so they don't
- * visually overlap. Tuned to roughly the badge diameter plus a bit of breathing room.
- */
-const MIN_BADGE_SPACING_PX = 24
-
 const EMPTY_ANNOTATIONS: DatedAnnotationType[] = []
-
-interface AnnotationBadgeCluster {
-    /** Representative date (earliest date in the cluster). Used as the active-state key. */
-    date: dayjs.Dayjs
-    /** The earliest and latest actual annotation dates in the cluster — for the popover title. */
-    dateRange: [dayjs.Dayjs, dayjs.Dayjs]
-    /** All annotations from every group merged into this cluster. */
-    annotations: DatedAnnotationType[]
-    /** Pixel x relative to the overlay (chart plot area). */
-    leftPx: number
-}
 
 /** User-facing format for annotation groups. Keyed by the grouping unit (not the raw interval),
  * so monthly/weekly charts — which group by day — show full dates in the popover title. */
@@ -54,30 +42,6 @@ const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: 'MMMM D, YYYY',
     month: 'MMMM D, YYYY',
-}
-
-/** Linearly interpolate the pixel x for a fractional data-point index. Beyond the last point,
- * extrapolates using the spacing of the previous interval. Returns null when no neighboring
- * points are available (chart not ready). */
-function getInterpolatedDataPointX(dataIndex: number, getDataPointX: (index: number) => number | null): number | null {
-    const floor = Math.floor(dataIndex)
-    const fraction = dataIndex - floor
-    const xFloor = getDataPointX(floor)
-    if (xFloor === null) {
-        return null
-    }
-    if (fraction === 0) {
-        return xFloor
-    }
-    const xNext = getDataPointX(floor + 1)
-    if (xNext !== null) {
-        return xFloor + fraction * (xNext - xFloor)
-    }
-    const xPrev = getDataPointX(floor - 1)
-    if (xPrev !== null) {
-        return xFloor + fraction * (xFloor - xPrev)
-    }
-    return xFloor
 }
 
 export interface AnnotationsOverlayProps {
@@ -143,52 +107,12 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
     const chartAreaLeft = chart ? chart.scales.x.left : 0
 
-    // Cluster annotation badges whose pixel positions would visually overlap. Each cluster
-    // becomes a single badge with a merged annotation list and a date range.
-    const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
-        const positioned = annotationBadgeDataIndices
-            .map(({ dateKey, date, dataIndex }) => {
-                const absoluteX = getInterpolatedDataPointX(dataIndex, getDataPointX)
-                if (absoluteX === null) {
-                    return null
-                }
-                return {
-                    dateKey,
-                    date,
-                    leftPx: absoluteX - chartAreaLeft,
-                    annotations: groupedAnnotations[dateKey] || [],
-                }
-            })
-            .filter((b): b is NonNullable<typeof b> => b !== null)
-            .sort((a, b) => a.leftPx - b.leftPx)
-
-        const out: AnnotationBadgeCluster[] = []
-        for (const badge of positioned) {
-            const last = out[out.length - 1]
-            if (last && badge.leftPx - last.leftPx < MIN_BADGE_SPACING_PX) {
-                last.annotations = [...last.annotations, ...badge.annotations]
-                last.dateRange = [last.dateRange[0], badge.date]
-                // Keep the first badge's leftPx as the cluster anchor — prevents jitter when
-                // additional badges join and keeps the badge visually pinned to a data point.
-            } else {
-                out.push({
-                    date: badge.date,
-                    dateRange: [badge.date, badge.date],
-                    annotations: badge.annotations,
-                    leftPx: badge.leftPx,
-                })
-            }
-        }
-        return out
-    }, [annotationBadgeDataIndices, getDataPointX, chartAreaLeft, groupedAnnotations])
-
-    // Map: cluster key (representative date ISO string) → cluster. Used by the popover to
-    // look up its annotations and date range from the active badge.
-    const clusterByKey = React.useMemo(() => {
-        const m = new Map<string, AnnotationBadgeCluster>()
-        clusters.forEach((c) => m.set(c.date.toISOString(), c))
-        return m
-    }, [clusters])
+    const { clusters, clusterByKey } = useAnnotationClusters({
+        annotationBadgeDataIndices,
+        getDataPointX,
+        chartAreaLeft,
+        groupedAnnotations,
+    })
 
     const activeBadgeElement = activeDate ? badgeRefs.current.get(activeDate.toISOString()) : undefined
     const activeCluster = activeDate ? clusterByKey.get(activeDate.toISOString()) : undefined
@@ -208,11 +132,13 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 ref={overlayRef}
             >
                 {/* Add-annotation targets: one per chart tick, invisible until hovered.
-                    Skipped when too close to a rendered cluster badge to prevent overlap. */}
+                    Skipped when too close to any part of a rendered cluster to prevent overlap —
+                    uses full cluster extent (leftPx..rightPx), not just the anchor, so ticks
+                    inside a chained cluster that spans more than MIN_BADGE_SPACING_PX are also
+                    suppressed. */}
                 {tickDates.map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
-                    const overlapsCluster = clusters.some((c) => Math.abs(c.leftPx - leftPx) < MIN_BADGE_SPACING_PX)
-                    if (overlapsCluster) {
+                    if (tickOverlapsAnyCluster(leftPx, clusters, MIN_BADGE_SPACING_PX)) {
                         return null
                     }
                     return (
