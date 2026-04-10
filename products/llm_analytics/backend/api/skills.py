@@ -55,7 +55,7 @@ from .skill_services import (
     resolve_versions_page,
 )
 
-LLM_SKILL_FEATURE_FLAGS = ("llm-analytics-skills", "llm-analytics-early-adopters")
+LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 
 class LLMSkillFeatureFlagPermission(BasePermission):
@@ -65,16 +65,15 @@ class LLMSkillFeatureFlagPermission(BasePermission):
         org_id = str(organization.id)
         distinct_id = user.distinct_id or str(user.uuid)
 
-        return any(
+        return bool(
             posthoganalytics.feature_enabled(
-                feature_flag,
+                LLM_SKILL_FEATURE_FLAG,
                 distinct_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
-            for feature_flag in LLM_SKILL_FEATURE_FLAGS
         )
 
 

@@ -587,7 +587,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
-    const isSkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SKILLS] || isEarlyAdopter
+    const isSkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SKILLS]
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({

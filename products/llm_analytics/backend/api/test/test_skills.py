@@ -373,30 +373,9 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Feature flag ---
 
-    @parameterized.expand(
-        [
-            ("skills_enabled", True, False, status.HTTP_200_OK),
-            ("early_adopters_enabled", False, True, status.HTTP_200_OK),
-            ("both_enabled", True, True, status.HTTP_200_OK),
-            ("both_disabled", False, False, status.HTTP_403_FORBIDDEN),
-        ]
-    )
-    def test_skill_api_permission_accepts_skills_or_early_adopters_flag(
-        self,
-        mock_feature_enabled,
-        _label,
-        skills_enabled,
-        early_adopters_enabled,
-        expected_status,
-    ):
-        def feature_flag_side_effect(flag, *_args, **_kwargs):
-            return {
-                "llm-analytics-skills": skills_enabled,
-                "llm-analytics-early-adopters": early_adopters_enabled,
-            }.get(flag, False)
-
-        mock_feature_enabled.side_effect = feature_flag_side_effect
+    def test_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
 
         response = self.client.get(self._url())
 
-        assert response.status_code == expected_status
+        assert response.status_code == status.HTTP_403_FORBIDDEN
