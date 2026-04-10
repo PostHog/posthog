@@ -252,16 +252,22 @@ class TestResolveWorkspaceName:
             lambda label=None: f"devbox-test-user-{label}" if label else "devbox-test-user",
         )
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
-        assert devbox_cli.resolve_workspace_name("api") == "devbox-test-user-api"
+        name, workspaces = devbox_cli.resolve_workspace_name("api")
+        assert name == "devbox-test-user-api"
+        assert workspaces == []
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
-        assert devbox_cli.resolve_workspace_name(None) == "devbox-test-user"
+        name, workspaces = devbox_cli.resolve_workspace_name(None)
+        assert name == "devbox-test-user"
+        assert workspaces == []
 
     def test_single_workspace_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [{"name": "devbox-test-user-api"}])
-        assert devbox_cli.resolve_workspace_name(None) == "devbox-test-user-api"
+        name, workspaces = devbox_cli.resolve_workspace_name(None)
+        assert name == "devbox-test-user-api"
+        assert len(workspaces) == 1
 
     def test_multiple_workspaces_prefers_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
@@ -270,7 +276,9 @@ class TestResolveWorkspaceName:
             "list_user_workspaces",
             lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-api"}],
         )
-        assert devbox_cli.resolve_workspace_name(None) == "devbox-test-user"
+        name, workspaces = devbox_cli.resolve_workspace_name(None)
+        assert name == "devbox-test-user"
+        assert len(workspaces) == 2
 
     def test_multiple_workspaces_no_default_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
@@ -304,6 +312,8 @@ class TestDevboxCommands:
         assert "hogli devbox:setup" in result.output
         assert "hogli devbox:start" in result.output
         assert "hogli devbox:list" in result.output
+        assert "hogli devbox:restart" in result.output
+        assert "hogli devbox:update" in result.output
         assert "hogli devbox:destroy" in result.output
 
     def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -390,8 +400,8 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
         monkeypatch.setattr(
@@ -436,9 +446,9 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "resolve_workspace_name",
-            lambda label: f"devbox-test-user-{label}" if label else "devbox-test-user",
+            lambda label: (f"devbox-test-user-{label}" if label else "devbox-test-user", []),
         )
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: "api")
         monkeypatch.setattr(
             devbox_cli,
@@ -475,6 +485,66 @@ class TestDevboxCommands:
         assert captured["git_email"] == "test-user@example.com"
         assert "--name api" in result.output
 
+    def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "restart_workspace",
+            lambda name, verbose=False: captured.update({"name": name, "verbose": verbose}),
+        )
+
+        result = runner.invoke(cli, ["devbox:restart"])
+
+        assert result.exit_code == 0
+        assert "Restarting" in result.output
+        assert captured["name"] == "devbox-test-user"
+
+    def test_devbox_update_applies_when_outdated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "outdated": True, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace",
+            lambda name, verbose=False: captured.update({"name": name}),
+        )
+
+        result = runner.invoke(cli, ["devbox:update"])
+
+        assert result.exit_code == 0
+        assert "Updating" in result.output
+        assert captured["name"] == "devbox-test-user"
+
+    def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "outdated": False, "latest_build": {"status": "running"}},
+        )
+
+        result = runner.invoke(cli, ["devbox:update"])
+
+        assert result.exit_code == 0
+        assert "already up to date" in result.output
+
     def test_claude_prompt_uses_fallback_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HOGLI_DEVBOX_CLAUDE_OAUTH_TOKEN", raising=False)
         monkeypatch.setenv("CLAUDE_OAUTH_TOKEN", "oauth-token")
@@ -495,27 +565,26 @@ class TestDevboxCommands:
 
         assert devbox_cli._local_port_is_available(8010) is True
 
-    def test_devbox_status_does_not_reference_missing_devbox_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_devbox_status_shows_update_hint_when_outdated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
-            lambda name: {"latest_build": {"status": "running", "resources": []}, "outdated": True},
+            lambda name, workspaces=None: {"latest_build": {"status": "running", "resources": []}, "outdated": True},
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
         result = runner.invoke(cli, ["devbox:status"])
 
         assert result.exit_code == 0
-        assert "devbox:update" not in result.output
-        assert "Recreate the workspace" in result.output
+        assert "devbox:update" in result.output
 
     def test_devbox_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
         monkeypatch.setattr(
             devbox_cli,
@@ -533,7 +602,7 @@ class TestDevboxCommands:
 
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: "devbox-test-user")
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda label: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
 
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])

@@ -439,9 +439,9 @@ def list_user_workspaces() -> list[dict[str, Any]]:
     return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
-def get_workspace(name: str) -> dict[str, Any] | None:
+def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
     """Get workspace info by name, or None if it does not exist."""
-    for workspace in _list_workspaces():
+    for workspace in workspaces if workspaces is not None else _list_workspaces():
         if workspace.get("name") == name:
             return workspace
 
@@ -497,6 +497,20 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
 def stop_workspace(name: str, *, verbose: bool = False) -> None:
     """Stop a running workspace."""
     result = _run_build(["coder", "stop", name, "--yes"], verbose=verbose)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def restart_workspace(name: str, *, verbose: bool = False) -> None:
+    """Restart a running workspace."""
+    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def update_workspace(name: str, *, verbose: bool = False) -> None:
+    """Update a workspace to the latest template version."""
+    result = _run_build(["coder", "update", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

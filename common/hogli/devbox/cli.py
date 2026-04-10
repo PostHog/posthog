@@ -9,7 +9,7 @@ import os
 import errno
 import socket
 from collections.abc import Callable
-from typing import Any, NoReturn
+from typing import Any
 
 import click
 from hogli.core.cli import cli
@@ -18,6 +18,7 @@ from . import keychain
 from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
+    _fail,
     create_workspace,
     delete_workspace,
     ensure_coder_authenticated,
@@ -38,9 +39,11 @@ from .coder import (
     open_web_ide,
     port_forward_replace,
     print_setup_summary,
+    restart_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
+    update_workspace,
     update_workspace_parameters,
 )
 from .config import load_config, save_git_identity
@@ -58,34 +61,32 @@ WORKSPACE_STATUS_COLORS = {
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
 
-def resolve_workspace_name(label: str | None) -> str:
-    """Resolve a workspace name from an optional label."""
+def resolve_workspace_name(label: str | None) -> tuple[str, list[dict[str, Any]]]:
+    """Resolve a workspace name from an optional label.
+
+    Returns (name, workspaces) where workspaces is the already-fetched list
+    when available, so callers can skip a second ``_list_workspaces`` call.
+    """
     if label is not None:
-        return get_workspace_name(label)
+        return get_workspace_name(label), []
 
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
-        return get_workspace_name()
+        return get_workspace_name(), workspaces
 
     if len(workspaces) == 1:
-        return workspaces[0]["name"]
+        return workspaces[0]["name"], workspaces
 
     # Multiple workspaces -- prefer default
     default_name = get_workspace_name()
     for ws in workspaces:
         if ws.get("name") == default_name:
-            return default_name
+            return default_name, workspaces
 
     # No default among multiple -- require explicit --name
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Use --name to pick one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
-
-
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
-    click.echo(click.style(message, fg="red"))
-    raise SystemExit(1)
 
 
 def _local_port_is_available(port: int) -> bool:
@@ -139,9 +140,9 @@ def _workspace_label_suffix(name: str) -> str:
     return f" --name {label}" if label else ""
 
 
-def _get_workspace_or_fail(name: str) -> dict[str, Any]:
+def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Return a workspace or exit with a consistent message when missing."""
-    workspace = get_workspace(name)
+    workspace = get_workspace(name, workspaces or None)
     if workspace is not None:
         return workspace
     _fail("No devbox found. Run 'hogli devbox:start' to create one.")
@@ -286,21 +287,18 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
-@cli.command(name="devbox", help="Show available Coder workspace commands")
+@cli.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
-    click.echo("Available workspace commands:")
+    commands = sorted(
+        (name, cmd.help or "")
+        for name, cmd in cli.commands.items()
+        if name.startswith("devbox:") and not getattr(cmd, "hidden", False)
+    )
+    click.echo("Available devbox commands:")
     click.echo()
-    click.echo("  hogli devbox:setup       install and configure local access")
-    click.echo("  hogli devbox:start       create or start your workspace")
-    click.echo("  hogli devbox:list        list your workspaces")
-    click.echo("  hogli devbox:ssh         open a shell in the workspace")
-    click.echo("  hogli devbox:open        open the workspace in the browser")
-    click.echo("  hogli devbox:forward     forward the PostHog UI to localhost")
-    click.echo("  hogli devbox:logs        stream workspace logs")
-    click.echo("  hogli devbox:status      show current workspace status")
-    click.echo("  hogli devbox:stop        stop the workspace")
-    click.echo("  hogli devbox:destroy     delete the workspace and its data")
+    for name, help_text in commands:
+        click.echo(f"  hogli {name:<20} {help_text}")
     click.echo()
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
@@ -430,8 +428,8 @@ def devbox_start(
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
-    ws = get_workspace(name)
+    name, workspaces = resolve_workspace_name(workspace_label)
+    ws = get_workspace(name, workspaces or None)
 
     if ws is not None:
         _start_existing_workspace(name, ws, verbose=verbose)
@@ -459,8 +457,8 @@ def devbox_start(
 def devbox_stop(workspace_label: str | None, verbose: bool) -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
-    ws = _get_workspace_or_fail(name)
+    name, workspaces = resolve_workspace_name(workspace_label)
+    ws = _get_workspace_or_fail(name, workspaces)
 
     status = get_workspace_status(ws)
     if status == "stopped":
@@ -472,12 +470,43 @@ def devbox_stop(workspace_label: str | None, verbose: bool) -> None:
     click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
 
 
+@cli.command(name="devbox:restart", help="Restart your devbox")
+@workspace_name_option
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_restart(workspace_label: str | None, verbose: bool) -> None:
+    """Stop and start the devbox in one step."""
+    ensure_runtime_ready()
+    name, workspaces = resolve_workspace_name(workspace_label)
+    _get_workspace_or_fail(name, workspaces)
+    click.echo(f"Restarting '{name}'...")
+    restart_workspace(name, verbose=verbose)
+    click.echo("Restarted.")
+    _print_connection_info(name)
+
+
+@cli.command(name="devbox:update", help="Update devbox to the latest template")
+@workspace_name_option
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_update(workspace_label: str | None, verbose: bool) -> None:
+    """Apply the latest template to the devbox."""
+    ensure_runtime_ready()
+    name, workspaces = resolve_workspace_name(workspace_label)
+    ws = _get_workspace_or_fail(name, workspaces)
+    if not ws.get("outdated"):
+        click.echo(f"Devbox '{name}' is already up to date.")
+        return
+    click.echo(f"Updating '{name}' to the latest template...")
+    update_workspace(name, verbose=verbose)
+    click.echo("Updated.")
+    _print_connection_info(name)
+
+
 @cli.command(name="devbox:ssh", help="SSH into your devbox")
 @workspace_name_option
 def devbox_ssh(workspace_label: str | None) -> None:
     """Open an SSH session to the devbox."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace_label)
     ssh_replace(name)
 
 
@@ -493,7 +522,7 @@ def devbox_open(workspace_label: str | None, vscode: bool, cursor: bool, web: bo
         raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
 
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace_label)
 
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
@@ -515,7 +544,7 @@ def devbox_open(workspace_label: str | None, vscode: bool, cursor: bool, web: bo
 def devbox_logs(workspace_label: str | None, follow: bool) -> None:
     """Tail workspace build and agent logs."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace_label)
     logs_replace(name, follow)
 
 
@@ -525,9 +554,9 @@ def devbox_logs(workspace_label: str | None, follow: bool) -> None:
 def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
     """Destroy the devbox completely."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace_label)
 
-    ws = get_workspace(name)
+    ws = get_workspace(name, workspaces or None)
     if ws is None:
         click.echo("No devbox found.")
         return
@@ -545,9 +574,9 @@ def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
 def devbox_status(workspace_label: str | None) -> None:
     """Show the current state of the devbox."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace_label)
 
-    ws = get_workspace(name)
+    ws = get_workspace(name, workspaces or None)
     if ws is None:
         click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
         return
@@ -559,7 +588,7 @@ def devbox_status(workspace_label: str | None) -> None:
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
-        click.echo("           Recreate the workspace when you want the latest template.")
+        click.echo("           Run `hogli devbox:update` to apply it.")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
@@ -578,7 +607,7 @@ def devbox_status(workspace_label: str | None) -> None:
 def devbox_forward(workspace_label: str | None, port: int) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
-    name = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace_label)
     if not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
