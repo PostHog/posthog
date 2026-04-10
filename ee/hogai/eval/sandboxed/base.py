@@ -7,12 +7,31 @@ from typing import Any
 
 import pytest
 
-from braintrust import EvalAsync, EvalCase
+from braintrust import EvalAsync, EvalCase, EvalHooks
 
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 from .config import AgentArtifacts, SandboxedEvalCase
 from .runner import run_eval_case
+
+
+def _log_conversation_spans(hooks: EvalHooks, conversation: list[dict[str, Any]]) -> None:
+    """Log each conversation turn as a child span so Braintrust renders a trace tree."""
+    for turn in conversation:
+        role = turn.get("role", "system")
+        content = turn.get("content", "")
+        span_type = "llm" if role == "assistant" and not turn.get("tool") else "function"
+        name = turn.get("name") or role
+
+        with hooks.span.start_span(name=name, span_attributes={"type": span_type}) as span:
+            if role == "user":
+                span.log(input=content)
+            elif role == "assistant" and turn.get("tool"):
+                span.log(input=turn.get("title", ""), output=content)
+            elif role == "assistant":
+                span.log(output=content)
+            else:
+                span.log(metadata={"message": content})
 
 
 async def SandboxedEval(
@@ -45,7 +64,7 @@ async def SandboxedEval(
             )
         )
 
-    async def task(input: dict[str, Any], expected: dict[str, Any] | None = None, **kwargs) -> dict[str, Any] | None:
+    async def task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
         eval_case = SandboxedEvalCase(
             name=input["name"],
             prompt=input["prompt"],
@@ -53,8 +72,12 @@ async def SandboxedEval(
         )
 
         try:
-            artifacts = await run_eval_case(eval_case, sandbox_context)
-            return artifacts.model_dump()
+            result = await run_eval_case(eval_case, sandbox_context)
+
+            if result.conversation:
+                _log_conversation_spans(hooks, result.conversation)
+
+            return result.artifacts.model_dump()
         except Exception as e:
             return AgentArtifacts(
                 exit_code=-1,
@@ -74,6 +97,7 @@ async def SandboxedEval(
         scores=scorers,
         timeout=timeout,
         max_concurrency=2,
+        update=True,
         is_public=is_public,
         no_send_logs=no_send_logs,
     )
