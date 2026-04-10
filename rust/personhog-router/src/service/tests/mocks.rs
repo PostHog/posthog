@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
@@ -155,6 +156,22 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeleteHashKeyOverridesByTeamsResponse, Status> {
         self.check_error()?;
         Ok(DeleteHashKeyOverridesByTeamsResponse { deleted_count: 0 })
+    }
+
+    async fn delete_persons(
+        &self,
+        _request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonsResponse { deleted_count: 0 })
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonsBatchForTeamResponse { deleted_count: 0 })
     }
 
     async fn check_cohort_membership(

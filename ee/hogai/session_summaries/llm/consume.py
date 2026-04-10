@@ -11,7 +11,7 @@ from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.responses import Response as OpenAIResponse
 from prometheus_client import Histogram
 
-from posthog.temporal.ai.session_summary.state import generate_state_id_from_session_ids
+from posthog.temporal.session_replay.session_summary.state import generate_state_id_from_session_ids
 
 from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL

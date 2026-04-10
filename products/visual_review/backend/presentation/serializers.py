@@ -14,7 +14,6 @@ from ..facade.contracts import (
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
-    CompleteRunInput,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
@@ -104,11 +103,6 @@ class AddSnapshotsInputSerializer(DataclassSerializer):
 class AddSnapshotsResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsResult
-
-
-class CompleteRunInputSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = CompleteRunInput
 
 
 class UpdateRepoInputSerializer(DataclassSerializer):

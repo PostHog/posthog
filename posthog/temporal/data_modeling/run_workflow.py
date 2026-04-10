@@ -13,6 +13,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -285,8 +286,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
             if len(failed) + len(ancestor_failed) + len(completed) == len(inputs.dag):
                 break
 
-        await logger.adebug(
-            f"run_dag_activity finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
+        await logger.ainfo(
+            f"DAG run finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
         )
         return Results(completed, failed, ancestor_failed, ducklake_models)
 
@@ -477,7 +478,7 @@ async def materialize_model(
         saved_query: The saved query to materialize.
         job: The DataModelingJob record for this run that tracks the lifecycle and rows of the run.
     """
-    await logger.adebug(f"Starting materialize_model for {model_label}. saved_query.name={saved_query.name}")
+    await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -554,11 +555,15 @@ async def materialize_model(
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-
             save_start = dt.datetime.now()
-            await database_sync_to_async(job.save)()
+            updated = await database_sync_to_async(
+                DataModelingJob.objects.filter(id=job.id, status=DataModelingJob.Status.RUNNING).update
+            )(rows_materialized=row_count)
             save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            if updated == 0:
+                await logger.awarning("Job %s is no longer running, stopping materialization", job.id)
+                raise DataModelingCancelledException("Job was cancelled or preempted during materialization")
 
             await logger.adebug(
                 f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
@@ -567,9 +572,11 @@ async def materialize_model(
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
 
-        await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
+        await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
 
     except ObjectDoesNotExist:
+        raise
+    except DataModelingCancelledException:
         raise
     except Exception as e:
         error_message = str(e)
@@ -657,9 +664,9 @@ async def materialize_model(
         await database_sync_to_async(job.save)()
         return (saved_query.normalized_name, delta_table, job.id)
 
-    await logger.adebug("Compacting delta table")
+    await logger.ainfo("Compacting delta table")
     delta_table.optimize.compact()
-    await logger.adebug("Vacuuming delta table")
+    await logger.ainfo("Vacuuming delta table")
     delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
     file_uris = delta_table.file_uris()
@@ -668,7 +675,7 @@ async def materialize_model(
     if saved_query.table_id:
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
-    await logger.adebug("Copying query files in S3")
+    await logger.ainfo("Preparing queryable table in S3")
     folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
@@ -681,7 +688,7 @@ async def materialize_model(
     saved_query.is_materialized = True
     await database_sync_to_async(saved_query.save)()
 
-    await logger.adebug("Creating DataWarehouseTable model")
+    await logger.ainfo("Creating table")
     create_result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
     dwh_table = create_result.table
 
@@ -700,6 +707,7 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
+    await logger.ainfo("Materialization completed")
     return (saved_query.normalized_name, delta_table, job.id)
 
 
@@ -1356,6 +1364,10 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     if len(inputs.select) != 0:
         label = inputs.select[0].label
         saved_query = await get_saved_query(team, label)
@@ -1371,6 +1383,35 @@ class CleanupRunningJobsActivityInputs:
     team_id: int
 
 
+@database_sync_to_async
+def _preempt_running_jobs(team_id: int) -> list[DataModelingJob]:
+    """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    The SELECT and UPDATE run inside a single transaction with row-level locks
+    so concurrent cleanups cannot process the same jobs twice.
+    """
+    with transaction.atomic():
+        orphaned_jobs = list(
+            DataModelingJob.objects.select_for_update().filter(
+                team_id=team_id,
+                status=DataModelingJob.Status.RUNNING,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+            )
+        )
+
+        if not orphaned_jobs:
+            return []
+
+        DataModelingJob.objects.filter(id__in=[job.id for job in orphaned_jobs]).update(
+            status=DataModelingJob.Status.FAILED,
+            rows_materialized=0,
+            error="Preempted: This job did not complete before the next scheduled job was triggered.",
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+
+        return orphaned_jobs
+
+
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
     """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
@@ -1380,23 +1421,19 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            status=DataModelingJob.Status.RUNNING,
-            engine=DataModelingJob.Engine.CLICKHOUSE,
-        ).update
-    )(
-        status=DataModelingJob.Status.FAILED,
-        rows_materialized=0,
-        error="Job timed out",
-        updated_at=dt.datetime.now(dt.UTC),
-    )
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id)
 
-    if orphaned_count > 0:
-        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
-    else:
+    if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
+        return
+
+    await logger.ainfo(
+        f"Cleaned up {len(orphaned_jobs)} orphaned jobs",
+        orphaned_count=len(orphaned_jobs),
+        orphaned_job_ids=[str(job.id) for job in orphaned_jobs],
+        orphaned_saved_query_ids=[str(job.saved_query_id) for job in orphaned_jobs if job.saved_query_id is not None],
+        orphaned_workflow_ids=[job.workflow_id for job in orphaned_jobs if job.workflow_id],
+    )
 
 
 @temporalio.activity.defn

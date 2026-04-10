@@ -22,7 +22,7 @@ resource "posthog_dashboard_layout" "slo_monitoring" {
         })
       },
       {
-        text_body = "**Success rate** is a 28-day rolling window showing the percentage of successful operations. **Burn rate** measures how fast you're consuming your error budget — 1.0 means you're spending at the sustainable rate, >1.0 means you'll exhaust it before the window ends. **Duration** shows p50/p95/p99 operation latency in seconds."
+        text_body = "**Success rate** is a 28-day rolling window showing the percentage of successful operations. **Burn rate** shows how fast you're consuming your error budget on a logarithmic scale — the Budget rate line marks sustainable consumption, crossing 100x burn indicates an active incident. **Duration** shows p50/p95/p99 operation latency in seconds."
         layouts_json = jsonencode({
           sm = {
             h = 1, i = "text", w = 12, x = 0, y = 5

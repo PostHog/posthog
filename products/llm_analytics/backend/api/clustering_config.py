@@ -29,7 +29,7 @@ class ClusteringConfigSerializer(serializers.ModelSerializer):
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
-    scope_object = "INTERNAL"
+    scope_object = "llm_analytics"
     permission_classes = [IsAuthenticated]
 
     @llma_track_latency("llma_clustering_config_list")
@@ -39,7 +39,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ClusteringConfigSerializer(config)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")
     def set_event_filters(self, request: Request, **kwargs) -> Response:

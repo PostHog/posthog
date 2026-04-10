@@ -139,6 +139,8 @@ class PostgresPrinter(HogQLPrinter):
     def _print_table_sql(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
             return table.to_printed_postgres(self.context)
+        if hasattr(table, "to_printed_postgres"):
+            return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
 
     def _get_connection_supported_functions(self) -> set[str]:
@@ -333,6 +335,8 @@ class PostgresPrinter(HogQLPrinter):
                 f"{escape_postgres_identifier(table.postgres_schema)}."
                 f"{escape_postgres_identifier(table.postgres_table_name)}"
             )
+        if hasattr(table, "to_printed_postgres"):
+            return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
 
     def visit_property_type(self, type: ast.PropertyType):

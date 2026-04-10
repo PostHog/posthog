@@ -3,6 +3,8 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { TimestampFormat } from '../../../types'
@@ -45,8 +47,10 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
 
+export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
+
 export type HogFunctionMonitoringMessage = {
-    topic: string
+    output: MonitoringOutput
     value: LogEntrySerialized | AppMetricType
     headers?: Record<string, string>
 }
@@ -66,11 +70,9 @@ export class HogFunctionMonitoringService {
     private warehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(
-        private kafkaProducer: KafkaProducerWrapper,
+        private outputs: IngestionOutputs<MonitoringOutput>,
         private internalCaptureService: InternalCaptureService,
-        private teamManager: TeamManager,
-        private appMetricsTopic: string,
-        private logEntriesTopic: string
+        private teamManager: TeamManager
     ) {}
 
     setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
@@ -92,9 +94,8 @@ export class HogFunctionMonitoringService {
         await Promise.all([
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.kafkaProducer
-                    .produce({
-                        topic: x.topic,
+                return this.outputs
+                    .produce(x.output, {
                         key: null,
                         value,
                         headers: x.headers,
@@ -105,7 +106,7 @@ export class HogFunctionMonitoringService {
                         logger.error('⚠️', `failed to produce message: ${error}`, {
                             error: String(error),
                             messageLength: value?.length,
-                            topic: x.topic,
+                            output: x.output,
                             headers: x.headers,
                         })
 
@@ -149,7 +150,7 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: this.appMetricsTopic,
+            output: APP_METRICS_OUTPUT,
             value: appMetric,
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
@@ -169,7 +170,7 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: this.logEntriesTopic,
+                output: LOG_ENTRIES_OUTPUT,
                 value: logEntry,
             })
         })

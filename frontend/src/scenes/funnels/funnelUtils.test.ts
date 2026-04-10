@@ -20,6 +20,7 @@ import {
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
+    getStepBreakdownSeries,
     getVisibilityKey,
     parseDisplayNameForCorrelation,
     stepsWithConversionMetrics,
@@ -699,5 +700,55 @@ describe('getLastFilledStep', () => {
         },
     ])('$scenario', ({ steps, index, expectedOrder }) => {
         expect(getLastFilledStep(steps, index).order).toBe(expectedOrder)
+    })
+})
+
+describe('getStepBreakdownSeries', () => {
+    const series = { breakdown_value: 'NL' } as any
+    it.each([
+        {
+            scenario: 'single breakdown value with breakdown filter set → returns the series',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: series,
+        },
+        {
+            scenario: 'no breakdown filter → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: null,
+            expected: null,
+        },
+        {
+            scenario: 'breakdown filter without breakdown property → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: {},
+            expected: null,
+        },
+        {
+            scenario: 'multiple breakdown values → null (use existing per-bar handlers)',
+            step: { nested_breakdown: [series, { breakdown_value: 'US' }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'empty nested_breakdown → null',
+            step: { nested_breakdown: [] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'undefined nested_breakdown → null',
+            step: { nested_breakdown: undefined },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'single entry with null breakdown_value → null',
+            step: { nested_breakdown: [{ breakdown_value: null }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+    ])('$scenario', ({ step, breakdownFilter, expected }) => {
+        expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
     })
 })

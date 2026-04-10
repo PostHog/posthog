@@ -1,0 +1,13 @@
+# Event taxonomy (properties of an event, with sample values)
+
+All properties for a given event, with up to 5 sample values each:
+
+```sql
+{{ render_hogql_example({"kind": "EventTaxonomyQuery", "event": "$pageview"}) }}
+```
+
+Specific properties only (faster, skips the omit filter):
+
+```sql
+{{ render_hogql_example({"kind": "EventTaxonomyQuery", "event": "$pageview", "properties": ["$browser", "$os"]}) }}
+```

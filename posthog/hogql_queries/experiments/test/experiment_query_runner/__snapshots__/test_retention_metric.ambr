@@ -157,6 +157,166 @@
                        use_hive_partitioning=0
   '''
 # ---
+# name: TestExperimentRetentionMetric.test_only_count_matured_users_0_direct
+  '''
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     LEFT JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id
+     HAVING lessOrEquals(plus(max(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(864000)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
+       start_events AS
+    (SELECT exposures.entity_id AS entity_id,
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposures.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), plus(exposures.first_exposure_time, toIntervalSecond(259200)))))
+     GROUP BY exposures.entity_id),
+       completion_events AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))),
+       entity_metrics AS
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), ifNull(greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
+     FROM exposures
+     INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
+     GROUP BY exposures.entity_id,
+              exposures.variant)
+  SELECT entity_metrics.variant AS variant,
+         count(entity_metrics.entity_id) AS num_users,
+         sum(entity_metrics.value) AS total_sum,
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
+  FROM entity_metrics
+  WHERE notEmpty(variant)
+  GROUP BY entity_metrics.variant
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentRetentionMetric.test_only_count_matured_users_1_precomputed
+  '''
+  WITH exposures AS
+    (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
+            if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
+            min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(t.last_exposure_time, 'UTC')) AS last_exposure_time,
+            argMin(t.exposure_event_uuid, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_event_uuid,
+            argMin(t.exposure_session_id, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_session_id
+     FROM experiment_exposures_preaggregated AS t
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
+     GROUP BY entity_id
+     HAVING ifNull(lessOrEquals(plus(max(toTimeZone(t.last_exposure_time, 'UTC')), toIntervalSecond(864000)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC')), 0)),
+       start_events AS
+    (SELECT exposures.entity_id AS entity_id,
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposures.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), plus(exposures.first_exposure_time, toIntervalSecond(259200)))))
+     GROUP BY exposures.entity_id),
+       completion_events AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))),
+       entity_metrics AS
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), ifNull(greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
+     FROM exposures
+     INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
+     GROUP BY exposures.entity_id,
+              exposures.variant)
+  SELECT entity_metrics.variant AS variant,
+         count(entity_metrics.entity_id) AS num_users,
+         sum(entity_metrics.value) AS total_sum,
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
+  FROM entity_metrics
+  WHERE notEmpty(variant)
+  GROUP BY entity_metrics.variant
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
 # name: TestExperimentRetentionMetric.test_retention_day_zero_same_day_as_start_0_direct
   '''
   WITH exposures AS

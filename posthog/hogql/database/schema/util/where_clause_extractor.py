@@ -488,7 +488,7 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             table_type = node.type.resolve_table_type(self.context)
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             # Get the underlying table based on the table_type
             table = None
@@ -540,7 +540,7 @@ def is_session_id_string_expr(node: ast.Expr, context: HogQLContext) -> bool:
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(context)
             table_type = node.type.resolve_table_type(context)
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             if isinstance(table_type, ast.LazyJoinType):
                 table = table_type.lazy_join.join_table

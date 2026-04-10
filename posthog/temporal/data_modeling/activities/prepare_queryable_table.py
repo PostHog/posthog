@@ -74,7 +74,7 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
         existing_queryable_folder=queryable_folder,
         logger=logger,
     )
-    await logger.adebug("Creating DataWarehouseTable model")
+    await logger.ainfo("Preparing table for querying")
     create_result = await create_table_from_saved_query(
         inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
     )

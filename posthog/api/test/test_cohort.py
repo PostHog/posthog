@@ -1472,6 +1472,126 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
+    @parameterized.expand(
+        [
+            ("realtime_backfilled_flag_on", CohortType.REALTIME, True, True, True),
+            ("realtime_not_backfilled_flag_on", CohortType.REALTIME, False, True, False),
+            ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
+        ]
+    )
+    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_cohort_dropdown_visibility(
+        self,
+        _name,
+        cohort_type,
+        is_backfilled,
+        flag_enabled,
+        expect_behavioral_visible,
+        patch_capture,
+        mock_flag,
+    ):
+        mock_flag.return_value = flag_enabled
+
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+            cohort_type=cohort_type,
+            last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
+        )
+
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {r["id"] for r in response.json()["results"]}
+        self.assertIn(regular_cohort.id, result_ids)
+        if expect_behavioral_visible:
+            self.assertIn(behavioral_cohort.id, result_ids)
+        else:
+            self.assertNotIn(behavioral_cohort.id, result_ids)
+
+    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_nested_cohort_with_flag_compatible_leaf_visible_when_flag_on(
+        self,
+        patch_capture,
+        mock_flag,
+    ):
+        """A non-behavioral parent cohort that references a realtime+backfilled behavioral
+        leaf cohort should appear in the dropdown when the feature flag is enabled, because the
+        leaf is removed from affected_cohorts before graph propagation."""
+        mock_flag.return_value = True
+
+        # Leaf: realtime+backfilled behavioral cohort
+        leaf_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral leaf",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime.now(),
+        )
+
+        # Parent: non-behavioral cohort that references the leaf
+        parent_cohort = Cohort.objects.create(
+            team=self.team,
+            name="parent referencing behavioral leaf",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": leaf_cohort.pk},
+                    ],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        # Both should appear: the leaf is flag-compatible, so neither it nor its parent is affected
+        self.assertIn(leaf_cohort.id, result_ids)
+        self.assertIn(parent_cohort.id, result_ids)
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]

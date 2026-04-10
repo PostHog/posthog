@@ -43,7 +43,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_list_servers_entries_match_serializer_schema(self):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        expected_keys = {"name", "url", "description", "auth_type", "oauth_provider_kind"}
+        expected_keys = {"name", "url", "description", "auth_type"}
         for entry in response.json()["results"]:
             assert set(entry.keys()) == expected_keys
 
@@ -395,8 +395,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_dcr_path_used_when_pkce_verifier_present_even_with_known_provider(self, mock_post, _allow):
-        server = self._create_server(oauth_provider_kind="linear")
+    def test_dcr_path_used_when_pkce_verifier_present(self, mock_post, _allow):
+        server = self._create_server()
         installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
@@ -422,47 +422,6 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_post.assert_called_once()
         assert mock_post.call_args[0][0] == "https://auth.example.com/token"
         assert mock_post.call_args[1]["data"]["code_verifier"] == "test-pkce-verifier"
-
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    @patch("products.mcp_store.backend.oauth.OauthIntegration.oauth_config_for_kind")
-    def test_known_provider_path_used_when_no_pkce_verifier(self, mock_config, mock_post):
-        from posthog.models.integration import OauthConfig
-
-        server = self._create_server(oauth_provider_kind="linear")
-        installation = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=self.user,
-            server=server,
-            url="https://mcp.example.com",
-            display_name="Test",
-            auth_type="oauth",
-        )
-
-        mock_config.return_value = OauthConfig(
-            authorize_url="https://linear.app/oauth/authorize",
-            token_url="https://api.linear.app/oauth/token",
-            client_id="known-client-id",
-            client_secret="known-secret",
-            scope="read",
-            id_path="id",
-            name_path="name",
-        )
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {"access_token": "tok_known", "token_type": "bearer"}
-
-        state_token = "test-state-token-known"
-        self._create_oauth_state(installation, server, state_token, pkce_verifier="")
-
-        client = APIClient()
-        response = client.get(
-            "/api/mcp_store/oauth_redirect/",
-            {"state": state_token, "code": "auth-code"},
-        )
-
-        assert response.status_code == 302
-        mock_post.assert_called_once()
-        assert mock_post.call_args[0][0] == "https://api.linear.app/oauth/token"
-        assert "code_verifier" not in mock_post.call_args[1].get("data", {})
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
@@ -636,15 +595,18 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         call_metadata = mock_dcr.call_args[0][0]
         assert call_metadata["authorization_endpoint"] == "https://auth.example.com/authorize"
 
-    @patch("products.mcp_store.backend.api.OauthIntegration.oauth_config_for_kind")
-    def test_authorize_uses_opaque_state_token(self, mock_config):
-        from posthog.models.integration import OauthConfig
-
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    def test_authorize_uses_opaque_state_token(self, _mock_dcr, _allow):
         server = MCPServer.objects.create(
             name="Linear",
             url="https://auth.linear.app",
-            oauth_provider_kind="linear",
-            oauth_metadata={"authorization_endpoint": "https://linear.app/oauth/authorize"},
+            oauth_metadata={
+                "authorization_endpoint": "https://linear.app/oauth/authorize",
+                "token_endpoint": "https://linear.app/oauth/token",
+                "registration_endpoint": "https://linear.app/oauth/register",
+                "dcr_redirect_uri": "https://old.posthog.com/callback",
+            },
             oauth_client_id="linear-client-id",
             created_by=self.user,
         )
@@ -654,15 +616,6 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             server=server,
             url="https://mcp.linear.app/mcp",
             auth_type="oauth",
-        )
-        mock_config.return_value = OauthConfig(
-            authorize_url="https://linear.app/oauth/authorize",
-            token_url="https://api.linear.app/oauth/token",
-            client_id="known-client-id",
-            client_secret="known-secret",
-            scope="read",
-            id_path="id",
-            name_path="name",
         )
 
         response = self.client.get(
@@ -686,15 +639,18 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             consumed_at__isnull=True,
         ).exists()
 
-    @patch("products.mcp_store.backend.api.OauthIntegration.oauth_config_for_kind")
-    def test_public_oauth_redirect_consumes_state_once(self, mock_config):
-        from posthog.models.integration import OauthConfig
-
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    def test_public_oauth_redirect_consumes_state_once(self, _mock_dcr, _allow):
         server = MCPServer.objects.create(
             name="Linear",
             url="https://auth.linear.app",
-            oauth_provider_kind="linear",
-            oauth_metadata={"authorization_endpoint": "https://linear.app/oauth/authorize"},
+            oauth_metadata={
+                "authorization_endpoint": "https://linear.app/oauth/authorize",
+                "token_endpoint": "https://linear.app/oauth/token",
+                "registration_endpoint": "https://linear.app/oauth/register",
+                "dcr_redirect_uri": "https://old.posthog.com/callback",
+            },
             oauth_client_id="linear-client-id",
             created_by=self.user,
         )
@@ -704,15 +660,6 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             server=server,
             url="https://mcp.linear.app/mcp",
             auth_type="oauth",
-        )
-        mock_config.return_value = OauthConfig(
-            authorize_url="https://linear.app/oauth/authorize",
-            token_url="https://api.linear.app/oauth/token",
-            client_id="known-client-id",
-            client_secret="known-secret",
-            scope="read",
-            id_path="id",
-            name_path="name",
         )
 
         authorize_response = self.client.get(

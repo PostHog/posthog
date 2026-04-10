@@ -153,7 +153,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
-    scope_object = "INTERNAL"
+    scope_object = "comment"
+    scope_object_read_actions = ["list", "retrieve", "thread", "count"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()

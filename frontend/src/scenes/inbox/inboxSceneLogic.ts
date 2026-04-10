@@ -14,7 +14,13 @@ import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+import {
+    EnrichedReviewer,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStatus,
+} from './types'
 
 const REPORTS_PAGE_SIZE = 200
 
@@ -52,6 +58,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         offset: 0,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
+                        ordering: '-is_suggested_reviewer,-signal_count',
                     })
                 },
                 loadMoreReports: async () => {
@@ -61,6 +68,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         offset: currentResults.length,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
+                        ordering: '-is_suggested_reviewer,-signal_count',
                     })
                     return {
                         ...response,
@@ -175,6 +183,27 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (s) => [s.reportSignals, s.selectedReportId],
             (reportSignals: Record<string, SignalNode[]>, selectedReportId: string | null): SignalNode[] | null =>
                 selectedReportId ? (reportSignals[selectedReportId] ?? null) : null,
+        ],
+        selectedReportReviewers: [
+            (s) => [s.artefacts, s.selectedReportId],
+            (
+                artefacts: Record<string, SignalReportArtefact[]>,
+                selectedReportId: string | null
+            ): EnrichedReviewer[] | null => {
+                if (!selectedReportId) {
+                    return null
+                }
+                const reportArtefacts = artefacts[selectedReportId]
+                if (!reportArtefacts) {
+                    return null
+                }
+                const reviewersArtefact = reportArtefacts.find((a) => a.type === 'suggested_reviewers')
+                if (!reviewersArtefact) {
+                    return null
+                }
+                // content is already JSON-decoded by the serializer
+                return reviewersArtefact.content as EnrichedReviewer[]
+            },
         ],
     }),
 

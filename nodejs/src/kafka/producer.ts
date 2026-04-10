@@ -103,6 +103,9 @@ export class KafkaProducerWrapper {
         return new KafkaProducerWrapper(producer)
     }
 
+    /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
+    public name?: string
+
     constructor(producer: HighLevelProducer) {
         this.producer = producer
     }
@@ -118,9 +121,13 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: Record<string, string>
     }): Promise<void> {
+        const labels: Record<string, string> = { topic_name: topic }
+        if (this.name) {
+            labels.producer_name = this.name
+        }
         try {
-            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+            const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
+            kafkaProducerMessagesQueuedCounter.labels(labels).inc()
             logger.debug('📤', 'Producing message', { topic: topic })
 
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
@@ -143,11 +150,11 @@ export class KafkaProducerWrapper {
                 )
             })
 
-            kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+            kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
-            kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+            kafkaProducerMessagesFailedCounter.labels(labels).inc()
             logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
@@ -258,24 +265,24 @@ export class KafkaProducerWrapper {
 export const kafkaProducerMessagesQueuedCounter = new Counter({
     name: 'kafka_producer_messages_queued_total',
     help: 'Count of messages queued to the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesWrittenCounter = new Counter({
     name: 'kafka_producer_messages_written_total',
     help: 'Count of messages written to Kafka, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
     help: 'Count of write failures by the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',
     help: 'Wait time for individual Kafka produces',
-    labelNames: ['topic'],
+    labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })

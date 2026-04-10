@@ -1759,7 +1759,7 @@ mod tests {
         }
 
         // ==================== ExceptionErrorTracking Tests ====================
-        // Note: Dual-write logic is handled in process_events (analytics.rs).
+        // Rollout routing logic is handled in process_events (analytics.rs).
         // These tests verify that ExceptionErrorTracking events route to the correct topic.
 
         #[tokio::test]

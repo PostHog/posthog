@@ -41,6 +41,7 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
     create_batch_trace_summarization_schedule,
 )
+from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -373,6 +374,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
+    create_logs_alert_check_schedule,
 ]
 
 if settings.EE_AVAILABLE:

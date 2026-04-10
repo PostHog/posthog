@@ -7,7 +7,10 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
+import {
+    legacyGetHighestProbabilityVariant,
+    legacyGetIndexForVariant,
+} from '../legacy/calculations/legacyExperimentCalculations'
 import { VariantTag } from './components'
 
 export function WinningVariantText({
@@ -20,8 +23,12 @@ export function WinningVariantText({
 }): JSX.Element {
     const { getInsightType, experiment } = useValues(experimentLogic)
 
-    const highestProbabilityVariant = getHighestProbabilityVariant(result)
-    const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
+    const highestProbabilityVariant = legacyGetHighestProbabilityVariant(result)
+    const index = legacyGetIndexForVariant(
+        result,
+        highestProbabilityVariant || '',
+        getInsightType(experiment.metrics[0])
+    )
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
 

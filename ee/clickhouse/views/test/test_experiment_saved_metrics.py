@@ -784,3 +784,82 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
         self.assertIn("query", saved_metrics[0])
         self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentMetric")
+
+    def test_saved_metric_refreshes_action_names(self):
+        """Test that saved metrics show current action names when actions are renamed."""
+        from posthog.models.action.action import Action
+
+        # Create an action
+        action = Action.objects.create(team=self.team, name="Original Action Name")
+
+        # Create a saved metric using the action
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Metric with Action",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {
+                        "kind": "ActionsNode",
+                        "id": action.id,
+                        "name": "Original Action Name",  # Stale name
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = response.json()["id"]
+
+        # Rename the action
+        action.name = "Renamed Action"
+        action.save()
+
+        # Fetch the saved metric
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify the action name was refreshed
+        self.assertEqual(response.json()["query"]["source"]["name"], "Renamed Action")
+        self.assertEqual(response.json()["query"]["source"]["id"], action.id)
+
+    def test_saved_metric_preserves_name_for_deleted_action(self):
+        """Test that saved metrics preserve old names when actions are deleted."""
+        from posthog.models.action.action import Action
+
+        # Create an action
+        action = Action.objects.create(team=self.team, name="Action to Delete")
+        action_id = action.id
+
+        # Create a saved metric using the action
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Metric with Deleted Action",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {
+                        "kind": "ActionsNode",
+                        "id": action_id,
+                        "name": "Action to Delete",
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = response.json()["id"]
+
+        # Delete the action
+        action.deleted = True
+        action.save()
+
+        # Fetch the saved metric
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify the old name is preserved
+        self.assertEqual(response.json()["query"]["source"]["name"], "Action to Delete")
+        self.assertEqual(response.json()["query"]["source"]["id"], action_id)

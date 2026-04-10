@@ -3,6 +3,9 @@ import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -80,7 +83,23 @@ export class CdpApi {
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
 
         // API-only services
-        this.hogTransformer = createHogTransformerService(config, deps)
+        this.hogTransformer = createHogTransformerService(config, {
+            ...deps,
+            monitoringOutputs: new IngestionOutputs({
+                [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+                    APP_METRICS_OUTPUT,
+                    config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+                    deps.kafkaProducer,
+                    'default'
+                ),
+                [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
+                    LOG_ENTRIES_OUTPUT,
+                    config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                    deps.kafkaProducer,
+                    'default'
+                ),
+            }),
+        })
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,

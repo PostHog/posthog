@@ -38,7 +38,7 @@ S3_JS_ENTRY_POINT = "array.js"
 
 
 def array_js_path(version: str) -> str:
-    return f"{version}/{S3_JS_ENTRY_POINT}"
+    return f"static/{version}/{S3_JS_ENTRY_POINT}"
 
 
 REDIS_JS_CONTENT_TTL = 60 * 60 * 24 * 30  # 30 days — version content is immutable

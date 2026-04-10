@@ -1073,7 +1073,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
-    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
+    @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         destination = request.query_params.get("destination", None)
         if not destination:
@@ -1086,7 +1086,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response(destination_test.as_dict())
 
-    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
@@ -1113,7 +1113,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
 
-    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 

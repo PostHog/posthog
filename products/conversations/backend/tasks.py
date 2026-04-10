@@ -26,7 +26,7 @@ from products.conversations.backend.formatting import (
     rich_content_to_slack_payload,
 )
 from products.conversations.backend.mailgun import get_smtp_connection
-from products.conversations.backend.models import EmailMessageMapping, TeamConversationsEmailConfig
+from products.conversations.backend.models import EmailMessageMapping
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import get_slack_client
 
@@ -388,19 +388,18 @@ def send_email_reply(
         return
 
     try:
-        config = TeamConversationsEmailConfig.objects.get(team=team)
-    except TeamConversationsEmailConfig.DoesNotExist:
-        logger.warning("email_reply_no_config", team_id=team_id)
+        ticket = Ticket.objects.select_related("email_config").get(id=ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
+        return
+
+    config = ticket.email_config
+    if not config:
+        logger.warning("email_reply_no_config", team_id=team_id, ticket_id=ticket_id)
         return
 
     if not config.domain_verified:
         logger.warning("email_reply_domain_not_verified", team_id=team_id, domain=config.domain)
-        return
-
-    try:
-        ticket = Ticket.objects.get(id=ticket_id, team=team)
-    except Ticket.DoesNotExist:
-        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
         return
 
     if not ticket.email_from:

@@ -6,9 +6,10 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import SandboxEnvironment, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
 
 
 @dataclass
@@ -27,12 +28,16 @@ class TaskProcessingContext:
     task_id: str
     run_id: str
     team_id: int
+    team_uuid: str
+    organization_id: str
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
     create_pr: bool = True
     state: dict | None = None
     _branch: str | None = None
+    sandbox_environment_name: str | None = None
+    allowed_domains: list[str] | None = None
 
     @property
     def mode(self) -> str:
@@ -74,6 +79,7 @@ class TaskProcessingContext:
             "repository": self.repository,
             "distinct_id": self.distinct_id,
             "mode": self.mode,
+            "sandbox_environment_id": self.sandbox_environment_id,
         }
 
 
@@ -85,7 +91,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
 
@@ -103,6 +109,36 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     distinct_id = task.created_by.distinct_id or "process_task_workflow"
+    state = task_run.state or {}
+    sandbox_environment_id = state.get("sandbox_environment_id")
+    sandbox_environment_name: str | None = None
+    allowed_domains: list[str] | None = None
+
+    if sandbox_environment_id:
+        sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+        if sandbox_environment is None:
+            raise TaskInvalidStateError(
+                f"Sandbox environment {sandbox_environment_id} not found for team {task.team_id}",
+                {"sandbox_environment_id": sandbox_environment_id, "team_id": task.team_id},
+                cause=RuntimeError(f"Sandbox environment {sandbox_environment_id} does not exist"),
+            )
+        else:
+            sandbox_environment_name = sandbox_environment.name
+            effective_domains = sandbox_environment.get_effective_domains()
+            allowed_domains = effective_domains or None
+
+            if allowed_domains:
+                emit_agent_log(
+                    run_id,
+                    "debug",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
+                )
+            else:
+                emit_agent_log(
+                    run_id,
+                    "debug",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
+                )
 
     log_with_activity_context(
         "Task processing context created",
@@ -111,16 +147,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         repository=task.repository,
         distinct_id=distinct_id,
+        sandbox_environment_id=sandbox_environment_id,
     )
 
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
+        team_uuid=str(task.team.uuid),
+        organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
-        state=task_run.state,
+        state=state,
         _branch=task_run.branch,
+        sandbox_environment_name=sandbox_environment_name,
+        allowed_domains=allowed_domains,
     )

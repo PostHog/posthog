@@ -977,8 +977,6 @@ posthog/management/commands/analyze_team_cache_sizes.py:0: error: Invalid subscr
 posthog/management/commands/analyze_team_cache_sizes.py:0: error: Invalid subscript assignment with key of type `object` and value of type `list[Unknown]` on object of type `dict[str, list[int | float]]`  [invalid-assignment]
 posthog/management/commands/analyze_team_cache_sizes.py:0: error: No overload of bound method `get` matches arguments  [no-matching-overload]
 posthog/management/commands/background_delete_model.py:0: warning: Attribute `split` may be missing on object of type `@Todo | None`  [possibly-missing-attribute]
-posthog/management/commands/compare_hogql_insights.py:0: error: Object of type `(Unknown & ~AlwaysFalsy) | (int & ~AlwaysFalsy) | list[Unknown]` may not be iterable  [not-iterable]
-posthog/management/commands/compare_hogql_insights.py:0: error: Object of type `(Unknown & ~AlwaysFalsy) | (int & ~AlwaysFalsy) | list[Unknown]` may not be iterable  [not-iterable]
 posthog/management/commands/generate_demo_data.py:0: warning: Attribute `email` may be missing on object of type `None | Unknown | User`  [possibly-missing-attribute]
 posthog/management/commands/generate_demo_data.py:0: warning: Attribute `email` may be missing on object of type `None | Unknown | User`  [possibly-missing-attribute]
 posthog/management/commands/generate_demo_data.py:0: warning: Attribute `email` may be missing on object of type `None | Unknown | User`  [possibly-missing-attribute]

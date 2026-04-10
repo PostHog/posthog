@@ -1,12 +1,16 @@
 import { useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
+import { CATEGORY_DETAIL_CONFIG } from '../categoryDetail/categoryDetailConfig'
 import { HEALTH_CATEGORY_CONFIG } from '../healthCategories'
 import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
-import type { CategoryHealthSummary, HealthIssueSeverity } from '../types'
+import { severityColor } from '../healthUtils'
+import type { CategoryHealthSummary } from '../types'
 
 export const HealthIssueSummaryCards = (): JSX.Element => {
     const { categorySummaries, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
@@ -27,7 +31,7 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
 
     return (
         <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
-            {categorySummaries.map((summary) => (
+            {categorySummaries.map((summary: CategoryHealthSummary) => (
                 <CategoryCard key={summary.category} summary={summary} />
             ))}
         </div>
@@ -38,19 +42,14 @@ const CategoryCard = ({ summary }: { summary: CategoryHealthSummary }): JSX.Elem
     const config = HEALTH_CATEGORY_CONFIG[summary.category as HealthIssueCategory]
     const isHealthy = summary.issueCount === 0
 
-    const severityColor = (severity: HealthIssueSeverity): string => {
-        switch (severity) {
-            case 'critical':
-                return 'text-danger'
-            case 'warning':
-                return 'text-warning'
-            case 'info':
-                return 'text-muted'
-        }
-    }
+    const detailConfig = CATEGORY_DETAIL_CONFIG[summary.category as HealthIssueCategory]
+    const linkUrl = detailConfig?.redirectUrl ?? urls.healthCategory(summary.category)
 
     return (
-        <div className="relative flex flex-col gap-2 justify-between border border-primary bg-surface-primary rounded p-4 h-full shadow">
+        <Link
+            to={linkUrl}
+            className="relative flex flex-col gap-2 justify-between border border-primary bg-surface-primary rounded p-4 h-full shadow transition-colors cursor-pointer hover:border-accent"
+        >
             {!isHealthy && (
                 <IconWarning className={`size-5 absolute top-3 right-3 ${severityColor(summary.worstSeverity!)}`} />
             )}
@@ -68,6 +67,6 @@ const CategoryCard = ({ summary }: { summary: CategoryHealthSummary }): JSX.Elem
                     {summary.issueCount} {summary.issueCount === 1 ? 'issue' : 'issues'}
                 </p>
             )}
-        </div>
+        </Link>
     )
 }

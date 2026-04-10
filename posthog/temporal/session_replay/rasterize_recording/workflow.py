@@ -44,7 +44,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=dt.timedelta(minutes=30),
-            heartbeat_timeout=dt.timedelta(minutes=2),
+            heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=2),
         )
 

@@ -213,6 +213,17 @@ class TestApproveRunAPI:
             team_id=repo.team_id,
         )
 
+        # Classification happens at complete_run time
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines",
+                return_value={"Button": "old_hash"},
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.mark_run_completed(create_result.run_id)
+
         result = api.approve_run(
             ApproveRunInput(
                 run_id=create_result.run_id,

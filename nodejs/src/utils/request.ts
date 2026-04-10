@@ -2,7 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
@@ -31,6 +31,15 @@ const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
     help: 'Total number of unsafe requests detected and blocked',
     labelNames: ['reason'],
+})
+
+// Gauge tracking the number of external HTTP requests currently in flight.
+// This is the primary scaling signal for the cdp-cyclotron-worker: it directly
+// measures I/O saturation rather than CPU (which stays low while waiting on responses)
+// or batch utilization (which measures demand, not capacity).
+const inflightExternalRequests = new Gauge({
+    name: 'cdp_http_inflight_requests',
+    help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -269,6 +278,25 @@ function makeSecureDispatcher(): Dispatcher {
 const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
 
+/**
+ * Reads a response body stream and destroys it immediately after to release
+ * the underlying socket and its off-heap buffers. Without explicit destruction,
+ * undici holds onto these buffers until GC, and V8 never returns the ~64MB
+ * ArrayBuffer arenas they live in to the OS.
+ */
+async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
+    const text = await body.text()
+    // After text() fully consumes the stream, destroy to release socket buffers.
+    // At this point the stream is already ended so destroy is a cleanup no-op,
+    // but it signals undici to release the underlying socket immediately.
+    try {
+        body.destroy()
+    } catch {
+        // Ignore destroy errors — the body is already fully consumed
+    }
+    return text
+}
+
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
     try {
@@ -300,28 +328,36 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         }
     }
 
-    let consumed = false
+    // On first .text()/.json() call, read the full body and destroy the
+    // stream immediately after. This releases undici's socket buffers
+    // without waiting for GC.
+    let bodyPromise: Promise<string> | undefined
 
-    const returnValue = {
+    const readBody = (): Promise<string> => {
+        if (!bodyPromise) {
+            bodyPromise = readAndDestroyBody(result.body)
+        }
+        return bodyPromise
+    }
+
+    return {
         status: result.statusCode,
         headers,
-        json: async () => {
-            consumed = true
-            return parseJSON(await result.body.text())
-        },
-        text: async () => {
-            consumed = true
-            return await result.body.text()
-        },
-        dump: async () => {
-            if (consumed) {
-                return
+        json: async () => parseJSON(await readBody()),
+        text: async () => await readBody(),
+        dump: () => {
+            if (!bodyPromise) {
+                bodyPromise = Promise.resolve('')
+                try {
+                    result.body.on('error', () => {})
+                    result.body.destroy()
+                } catch {
+                    // Ignore destroy errors
+                }
             }
-            consumed = true
-            await result.body.dump()
+            return Promise.resolve()
         },
     }
-    return returnValue
 }
 
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
@@ -331,7 +367,12 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
-    return await _fetch(url, options, sharedSecureAgent)
+    inflightExternalRequests.inc()
+    try {
+        return await _fetch(url, options, sharedSecureAgent)
+    } finally {
+        inflightExternalRequests.dec()
+    }
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation

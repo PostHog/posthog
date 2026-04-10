@@ -16,6 +16,16 @@ on:
             - '.github/rust-images.yml'
         branches:
             - 'master'
+    pull_request:
+        paths:
+            - 'rust/**'
+            - '.github/workflows/rust-docker-build.yml'
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build-images:
@@ -69,6 +79,9 @@ jobs:
                       values_key: image
                     - release: capture-logs
                       digest_key: capture-logs
+                      values_key: image
+                    - release: ingestion-consumer
+                      digest_key: ingestion-consumer
                       values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator

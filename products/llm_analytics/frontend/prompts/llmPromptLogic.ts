@@ -168,6 +168,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
+        toggleOutlineExpanded: true,
     }),
 
     reducers(({ props }) => ({
@@ -223,6 +224,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             {
                 setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
                 loadPromptSuccess: () => null,
+            },
+        ],
+        isOutlineExpanded: [
+            false,
+            {
+                toggleOutlineExpanded: (state) => !state,
             },
         ],
     })),

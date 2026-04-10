@@ -1906,6 +1906,52 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     form_content?: unknown | null
 }
 
+/**
+ * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+ */
+export type SurveyStatsResponseApiStats = { [key: string]: unknown }
+
+/**
+ * Calculated response and dismissal rates.
+ */
+export type SurveyStatsResponseApiRates = { [key: string]: unknown }
+
+export interface SurveyStatsResponseApi {
+    /** The survey ID these stats belong to. */
+    survey_id: string
+    /**
+     * When the survey started collecting responses.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When the survey stopped collecting responses.
+     * @nullable
+     */
+    end_date: string | null
+    /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+    stats: SurveyStatsResponseApiStats
+    /** Calculated response and dismissal rates. */
+    rates: SurveyStatsResponseApiRates
+}
+
+/**
+ * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+ */
+export type SurveyGlobalStatsResponseApiStats = { [key: string]: unknown }
+
+/**
+ * Calculated response and dismissal rates.
+ */
+export type SurveyGlobalStatsResponseApiRates = { [key: string]: unknown }
+
+export interface SurveyGlobalStatsResponseApi {
+    /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+    stats: SurveyGlobalStatsResponseApiStats
+    /** Calculated response and dismissal rates. */
+    rates: SurveyGlobalStatsResponseApiRates
+}
+
 export type SurveysListParams = {
     archived?: boolean
     /**

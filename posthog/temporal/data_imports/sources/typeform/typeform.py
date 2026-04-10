@@ -104,6 +104,10 @@ class TypeformResponsesPaginator(BasePaginator):
         super().__init__()
         self._cursor: str | None = None
 
+    def init_request(self, request: Request) -> None:
+        self._cursor = None
+        self._has_next_page = True
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         if not data:
             self._cursor = None

@@ -320,6 +320,7 @@ export interface ExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -385,12 +386,22 @@ export interface PatchedExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface CopyExperimentToProjectApi {
+    /** The team ID to copy the experiment to. */
+    target_team_id: number
+    /** Optional feature flag key to use in the destination team. */
+    feature_flag_key?: string
+    /** Optional name for the copied experiment. */
+    name?: string
 }
 
 /**

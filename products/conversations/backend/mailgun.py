@@ -58,6 +58,11 @@ def _get_api_key() -> str:
     return key
 
 
+def _filter_sending_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip tracking CNAME records — we don't use open/click tracking."""
+    return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
+
+
 def add_domain(domain: str) -> dict[str, Any]:
     """Register a sending domain with Mailgun. Returns DNS records to configure."""
     resp = requests.post(
@@ -70,7 +75,7 @@ def add_domain(domain: str) -> dict[str, Any]:
     if resp.status_code in (200, 201):
         data = resp.json()
         return {
-            "sending_dns_records": data.get("sending_dns_records", []),
+            "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
         }
 
     if resp.status_code == 400:
@@ -99,7 +104,7 @@ def get_domain_dns_records(domain: str) -> dict[str, Any]:
     resp.raise_for_status()
     data = resp.json()
     return {
-        "sending_dns_records": data.get("sending_dns_records", []),
+        "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
     }
 
 
@@ -129,7 +134,7 @@ def verify_domain(domain: str) -> dict[str, Any]:
     domain_info = data.get("domain", {})
     return {
         "state": domain_info.get("state", "unverified"),
-        "sending_dns_records": data.get("sending_dns_records", []),
+        "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
     }
 
 

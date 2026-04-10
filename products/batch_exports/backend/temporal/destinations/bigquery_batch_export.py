@@ -978,10 +978,14 @@ class BigQueryClient:
                 BigQueryQuotaExceededError,
             ) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                self.logger.exception(
-                    "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
+                self.logger.warning(
+                    "LoadJob transient error encountered",
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                    exc_info=True,
                 )
-                self.external_logger.error(  # noqa: TRY400
+                self.external_logger.warning(
                     "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
                     " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
                     " to check with BigQuery if it keeps happening consistently."
@@ -1002,8 +1006,10 @@ class BigQueryClient:
                     raise
 
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                self.logger.exception("LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code)
-                self.external_logger.error(  # noqa: TRY400
+                self.logger.warning(
+                    "LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code, exc_info=True
+                )
+                self.external_logger.warning(
                     "BigQuery load job quota exceeded. This error will be retried in %d seconds, this is attempt number %d."
                     " It may take several minutes or longer until the quota is restored, as it is restored over the course"
                     " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",

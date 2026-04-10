@@ -72,7 +72,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
@@ -90,6 +90,18 @@ jobs:
                   if ! git diff --exit-code services/mcp/schema/tool-inputs.json; then
                     echo ""
                     echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
+                    exit 1
+                  fi
+
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
                     exit 1
                   fi
 
@@ -115,7 +127,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
@@ -228,9 +240,9 @@ jobs:
                       exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -259,7 +271,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install Python dependencies

@@ -23,9 +23,9 @@ import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { LegacySharedFunnelsMetricForm } from '../legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
+import { LegacySharedTrendsMetricForm } from '../legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
-import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
-import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {

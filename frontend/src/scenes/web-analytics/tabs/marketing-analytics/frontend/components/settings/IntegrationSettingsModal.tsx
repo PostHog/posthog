@@ -18,6 +18,8 @@ export interface IntegrationSettingsModalProps {
     initialTab?: IntegrationSettingsTab
     /** Initial UTM value to pre-populate in the mappings tab */
     initialUtmValue?: string
+    /** Initial campaign name to pre-populate in the mappings tab */
+    initialCampaignName?: string
 }
 
 export function IntegrationSettingsModal({
@@ -26,6 +28,7 @@ export function IntegrationSettingsModal({
     onClose,
     initialTab,
     initialUtmValue,
+    initialCampaignName,
 }: IntegrationSettingsModalProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<IntegrationSettingsTab>(initialTab || 'field')
 
@@ -96,6 +99,7 @@ export function IntegrationSettingsModal({
                                     sourceFilter={integrationName}
                                     compact
                                     initialUtmValue={initialUtmValue}
+                                    initialCampaignName={initialCampaignName}
                                 />
                             </div>
                         ),

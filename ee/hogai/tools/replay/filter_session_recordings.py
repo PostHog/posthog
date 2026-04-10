@@ -56,6 +56,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         - These are built-in and don't require discovery via read_taxonomy.
         - **CRITICAL**: These are NOT events. There are no events named `$keypress`, `$click`, or `$console_error`. Never use event-type filters for recording metrics.
 
+        **IMPORTANT — `element` is NOT a top-level filter type**: The top-level `filter_group.values` only accept types: `event`, `person`, `session`, `recording`, `group`, and `events`. Use `element` property filters only inside an `events` filter for an autocaptured interaction such as `$autocapture` or `$rageclick`. Example: `{{"id": "$autocapture", "type": "events", "properties": [{{"key": "text", "type": "element", "value": "Sign Up", "operator": "icontains"}}]}}`. This can match interacted-with element text/selectors, not arbitrary text that was merely visible on screen. If the user asks for text that was only visible, explain the limitation and only fall back to another verified event/property if one exists. Valid element property keys are: `tag_name`, `text`, `href`, `selector`.
+
         **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
 
         # Property Value Matching

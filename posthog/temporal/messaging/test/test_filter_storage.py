@@ -52,7 +52,7 @@ class TestFilterStorage:
 
         # Verify round-trip correctness
         assert result is not None
-        retrieved_filters, person_properties = result
+        retrieved_filters, person_properties, combined_bytecode = result
         assert len(retrieved_filters) == 3
 
         for i, retrieved_filter in enumerate(retrieved_filters):
@@ -88,7 +88,7 @@ class TestFilterStorage:
         # Verify filters can be retrieved immediately
         result = get_filters_and_properties(storage_key)
         assert result is not None
-        retrieved_filters, person_properties = result
+        retrieved_filters, person_properties, combined_bytecode = result
         assert len(retrieved_filters) == 3
 
         # Simulate TTL expiry by deleting the key
@@ -119,8 +119,8 @@ class TestFilterStorage:
 
         assert result1 is not None
         assert result2 is not None
-        filters1, _ = result1
-        filters2, _ = result2
+        filters1, _, _ = result1
+        filters2, _, _ = result2
         assert len(filters1) == len(filters2) == 3
 
     @patch("posthog.temporal.messaging.filter_storage.get_client")
@@ -148,7 +148,7 @@ class TestFilterStorage:
         # Retrieve and verify
         result = get_filters_and_properties(storage_key)
         assert result is not None
-        retrieved_filters, person_properties = result
+        retrieved_filters, person_properties, combined_bytecode = result
         assert len(retrieved_filters) == 0
         assert person_properties == []  # Empty filters should result in empty properties
 
@@ -198,7 +198,7 @@ class TestFilterStorage:
         result = get_filters_and_properties(storage_key)
         assert result is not None
 
-        retrieved_filters, person_properties = result
+        retrieved_filters, person_properties, combined_bytecode = result
 
         # Verify person properties only includes non-None keys
         assert person_properties == ["age"]

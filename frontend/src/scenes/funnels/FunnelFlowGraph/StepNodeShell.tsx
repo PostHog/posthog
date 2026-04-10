@@ -71,9 +71,9 @@ export function StepNodeShell({
 
             <div className="flex flex-col justify-between px-2.5 py-2 h-full">
                 <div>
-                    <div className="flex justify-between min-h-10">
-                        <div className="flex flex-col items-start">
-                            <div className="flex items-center gap-1.5">
+                    <div className="flex justify-between min-h-10 min-w-0">
+                        <div className="flex flex-col items-start min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0 max-w-full">
                                 <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
                                 {eventDisplay}
                             </div>

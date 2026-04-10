@@ -26,6 +26,5 @@ class SupabaseSource(PostgresSource):
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",
             fields=super().get_source_config.fields,
-            betaSource=True,
             featureFlag="supabase-dwh",
         )

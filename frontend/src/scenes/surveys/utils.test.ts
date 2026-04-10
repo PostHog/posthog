@@ -3,6 +3,8 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    FeatureFlagFilters,
+    PropertyOperator,
     PropertyFilterType,
     Survey,
     SurveyAppearance,
@@ -18,9 +20,12 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     getResolvedSurveyDateRange,
+    getSurveyAudienceSummaryValue,
+    getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
     getSurveyStartDateForQuery,
+    isSimpleSurveyAudienceTargeting,
     sanitizeColor,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
@@ -405,6 +410,125 @@ describe('survey utils', () => {
             const result = sanitizeSurvey(inputSurvey, { keepEmptyConditions: true })
 
             expect(result.conditions).toBeNull()
+        })
+    })
+
+    describe('audience targeting summaries', () => {
+        const baseSurvey = {
+            id: 'survey-id',
+            created_at: '2024-01-01T00:00:00Z',
+            end_date: null,
+            conditions: null,
+            linked_flag: null,
+            linked_flag_id: null,
+            targeting_flag: null,
+            targeting_flag_filters: undefined,
+        } as unknown as Survey
+
+        it('summarizes simple person-property audience rules', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    value: ['@posthog.com'],
+                                    operator: 'icontains',
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'plan',
+                                    value: ['paid'],
+                                    operator: 'exact',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('2 audience rules')
+            expect(getSurveyDisplayConditionsSummary(survey)).toContainEqual({
+                type: 'targeting',
+                label: 'Targeting',
+                value: '2 audience rules',
+            })
+        })
+
+        it('supports simple cohort targeting with rollout', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'id',
+                                    value: 17,
+                                    type: PropertyFilterType.Cohort,
+                                },
+                            ],
+                            rollout_percentage: 50,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('1 audience rule · 50% shown')
+            expect(isSimpleSurveyAudienceTargeting(survey.targeting_flag_filters)).toBe(true)
+        })
+
+        it('summarizes rollout-only targeting', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 50,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('50% of matching users')
+        })
+
+        it('detects advanced audience targeting', () => {
+            const filters: FeatureFlagFilters = {
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                value: ['@posthog.com'],
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Person,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                    },
+                ],
+            }
+
+            expect(isSimpleSurveyAudienceTargeting(filters)).toBe(false)
+            expect(
+                getSurveyAudienceSummaryValue({
+                    ...baseSurvey,
+                    targeting_flag_filters: filters,
+                } as Survey)
+            ).toBe('Advanced audience targeting')
         })
     })
 

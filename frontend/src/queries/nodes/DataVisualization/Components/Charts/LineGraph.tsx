@@ -110,7 +110,7 @@ const getYAxisSettings = (
 
 export type LineGraphProps = {
     xData: AxisSeries<string> | null
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number>[]
+    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
@@ -486,7 +486,6 @@ export const LineGraph = ({
                                                 <button
                                                     type="button"
                                                     className="InsightTooltip__close ml-5 p-0.5 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
-                                                    style={{ opacity: 0 }}
                                                     onClick={() => unpinTooltip(tooltipId)}
                                                 >
                                                     <IconX className="w-3 h-3" />

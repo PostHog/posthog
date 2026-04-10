@@ -245,7 +245,9 @@ const insightActionsMapping: Record<
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
-    const query = filtersToQueryNode(filtersAfter)
+    const query = filtersToQueryNode(filtersAfter, {
+        source: 'saved_insights_activity_descriptions',
+    })
     const trendsQuery = query as TrendsQuery
 
     return {

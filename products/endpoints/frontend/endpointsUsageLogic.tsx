@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -41,6 +41,8 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         setMaterializationType: (materializationType: 'materialized' | 'inline' | null) => ({ materializationType }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
+        refresh: true,
+        clearCooldown: true,
     }),
 
     reducers({
@@ -77,18 +79,32 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
+        cooldownActive: [
+            false,
+            {
+                refresh: () => true,
+                clearCooldown: () => false,
+            },
+        ],
+        refreshKey: [
+            0,
+            {
+                refresh: (state) => state + 1,
+            },
+        ],
     }),
 
     selectors({
         endpointNames: [
             (s) => [s.allEndpoints],
-            (allEndpoints: EndpointType[]): string[] =>
-                allEndpoints
-                    .filter((e) => e.last_executed_at)
-                    .map((e) => e.name)
-                    .sort(),
+            (allEndpoints: EndpointType[]): string[] => allEndpoints.map((e) => e.name).sort(),
+        ],
+        activeEndpointNames: [
+            (s) => [s.endpointNames],
+            (endpointNames: string[]): Set<string> => new Set(endpointNames),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
+        canRefresh: [(s) => [s.cooldownActive], (cooldownActive: boolean): boolean => !cooldownActive],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter): { date_from: string | null; date_to: string | null } => {
@@ -192,6 +208,17 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         ],
     }),
 
+    listeners(({ actions }) => ({
+        refresh: () => {
+            setTimeout(
+                () => {
+                    actions.clearCooldown()
+                },
+                15 * 60 * 1000
+            )
+        },
+    })),
+
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
             dateFilter = values.dateFilter,
@@ -252,7 +279,10 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.endpointsUsage()]: (_, searchParams) => {
+        [urls.endpoints()]: (_, searchParams) => {
+            if (searchParams.tab !== 'usage') {
+                return
+            }
             const { dateFrom, dateTo, endpointFilter, materializationType, interval, breakdownBy } = searchParams
             actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
             actions.setEndpointFilter(endpointFilter ? endpointFilter.split(',') : [])

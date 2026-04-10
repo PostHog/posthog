@@ -1,7 +1,6 @@
 import { Locator, Page, expect } from '@playwright/test'
 
 import { TaxonomicFilter } from '../taxonomicFilter'
-
 import { ChartInsightBase } from './chartInsightBase'
 
 export class RetentionInsight extends ChartInsightBase {
@@ -66,7 +65,7 @@ export class RetentionInsight extends ChartInsightBase {
         // Short timeout on 'attached' handles cached/instant queries where it never appears.
         await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
         await loading.waitFor({ state: 'detached', timeout: 30000 })
-        await expect(this.table).toBeVisible()
+        await expect(this.chart).toBeVisible({ timeout: 30000 })
     }
 
     async selectPeriod(period: 'days' | 'weeks' | 'months'): Promise<void> {

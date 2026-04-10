@@ -152,7 +152,7 @@ class TestGetJsContent(SimpleTestCase):
         try:
             content = get_js_content("1.358.0")
             assert content == "s3-js-content"
-            mock_read.assert_called_once_with("1.358.0/array.js", bucket="test-bucket", missing_ok=True)
+            mock_read.assert_called_once_with("static/1.358.0/array.js", bucket="test-bucket", missing_ok=True)
             assert cache.get(f"{REDIS_JS_KEY_PREFIX}:1.358.0") == "s3-js-content"
         finally:
             cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
@@ -194,7 +194,7 @@ class TestValidateArtifacts(SimpleTestCase):
     def test_returns_true_when_array_js_exists(self, mock_head):
         mock_head.return_value = {"ContentLength": 12345}
         assert validate_version_artifacts("1.358.0") is True
-        mock_head.assert_called_once_with("1.358.0/array.js", bucket="test-bucket")
+        mock_head.assert_called_once_with("static/1.358.0/array.js", bucket="test-bucket")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.js_snippet_versioning.object_storage.head_object")

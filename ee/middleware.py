@@ -6,7 +6,7 @@ from typing import cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 import jwt
@@ -67,6 +67,9 @@ class AdminOAuth2Middleware:
 
         if self._is_oauth2_verified(request):
             return self.get_response(request)
+
+        if request.path.startswith("/admin/api/"):
+            return JsonResponse({"detail": "Admin OAuth2 verification required"}, status=403)
 
         request.session[self.SESSION_ORIGINAL_PATH_KEY] = request.get_full_path()
         return self._redirect_to_oauth2(request)

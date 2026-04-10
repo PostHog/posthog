@@ -7,7 +7,7 @@ import React from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -452,11 +452,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setSessionSummaryContent(aiSummaryMock)
                 return
             }
-            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
+
+            // Give up waiting after 10 minutes. If the workflow finishes later,
+            // the summary will show up next time the user opens this recording
+            const timeout = setTimeout(
+                () => {
+                    actions.setSessionSummaryLoading(false)
+                },
+                10 * 60 * 1000
+            )
+
             try {
                 const response = await api.recordings.summarizeStream(id)
                 const reader = response.body?.getReader()
@@ -467,7 +476,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const parser = createParser({
                     onEvent: ({ event, data }) => {
                         try {
-                            // Stop loading and show error if encountered an error event
+                            // The workflow itself failed, not just the connection
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
                                 actions.setSessionSummaryLoading(false)
@@ -492,11 +501,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const decodedValue = decoder.decode(value)
                     parser.feed(decodedValue)
                 }
+                clearTimeout(timeout)
             } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
-                throw err
-            } finally {
-                actions.setSessionSummaryLoading(false)
+                if (err instanceof ApiError) {
+                    clearTimeout(timeout)
+                    lemonToast.error(err.message)
+                    actions.setSessionSummaryLoading(false)
+                } else {
+                    posthog.captureException(err)
+                }
             }
         },
     })),

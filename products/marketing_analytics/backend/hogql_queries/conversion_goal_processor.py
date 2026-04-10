@@ -1,7 +1,10 @@
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Optional, Union
 
 from posthog.schema import (
+    AttributionMode,
     BaseMathType,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
@@ -21,6 +24,11 @@ from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 DAY_IN_SECONDS = 86400
+LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
+# Half-life = attribution_window / 4, so a 90-day window gives ~22.5-day half-life.
+# At t = half_life, weight = exp(-ln(2)) = 0.5 (exactly half).
+# This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
+TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
 
 @dataclass
@@ -185,7 +193,7 @@ class ConversionGoalProcessor:
             return schema_map.get("timestamp_field", "timestamp")
         return "events.timestamp"
 
-    def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
+    def generate_cte_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """
         Generate main CTE query for conversion goal.
 
@@ -195,13 +203,13 @@ class ConversionGoalProcessor:
             return self._generate_array_based_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
-    def _generate_array_based_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
+    def _generate_array_based_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
             return self._generate_funnel_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
-    def _generate_funnel_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
+    def _generate_funnel_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
         conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
 
@@ -213,8 +221,13 @@ class ConversionGoalProcessor:
         # Build nested query structure for attribution
         attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
-        array_join = self._build_array_join_subquery(array_collection, attribution_window_seconds)
-        attribution = self._build_attribution_logic_subquery(array_join)
+
+        if self.config.is_multi_touch:
+            array_join = self._build_multi_touch_array_join_subquery(array_collection, attribution_window_seconds)
+            attribution = self._build_multi_touch_attribution_subquery(array_join)
+        else:
+            array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
+            attribution = self._build_single_touch_attribution_subquery(array_join)
 
         return self._build_final_aggregation_query(attribution)
 
@@ -445,7 +458,11 @@ class ConversionGoalProcessor:
         )
 
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
-        """Build conversion timestamps array"""
+        """Build conversion timestamps array.
+
+        Uses 0 as sentinel for non-conversion events. A Unix timestamp of 0
+        (1970-01-01) is impossible for real events, so x > 0 safely filters them.
+        """
         return ast.Alias(
             alias="conversion_timestamps",
             expr=ast.Call(
@@ -477,7 +494,15 @@ class ConversionGoalProcessor:
         )
 
     def _build_conversion_math_values_array(self, conversion_event: Optional[str]) -> ast.Alias:
-        """Build conversion math values array"""
+        """Build conversion math values array.
+
+        Uses 0 as sentinel for non-conversion events. This means $0-value
+        and negative-value conversions are also filtered from math_values,
+        but that's safe: conversion_timestamps is the source of truth for
+        which conversions happened (TOTAL/DAU), and summing $0 doesn't
+        change the result (SUM). Negative conversion values (e.g. refunds)
+        are not currently supported — they would be dropped by the filter.
+        """
         return ast.Alias(
             alias="conversion_math_values",
             expr=ast.Call(
@@ -641,7 +666,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_array_join_subquery(
+    def _build_single_touch_array_join_subquery(
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int
     ) -> ast.SelectQuery:
         """Build subquery with ARRAY JOIN and attribution window logic"""
@@ -675,10 +700,10 @@ class ConversionGoalProcessor:
                 )
             )
 
-        select_columns.append(self._build_last_utm_timestamp_expr(attribution_window_seconds))
+        select_columns.append(self._build_single_touch_timestamp_expr(attribution_window_seconds))
 
         for field in TRACKED_FIELDS:
-            select_columns.append(self._build_fallback_utm_expr(field.fallback_value, field.utm_array))
+            select_columns.append(self._build_single_touch_fallback_expr(field.fallback_value, field.utm_array))
 
         return ast.SelectQuery(
             select=select_columns,
@@ -692,7 +717,7 @@ class ConversionGoalProcessor:
             ],
         )
 
-    def _build_last_utm_timestamp_expr(self, attribution_window_seconds: int) -> ast.Alias:
+    def _build_single_touch_timestamp_expr(self, attribution_window_seconds: int) -> ast.Alias:
         """Build expression to find most recent UTM pageview within attribution window"""
         return ast.Alias(
             alias="last_utm_timestamp",
@@ -736,7 +761,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_fallback_utm_expr(self, alias: str, utm_array_field: str) -> ast.Alias:
+    def _build_single_touch_fallback_expr(self, alias: str, utm_array_field: str) -> ast.Alias:
         """Build expression for fallback UTM data"""
         return ast.Alias(
             alias=alias,
@@ -762,7 +787,486 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_attribution_logic_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
+    def _build_filtered_utm_timestamps_expr(self, attribution_window_seconds: int) -> ast.Call:
+        """Build expression to filter utm_timestamps within the attribution window before conversion time."""
+        return ast.Call(
+            name="arrayFilter",
+            args=[
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.LtEq,
+                                right=ast.ArrayAccess(
+                                    array=ast.Field(chain=["conversion_timestamps"]),
+                                    property=ast.Field(chain=["i"]),
+                                ),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.GtEq,
+                                right=ast.ArithmeticOperation(
+                                    left=ast.ArrayAccess(
+                                        array=ast.Field(chain=["conversion_timestamps"]),
+                                        property=ast.Field(chain=["i"]),
+                                    ),
+                                    op=ast.ArithmeticOperationOp.Sub,
+                                    right=ast.Constant(value=attribution_window_seconds),
+                                ),
+                            ),
+                        ]
+                    ),
+                ),
+                ast.Field(chain=["utm_timestamps"]),
+            ],
+        )
+
+    def _build_multi_touch_weights_expr(
+        self, filtered_timestamps_alias: str, attribution_window_seconds: int
+    ) -> ast.Expr:
+        """Build weight array expression based on multi-touch attribution mode."""
+        filtered_ts = ast.Field(chain=[filtered_timestamps_alias])
+
+        if self.config.attribution_mode == AttributionMode.LINEAR:
+            return self._build_linear_weights(filtered_ts)
+        elif self.config.attribution_mode == AttributionMode.TIME_DECAY:
+            return self._build_time_decay_weights(filtered_ts, attribution_window_seconds)
+        elif self.config.attribution_mode == AttributionMode.POSITION_BASED:
+            return self._build_position_based_weights(filtered_ts)
+
+        raise ValueError(f"Unknown multi-touch attribution mode: {self.config.attribution_mode}")
+
+    def _build_linear_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
+        """Equal weight for all touchpoints: 1.0 / n."""
+        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
+        return ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["_x"],
+                    expr=ast.ArithmeticOperation(
+                        left=ast.Constant(value=1.0),
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="greatest", args=[n, ast.Constant(value=1.0)]),
+                    ),
+                ),
+                filtered_ts,
+            ],
+        )
+
+    def _build_time_decay_weights(self, filtered_ts: ast.Expr, attribution_window_seconds: int) -> ast.Expr:
+        """Exponential half-life decay: weight = exp(-ln(2) * delta / half_life).
+
+        At t = half_life, weight = 0.5 (exactly half). This matches the industry
+        standard used by Google Analytics, Adobe Analytics, and Mixpanel.
+        The half-life scales with the attribution window (window / 4).
+        Weights are normalized so they sum to 1.
+        """
+        half_life_seconds = max(attribution_window_seconds // TIME_DECAY_HALF_LIFE_DIVISOR, DAY_IN_SECONDS)
+        conversion_time = ast.ArrayAccess(
+            array=ast.Field(chain=["conversion_timestamps"]),
+            property=ast.Field(chain=["i"]),
+        )
+        # weight = exp(-ln(2) * (conversion_time - ts) / half_life)
+        raw_weights = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["ts"],
+                    expr=ast.Call(
+                        name="exp",
+                        args=[
+                            ast.ArithmeticOperation(
+                                left=ast.Constant(value=-LN2),
+                                op=ast.ArithmeticOperationOp.Mult,
+                                right=ast.ArithmeticOperation(
+                                    left=ast.ArithmeticOperation(
+                                        left=conversion_time,
+                                        op=ast.ArithmeticOperationOp.Sub,
+                                        right=ast.Field(chain=["ts"]),
+                                    ),
+                                    op=ast.ArithmeticOperationOp.Div,
+                                    right=ast.Constant(value=half_life_seconds),
+                                ),
+                            ),
+                        ],
+                    ),
+                ),
+                filtered_ts,
+            ],
+        )
+        # Normalize: divide each weight by sum of all weights.
+        # Note: raw_weights AST node is referenced twice (in arraySum and as the
+        # arrayMap input), so ClickHouse evaluates the exp() computation twice per row.
+        # This is acceptable because touchpoint arrays are small (typically 3-10 elements).
+        weight_sum = ast.Call(name="arraySum", args=[raw_weights])
+        return ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["w"],
+                    expr=ast.ArithmeticOperation(
+                        left=ast.Field(chain=["w"]),
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
+                    ),
+                ),
+                raw_weights,
+            ],
+        )
+
+    def _build_position_based_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
+        """40% first touch, 40% last touch, 20% distributed among middle touchpoints.
+
+        Uses arrayMin/arrayMax to identify first/last by timestamp value,
+        avoiding dependency on array ordering (groupArray doesn't guarantee order).
+
+        Edge cases:
+        - 0 touchpoints: empty array (ARRAY JOIN produces no rows)
+        - 1 touchpoint: [1.0]
+        - 2 touchpoints: [0.5, 0.5]
+        - Duplicate timestamps: if multiple touchpoints share min/max timestamp,
+          all get 0.4 weight before normalization. Normalization rescues the total
+          to 1.0, but credit distribution may deviate from the intended 40/20/40.
+        """
+        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
+        middle_weight = ast.ArithmeticOperation(
+            left=ast.Constant(value=0.2),
+            op=ast.ArithmeticOperationOp.Div,
+            right=ast.Call(
+                name="greatest",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=n,
+                        op=ast.ArithmeticOperationOp.Sub,
+                        right=ast.Constant(value=2.0),
+                    ),
+                    ast.Constant(value=1.0),
+                ],
+            ),
+        )
+
+        min_ts = ast.Call(name="arrayMin", args=[filtered_ts])
+        max_ts = ast.Call(name="arrayMax", args=[filtered_ts])
+
+        position_weights = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["ts"],
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["ts"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=min_ts,
+                            ),
+                            ast.Constant(value=0.4),
+                            ast.Call(
+                                name="if",
+                                args=[
+                                    ast.CompareOperation(
+                                        left=ast.Field(chain=["ts"]),
+                                        op=ast.CompareOperationOp.Eq,
+                                        right=max_ts,
+                                    ),
+                                    ast.Constant(value=0.4),
+                                    middle_weight,
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+                filtered_ts,
+            ],
+        )
+
+        # Normalize so weights always sum to 1.0.
+        # Handles edge cases like duplicate timestamps where multiple elements
+        # match arrayMin/arrayMax.
+        # Wrap in ifNull to handle Nullable(Float64) from HogQL casts.
+        non_nullable_weights = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["_pw"],
+                    expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_pw"]), ast.Constant(value=0.0)]),
+                ),
+                position_weights,
+            ],
+        )
+        weight_sum = ast.Call(name="arraySum", args=[non_nullable_weights])
+        normalized_weights = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["w"],
+                    expr=ast.ArithmeticOperation(
+                        left=ast.Field(chain=["w"]),
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
+                    ),
+                ),
+                non_nullable_weights,
+            ],
+        )
+
+        return ast.Call(
+            name="if",
+            args=[
+                # n == 0: no touchpoints in window, empty weights (ARRAY JOIN produces no rows)
+                ast.CompareOperation(
+                    left=ast.Call(name="length", args=[filtered_ts]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=0),
+                ),
+                ast.Array(exprs=[]),
+                ast.Call(
+                    name="if",
+                    args=[
+                        # n == 1: single touchpoint gets all credit
+                        ast.CompareOperation(
+                            left=ast.Call(name="length", args=[filtered_ts]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value=1),
+                        ),
+                        ast.Array(exprs=[ast.Constant(value=1.0)]),
+                        ast.Call(
+                            name="if",
+                            args=[
+                                # n == 2: [0.5, 0.5]
+                                ast.CompareOperation(
+                                    left=ast.Call(name="length", args=[filtered_ts]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=2),
+                                ),
+                                ast.Array(exprs=[ast.Constant(value=0.5), ast.Constant(value=0.5)]),
+                                # n >= 3: assign by min/max timestamp, normalized
+                                normalized_weights,
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def _build_multi_touch_array_join_subquery(
+        self, inner_query: ast.SelectQuery, attribution_window_seconds: int
+    ) -> ast.SelectQuery:
+        """Build subquery with ARRAY JOIN for conversions, plus filtered touchpoint arrays for multi-touch."""
+        filtered_ts_expr = self._build_filtered_utm_timestamps_expr(attribution_window_seconds)
+
+        select_columns: list[ast.Expr] = [
+            ast.Field(chain=["person_id"]),
+            ast.Alias(
+                alias="conversion_time",
+                expr=ast.ArrayAccess(
+                    array=ast.Field(chain=["conversion_timestamps"]),
+                    property=ast.Field(chain=["i"]),
+                ),
+            ),
+            ast.Alias(
+                alias="conversion_math_value",
+                expr=ast.ArrayAccess(
+                    array=ast.Field(chain=["conversion_math_values"]),
+                    property=ast.Field(chain=["i"]),
+                ),
+            ),
+        ]
+
+        # Add conversion value for each tracked field
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(
+                    alias=field.conversion_value,
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=[field.conversion_array]),
+                        property=ast.Field(chain=["i"]),
+                    ),
+                )
+            )
+
+        # Add filtered touchpoint timestamps
+        select_columns.append(ast.Alias(alias="filtered_utm_timestamps", expr=filtered_ts_expr))
+
+        # Add filtered UTM arrays (filter to same indices as filtered timestamps)
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(
+                    alias=f"filtered_{field.utm_array}",
+                    expr=self._build_filtered_utm_field_expr(field.utm_array, attribution_window_seconds),
+                )
+            )
+
+        # Add weights array
+        select_columns.append(
+            ast.Alias(
+                alias="attribution_weights",
+                expr=self._build_multi_touch_weights_expr("filtered_utm_timestamps", attribution_window_seconds),
+            )
+        )
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=inner_query),
+            array_join_op="ARRAY JOIN",
+            array_join_list=[
+                ast.Alias(
+                    expr=ast.Call(name="arrayEnumerate", args=[ast.Field(chain=["conversion_timestamps"])]),
+                    alias="i",
+                )
+            ],
+        )
+
+    def _build_filtered_utm_field_expr(self, utm_array_field: str, attribution_window_seconds: int) -> ast.Call:
+        """Filter a UTM field array to only entries within the attribution window."""
+        conversion_time = ast.ArrayAccess(
+            array=ast.Field(chain=["conversion_timestamps"]),
+            property=ast.Field(chain=["i"]),
+        )
+        window_start = ast.ArithmeticOperation(
+            left=conversion_time,
+            op=ast.ArithmeticOperationOp.Sub,
+            right=ast.Constant(value=attribution_window_seconds),
+        )
+
+        # Use arrayFilter with index to match the same positions as filtered_utm_timestamps
+        return ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["idx"],
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=[utm_array_field]),
+                        property=ast.Field(chain=["idx"]),
+                    ),
+                ),
+                # Get indices of utm_timestamps that are within the window
+                ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["j"],
+                            expr=ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        left=ast.ArrayAccess(
+                                            array=ast.Field(chain=["utm_timestamps"]),
+                                            property=ast.Field(chain=["j"]),
+                                        ),
+                                        op=ast.CompareOperationOp.LtEq,
+                                        right=conversion_time,
+                                    ),
+                                    ast.CompareOperation(
+                                        left=ast.ArrayAccess(
+                                            array=ast.Field(chain=["utm_timestamps"]),
+                                            property=ast.Field(chain=["j"]),
+                                        ),
+                                        op=ast.CompareOperationOp.GtEq,
+                                        right=window_start,
+                                    ),
+                                ]
+                            ),
+                        ),
+                        ast.Call(name="arrayEnumerate", args=[ast.Field(chain=["utm_timestamps"])]),
+                    ],
+                ),
+            ],
+        )
+
+    def _build_multi_touch_attribution_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
+        """Build subquery that explodes touchpoints and applies multi-touch weights.
+
+        Takes one row per conversion (from array_join_query) and produces
+        one row per touchpoint, each with weighted conversion value.
+        """
+        # Inner subquery: ARRAY JOIN on touchpoints to explode them
+        touchpoint_select: list[ast.Expr] = [
+            ast.Field(chain=["person_id"]),
+            ast.Field(chain=["conversion_math_value"]),
+        ]
+
+        # Add conversion fields for each tracked field (for direct attribution)
+        for field in TRACKED_FIELDS:
+            touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
+
+        # Extract individual touchpoint UTM values via array join index
+        for field in TRACKED_FIELDS:
+            touchpoint_select.append(
+                ast.Alias(
+                    alias=field.fallback_value,
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=[f"filtered_{field.utm_array}"]),
+                        property=ast.Field(chain=["tp_idx"]),
+                    ),
+                )
+            )
+
+        # Extract weight for this touchpoint
+        touchpoint_select.append(
+            ast.Alias(
+                alias="attribution_weight",
+                expr=ast.ArrayAccess(
+                    array=ast.Field(chain=["attribution_weights"]),
+                    property=ast.Field(chain=["tp_idx"]),
+                ),
+            )
+        )
+
+        touchpoint_exploded = ast.SelectQuery(
+            select=touchpoint_select,
+            select_from=ast.JoinExpr(table=array_join_query),
+            array_join_op="ARRAY JOIN",
+            array_join_list=[
+                ast.Alias(
+                    expr=ast.Call(
+                        name="arrayEnumerate",
+                        args=[ast.Field(chain=["attribution_weights"])],
+                    ),
+                    alias="tp_idx",
+                )
+            ],
+        )
+
+        # Outer subquery: apply attribution logic (direct vs fallback) and weight
+        outer_select: list[ast.Expr] = [
+            ast.Field(chain=["person_id"]),
+        ]
+
+        for field in TRACKED_FIELDS:
+            outer_select.append(
+                ast.Alias(
+                    alias=field.attributed_name,
+                    expr=self._build_attribution_expr(field.conversion_value, field.fallback_value),
+                )
+            )
+
+        outer_select.extend(
+            [
+                ast.Alias(
+                    alias="campaign_id",
+                    expr=ast.Constant(value="-"),
+                ),
+                ast.Alias(
+                    alias="conversion_value",
+                    expr=ast.ArithmeticOperation(
+                        left=self._get_final_conversion_value_expr(),
+                        op=ast.ArithmeticOperationOp.Mult,
+                        right=ast.Field(chain=["attribution_weight"]),
+                    ),
+                ),
+            ]
+        )
+
+        return ast.SelectQuery(
+            select=outer_select,
+            select_from=ast.JoinExpr(table=touchpoint_exploded),
+        )
+
+    def _build_single_touch_attribution_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build subquery that applies attribution logic"""
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
@@ -815,12 +1319,15 @@ class ConversionGoalProcessor:
         )
 
     def _get_final_conversion_value_expr(self) -> ast.Expr:
-        """Get final conversion value expression for attribution logic"""
+        """Get numeric conversion value expression for attribution logic.
+
+        For SUM math, returns the actual property value (e.g. revenue).
+        For TOTAL and DAU, returns 1. DAU aggregation uses uniq(person_id)
+        directly and ignores conversion_value.
+        """
         math_type = self.goal.math
 
-        if math_type in [BaseMathType.DAU, "dau"]:
-            return ast.Field(chain=["person_id"])
-        elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
+        if math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
             return ast.Call(name="toFloat", args=[ast.Field(chain=["conversion_math_value"])])
         else:
             return ast.Constant(value=1)
@@ -897,7 +1404,7 @@ class ConversionGoalProcessor:
                     expr=self._get_aggregation_expr(),
                 ),
             ]
-            group_by = [channel_type_expr]
+            group_by: list[ast.Expr] = [channel_type_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             # At source level, group by source_name only
             select_columns = [
@@ -989,8 +1496,24 @@ class ConversionGoalProcessor:
         )
 
     def _get_aggregation_expr(self) -> ast.Expr:
-        """Get aggregation expression based on math type"""
+        """Get aggregation expression based on math type.
+
+        For multi-touch attribution, conversion_value already contains the weighted
+        fractional credit, so we always sum it instead of counting rows.
+        """
         math_type = self.goal.math
+
+        if self.config.is_multi_touch:
+            # Multi-touch: conversion_value already has weight applied (e.g. 0.5 for linear with 2 touchpoints)
+            # Always sum the weighted values regardless of math type
+            if math_type in [BaseMathType.DAU, "dau"]:
+                # DAU uses uniq(person_id) without weighting — a person who converted
+                # via 3 campaigns counts as 1 unique user in each campaign row.
+                # This means campaign-level totals can exceed the true unique user count,
+                # which is intentional: you cannot fractionally split a person.
+                return ast.Call(name="uniq", args=[ast.Field(chain=["person_id"])])
+            sum_expr = ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
+            return ast.Call(name="coalesce", args=[sum_expr, ast.Constant(value=0)])
 
         if math_type in [BaseMathType.DAU, "dau"]:
             # uniq() already returns 0 for no rows, no need for COALESCE
@@ -1003,7 +1526,7 @@ class ConversionGoalProcessor:
             # count() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="count", args=[])
 
-    def _generate_direct_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
+    def _generate_direct_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate direct field access query for DataWarehouse nodes"""
         level = self.config.drill_down_level
         table = self.get_table_name()

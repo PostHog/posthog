@@ -4,12 +4,12 @@ import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tool
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNumeric, pluralize } from 'lib/utils'
-import { TriggerGroupsEditor } from 'scenes/settings/environment/replayTriggers/TriggerGroupsEditor'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
 // TODO: Update once the SDK version supporting trigger groups v2 is released
-const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
+export const TRIGGER_GROUPS_MIN_SDK_VERSION = 'X'
 
 function TriggerPanelHeader({
     title,
@@ -310,7 +310,7 @@ export function ReplayTriggers(): JSX.Element {
                     {isV2TriggersEnabled && (
                         <>
                             <LemonBanner type="warning">
-                                <strong>SDK version compatibility</strong>
+                                <strong>JavaScript SDK version compatibility</strong>
                                 <ul className="list-disc ml-4 mt-2 space-y-1">
                                     <li>
                                         Older SDK versions (&lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use the legacy
@@ -321,23 +321,13 @@ export function ReplayTriggers(): JSX.Element {
                                         groups if configured, otherwise will fallback to the legacy recording conditions
                                     </li>
                                     <li>
-                                        Both configurations are sent to ensure backward compatibility with all SDK
-                                        versions
+                                        Both configurations are sent to ensure backward compatibility with all
+                                        JavaScript SDK versions
                                     </li>
                                 </ul>
                             </LemonBanner>
 
-                            <div>
-                                <h3 className="text-base font-semibold mb-1">Trigger groups</h3>
-                                <p className="text-xs text-muted mb-2">
-                                    Used by SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}. Configure custom
-                                    recording triggers with individual sampling rates per group.
-                                </p>
-                            </div>
-
-                            <div className="border rounded p-4 bg-bg-light">
-                                <TriggerGroupsEditor />
-                            </div>
+                            <TriggerGroupsEditor />
 
                             <h3 className="text-base font-semibold">Legacy recording conditions</h3>
                             <LemonBanner type="warning">
@@ -426,7 +416,9 @@ export function ReplayTriggers(): JSX.Element {
                     </div>
 
                     <div>
-                        <h3 className="text-sm font-semibold mb-2">Recording exclusions</h3>
+                        <h3 className="text-base font-semibold mb-2">
+                            Recording exclusions <Since web={{ version: '1.171.0' }} />
+                        </h3>
                         <LemonCollapse
                             multiple
                             panels={[

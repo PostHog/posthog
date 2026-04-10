@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sqlx::FromRow;
 
+use personhog_common::grpc::current_client_name;
+
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
@@ -32,6 +34,7 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
+        let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -39,6 +42,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 "get_hash_key_override_context".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -94,10 +98,13 @@ impl FeatureFlagStorage for PostgresStorage {
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
-            &[(
-                "operation".to_string(),
-                "get_hash_key_override_context".to_string(),
-            )],
+            &[
+                (
+                    "operation".to_string(),
+                    "get_hash_key_override_context".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+            ],
             rows.len() as f64,
         );
 
@@ -143,12 +150,14 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(0);
         }
 
+        let client = current_client_name();
         let labels = [
             (
                 "operation".to_string(),
                 "upsert_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -180,12 +189,14 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(0);
         }
 
+        let client = current_client_name();
         let labels = [
             (
                 "operation".to_string(),
                 "delete_hash_key_overrides_by_teams".to_string(),
             ),
             ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 

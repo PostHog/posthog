@@ -13,13 +13,14 @@ import {
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsListSchema = HogFunctionsListQueryParams
 
 const cdpFunctionsList = (): ToolBase<
     typeof CdpFunctionsListSchema,
-    Schemas.PaginatedHogFunctionMinimalList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
 > => ({
     name: 'cdp-functions-list',
     schema: CdpFunctionsListSchema,
@@ -40,10 +41,7 @@ const cdpFunctionsList = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline`,
-        }
+        return await withPostHogUrl(context, result, '/pipeline')
     },
 })
 
@@ -178,12 +176,12 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
 
 const CdpFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
 
-const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, unknown> => ({
+const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-delete',
     schema: CdpFunctionsDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
             body: { deleted: true },

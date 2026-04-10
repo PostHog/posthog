@@ -63,11 +63,12 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
-    SurveyType,
 } from '~/types'
 
+import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
+import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
-import { getSurveyResponse, isThumbQuestion } from './utils'
+import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -101,11 +102,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
+    const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
@@ -116,7 +119,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     useFileSystemLogView({
         type: 'survey',
         ref: surveyId,
-        enabled: Boolean(surveyId && !surveyLoading),
+        enabled: Boolean(surveyId && !isInitialSurveyLoad),
     })
 
     useEffect(() => {
@@ -129,7 +132,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
 
     return (
         <div>
-            {surveyLoading ? (
+            {isInitialSurveyLoad ? (
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
@@ -230,9 +233,15 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? undefined
+                                                : () => editingSurvey(true)
                                         }
-                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
+                                        to={
+                                            canUseSurveyWizard(survey) && preferredEditor === 'guided'
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >
@@ -415,6 +424,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyLoading,
         surveyAsInsightURL,
         isAnyResultsLoading,
+        resultsRequeryInProgress,
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
@@ -424,6 +434,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         propertyFilters,
     } = useValues(surveyLogic)
     const { clearFilters } = useActions(surveyLogic)
+    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     /**
      * custom column renderer that does:
@@ -480,64 +491,78 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     }, [survey.questions])
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
     return (
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
-            <SurveyStatsSummary />
-            {isAnyResultsLoading || atLeastOneResponse ? (
+            {isRefreshingResults || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestionV2 />
-                    <LemonButton
-                        type="primary"
-                        data-attr="survey-results-explore"
-                        icon={<IconGraph />}
-                        to={surveyAsInsightURL}
-                        className="max-w-40"
+                    <SurveyResultsRefreshStatus visible={isRefreshingResults} />
+                    <div
+                        aria-busy={isRefreshingResults}
+                        className={
+                            isRefreshingResults
+                                ? 'opacity-75 transition-opacity duration-200 ease-out'
+                                : 'opacity-100 transition-opacity duration-200 ease-out'
+                        }
                     >
-                        Explore results
-                    </LemonButton>
-                    {!disableEventsTable &&
-                        (surveyLoading ? (
-                            <LemonSkeleton />
-                        ) : (
-                            <div className="survey-table-results">
-                                <Query
-                                    query={dataTableQuery}
-                                    context={{
-                                        columns: surveyColumnRenderers,
-                                        rowProps: (record: unknown) => {
-                                            // "mute" archived records
-                                            if (typeof record !== 'object' || !record || !('result' in record)) {
-                                                return {}
-                                            }
-                                            const result = record.result
-                                            if (!Array.isArray(result)) {
-                                                return {}
-                                            }
-                                            return {
-                                                className:
-                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
-                                                        ? 'opacity-50'
-                                                        : undefined,
-                                            }
-                                        },
-                                    }}
-                                />
-                            </div>
-                        ))}
+                        <SurveyStatsSummary />
+                        <SurveyResponsesByQuestionV2 />
+                        <LemonButton
+                            type="primary"
+                            data-attr="survey-results-explore"
+                            icon={<IconGraph />}
+                            to={surveyAsInsightURL}
+                            className="max-w-40"
+                        >
+                            Explore results
+                        </LemonButton>
+                        {!disableEventsTable &&
+                            (isInitialSurveyLoad ? (
+                                <LemonSkeleton />
+                            ) : (
+                                <div className="survey-table-results">
+                                    <Query
+                                        query={dataTableQuery}
+                                        context={{
+                                            columns: surveyColumnRenderers,
+                                            rowProps: (record: unknown) => {
+                                                // "mute" archived records
+                                                if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                    return {}
+                                                }
+                                                const result = record.result
+                                                if (!Array.isArray(result)) {
+                                                    return {}
+                                                }
+                                                return {
+                                                    className:
+                                                        result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                            ? 'opacity-50'
+                                                            : undefined,
+                                                }
+                                            },
+                                        }}
+                                    />
+                                </div>
+                            ))}
+                    </div>
                 </>
             ) : (
-                <SurveyNoResponsesBanner
-                    type="survey"
-                    isFiltered={hasActiveFilters}
-                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
-                    activeFilterTypes={{
-                        dateRange: hasActiveDateRange,
-                        answerFilters: hasActiveAnswerFilters,
-                        propertyFilters: propertyFilters.length > 0,
-                    }}
-                />
+                <>
+                    <SurveyStatsSummary />
+                    <SurveyNoResponsesBanner
+                        type="survey"
+                        isFiltered={hasActiveFilters}
+                        onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                        activeFilterTypes={{
+                            dateRange: hasActiveDateRange,
+                            answerFilters: hasActiveAnswerFilters,
+                            propertyFilters: propertyFilters.length > 0,
+                        }}
+                    />
+                </>
             )}
         </div>
     )

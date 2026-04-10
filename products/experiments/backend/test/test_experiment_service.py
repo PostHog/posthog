@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -23,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 class TestExperimentService(APIBaseTest):
@@ -134,9 +137,10 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "bayesian"
 
     def test_stats_config_defaults_from_team(self):
-        self.team.default_experiment_stats_method = "frequentist"
-        self.team.default_experiment_confidence_level = Decimal("0.90")
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_stats_method = "frequentist"
+        config.default_experiment_confidence_level = Decimal("0.90")
+        config.save()
 
         self._create_flag(key="team-defaults")
         service = self._service()
@@ -149,8 +153,9 @@ class TestExperimentService(APIBaseTest):
         assert abs(experiment.stats_config["frequentist"]["alpha"] - 0.10) < 1e-10
 
     def test_stats_config_preserves_provided_method(self):
-        self.team.default_experiment_stats_method = "bayesian"
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_stats_method = "bayesian"
+        config.save()
 
         self._create_flag(key="preserve-method")
         service = self._service()
@@ -165,8 +170,9 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "frequentist"
 
     def test_stats_config_preserves_provided_confidence(self):
-        self.team.default_experiment_confidence_level = Decimal("0.90")
-        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_experiment_confidence_level = Decimal("0.90")
+        config.save()
 
         self._create_flag(key="preserve-confidence")
         service = self._service()
@@ -2386,3 +2392,421 @@ class TestExperimentService(APIBaseTest):
         assert result["launched_previous_30d"] == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
         assert result["percent_change"] == expected_change
+
+    # ------------------------------------------------------------------
+    # Legacy metrics update restrictions
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Updated Name"}),
+            ("description", {"description": "New hypothesis"}),
+            ("end_date", {"end_date": timezone.now() + timedelta(days=7)}),
+        ]
+    )
+    def test_update_experiment_with_legacy_metrics_allows_specific_fields(self, field_name: str, update_data: dict):
+        """Test that experiments with legacy metrics can update name, description, and end_date."""
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-flag-{field_name}")
+
+        # Create experiment with legacy inline metrics directly in database
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+        )
+
+        # Should allow update
+        updated = service.update_experiment(experiment, update_data)
+        if field_name == "name":
+            assert updated.name == "Updated Name"
+        elif field_name == "description":
+            assert updated.description == "New hypothesis"
+        elif field_name == "end_date":
+            assert updated.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("metrics", {"metrics": []}, "metrics"),
+            ("metrics_secondary", {"metrics_secondary": []}, "metrics_secondary"),
+            ("parameters", {"parameters": {"foo": "bar"}}, "parameters"),
+            ("filters", {"filters": {"foo": "bar"}}, "filters"),
+            ("exposure_criteria", {"exposure_criteria": {"foo": "bar"}}, "exposure_criteria"),
+            ("stats_config", {"stats_config": {"foo": "bar"}}, "stats_config"),
+            ("scheduling_config", {"scheduling_config": {"foo": "bar"}}, "scheduling_config"),
+            ("start_date", {"start_date": timezone.now()}, "start_date"),
+            ("archived", {"archived": True}, "archived"),
+            ("conclusion", {"conclusion": "won"}, "conclusion"),
+        ]
+    )
+    def test_update_experiment_with_legacy_metrics_blocks_disallowed_fields(
+        self, field_name: str, update_data: dict, expected_field_in_error: str
+    ):
+        """Test that experiments with legacy metrics cannot update disallowed fields."""
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-block-{field_name}")
+
+        # Create experiment with legacy inline metrics
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Legacy Experiment",
+            metrics=[{"kind": "ExperimentTrendsQuery", "query": {}}],
+            start_date=timezone.now(),
+        )
+
+        # Should block update
+        with self.assertRaises(ValidationError) as cm:
+            service.update_experiment(experiment, update_data)
+        self.assertIn("legacy metric formats", str(cm.exception))
+        self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+
+    @parameterized.expand(
+        [
+            ("inline_trends", {"kind": "ExperimentTrendsQuery", "query": {}}, None),
+            ("inline_funnels", {"kind": "ExperimentFunnelsQuery", "funnels_query": {}}, None),
+            (
+                "saved_trends",
+                None,
+                {"kind": "ExperimentTrendsQuery", "query": {}},
+            ),
+            (
+                "saved_funnels",
+                None,
+                {"kind": "ExperimentFunnelsQuery", "funnels_query": {}},
+            ),
+        ]
+    )
+    def test_update_experiment_detects_various_legacy_metric_types(
+        self, test_name: str, inline_metric: dict | None, saved_metric_query: dict | None
+    ):
+        """Test that legacy detection works for both inline and saved metrics, Trends and Funnels."""
+        from products.experiments.backend.models.experiment import ExperimentToSavedMetric
+
+        service = self._service()
+        flag = self._create_flag(key=f"legacy-detect-{test_name}")
+
+        if inline_metric:
+            # Create with inline legacy metric
+            experiment = Experiment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                feature_flag=flag,
+                name="Legacy Experiment",
+                metrics=[inline_metric],
+                start_date=timezone.now(),
+            )
+        else:
+            # Create with saved legacy metric
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name="Legacy Saved Metric",
+                query=saved_metric_query,
+            )
+
+            experiment = Experiment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                feature_flag=flag,
+                name="Legacy Saved Experiment",
+                start_date=timezone.now(),
+            )
+
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment,
+                saved_metric=saved_metric,
+                metadata={"type": "primary"},
+            )
+
+        # All should be detected as legacy and block disallowed updates
+        with self.assertRaises(ValidationError) as cm:
+            service.update_experiment(experiment, {"metrics": []})
+        self.assertIn("legacy metric formats", str(cm.exception))
+
+    def test_update_experiment_without_legacy_metrics_allows_all_updates(self):
+        """Test that experiments without legacy metrics can be updated normally."""
+        service = self._service()
+        self._create_flag(key="normal-flag")
+
+        # Create experiment with new ExperimentMetric format
+        experiment = service.create_experiment(
+            name="Normal Experiment",
+            feature_flag_key="normal-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "test_event"},
+                }
+            ],
+            start_date=timezone.now(),
+        )
+
+        # Should allow updating metrics
+        new_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "another_event"},
+            }
+        ]
+        updated = service.update_experiment(experiment, {"metrics": new_metrics})
+        assert updated.metrics
+        assert updated.metrics[0]["source"]["event"] == "another_event"
+
+        # Should allow updating parameters (when draft)
+        experiment.start_date = None
+        experiment.save()
+        updated = service.update_experiment(experiment, {"parameters": {"minimum_detectable_effect": 0.05}})
+        assert updated.parameters == {"minimum_detectable_effect": 0.05}
+
+    # ------------------------------------------------------------------
+    # Validation hardening
+    # ------------------------------------------------------------------
+
+    def test_variant_missing_key_raises_validation_error(self):
+        """Variant without 'key' should return 400, not 500 KeyError."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Variants",
+                feature_flag_key="bad-variant-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+
+    def test_variant_not_a_dict_raises_validation_error(self):
+        """Variant that is not a dict should return 400."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Variants",
+                feature_flag_key="bad-variant-flag-2",
+                parameters={"feature_flag_variants": ["control", "test"]},
+            )
+
+    def test_duplicate_metric_uuids_raises_validation_error(self):
+        """Metrics with duplicate UUIDs should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Dup UUIDs",
+                feature_flag_key="dup-uuid-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            )
+
+    def test_duplicate_metric_uuids_across_primary_and_secondary_raises(self):
+        """Duplicate UUIDs across primary and secondary metrics should also be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Dup UUIDs Cross",
+                feature_flag_key="dup-uuid-cross-flag",
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                metrics_secondary=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "11bfb66a-51f5-48d0-a87e-bde2b4c958a6",
+                        "source": {"kind": "EventsNode", "event": "other_event"},
+                    },
+                ],
+            )
+
+    def test_metrics_without_uuids_get_auto_assigned(self):
+        """Metrics with no UUID should get unique auto-generated UUIDs on create."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Auto UUID",
+            feature_flag_key="auto-uuid-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 2
+        uuid_0 = experiment.metrics[0].get("uuid")
+        uuid_1 = experiment.metrics[1].get("uuid")
+        assert uuid_0 is not None
+        assert uuid_1 is not None
+        UUID(uuid_0)  # raises ValueError if not a valid UUID
+        UUID(uuid_1)
+        assert uuid_0 != uuid_1
+
+    def test_metrics_with_empty_string_uuid_get_auto_assigned(self):
+        """Metrics with empty string UUID should get auto-generated UUIDs on create."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Empty UUID",
+            feature_flag_key="empty-uuid-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+        uuid = experiment.metrics[0].get("uuid")
+        assert uuid is not None
+        assert uuid != ""
+        UUID(uuid)  # raises ValueError if not a valid UUID
+
+    def test_duplicate_empty_string_uuids_do_not_clash(self):
+        """Two metrics with empty string UUIDs should both get unique auto-generated UUIDs."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Empty UUID Dup",
+            feature_flag_key="empty-uuid-dup-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "",
+                    "source": {"kind": "EventsNode", "event": "other_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 2
+        uuid_0 = experiment.metrics[0].get("uuid")
+        uuid_1 = experiment.metrics[1].get("uuid")
+        assert uuid_0 is not None
+        assert uuid_1 is not None
+        UUID(uuid_0)  # raises ValueError if not a valid UUID
+        UUID(uuid_1)
+        assert uuid_0 != uuid_1
+
+    def _base_queryset(self):
+        return Experiment.objects.filter(team=self.team)
+
+    def test_order_by_invalid_field_raises_validation_error(self):
+        """Ordering by a non-allowlisted field should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.filter_experiments_queryset(
+                self._base_queryset(), action="list", query_params={"order": "feature_flag__key"}
+            )
+
+    @parameterized.expand(
+        [
+            ("created_at",),
+            ("-created_at",),
+            ("name",),
+            ("-name",),
+            ("start_date",),
+            ("-start_date",),
+            ("end_date",),
+            ("-end_date",),
+            ("updated_at",),
+            ("-updated_at",),
+            ("duration",),
+            ("-duration",),
+            ("status",),
+            ("-status",),
+        ]
+    )
+    def test_order_by_valid_fields_works(self, order: str):
+        service = self._service()
+        qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
+        assert qs is not None
+
+    def test_eligible_flags_order_by_invalid_field_raises(self):
+        """Ordering eligible flags by a non-allowlisted field should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.get_eligible_feature_flags(order="team__organization__name")
+
+    def test_launch_with_deleted_flag_raises(self):
+        """Launching an experiment whose flag is soft-deleted should fail."""
+        experiment = self._create_launchable_experiment(
+            name="Deleted Flag Launch",
+            feature_flag_key="deleted-flag-launch",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+    @parameterized.expand(
+        [
+            ("empty_string", {"method": ""}),
+            ("garbage", {"method": "garbage"}),
+            ("numeric", {"method": 42}),
+        ]
+    )
+    def test_invalid_stats_config_method_raises(self, _name: str, stats_config: dict):
+        """Invalid stats_config method values should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad Stats",
+                feature_flag_key=f"bad-stats-flag-{_name}",
+                stats_config=stats_config,
+            )
+
+    @parameterized.expand(
+        [
+            ("bayesian",),
+            ("frequentist",),
+        ]
+    )
+    def test_valid_stats_config_methods_work(self, method: str):
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Stats {method}",
+            feature_flag_key=f"stats-{method}-flag",
+            stats_config={"method": method},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == method

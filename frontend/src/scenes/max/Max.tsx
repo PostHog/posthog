@@ -227,7 +227,7 @@ export const MaxInstance = React.memo(function MaxInstance({
 
     return sidePanel ? (
         <>
-            <SidePanelContentContainer>
+            <SidePanelContentContainer contentClassName="flex flex-col flex-1">
                 {header}
                 {content}
             </SidePanelContentContainer>

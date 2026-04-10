@@ -23,7 +23,6 @@ export type OrganizationUpdatePayload = Partial<
         OrganizationType,
         | 'name'
         | 'logo_media_id'
-        | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
