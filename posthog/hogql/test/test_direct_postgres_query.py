@@ -1056,10 +1056,33 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(str(error.exception), "boom")
 
+    _SSH_TUNNEL_CONFIG = {
+        "ssh_tunnel": {
+            "enabled": True,
+            "host": "bastion.example.com",
+            "port": 22,
+            "auth_type": {
+                "selection": "password",
+                "username": "user",
+                "password": "pass",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
+    }
+
+    @parameterized.expand(
+        [
+            ("no_tunnel", {}, "require"),
+            ("tunnel_ssl_on", {**_SSH_TUNNEL_CONFIG, "ssl_enabled": {"enabled": True}}, "require"),
+            ("tunnel_ssl_off", {**_SSH_TUNNEL_CONFIG, "ssl_enabled": {"enabled": False}}, "prefer"),
+            ("no_tunnel_ssl_off_ignored", {"ssl_enabled": {"enabled": False}}, "require"),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
     @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
-    def _run_direct_postgres_ssl_test(self, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
+    def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()
         mock_tunnel.local_bind_host = "127.0.0.1"
         mock_tunnel.local_bind_port = 15432
@@ -1119,42 +1142,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         executor.execute()
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
-
-    SSH_TUNNEL_CONFIG = {
-        "ssh_tunnel": {
-            "enabled": True,
-            "host": "bastion.example.com",
-            "port": 22,
-            "auth_type": {
-                "selection": "password",
-                "username": "user",
-                "password": "pass",
-                "private_key": "",
-                "passphrase": "",
-            },
-        },
-    }
-
-    def test_direct_postgres_ssl_new_source_no_tunnel(self):
-        self._run_direct_postgres_ssl_test({}, "require")
-
-    def test_direct_postgres_ssl_tunnel_ssl_on(self):
-        self._run_direct_postgres_ssl_test(
-            {**self.SSH_TUNNEL_CONFIG, "ssl_enabled": {"enabled": True}},
-            "require",
-        )
-
-    def test_direct_postgres_ssl_tunnel_ssl_off(self):
-        self._run_direct_postgres_ssl_test(
-            {**self.SSH_TUNNEL_CONFIG, "ssl_enabled": {"enabled": False}},
-            "prefer",
-        )
-
-    def test_direct_postgres_ssl_no_tunnel_ssl_off_ignored(self):
-        self._run_direct_postgres_ssl_test(
-            {"ssl_enabled": {"enabled": False}},
-            "require",
-        )
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.query.psycopg.connect")
