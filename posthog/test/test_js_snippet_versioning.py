@@ -5,6 +5,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 import posthog.models.js_snippet_versioning as sv
 from posthog.models.js_snippet_versioning import (
     REDIS_JS_KEY_PREFIX,
@@ -201,25 +203,27 @@ class TestSourceObservers(SimpleTestCase):
         cache.delete(REDIS_POINTER_MAP_KEY)
         _reset_caches()
 
-    def test_get_js_content_reports_memory_source(self):
-        sv._js_content_cache["1.358.0"] = "memory-js-content"
+    @parameterized.expand(
+        [
+            ("memory", "memory-js-content"),
+            ("redis", "cached-js-content"),
+        ]
+    )
+    def test_get_js_content_reports_source(self, source: str, cached_content: str):
         observed: list[str] = []
 
-        content = get_js_content("1.358.0", source_observer=observed.append)
-
-        assert content == "memory-js-content"
-        assert observed == ["memory"]
-
-    def test_get_js_content_reports_redis_source(self):
-        cache.set(f"{REDIS_JS_KEY_PREFIX}:1.358.0", "cached-js-content", 3600)
-        observed: list[str] = []
+        if source == "memory":
+            sv._js_content_cache["1.358.0"] = cached_content
+        else:
+            cache.set(f"{REDIS_JS_KEY_PREFIX}:1.358.0", cached_content, 3600)
 
         try:
             content = get_js_content("1.358.0", source_observer=observed.append)
-            assert content == "cached-js-content"
-            assert observed == ["redis"]
+            assert content == cached_content
+            assert observed == [source]
         finally:
-            cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
+            if source == "redis":
+                cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
 
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.js_snippet_versioning.s3_read")
