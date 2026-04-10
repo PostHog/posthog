@@ -374,15 +374,8 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     click.echo("  You can also skip this and pass --claude-oauth-token later, or set CLAUDE_OAUTH_TOKEN.")
     click.echo()
 
-    if configure_claude is None:
-        configure_claude = click.confirm("Set up Claude Code now?", default=True)
-
-    if not configure_claude:
-        return
-
-    click.pause("Press Enter when you have the token ready...")
     token = click.prompt(
-        "Claude OAuth token",
+        "Claude OAuth token (Enter to skip)",
         default="",
         hide_input=True,
         show_default=False,
