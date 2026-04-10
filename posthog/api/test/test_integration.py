@@ -613,7 +613,7 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
         mock_list_repos.return_value = [
             {"id": 1, "name": "repo1", "full_name": "org/repo1"},
