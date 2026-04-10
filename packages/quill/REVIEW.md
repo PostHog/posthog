@@ -15,14 +15,19 @@ Use this file as a backlog. Check things off as they land.
 
 ## Bugs (do first, low effort, real breakage)
 
-- [ ] **1. `--shadow-elevate` references an undefined variable**
-      `packages/tokens/src/shadow.ts` defines
+- [x] **1. `--shadow-elevate` references an undefined variable** ✅
+      `packages/tokens/src/shadow.ts` defined
       `elevate: '0 3px 0 var(--border-3000-light)'`. `--border-3000-light`
-      is a PostHog-app-only variable — it is not declared anywhere in
-      quill's `color-system.css`, so any external consumer that uses
-      `shadow-elevate` gets an invalid shadow that silently falls back.
-      **Fix:** either remove `elevate`, or define a sensible default
-      (`var(--border)`?) inside `color-system.css` that apps can override.
+      is a PostHog-app-only variable declared in
+      `frontend/src/styles/base.scss` — it does not exist in quill's
+      `color-system.css`, so any external consumer that used
+      `shadow-elevate` got an invalid shadow that silently fell back. No
+      quill primitive or downstream consumer in the monorepo actually uses
+      the utility, so the fix was safe. **Fixed** by pointing `elevate` at
+      `var(--border)`, which is defined in quill's own color system and
+      resolves correctly in both light and dark modes (a net improvement
+      over the original, which was hardcoded to the light-mode border
+      colour regardless of theme).
 
 - [ ] **2. `theme-shape.css` has a hidden dependency on `color-system.css`**
       `--radius-*` is defined as `calc(var(--radius) - 4px)`. `--radius` only
@@ -180,9 +185,9 @@ Use this file as a backlog. Check things off as they land.
       paragraph is a sign the library isn't opinionated enough yet. Once
       #6 and #7 land, this collapses to:
       `css
-    @import 'tailwindcss';
-    @import '@posthog/quill';
-    `
+  @import 'tailwindcss';
+  @import '@posthog/quill';
+  `
       **Fix:** rewrite the README around a single import story. Move
       granular controls to an "Advanced" section at the bottom.
 
@@ -208,14 +213,16 @@ Use this file as a backlog. Check things off as they land.
 
 - [ ] **21. Pack-and-install smoke test**
       `bash
-    pnpm --filter @posthog/quill pack
-    # install into a temp app
-    # import { Button } and render
-    `
-      Runs in CI. Catches every `exports` resolution failure, missing
-      `dist` file, missing peer dep, and "works in the monorepo but
-      breaks on npm" bug. This is the single most valuable test for a
-      library that ships to external consumers.
+      pnpm --filter @posthog/quill pack
+
+  # install into a temp app
+
+  # import { Button } and render
+
+  `Runs in CI. Catches every`exports`resolution failure, missing
+   `dist` file, missing peer dep, and "works in the monorepo but
+  breaks on npm" bug. This is the single most valuable test for a
+  library that ships to external consumers.
 
 - [ ] **22. Acceptance test: the `Code` consumer's `quill.css` shrinks**
       Pick an absolute line count target for the consumer file after
