@@ -942,3 +942,101 @@ class TestKafkaRecreateWarning(unittest.TestCase):
         ]
         plan = generate_plan_text(diffs)
         self.assertIn("KAFKA TABLE RECREATE WARNING", plan)
+
+
+class TestMvSelectNormalization(unittest.TestCase):
+    """Tests for High #3 fix: MV SELECT normalization."""
+
+    def test_mv_select_whitespace_only_no_diff(self) -> None:
+        """Whitespace-only differences should not trigger a recreate."""
+        desired = _make_desired_state(
+            {
+                "my_mv": DesiredTable(
+                    name="my_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["ALL"],
+                    target="writable_t",
+                    select="SELECT * FROM posthog.kafka_t",
+                ),
+            }
+        )
+        current = {
+            "my_mv": TableSchema(
+                name="my_mv",
+                engine="MaterializedView",
+                as_select="SELECT *\n  FROM   posthog.kafka_t\n",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        drop_diffs = [d for d in diffs if d.action == "drop"]
+        create_diffs = [d for d in diffs if d.action == "create"]
+        self.assertEqual(len(drop_diffs), 0, "No DROP for whitespace-only MV SELECT change")
+        self.assertEqual(len(create_diffs), 0, "No CREATE for whitespace-only MV SELECT change")
+
+    def test_mv_select_keyword_case_no_diff(self) -> None:
+        """Keyword case differences should not trigger a recreate."""
+        desired = _make_desired_state(
+            {
+                "my_mv": DesiredTable(
+                    name="my_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["ALL"],
+                    target="writable_t",
+                    select="select a, b from t where c = 1",
+                ),
+            }
+        )
+        current = {
+            "my_mv": TableSchema(
+                name="my_mv",
+                engine="MaterializedView",
+                as_select="SELECT a, b FROM t WHERE c = 1",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        self.assertEqual(len(diffs), 0, "No diffs for keyword case changes in MV SELECT")
+
+    def test_mv_select_real_change_still_detected(self) -> None:
+        """Actual semantic changes should still trigger a recreate."""
+        desired = _make_desired_state(
+            {
+                "my_mv": DesiredTable(
+                    name="my_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["ALL"],
+                    target="writable_t",
+                    select="SELECT a, b, c FROM posthog.kafka_t",
+                ),
+            }
+        )
+        current = {
+            "my_mv": TableSchema(
+                name="my_mv",
+                engine="MaterializedView",
+                as_select="SELECT a, b FROM posthog.kafka_t",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        drop_diffs = [d for d in diffs if d.action == "drop"]
+        create_diffs = [d for d in diffs if d.action == "create"]
+        self.assertEqual(len(drop_diffs), 1, "Should DROP old MV")
+        self.assertEqual(len(create_diffs), 1, "Should CREATE new MV")
+
+    def test_normalize_mv_select_function(self) -> None:
+        """Direct test of the normalization function."""
+        from posthog.clickhouse.migration_tools.state_diff import _normalize_mv_select
+
+        a = "SELECT a, b\nFROM t\nWHERE c = 1"
+        b = "SELECT a, b FROM t WHERE c = 1"
+        self.assertEqual(_normalize_mv_select(a), _normalize_mv_select(b))
+
+        c = "select a from t"
+        d = "SELECT a FROM t"
+        self.assertEqual(_normalize_mv_select(c), _normalize_mv_select(d))
+
+        e = "SELECT a FROM t -- comment\nWHERE 1=1"
+        f = "SELECT a FROM t WHERE 1=1"
+        self.assertEqual(_normalize_mv_select(e), _normalize_mv_select(f))

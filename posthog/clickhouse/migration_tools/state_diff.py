@@ -154,6 +154,32 @@ def _generate_create_sql(
     )
 
 
+def _normalize_mv_select(sql: str) -> str:
+    """Normalize MV SELECT SQL for semantic comparison.
+
+    Collapses whitespace, lowercases SQL keywords, strips comments.
+    Does NOT parse the SQL — catches the common false-positive cases:
+    indentation changes, trailing newlines, keyword casing.
+    """
+    import re
+
+    # Remove comments
+    s = re.sub(r"--[^\n]*\n", " ", sql)
+    s = re.sub(r"/\*.*?\*/", " ", s, flags=re.DOTALL)
+    # Collapse whitespace
+    s = re.sub(r"\s+", " ", s)
+    # Normalize keyword case
+    keywords = [
+        "SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "HAVING",
+        "JOIN", "LEFT JOIN", "INNER JOIN", "AS", "AND", "OR", "NOT",
+        "IN", "IS", "NULL", "LIMIT", "OFFSET", "UNION", "ALL",
+        "CASE", "WHEN", "THEN", "ELSE", "END",
+    ]
+    for kw in keywords:
+        s = re.sub(rf"\b{kw}\b", kw.lower(), s, flags=re.IGNORECASE)
+    return s.strip()
+
+
 def diff_state(
     desired: DesiredState,
     current: dict[str, TableSchema],
@@ -328,7 +354,7 @@ def diff_state(
         # For MVs, compare SELECT if both sides have it
         if _is_mv(desired_table.engine) and desired_table.select:
             current_select = current_table.as_select if hasattr(current_table, "as_select") else ""
-            if current_select and current_select.strip() != desired_table.select.strip():
+            if current_select and _normalize_mv_select(current_select) != _normalize_mv_select(desired_table.select):
                 drops.append(
                     StateDiff(
                         action="drop",
