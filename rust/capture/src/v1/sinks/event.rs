@@ -13,19 +13,19 @@ pub trait Event: Send + Sync {
     fn should_publish(&self) -> bool;
 
     /// Semantic routing destination. The Sink resolves this to a concrete
-    /// backend target (e.g. Kafka topic) using its own config.
+    /// backend target (e.g. Kafka topic, S3 bucket) using its own config.
     fn destination(&self) -> &Destination;
 
     /// Event-owned metadata as key-value pairs. The Sink merges these with
     /// context-level headers before converting to transport-specific format.
     fn headers(&self) -> Vec<(String, String)>;
 
-    /// Write the partition/routing key into a caller-provided buffer.
-    /// The caller clears `buf` between events; implementations just append.
+    /// Resolve the partition key for this message, and write
+    /// to the supplied buffer. Called by Sinks that write to
+    /// event streams (Kafka, WarpStream etc.)
     fn write_partition_key(&self, ctx: &Context, buf: &mut String);
 
     /// Serialize the event payload into a caller-provided buffer.
-    /// The caller clears `buf` between events; implementations just append.
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> Result<(), String>;
 }
 
