@@ -22,7 +22,7 @@ from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
 if TYPE_CHECKING:
-    from django.db.models import RelatedManager
+    from django.db.models.fields.related_descriptors import RelatedManager
 
     from social_django.models import UserSocialAuth
 
