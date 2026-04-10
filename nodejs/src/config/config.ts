@@ -81,6 +81,33 @@ export function overrideWithEnv(
     return newConfig
 }
 
+/**
+ * Override config values from environment variables. Works on any config object —
+ * iterates its keys, reads matching env vars, and coerces based on the default value type.
+ *
+ * Unlike `overrideWithEnv`, this has no PluginsServerConfig-specific validation.
+ * Use for server-local config types (e.g. KafkaProducerEnvConfig, IngestionOutputsConfig).
+ */
+export function overrideConfigWithEnv<T extends Record<string, unknown>>(
+    config: T,
+    env: Record<string, string | undefined> = process.env
+): T {
+    const result: any = { ...config }
+    for (const key of Object.keys(config)) {
+        if (typeof env[key] !== 'undefined') {
+            const defaultValue = config[key]
+            if (typeof defaultValue === 'number') {
+                result[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+            } else if (typeof defaultValue === 'boolean') {
+                result[key] = stringToBoolean(env[key])
+            } else {
+                result[key] = env[key]
+            }
+        }
+    }
+    return result
+}
+
 export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {
     // Builds a ValueMatcher on a comma-separated list of values.
     // Optionally, supports a '*' value to match everything
