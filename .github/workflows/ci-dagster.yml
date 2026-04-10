@@ -55,17 +55,19 @@ jobs:
               with:
                   filters: |
                       dagster:
-                        # Python code — transitive import closure is wide, so we
-                        # cover all .py files but exclude frontend/non-Python changes.
+                        - 'posthog/dags/**'
+                        # Dagster depends on Python, so ensure we run on any possible changes to it
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
                         - 'common/**/*.py'
                         - 'products/*/dags/**'
                         - 'products/*/backend/**/*.py'
-                        - 'posthog/conftest.py'
-                        # Infrastructure
+                        # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
+                        # We use docker compose for tests, make sure we rerun on
+                        # changes to docker-compose.dev.yml e.g. dependency
+                        # version changes
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - frontend/public/email/*
