@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import Count, DateTimeField, IntegerField, OuterRef, Q, QuerySet, Subquery, UUIDField
+from django.db.models import Count, DateTimeField, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
@@ -81,14 +81,8 @@ def annotate_llm_skill_version_history_metadata(queryset: QuerySet[LLMSkill]) ->
         active_versions.filter(version=1).order_by("created_at", "id").values("created_at")[:1],
         output_field=DateTimeField(),
     )
-    first_version_id = Subquery(
-        active_versions.filter(version=1).order_by("created_at", "id").values("id")[:1],
-        output_field=UUIDField(),
-    )
-
     return queryset.annotate(
         version_count=version_count,
         latest_version=latest_version,
         first_version_created_at=first_version_created_at,
-        first_version_id=first_version_id,
     )

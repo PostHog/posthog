@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from ...models.skills import LLMSkill, LLMSkillFile
@@ -100,11 +101,20 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         assert "already exists" in response.json()["detail"]
 
-    def test_create_skill_validates_name_format(self):
+    @parameterized.expand(
+        [
+            ("uppercase", "Invalid_Name"),
+            ("leading_hyphen", "-my-skill"),
+            ("trailing_hyphen", "my-skill-"),
+            ("consecutive_hyphens", "my--skill"),
+            ("reserved_new", "new"),
+        ]
+    )
+    def test_create_skill_validates_name_format(self, _label, skill_name):
         response = self.client.post(
             self._url(),
             data={
-                "name": "Invalid_Name",
+                "name": skill_name,
                 "description": "Bad name.",
                 "body": "# Bad",
             },

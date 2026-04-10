@@ -215,7 +215,9 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             const latest = await fetchResolvedSkill(props.skillName)
                             actions.setSkill(latest)
                             actions.setSkillFormValues(getSkillFormDefaults(latest))
-                        } catch {}
+                        } catch (err) {
+                            console.error('Failed to refresh skill after publish', err)
+                        }
                     }
 
                     actions.setMode(SkillMode.View)

@@ -59,6 +59,7 @@ tools:
             - compatibility
             - allowed_tools
             - metadata
+            - files
     skill-update:
         operation: llm_skills_name_partial_update
         enabled: true
