@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
@@ -68,7 +69,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
-    const [, setMobileHandoffDismissed] = useState(false)
+    const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
+    const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
@@ -80,28 +82,37 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
 
     // Double-gated: both the feature flag AND the client-side mobile check must
-    // be true. Flag controls experiment enrollment (targeted to mobile devices
-    // at the flag definition level in PostHog); isMobile() is the hard guarantee
-    // that the mobile-specific UI NEVER appears on desktop, even if a desktop
-    // user somehow ends up in the `test` arm.
-
-    // const showMobileHandoff = isMobileHandoffTest && isMobile() && !mobileHandoffDismissed
-    const showMobileHandoff = true
+    // be true. The flag controls experiment enrollment (targeted to mobile
+    // devices at the flag definition level in PostHog); isMobile() is the hard
+    // guarantee that the mobile-specific UI NEVER appears on desktop, even if
+    // a desktop user somehow ends up in the `test` arm.
+    const isMobileHandoffTest = useFeatureFlag('ONBOARDING_MOBILE_INSTALL_HELPER', 'test')
+    const showMobileHandoff = isMobileHandoffTest && isMobile() && !mobileHandoffDismissed
 
     useEffect(() => {
         setSDKTagOverrides(sdkTagOverrides ?? {})
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, sdkTagOverrides, setAvailableSDKInstructionsMap, setSDKTagOverrides])
 
-    // Fires once if the user landed on this step from a mobile handoff link.
-    // Closes the experiment funnel: mobile handoff shown → clicked → link opened
-    // on the other device. Fired from the parent (not from MobileInstallHandoff)
-    // because the desktop-side landing happens outside the mobile helper UI.
+    // Closes the experiment funnel: desktop lands here from a shared link
+    // carrying `?handoff=mobile`. Fires exactly once per mount via a ref
+    // guard (useEffect deps are empty so it would re-run on StrictMode
+    // double-invoke otherwise), then strips the query param from the URL
+    // so refreshes / back-and-forth navigation don't re-capture.
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search)
-        if (params.get('source') === 'mobile_handoff') {
-            posthog.capture('mobile install handoff link opened')
+        if (linkOpenedCapturedRef.current) {
+            return
         }
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('handoff') !== 'mobile') {
+            return
+        }
+        linkOpenedCapturedRef.current = true
+        posthog.capture('mobile install handoff link opened')
+        params.delete('handoff')
+        const newSearch = params.toString()
+        const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
+        window.history.replaceState(null, '', newUrl)
     }, [])
 
     const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
@@ -154,12 +165,13 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     )
 
     // Mobile users in the test arm get the handoff screen instead of the regular
-    // variant dispatch. "Continue here anyway" dismisses and falls through below.
+    // variant dispatch. "Continue on this device" dismisses and falls through below.
     if (showMobileHandoff) {
         return (
             <MobileInstallHandoff
                 listeningForName={listeningForName}
                 teamPropertyToVerify={teamPropertyToVerify}
+                installationComplete={installationComplete}
                 header={header}
                 onContinueHere={() => setMobileHandoffDismissed(true)}
             />

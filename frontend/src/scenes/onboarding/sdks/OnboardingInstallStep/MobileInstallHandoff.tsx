@@ -1,100 +1,134 @@
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowUpRight, IconLaptop, IconShare } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { OnboardingStepKey } from '~/types'
 
+import { onboardingLogic } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
-import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
 
 interface MobileInstallHandoffProps {
     listeningForName: string
     teamPropertyToVerify: string
+    installationComplete: boolean
     header?: React.ReactNode
     onContinueHere: () => void
 }
 
 /**
- * Mobile install handoff — rendered in place of the regular install step for
- * users on a phone when the ONBOARDING_MOBILE_INSTALL_HELPER feature flag is
- * in the `test` arm.
- *
- * Data context (see research behind feat/onb-mobile-install):
- *   - ~4% of onboarding starters are on mobile (~2,000/month).
- *   - Mobile starters complete the install step at 19% vs 30.5% on desktop.
- *   - 80% of mobile starters who DO complete switch to a desktop first, and
- *     the median time between mobile start and desktop completion is 3.4h.
- *
- * This screen turns that "switch to desktop later" mechanic into an explicit
- * affordance: a Web Share API button that lets the user hand the install URL
- * off to their own email / AirDrop / Messages / Slack / whatever the OS share
- * sheet offers. A "Continue here anyway" escape hatch covers iOS/Android SDK
- * users who legitimately do want to install on their phone.
- *
- * The normal realtime install detection (useInstallationComplete) still runs,
- * so if the user actually opens the shared link on their computer and runs
- * the wizard there, events start flowing and this same page flips to a
- * "you're all set" state on their phone.
+ * Install step for mobile users in the ONBOARDING_MOBILE_INSTALL_HELPER `test`
+ * arm. Offers to hand off the install URL to the user's computer via the Web
+ * Share API, with a copy-link fallback and a "continue on this device" escape.
+ * When events start arriving, the card flips to a success state with an
+ * in-card continue button.
  */
 export function MobileInstallHandoff({
     listeningForName,
     teamPropertyToVerify,
+    installationComplete,
     header,
     onContinueHere,
 }: MobileInstallHandoffProps): JSX.Element {
-    const installationComplete = useInstallationComplete(teamPropertyToVerify)
-    const [canShare, setCanShare] = useState(false)
+    const { productKey, hasNextStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+
+    const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
     const [shareState, setShareState] = useState<'idle' | 'sent'>('idle')
+    const shownCapturedRef = useRef(false)
 
-    // Feature-detect Web Share API. Runs once on mount because `navigator` is
-    // only defined on the client.
     useEffect(() => {
-        setCanShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function')
-    }, [])
+        if (shownCapturedRef.current) {
+            return
+        }
+        shownCapturedRef.current = true
+        posthog.capture('mobile install handoff shown', { product_key: productKey })
+    }, [productKey])
 
-    // Fire a one-shot "shown" event on mount. product_key is pulled out of
-    // the URL path so we can slice the experiment by which product the user
-    // was trying to install (matches the data analysis methodology).
+    // Reset the "sent"/"copied" confirmation after a short delay so the button
+    // label doesn't become a dead-end. Cleanup on unmount + on state change.
     useEffect(() => {
-        const product = extractProductFromUrl()
-        posthog.capture('mobile install handoff shown', { product_key: product })
-    }, [])
+        if (shareState !== 'sent') {
+            return
+        }
+        const timer = setTimeout(() => setShareState('idle'), 2500)
+        return () => clearTimeout(timer)
+    }, [shareState])
+
+    // Build the handoff URL from known-safe segments only. We explicitly
+    // whitelist which query params to forward — the existing `source`
+    // attribution is preserved so cross-experiment attribution chains stay
+    // intact, while arbitrary query params (debug flags, experiment
+    // overrides) get dropped.
+    const buildHandoffUrl = (): string => {
+        const url = new URL(window.location.origin + window.location.pathname)
+        url.searchParams.set('step', 'install')
+        url.searchParams.set('handoff', 'mobile')
+        const existingSource = new URLSearchParams(window.location.search).get('source')
+        if (existingSource) {
+            url.searchParams.set('source', existingSource)
+        }
+        return url.toString()
+    }
 
     const handleShare = async (): Promise<void> => {
-        const url = new URL(window.location.href)
-        url.searchParams.set('source', 'mobile_handoff')
-        const shareUrl = url.toString()
-
-        posthog.capture('mobile install handoff clicked', { method: 'native_share' })
+        posthog.capture('mobile install handoff clicked', { method: 'native_share' }, { send_instantly: true })
 
         try {
             await navigator.share({
                 title: 'Finish setting up PostHog',
                 text: "Here's where I left off setting up PostHog. Open this on your computer to continue.",
-                url: shareUrl,
+                url: buildHandoffUrl(),
             })
-            posthog.capture('mobile install handoff share completed')
+            posthog.capture('mobile install handoff share completed', {}, { send_instantly: true })
             setShareState('sent')
-        } catch {
-            // User cancelled the share sheet, or a transient browser error.
-            // Not an error case — they can try again or pick a different action.
-            posthog.capture('mobile install handoff share cancelled')
+        } catch (err) {
+            const name = err instanceof Error ? err.name : 'unknown'
+            if (name === 'AbortError') {
+                posthog.capture('mobile install handoff share cancelled', {}, { send_instantly: true })
+                return
+            }
+            posthog.capture('mobile install handoff share failed', { error: name }, { send_instantly: true })
+            // Real failure (not user cancellation) — fall back to copy so
+            // the user still has a way to get the link off this device.
+            // copyToClipboard shows its own toast for success/failure.
+            await handleCopy()
+        }
+    }
+
+    const handleCopy = async (): Promise<void> => {
+        const success = await copyToClipboard(buildHandoffUrl(), 'install link')
+        if (success) {
+            posthog.capture('mobile install handoff clicked', { method: 'copy_link' })
+            setShareState('sent')
+        } else {
+            posthog.capture('mobile install handoff copy failed')
         }
     }
 
     const handleContinueHere = (): void => {
-        posthog.capture('mobile install handoff clicked', { method: 'continue_here' })
+        posthog.capture('mobile install handoff clicked', { method: 'continue_here' }, { send_instantly: true })
         onContinueHere()
+    }
+
+    const handleContinueOnboarding = (): void => {
+        if (hasNextStep) {
+            goToNextStep()
+        } else {
+            completeOnboarding()
+        }
     }
 
     return (
         <OnboardingStep
             title="Install"
             stepKey={OnboardingStepKey.INSTALL}
-            continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            showContinue={false}
             showSkip={!installationComplete}
             actions={
                 <div className="pr-2">
@@ -107,29 +141,37 @@ export function MobileInstallHandoff({
         >
             {header}
             <div className="mt-6 max-w-md mx-auto text-center space-y-4">
-                <div className="size-14 mx-auto rounded-full bg-primary-highlight flex items-center justify-center">
+                <div
+                    aria-hidden="true"
+                    className="size-14 mx-auto rounded-full bg-primary-highlight flex items-center justify-center"
+                >
                     <IconLaptop className="size-7 text-primary" />
                 </div>
 
                 {installationComplete ? (
-                    // If events started flowing in from the user's desktop while
-                    // this page was open on their phone, flip to a "done" state.
                     <>
                         <h2 className="text-xl font-bold">You&apos;re all set</h2>
                         <p className="text-muted">
-                            PostHog is receiving events from your project. You can continue onboarding here or on your
-                            computer — whichever you prefer.
+                            PostHog is receiving events from your project. You&apos;re ready to continue.
                         </p>
+                        <div className="pt-2">
+                            <LemonButton
+                                type="primary"
+                                size="large"
+                                onClick={handleContinueOnboarding}
+                                fullWidth
+                                data-attr="mobile-install-handoff-continue-onboarding"
+                            >
+                                {hasNextStep ? 'Continue' : 'Finish'}
+                            </LemonButton>
+                        </div>
                     </>
                 ) : (
                     <>
-                        <h2 className="text-xl font-bold">
-                            You&apos;re on a phone — want to finish this on your computer?
-                        </h2>
+                        <h2 className="text-xl font-bold">Finish setting up on your computer?</h2>
                         <p className="text-muted">
-                            The PostHog wizard runs a command in your project&apos;s root directory, so you&apos;ll need
-                            to be on a computer with your code. We can send the link to you so you can pick up where you
-                            left off.
+                            PostHog&apos;s install command needs to run on a computer with your code. We can share the
+                            link so you can continue there.
                         </p>
 
                         <div className="space-y-2 pt-2">
@@ -142,35 +184,24 @@ export function MobileInstallHandoff({
                                     fullWidth
                                     data-attr="mobile-install-handoff-share"
                                 >
-                                    {shareState === 'sent' ? 'Send again' : 'Send link to my computer'}
+                                    {shareState === 'sent' ? 'Share again' : 'Share link'}
                                 </LemonButton>
                             ) : (
-                                // Browsers without Web Share API (rare on mobile) fall back
-                                // to copying the link so the user can paste it into any
-                                // chat/email app themselves.
                                 <LemonButton
                                     type="primary"
                                     size="large"
                                     icon={<IconArrowUpRight />}
-                                    onClick={async () => {
-                                        const url = new URL(window.location.href)
-                                        url.searchParams.set('source', 'mobile_handoff')
-                                        await navigator.clipboard.writeText(url.toString())
-                                        posthog.capture('mobile install handoff clicked', {
-                                            method: 'copy_link',
-                                        })
-                                        setShareState('sent')
-                                    }}
+                                    onClick={handleCopy}
                                     fullWidth
                                     data-attr="mobile-install-handoff-copy"
                                 >
-                                    {shareState === 'sent' ? 'Copied!' : 'Copy link to send to yourself'}
+                                    {shareState === 'sent' ? 'Copied!' : 'Copy link'}
                                 </LemonButton>
                             )}
 
                             {shareState === 'sent' && (
                                 <p className="text-xs text-muted">
-                                    Open the link on your computer and we&apos;ll pick up right where you are.
+                                    Open the link on your computer and we&apos;ll pick up right where you left off.
                                 </p>
                             )}
 
@@ -181,7 +212,7 @@ export function MobileInstallHandoff({
                                 fullWidth
                                 data-attr="mobile-install-handoff-continue-here"
                             >
-                                Continue here anyway
+                                Continue on this device
                             </LemonButton>
                         </div>
                     </>
@@ -189,14 +220,4 @@ export function MobileInstallHandoff({
             </div>
         </OnboardingStep>
     )
-}
-
-// Pulls the onboarding product key out of the URL path — e.g.
-// /project/123/onboarding/llm_analytics?step=install → "llm_analytics".
-function extractProductFromUrl(): string | null {
-    if (typeof window === 'undefined') {
-        return null
-    }
-    const match = window.location.pathname.match(/\/onboarding\/([^/?]+)/)
-    return match ? match[1] : null
 }
