@@ -614,7 +614,7 @@ def emit_trace_events(
             **eval_metadata,
         }
         if gen.output_content:
-            gen_properties["$ai_output_choices"] = [{"message": {"role": "assistant", "content": gen.output_content}}]
+            gen_properties["$ai_output_choices"] = gen.output_content
 
         capture_kwargs: dict[str, Any] = {}
         gen_ts = _parse_iso_timestamp(gen.timestamp)
