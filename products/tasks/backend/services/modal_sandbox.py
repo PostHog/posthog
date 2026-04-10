@@ -8,6 +8,7 @@ import logging
 import tempfile
 from collections.abc import Iterable
 from functools import lru_cache
+from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -34,6 +35,11 @@ from products.tasks.backend.services.agentsh import (
     generate_policy_yaml,
 )
 from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    SandboxProvisionDiagnostics,
+    capture_modal_output_if_debug,
+    summarize_modal_output,
+)
 from products.tasks.backend.services.sandbox import wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -224,6 +230,7 @@ class ModalSandbox:
     _sandbox: modal.Sandbox
     _app: modal.App
     _sandbox_url: str | None
+    provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
 
@@ -233,6 +240,7 @@ class ModalSandbox:
         self._sandbox = sandbox
         self._app = type(self)._get_app_for_template(config.template)
         self._sandbox_url = sandbox_url
+        self.provision_diagnostics = None
 
     @property
     def sandbox_url(self) -> str | None:
@@ -301,19 +309,24 @@ class ModalSandbox:
                 create_kwargs["secrets"] = secrets
 
             try:
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
             except Exception as e:
                 if not used_snapshot_image:
                     raise
                 logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
                 capture_exception(e)
                 create_kwargs["image"] = base_image
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
 
             sandbox = cls(sandbox=sb, config=config)
+            if modal_output is not None:
+                sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 

@@ -5,6 +5,10 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    MAX_PROVISION_LOG_EXCERPT_LINES,
+    summarize_modal_output,
+)
 from products.tasks.backend.services.modal_sandbox import (
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
@@ -291,6 +295,69 @@ class TestModalSandboxAgentServer:
 
         assert result is False
         assert mock_sandbox.execute.call_count == 1
+
+
+class TestModalSandboxProvisionDiagnostics:
+    @pytest.mark.parametrize(
+        "output,expected_summary_lines,expected_excerpt,raw_excerpt_should_be_none",
+        [
+            (" \n\t ", [], None, True),
+            (
+                "\n".join(
+                    [
+                        "\x1b[32mApr 09 15:40:06 Building image im-123\x1b[0m",
+                        "\x1b[34m=> Step 0: FROM ubuntu:24.04\x1b[0m",
+                        "Copying config sha256:abc",
+                        "Copied image in 1.60s",
+                    ]
+                ),
+                [
+                    "Apr 09 15:40:06 Building image im-123",
+                    "=> Step 0: FROM ubuntu:24.04",
+                    "Copied image in 1.60s",
+                ],
+                "Copying config sha256:abc",
+                False,
+            ),
+            (
+                "\n".join(
+                    [
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                    ]
+                ),
+                ["=> Step 3: RUN apt-get update && apt-get install -y curl"],
+                "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                False,
+            ),
+        ],
+    )
+    def test_summarizes_modal_build_output(
+        self,
+        output: str,
+        expected_summary_lines: list[str],
+        expected_excerpt: str | None,
+        raw_excerpt_should_be_none: bool,
+    ):
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == expected_summary_lines
+        if raw_excerpt_should_be_none:
+            assert diagnostics.raw_excerpt is None
+        else:
+            assert diagnostics.raw_excerpt is not None
+            assert expected_excerpt is not None
+            assert expected_excerpt in diagnostics.raw_excerpt
+
+    def test_truncates_long_modal_build_output_excerpt(self):
+        output = "\n".join(f"line {index}" for index in range(MAX_PROVISION_LOG_EXCERPT_LINES + 5))
+
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == []
+        assert diagnostics.raw_excerpt is not None
+        assert diagnostics.raw_excerpt.endswith("\n... (truncated)")
+        assert f"line {MAX_PROVISION_LOG_EXCERPT_LINES}" not in diagnostics.raw_excerpt
 
 
 class TestModalSandboxCommandEscaping:
