@@ -1410,20 +1410,12 @@ class SessionRecordingViewSet(
         hit Django's ``list()``-materialize fallback path and buffer the entire
         response server-side before any bytes reach the client.
         """
-        loop = asyncio.get_running_loop()
-        sync_gen = execute_summarize_session_video_stream(
-            session_id=session_id,
-            user=user,
-            team=self.team,
-        )
-        sentinel = object()
         try:
-            while True:
-                # Each next() call may block (time.sleep, asyncio.run) — run it in a thread
-                # so the ASGI event loop can flush the previous chunk to the client.
-                chunk = await loop.run_in_executor(None, lambda: next(sync_gen, sentinel))
-                if chunk is sentinel:
-                    return
+            async for chunk in execute_summarize_session_video_stream(
+                session_id=session_id,
+                user=user,
+                team=self.team,
+            ):
                 yield chunk
         except Exception as e:
             capture_exception(e)

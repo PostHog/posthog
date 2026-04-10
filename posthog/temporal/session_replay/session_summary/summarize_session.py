@@ -3,7 +3,7 @@ import time
 import uuid
 import asyncio
 import dataclasses
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
 from typing import Any, Literal, cast
 
@@ -1037,24 +1037,26 @@ async def _get_rasterizer_frame_progress(client: Any, rasterizer_workflow_id: st
         return None
 
 
-def execute_summarize_session_video_stream(
+async def execute_summarize_session_video_stream(
     session_id: str,
     user: User,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> Generator[str, None, None]:
+) -> AsyncGenerator[str, None]:
     """Start the video-based summarization workflow and stream progress events.
 
     Yields SSE-formatted ``session-summary-progress`` events every few seconds
     while the workflow runs, and a final ``session-summary-stream`` event with
     the completed summary payload (or ``session-summary-error`` on failure).
+
+    The entire polling loop runs inside a single event loop so the Temporal
+    client and workflow handle — both of which hold asyncio-bound state — are
+    reused safely across iterations.
     """
     # Fast path: if a summary already exists, yield it immediately and skip Temporal entirely.
-    existing_summary = asyncio.run(
-        database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
-            team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context
-        )
+    existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context
     )
     if existing_summary is not None:
         logger.info(
@@ -1079,13 +1081,11 @@ def execute_summarize_session_video_stream(
         video_validation_enabled="full",
     )
 
+    client = await async_connect()
     try:
-        handle = asyncio.run(_start_video_summary_workflow(inputs=session_input, workflow_id=workflow_id))
+        handle = await _start_video_summary_workflow(inputs=session_input, workflow_id=workflow_id)
     except WorkflowAlreadyStartedError:
-        client = asyncio.run(async_connect())
         handle = client.get_workflow_handle(workflow_id)
-
-    client = asyncio.run(async_connect())
 
     logger.info(
         "video summary polling loop starting",
@@ -1096,20 +1096,17 @@ def execute_summarize_session_video_stream(
 
     while True:
         try:
-            status, _final_result = asyncio.run(_check_handle_data(handle))
+            status, _final_result = await _check_handle_data(handle)
             if status is None:
-                time.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             if status == WorkflowExecutionStatus.COMPLETED:
                 # The workflow writes the summary to Postgres rather than
                 # returning it, so load it from the DB the same way
                 # execute_summarize_session does.
-                summary_row = asyncio.run(
-                    database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
-                        team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context
-                    )
-                )
+                summary_row = await database_sync_to_async(
+                    SingleSessionSummary.objects.get_summary, thread_sensitive=False
+                )(team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context)
                 if not summary_row:
                     yield serialize_to_sse_event(
                         event_label="session-summary-error",
@@ -1143,7 +1140,7 @@ def execute_summarize_session_video_stream(
             # Workflow is still running — query for structured progress.
             progress_payload: dict[str, Any]
             try:
-                progress_payload = asyncio.run(handle.query("get_progress"))
+                progress_payload = await handle.query("get_progress")
             except Exception as e:
                 logger.info(
                     "get_progress query failed (workflow may not be ready yet)",
@@ -1152,14 +1149,11 @@ def execute_summarize_session_video_stream(
                     error_type=type(e).__name__,
                     signals_type="session-summaries",
                 )
-                time.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             rasterizer_workflow_id = progress_payload.get("rasterizer_workflow_id")
             if progress_payload.get("phase") == "rendering_video" and rasterizer_workflow_id:
-                progress_payload["rasterizer"] = asyncio.run(
-                    _get_rasterizer_frame_progress(client, rasterizer_workflow_id)
-                )
+                progress_payload["rasterizer"] = await _get_rasterizer_frame_progress(client, rasterizer_workflow_id)
             else:
                 progress_payload["rasterizer"] = None
 
@@ -1182,7 +1176,7 @@ def execute_summarize_session_video_stream(
             )
             return
         finally:
-            time.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
+            await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
 
 
 def execute_summarize_session_stream(
