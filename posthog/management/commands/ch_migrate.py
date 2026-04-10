@@ -196,9 +196,24 @@ class Command(BaseCommand):
 
         all_diffs = []
         for cluster_name, states in by_cluster.items():
-            cluster_obj = get_cluster_by_name(cluster_name)
-            client = _any_client(cluster_obj)
-            current = dump_schema(client, database)
+            try:
+                cluster_obj = get_cluster_by_name(cluster_name)
+                client = _any_client(cluster_obj)
+                current = dump_schema(client, database)
+            except Exception as exc:
+                # CH error code 701 (CLUSTER_DOESNT_EXIST) surfaces when a satellite
+                # cluster named in the YAML is not present in the live stack. This is
+                # expected on dev stacks that only run a subset of clusters. Skip the
+                # ecosystem with a warning instead of crashing the whole plan.
+                exc_str = str(exc)
+                if "CLUSTER_DOESNT_EXIST" in exc_str or "not found" in exc_str.lower():
+                    ecosystem_names = ", ".join(s.ecosystem for s in states)
+                    print(
+                        f"Warning: skipping cluster '{cluster_name}' "
+                        f"(ecosystems: {ecosystem_names}) — not present in live ClickHouse"
+                    )
+                    continue
+                raise
 
             for desired in states:
                 ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}
