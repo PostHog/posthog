@@ -68,10 +68,10 @@ jobs:
                         - 'posthog/hogql_queries/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/llm/**'
+                        - 'posthog/migrations/**'
                         - 'posthog/models/**'
                         - 'posthog/settings/**'
                         - 'posthog/test/**'
-                        - 'posthog/conftest.py'
                         # ee modules imported by DAGs
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'ee/clickhouse/materialized_columns/**'

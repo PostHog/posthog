@@ -37,6 +37,8 @@ jobs:
                         - 'products/*/mcp/**'
                         # PostHog API surface (MCP wraps the REST API)
                         - 'posthog/api/**'
+                        # Migrations (integration tests run manage.py migrate)
+                        - 'posthog/migrations/**'
                         # Product API endpoints wrapped by MCP tools
                         - 'products/*/backend/**'
                         # Query schemas used by MCP analytics tools
