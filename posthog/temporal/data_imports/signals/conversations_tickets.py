@@ -46,6 +46,10 @@ When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
+# Keep recent messages within this budget before handing to LLM.
+# Generous enough for most threads; prevents pathological email chains from blowing up cost/latency.
+MAX_DESCRIPTION_CHARS = 10_000
+
 REQUIRED_FIELDS = ("id",)
 
 EXTRA_FIELDS = (
@@ -82,6 +86,8 @@ def conversations_ticket_emitter(team_id: int, record: dict[str, Any]) -> Signal
     # Prefix each message with a short author tag so turns are distinguishable
     # without adding much embedding noise. C = customer, T = team member, AI = bot.
     tagged_lines = [f"{_author_tag(author)}: {content}" for author, content in messages]
+    # Keep most recent messages within char budget (recent turns are most relevant)
+    tagged_lines = _truncate_to_budget(tagged_lines, MAX_DESCRIPTION_CHARS)
     email_subject = record.get("email_subject")
     if email_subject:
         signal_description = f"{email_subject}\n" + "\n".join(tagged_lines)
@@ -102,6 +108,33 @@ _AUTHOR_TAGS = {"customer": "C", "team": "T", "support": "T", "AI": "AI"}
 
 def _author_tag(author_type: str) -> str:
     return _AUTHOR_TAGS.get(author_type, "T")
+
+
+def _truncate_to_budget(lines: list[str], budget: int) -> list[str]:
+    """Keep the first message (the issue description) plus the most recent lines that fit."""
+    if not lines:
+        return []
+    # Everything fits
+    if sum(len(line) for line in lines) <= budget:
+        return lines
+    first = lines[0]
+    if len(first) >= budget:
+        # If the first message is huge
+        return [first[:budget]]
+    if len(lines) == 1:
+        # If just one message
+        return [first]
+    remaining_budget = budget - len(first)
+    # Pick messages from the end
+    tail: list[str] = []
+    for line in reversed(lines[1:]):
+        if remaining_budget - len(line) < 0:
+            break
+        tail.append(line)
+        remaining_budget -= len(line)
+    # Restore the original order
+    tail.reverse()
+    return [first, *tail]
 
 
 def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
