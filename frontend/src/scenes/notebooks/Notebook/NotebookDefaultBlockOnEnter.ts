@@ -16,14 +16,8 @@ export const NotebookDefaultBlockOnEnter = Extension.create({
                 const { $from: $before } = this.editor.state.selection
                 const atStart = $before.parentOffset === 0
 
-                // Let TipTap's built-in list handlers manage Enter inside list items
-                // (bullet lists, ordered lists, task lists) so that pressing Enter
-                // correctly extends the list instead of converting to a paragraph.
-                for (let depth = $before.depth; depth > 0; depth--) {
-                    const nodeName = $before.node(depth).type.name
-                    if (nodeName === 'listItem' || nodeName === 'taskItem') {
-                        return false
-                    }
+                if (this.editor.isActive('listItem') || this.editor.isActive('taskItem')) {
+                    return false
                 }
 
                 const handled = this.editor.commands.first(({ commands }) => [

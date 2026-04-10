@@ -7,12 +7,7 @@ import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 describe('NotebookDefaultBlockOnEnter', () => {
     function createTestEditor(content: Record<string, unknown>): Editor {
         return new Editor({
-            extensions: [
-                StarterKit,
-                TaskList,
-                TaskItem.configure({ nested: true }),
-                NotebookDefaultBlockOnEnter,
-            ],
+            extensions: [StarterKit, TaskList, TaskItem.configure({ nested: true }), NotebookDefaultBlockOnEnter],
             content,
         })
     }
@@ -21,91 +16,43 @@ describe('NotebookDefaultBlockOnEnter', () => {
         editor.commands.keyboardShortcut('Enter')
     }
 
-    it('creates a new bullet list item when pressing Enter inside a bullet list', () => {
-        const editor = createTestEditor({
-            type: 'doc',
-            content: [
-                {
-                    type: 'bulletList',
-                    content: [
-                        {
-                            type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item one' }] }],
-                        },
-                    ],
-                },
-            ],
-        })
-
-        // Place cursor at the end of "item one"
+    it.each([
+        {
+            label: 'bullet list',
+            listType: 'bulletList',
+            itemType: 'listItem',
+            item: {
+                type: 'listItem',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item' }] }],
+            },
+        },
+        {
+            label: 'ordered list',
+            listType: 'orderedList',
+            itemType: 'listItem',
+            item: {
+                type: 'listItem',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item' }] }],
+            },
+        },
+        {
+            label: 'task list',
+            listType: 'taskList',
+            itemType: 'taskItem',
+            item: {
+                type: 'taskItem',
+                attrs: { checked: false },
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item' }] }],
+            },
+        },
+    ])('creates a new $label item when pressing Enter inside a $label', ({ listType, itemType, item }) => {
+        const editor = createTestEditor({ type: 'doc', content: [{ type: listType, content: [item] }] })
         editor.commands.focus('end')
-
         pressEnter(editor)
-
-        const doc = editor.getJSON()
-        const bulletList = doc.content![0]
-        expect(bulletList.type).toBe('bulletList')
-        // Should now have 2 list items
-        expect(bulletList.content).toHaveLength(2)
-        expect(bulletList.content![0].type).toBe('listItem')
-        expect(bulletList.content![1].type).toBe('listItem')
-    })
-
-    it('creates a new ordered list item when pressing Enter inside an ordered list', () => {
-        const editor = createTestEditor({
-            type: 'doc',
-            content: [
-                {
-                    type: 'orderedList',
-                    content: [
-                        {
-                            type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
-                        },
-                    ],
-                },
-            ],
-        })
-
-        editor.commands.focus('end')
-
-        pressEnter(editor)
-
-        const doc = editor.getJSON()
-        const orderedList = doc.content![0]
-        expect(orderedList.type).toBe('orderedList')
-        expect(orderedList.content).toHaveLength(2)
-        expect(orderedList.content![0].type).toBe('listItem')
-        expect(orderedList.content![1].type).toBe('listItem')
-    })
-
-    it('creates a new task item when pressing Enter inside a task list', () => {
-        const editor = createTestEditor({
-            type: 'doc',
-            content: [
-                {
-                    type: 'taskList',
-                    content: [
-                        {
-                            type: 'taskItem',
-                            attrs: { checked: false },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'todo' }] }],
-                        },
-                    ],
-                },
-            ],
-        })
-
-        editor.commands.focus('end')
-
-        pressEnter(editor)
-
-        const doc = editor.getJSON()
-        const taskList = doc.content![0]
-        expect(taskList.type).toBe('taskList')
-        expect(taskList.content).toHaveLength(2)
-        expect(taskList.content![0].type).toBe('taskItem')
-        expect(taskList.content![1].type).toBe('taskItem')
+        const list = editor.getJSON().content![0]
+        expect(list.type).toBe(listType)
+        expect(list.content).toHaveLength(2)
+        expect(list.content![1].type).toBe(itemType)
     })
 
     it('creates a plain paragraph when pressing Enter in a regular paragraph', () => {
@@ -114,13 +61,11 @@ describe('NotebookDefaultBlockOnEnter', () => {
             content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }],
         })
 
-        // Place cursor at the end of "hello world"
         editor.commands.focus('end')
 
         pressEnter(editor)
 
         const doc = editor.getJSON()
-        // Should have 2 paragraphs now
         expect(doc.content).toHaveLength(2)
         expect(doc.content![0].type).toBe('paragraph')
         expect(doc.content![1].type).toBe('paragraph')
@@ -137,10 +82,8 @@ describe('NotebookDefaultBlockOnEnter', () => {
         pressEnter(editor)
 
         const doc = editor.getJSON()
-        // StarterKit's trailingNode may add an extra paragraph — just check the first two nodes
         expect(doc.content!.length).toBeGreaterThanOrEqual(2)
         expect(doc.content![0].type).toBe('heading')
-        // The new block after the heading should be a paragraph, not another heading
         expect(doc.content![1].type).toBe('paragraph')
     })
 
@@ -160,10 +103,12 @@ describe('NotebookDefaultBlockOnEnter', () => {
             ],
         })
 
-        // Place cursor after "abc": doc > bulletList > listItem > paragraph > "abcdef"
-        // Find the correct offset by resolving from the paragraph start
-        const $start = editor.state.doc.resolve(4) // position 4 is start of text inside paragraph
-        const splitPos = $start.start() + 3 // 3 chars into "abcdef"
+        let splitPos = 0
+        editor.state.doc.descendants((node, pos) => {
+            if (node.isText && node.text === 'abcdef') {
+                splitPos = pos + 3
+            }
+        })
         editor.commands.setTextSelection(splitPos)
 
         pressEnter(editor)
@@ -173,12 +118,10 @@ describe('NotebookDefaultBlockOnEnter', () => {
         expect(bulletList.type).toBe('bulletList')
         expect(bulletList.content).toHaveLength(2)
 
-        // First item should have "abc"
-        const firstItemText = bulletList.content![0].content![0].content![0].text
-        expect(firstItemText).toBe('abc')
+        const firstItem = bulletList.content![0] as any
+        expect(firstItem.content[0].content[0].text).toBe('abc')
 
-        // Second item should have "def"
-        const secondItemText = bulletList.content![1].content![0].content![0].text
-        expect(secondItemText).toBe('def')
+        const secondItem = bulletList.content![1] as any
+        expect(secondItem.content[0].content[0].text).toBe('def')
     })
 })
