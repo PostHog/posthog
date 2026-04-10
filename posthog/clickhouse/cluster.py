@@ -118,12 +118,12 @@ class ClickhouseCluster:
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
             host_info = HostInfo(
-                ConnectionInfo(
-                    host_name,
-                    # We only use the port from system.clusters if we're running in E2E tests or debug mode,
-                    # otherwise, we will use the default port.
-                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                ),
+                # Always respect the port from system.clusters. In production the port is
+                # 9000 (the default), so passing it explicitly is a no-op. On dev stacks with
+                # non-standard ports (e.g. the multi-node keeper stack where the coordinator
+                # listens on 9001), the explicit port is required — otherwise ClickhouseCluster
+                # falls back to 9000 and bootstrap hits Connection refused.
+                ConnectionInfo(host_name, port=port),
                 shard_num if host_cluster_role == NodeRole.DATA else None,
                 replica_num if host_cluster_role == NodeRole.DATA else None,
                 host_cluster_type,
@@ -138,10 +138,7 @@ class ClickhouseCluster:
             for row in satellite_hosts:
                 (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
                 host_info = HostInfo(
-                    ConnectionInfo(
-                        host_name,
-                        port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                    ),
+                    ConnectionInfo(host_name, port=port),
                     shard_num=None,
                     replica_num=None,
                     host_cluster_type=host_cluster_type,
