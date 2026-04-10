@@ -83,6 +83,52 @@ async def aget_issue(issue_id: str, team: Team | int) -> ErrorTrackingIssueContr
     return _to_issue_contract(issue) if issue is not None else None
 
 
+def get_issue_by_fingerprint(team: Team | int, fingerprint: str) -> ErrorTrackingIssueContract | None:
+    record = (
+        ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
+        .filter(team_id=_team_id(team), fingerprint=fingerprint)
+        .first()
+    )
+    return _to_issue_contract(record.issue) if record is not None else None
+
+
+def get_issue_first_event(team: Team | int, issue_id: str) -> dict | None:
+    from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
+
+    from posthog.hogql_queries.query_runner import get_query_runner
+
+    team_instance = team if isinstance(team, Team) else Team.objects.get(id=team)
+    query = ErrorTrackingQuery(
+        kind="ErrorTrackingQuery",
+        issueId=issue_id,
+        dateRange=DateRange(date_from="all"),
+        orderBy=ErrorTrackingOrderBy.FIRST_SEEN,
+        limit=1,
+        volumeResolution=1,
+        withAggregations=False,
+        withFirstEvent=True,
+        withLastEvent=False,
+    )
+    runner = get_query_runner(query, team_instance)
+    result = runner.calculate()
+
+    if not result.results:
+        return None
+
+    first_result = result.results[0]
+    if hasattr(first_result, "model_dump"):
+        first_result = first_result.model_dump()
+    if isinstance(first_result, dict):
+        return first_result.get("first_event")
+    return None
+
+
+async def aget_issue_first_event(team: Team | int, issue_id: str) -> dict | None:
+    from posthog.sync import database_sync_to_async
+
+    return await database_sync_to_async(get_issue_first_event)(team, issue_id)
+
+
 def has_resolved_issues(team: Team | int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=_team_id(team), status=ErrorTrackingIssue.Status.RESOLVED).exists()
 
