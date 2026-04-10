@@ -31,7 +31,7 @@ import { normalizeSessionId } from '~/utils/utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { withStallWarning } from '../utils/promise-stall-warning'
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
@@ -826,16 +826,10 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await withStallWarning(this.backgroundTask[0].promise, {
-                            name: 'consumer_backpressure_wait',
-                            stallThresholdMs: 30_000,
-                            context: {
-                                topic: this.config.topic,
-                                groupId: this.config.groupId,
-                                backgroundTaskCount: this.backgroundTask.length,
-                                oldestTaskAgeMs: Date.now() - this.backgroundTask[0].createdAt,
-                            },
-                        })
+                        await instrumentFn(
+                            { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
+                            () => this.backgroundTask[0].promise
+                        )
                         stopTimer()
                     }
                 }

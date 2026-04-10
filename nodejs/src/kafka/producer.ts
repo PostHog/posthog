@@ -12,9 +12,9 @@ import {
 import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { withStallWarning } from '../utils/promise-stall-warning'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -137,24 +137,22 @@ export class KafkaProducerWrapper {
                     [key]: value,
                 })) ?? []
 
-            const result = await withStallWarning(
-                new Promise((resolve, reject) => {
-                    this.producer.produce(
-                        topic,
-                        null,
-                        value,
-                        key,
-                        Date.now(),
-                        kafkaHeaders,
-                        (error: any, offset: NumberNullUndefined) => {
-                            return error ? reject(error) : resolve(offset)
-                        }
-                    )
-                }),
-                {
-                    name: 'kafka_produce_callback',
-                    context: { topic, producerName: this.name },
-                }
+            const result = await instrumentFn(
+                { key: 'kafka_produce_callback', timeoutMs: 10_000, sendException: false },
+                () =>
+                    new Promise((resolve, reject) => {
+                        this.producer.produce(
+                            topic,
+                            null,
+                            value,
+                            key,
+                            Date.now(),
+                            kafkaHeaders,
+                            (error: any, offset: NumberNullUndefined) => {
+                                return error ? reject(error) : resolve(offset)
+                            }
+                        )
+                    })
             )
 
             kafkaProducerMessagesWrittenCounter.labels(labels).inc()

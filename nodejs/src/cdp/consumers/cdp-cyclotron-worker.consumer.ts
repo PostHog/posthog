@@ -35,7 +35,7 @@ export class CdpCyclotronWorker<
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
+    @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
@@ -54,7 +54,7 @@ export class CdpCyclotronWorker<
         )
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.loadHogFunctions')
+    @instrumented({ key: 'cdpConsumer.handleEachBatch.loadHogFunctions', timeoutMs: 10_000, sendException: false })
     protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
@@ -131,7 +131,7 @@ export class CdpCyclotronWorker<
         return { backgroundTask, invocationResults }
     }
 
-    @instrumented('cdpConsumer.backgroundTask')
+    @instrumented({ key: 'cdpConsumer.backgroundTask', timeoutMs: 30_000, sendException: false })
     private async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         await this.queueInvocationResults(invocationResults)
 
@@ -140,7 +140,7 @@ export class CdpCyclotronWorker<
         await Promise.allSettled([this.flushMonitoring(invocationResults), this.observeResults(invocationResults)])
     }
 
-    @instrumented('cdpConsumer.backgroundTask.monitoringFlush')
+    @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
     private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
             await this.hogFunctionMonitoringService.queueInvocationResults(invocationResults)
@@ -151,7 +151,7 @@ export class CdpCyclotronWorker<
         }
     }
 
-    @instrumented('cdpConsumer.backgroundTask.hogWatcherObserve')
+    @instrumented({ key: 'cdpConsumer.backgroundTask.hogWatcherObserve', timeoutMs: 10_000, sendException: false })
     private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
             await this.hogWatcher.observeResults(invocationResults)
@@ -161,7 +161,7 @@ export class CdpCyclotronWorker<
         }
     }
 
-    @instrumented('cdpConsumer.backgroundTask.queueInvocationResults')
+    @instrumented({ key: 'cdpConsumer.backgroundTask.queueInvocationResults', timeoutMs: 15_000, sendException: false })
     protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
