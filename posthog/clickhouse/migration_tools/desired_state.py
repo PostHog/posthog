@@ -89,7 +89,9 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
         inherit_from = columns_raw.split(" ", 1)[1].strip()
     columns = _parse_columns(columns_raw, all_tables)
 
-    on_nodes_raw = raw.get("on_nodes", ["ALL"])
+    # Use `or` instead of a dict default so that an explicit `None`
+    # (from YAML `on_nodes:` with no value) also falls back to ["ALL"].
+    on_nodes_raw = raw.get("on_nodes") or ["ALL"]
     if isinstance(on_nodes_raw, str):
         on_nodes_raw = [on_nodes_raw]
 
