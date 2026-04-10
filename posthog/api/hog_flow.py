@@ -792,7 +792,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         )
                         processed.append(str(schedule_id))
                     elif schedule_invocation_params:
-                        create_hog_flow_scheduled_invocation(**schedule_invocation_params)
+                        response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
+                        response.raise_for_status()
                         processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))

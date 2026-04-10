@@ -452,3 +452,17 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
+
+    def test_cdp_api_error_lands_in_failed(self, mock_invocation):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = Exception("CDP API returned 500")
+        mock_invocation.return_value = mock_response
+
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        response = self._post()
+        assert response.status_code == 200
+        assert str(schedule.id) in response.json()["failed"]
+        assert len(response.json()["processed"]) == 0
