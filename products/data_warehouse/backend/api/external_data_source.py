@@ -191,9 +191,9 @@ def get_direct_postgres_connection_metadata(
     if not callable(metadata_fetcher):
         return fallback or {}
 
-    from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+    from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
-    require_ssl = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE
+    require_ssl = source_model is not None and source_requires_ssl(source_model)
 
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
@@ -699,7 +699,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         # CDC: create slot + publication for PostHog-managed sources
-        cdc_enabled = payload.get("cdc_enabled", False) and self._is_cdc_enabled()
+        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
         if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
             cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
             if cdc_result is not None:
@@ -822,7 +822,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     # `schema` is the postgres database schema name, not a CDC field — read raw.
                     db_schema_name = (new_source_model.job_inputs or {}).get("schema", "public")
                     self._add_table_to_cdc_publication(
-                        source, source_config, cdc_config.publication_name, db_schema_name, schema_name
+                        new_source_model, cdc_config.publication_name, db_schema_name, schema_name
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -968,27 +968,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return None
 
     def _add_table_to_cdc_publication(
-        self, source_impl, source_config, pub_name: str, db_schema: str, table_name: str
+        self, source_model: ExternalDataSource, pub_name: str, db_schema: str, table_name: str
     ) -> None:
         """Best-effort add a table to the CDC publication during source creation."""
-        import psycopg
-
-        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import add_table_to_publication
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+            add_table_to_publication,
+            cdc_pg_connection,
+        )
 
         try:
-            with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                conn = psycopg.connect(
-                    host=host,
-                    port=port,
-                    dbname=source_config.database,
-                    user=source_config.user,
-                    password=source_config.password,
-                    connect_timeout=15,
-                )
-                try:
-                    add_table_to_publication(conn, pub_name, db_schema, table_name)
-                finally:
-                    conn.close()
+            with cdc_pg_connection(source_model) as conn:
+                add_table_to_publication(conn, pub_name, db_schema, table_name)
         except Exception as e:
             logger.exception(
                 "Failed to add table to CDC publication",
@@ -996,9 +986,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 pub_name=pub_name,
                 error=str(e),
             )
-
-    def _is_cdc_enabled(self) -> bool:
-        return is_cdc_enabled_for_team(self.team)
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -1239,7 +1226,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
