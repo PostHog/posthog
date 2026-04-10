@@ -449,11 +449,17 @@ def _assert_subfield_removed(props: dict, path: str) -> None:
 
 
 def _assert_subfield_present(props: dict, path: str, expected_value: object) -> None:
-    """Assert a dotted subfield path is present with expected value."""
+    """Assert a dotted subfield path is present with expected value.
+
+    Skips if a parent key is missing (control event that never had this structure).
+    """
     parts = path.split(".")
     obj = props
     for part in parts[:-1]:
-        obj = obj.get(part, {})
+        child = obj.get(part)
+        if child is None:
+            return
+        obj = child
     assert obj.get(parts[-1]) == expected_value, f"{path} should be {expected_value}, got {props}"
 
 
