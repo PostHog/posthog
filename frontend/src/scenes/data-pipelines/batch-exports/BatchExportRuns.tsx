@@ -103,7 +103,7 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
 
     return (
         <>
-            <LemonTable
+            <LemonTable<BatchExportRun>
                 dataSource={latestRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -238,7 +238,7 @@ export function BatchExportRunsGrouped({
 
     return (
         <>
-            <LemonTable
+            <LemonTable<GroupedBatchExportRuns>
                 dataSource={groupedRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -255,7 +255,7 @@ export function BatchExportRunsGrouped({
                     noIndent: true,
                     expandedRowRender: (groupedRuns) => {
                         return (
-                            <LemonTable
+                            <LemonTable<BatchExportRun>
                                 dataSource={groupedRuns.runs}
                                 embedded={true}
                                 columns={[

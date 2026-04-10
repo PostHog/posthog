@@ -63,7 +63,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
 
     return (
         <>
-            <LemonTable
+            <LemonTable<BatchExportBackfill>
                 dataSource={latestBackfills}
                 loading={loading}
                 loadingSkeletonRows={5}
