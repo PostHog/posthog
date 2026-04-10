@@ -792,7 +792,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: async ({ query = '', view, insight, draft }) => {
             // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
-            const insightVisualizationQuery = toDataVisualizationNode(insight?.query)
+            const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
+            const insightVisualizationQuery = rawInsightVisualizationQuery
+                ? sanitizeSourceQuery(rawInsightVisualizationQuery)
+                : undefined
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
@@ -822,7 +825,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             }
             if (insightVisualizationQuery) {
-                actions.setLastRunQuery(sanitizeSourceQuery(insightVisualizationQuery))
+                actions.setLastRunQuery(insightVisualizationQuery)
             }
             if (query) {
                 actions.setQueryInput(query)
