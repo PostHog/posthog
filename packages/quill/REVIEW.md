@@ -27,7 +27,11 @@ Use this file as a backlog. Check things off as they land.
       `var(--border)`, which is defined in quill's own color system and
       resolves correctly in both light and dark modes (a net improvement
       over the original, which was hardcoded to the light-mode border
-      colour regardless of theme).
+      colour regardless of theme). Regression coverage added via a new
+      `Tokens/Shadows` Storybook story at
+      `apps/storybook/stories/shadows.stories.tsx` — the `Elevate` story
+      visually fails if the token ever regresses to referencing an
+      undefined variable.
 
 - [ ] **2. `theme-shape.css` has a hidden dependency on `color-system.css`**
       `--radius-*` is defined as `calc(var(--radius) - 4px)`. `--radius` only
