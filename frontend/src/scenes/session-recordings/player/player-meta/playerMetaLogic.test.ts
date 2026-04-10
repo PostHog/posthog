@@ -64,4 +64,19 @@ describe('playerMetaLogic', () => {
                 .toMatchValues({ loading: false })
         })
     })
+
+    describe('summary progress', () => {
+        it('clears progress when summary content arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSummaryProgress('Analyzing...')
+            }).toMatchValues({ summaryProgress: 'Analyzing...' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSessionSummaryContent({ segments: [] } as any)
+            }).toMatchValues({
+                summaryProgress: null,
+                sessionSummaryLoading: false,
+            })
+        })
+    })
 })

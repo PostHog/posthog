@@ -2105,6 +2105,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         def feature_flag_side_effect(flag_name, *args, **kwargs):
             if flag_name == "max-session-summarization-video-as-base":
                 return video_based_enabled
+            if flag_name == "session-summary-polling":
+                return False
             return True
 
         mock_feature_enabled.side_effect = feature_flag_side_effect
@@ -2132,6 +2134,118 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         else:
             mock_stream_summary.assert_called_once_with(session_id=session_id, user=self.user, team=self.team)
             mock_execute_summarize.assert_not_called()
+
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_async")
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled")
+    def test_summarize_polling_start_returns_pending(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+        mock_execute_async: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+        mock_feature_enabled.return_value = True
+
+        async def async_return_none(*args, **kwargs):
+            return None
+
+        mock_execute_async.side_effect = async_return_none
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        data = response.json()
+        assert data["status"] == "pending"
+        assert "job_id" in data
+
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_async")
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled")
+    def test_summarize_polling_start_returns_cached_result(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+        mock_execute_async: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+        mock_feature_enabled.return_value = True
+
+        cached = {"summary": "already done"}
+
+        async def async_return_cached(*args, **kwargs):
+            return cached
+
+        mock_execute_async.side_effect = async_return_cached
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "complete"
+        assert data["result"] == cached
+
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled")
+    def test_summarize_poll_returns_job_status(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+    ):
+        from posthog.session_recordings.session_summary_job_status import SummaryJobStatus, SummaryJobStatusManager
+
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+        mock_feature_enabled.return_value = True
+
+        manager = SummaryJobStatusManager(team_id=self.team.pk, job_id="poll-test-job")
+        manager.store_status(
+            SummaryJobStatus(
+                job_id="poll-test-job",
+                session_id=session_id,
+                team_id=self.team.pk,
+                status="running",
+                progress="Analyzing events...",
+            )
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize?job_id=poll-test-job"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        data = response.json()
+        assert data["status"] == "running"
+        assert data["progress"] == "Analyzing events..."
+
+    def test_summarize_poll_requires_job_id(self):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
