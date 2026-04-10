@@ -39,7 +39,6 @@
     },
     "dependencies": {
         "@base-ui/react": "^1.0.0",
-        "@posthog/quill-tokens": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
@@ -52,6 +51,7 @@
         "@posthog/quill-blocks": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
+        "@posthog/quill-tokens": "workspace:*",
         "@tailwindcss/cli": "^4.1.17",
         "shadcn": "^4.0.2",
         "tailwindcss": "^4.1.17",
