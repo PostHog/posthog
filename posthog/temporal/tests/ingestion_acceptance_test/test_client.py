@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.ingestion_acceptance_test.client import CapturedEvent, Person, PostHogClient
 from posthog.temporal.ingestion_acceptance_test.config import Config
 
@@ -228,6 +230,47 @@ class TestFetchEventsByPersonId:
         assert len(result) == 2
         assert result[0].uuid == str(uuid1)
         assert result[1].uuid == str(uuid2)
+
+
+class TestPollUntilFoundRetries:
+    """_poll_until_found must retry on transient ClickHouse errors instead of crashing."""
+
+    @pytest.mark.parametrize(
+        "exception",
+        [
+            pytest.param(ClickHouseAtCapacity(), id="TOO_MANY_SIMULTANEOUS_QUERIES"),
+            pytest.param(ClickHouseQueryTimeOut(), id="TIMEOUT_EXCEEDED"),
+            pytest.param(ClickHouseQueryMemoryLimitExceeded(), id="MEMORY_LIMIT_EXCEEDED"),
+        ],
+    )
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_retries_transient_clickhouse_errors(
+        self, mock_sync_execute: MagicMock, exception: Exception, client: PostHogClient
+    ) -> None:
+        event_row = (
+            uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            "test_event",
+            "user_1",
+            {"key": "value"},
+            datetime(2024, 1, 1),
+        )
+        mock_sync_execute.side_effect = [exception, [event_row]]
+
+        result = client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
+
+        assert result is not None
+        assert result.uuid == "00000000-0000-0000-0000-000000000001"
+        assert mock_sync_execute.call_count == 2
+
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_raises_on_non_retryable_clickhouse_error(
+        self, mock_sync_execute: MagicMock, client: PostHogClient
+    ) -> None:
+        mock_sync_execute.side_effect = InternalCHQueryError("server error", code=999, code_name="UNKNOWN")
+
+        with pytest.raises(InternalCHQueryError):
+            client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
+        assert mock_sync_execute.call_count == 1
 
 
 class TestTimestampFiltering:
