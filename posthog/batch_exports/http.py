@@ -793,24 +793,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 elif isinstance(authorization, str) and not authorization.strip():
                     raise serializers.ValidationError("Missing required IAM role for 'COPY'")
 
-        if destination_type == BatchExportDestination.Destination.WORKFLOWS:
-            team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "backfill-workflows-destination",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
-
         if destination_type in (
             BatchExportDestination.Destination.POSTGRES,
             BatchExportDestination.Destination.REDSHIFT,
