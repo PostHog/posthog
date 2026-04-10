@@ -186,7 +186,7 @@ async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> Ba
     return BatchExportResult(
         records_completed=records_completed,
         bytes_exported=100,
-        records_failed=records_failed if records_failed > 0 else None,
+        records_failed=records_failed,
     )
 
 

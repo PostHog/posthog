@@ -66,6 +66,6 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
     return BatchExportResult(
         records_completed=records_completed,
         bytes_exported=bytes_exported,
-        records_failed=records_failed or None,
+        records_failed=records_failed,
         error=error or None,
     )

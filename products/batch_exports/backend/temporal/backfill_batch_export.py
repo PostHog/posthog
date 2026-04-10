@@ -154,7 +154,9 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
                     total_failed=Sum("records_failed"),
                 )
             )()
-            total_records_count = (result["total_completed"] or 0) + (result["total_failed"] or 0)
+            total_records_count = result["total_completed"]
+            if total_records_count is not None and result["total_failed"] is not None:
+                total_records_count += result["total_failed"]
 
             if estimated_records_count is not None:
                 logger.info(
