@@ -1,5 +1,4 @@
 from datetime import timedelta
-from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -9,6 +8,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Action, Team
+from posthog.models.utils import uuid7
 
 from products.web_analytics.backend.weekly_digest import (
     _format_duration,
@@ -31,7 +31,7 @@ def _create_pageview(
     referring_domain=None,
     timestamp=None,
 ):
-    props: dict = {"$session_id": session_id or str(uuid4())}
+    props: dict = {"$session_id": session_id or str(uuid7(timestamp or "2025-01-25"))}
     if url:
         props["$current_url"] = url
         props["$pathname"] = url.split("//")[-1].split("/", 1)[-1] if "//" in url else url
@@ -107,7 +107,7 @@ class TestAutoSelectProjectForUser(ClickhouseTestMixin, APIBaseTest):
 
 class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
     def test_returns_overview_with_events(self):
-        session_id = str(uuid4())
+        session_id = str(uuid7("2025-01-25"))
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             for _ in range(3):
@@ -143,7 +143,7 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_2"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_3"])
-            session1, session2, session3 = str(uuid4()), str(uuid4()), str(uuid4())
+            session1, session2, session3 = str(uuid7("2025-01-25")), str(uuid7("2025-01-25")), str(uuid7("2025-01-25"))
             _create_pageview(
                 self.team,
                 distinct_id="user_1",
@@ -183,7 +183,7 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
     def test_respects_limit(self):
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
-            session = str(uuid4())
+            session = str(uuid7("2025-01-25"))
             for i in range(5):
                 _create_pageview(
                     self.team,
@@ -208,7 +208,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
     def test_returns_sources_with_visitors(self):
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
-            session = str(uuid4())
+            session = str(uuid7("2025-01-25"))
             _create_pageview(
                 self.team,
                 distinct_id="user_1",
@@ -228,7 +228,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
     def test_filters_out_empty_sources(self):
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
-            session = str(uuid4())
+            session = str(uuid7("2025-01-25"))
             _create_pageview(
                 self.team,
                 distinct_id="user_1",
@@ -263,7 +263,7 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
                 last_calculated_at=timezone.now(),
             )
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
-            session = str(uuid4())
+            session = str(uuid7("2025-01-25"))
             _create_pageview(self.team, distinct_id="user_1", session_id=session, timestamp="2025-01-25")
             _create_event(
                 team=self.team,
@@ -285,7 +285,7 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
     def test_returns_all_expected_keys(self):
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
-            session = str(uuid4())
+            session = str(uuid7("2025-01-25"))
             _create_pageview(
                 self.team, distinct_id="user_1", session_id=session, url="https://example.com/", timestamp="2025-01-25"
             )
