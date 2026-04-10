@@ -3864,6 +3864,10 @@ snapshots:
         hash: v1.k794b7964.a75aa0cecbd366e40f6158e4b6bbc2b95f7d59d17618b3b0d26aa9ecda8c583e.gp6WWSECNARN9kE_bY1l_53PZAodtSnUBmLZLht5QvM
     scenes-app-customer-analytics-journeys-nodes-profileflownode--all-variants--light:
         hash: v1.k794b7964.003840e32c73f37a00f5fe0ff83c280d84fe1fbfd23d4a7e7e9d8313aaaed4d4.brElOB-JVxjWsfOKDU9dpR-6hNjDuidq9b7-S0ooeFY
+    scenes-app-customer-analytics-journeys-nodes-profileflownode--all-variants-ultrawide--dark:
+        hash: v1.k794b7964.487a7ff30d3b5227a8aaa9987f611a6e165bf0f4df4ec0a2742899a3fc9abc13.KZFPlRd6dxbmxvYbkkMhnnLvOlSklMj2hP5oMTvkCtQ
+    scenes-app-customer-analytics-journeys-nodes-profileflownode--all-variants-ultrawide--light:
+        hash: v1.k794b7964.7f2f0a93a80089661252a0c209f57a1b5589057c5be2bda8704f58adb2017856.0TFJ0HXjKlpkAmi4NAZ3XGdsfufuWr2BD9ffawKdnp4
     scenes-app-customer-analytics-journeys-nodes-profileflownode--completed--dark:
         hash: v1.k794b7964.ecdd334cb322efc22a2461b01a369c0f851784aa435a8c65df614f5f938c339d.IgCU2JobA7JX3bK_Kt5GCt_Wf0u8PRHMpvzGGYZkeJQ
     scenes-app-customer-analytics-journeys-nodes-profileflownode--completed--light:
@@ -5585,7 +5589,7 @@ snapshots:
     scenes-app-settings-environment--settings-environment-details--light:
         hash: v1.k794b7964.9fb9c450fa28e524fbf3ad162a88e92b2b9de68b1ab2809639994885a34176e3.l61bLt-WHtM9pMm2rPHAlR3CCbkIWG8qLqoKM3r8xlo
     scenes-app-settings-environment--settings-environment-error-tracking--dark:
-        hash: v1.k794b7964.73f94b5ef90aff97da0548ada52504c12d74ada097fe9cdb0530688a374ef902.pA5n61SjHJDIk1rzHEmv80h92zErmhko9i3D9HtpQfk
+        hash: v1.k794b7964.ac8d1a7257358a46c5e25413f66961ef69d7cc648e3503568a747b3323474329.OQ84jqEY3vxCxKH8EQkg1jk5jl4yL2KrHumW628HD_8
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.0b22c6f2ab3c655aa00ff698b2a78528620b3b297fd7845debf1c99a00190672.R0rScXfPuL5C9w8PR-kfcTcMIl1FcmNDd-S_DTxNmAY
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
