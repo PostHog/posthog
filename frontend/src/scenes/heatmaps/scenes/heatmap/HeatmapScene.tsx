@@ -39,8 +39,15 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
     } = useValues(logic)
-    const { setName, setType, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap, setContainerWidth } =
-        useActions(logic)
+    const {
+        setName,
+        changeCaptureMethod,
+        updateHeatmap,
+        onIframeLoad,
+        setScreenshotLoaded,
+        exportHeatmap,
+        setContainerWidth,
+    } = useActions(logic)
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -131,7 +138,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     pages).
                 </LemonBanner>
                 <HeatmapHeader />
-                <FilterPanel captureMethod={type} onCaptureMethodChange={setType} />
+                <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
                 <div ref={measureRef} className="w-full">
                     <div
