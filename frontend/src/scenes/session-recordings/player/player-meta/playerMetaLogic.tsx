@@ -132,6 +132,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
+        pollSessionSummary: (id: string) => ({ id }),
+        streamSessionSummary: (id: string) => ({ id }),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
@@ -457,13 +459,62 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return
             }
 
-            // Give up waiting after 10 minutes. If the workflow finishes later,
+            if (posthog.isFeatureEnabled('session-summary-polling')) {
+                await actions.pollSessionSummary(id)
+            } else {
+                await actions.streamSessionSummary(id)
+            }
+        },
+        pollSessionSummary: async ({ id }: { id: string }) => {
+            try {
+                const startResponse = await api.recordings.summarize(id)
+
+                if (startResponse.status === 'complete' && startResponse.result) {
+                    actions.setSessionSummaryContent(startResponse.result)
+                    return
+                }
+
+                const jobId = startResponse.job_id
+                const POLL_INTERVAL = 5000
+                const MAX_POLL_TIME = 20 * 60 * 1000
+
+                const pollStartTime = Date.now()
+                const interval = setInterval(async () => {
+                    if (Date.now() - pollStartTime > MAX_POLL_TIME) {
+                        clearInterval(interval)
+                        actions.setSessionSummaryLoading(false)
+                        return
+                    }
+                    try {
+                        const pollResponse = await api.recordings.getSummarizeStatus(id, jobId)
+                        if (pollResponse.status === 'complete' && pollResponse.result) {
+                            clearInterval(interval)
+                            actions.setSessionSummaryContent(pollResponse.result)
+                        } else if (pollResponse.status === 'error') {
+                            clearInterval(interval)
+                            lemonToast.error(pollResponse.error_message || 'Summary generation failed')
+                            actions.setSessionSummaryLoading(false)
+                        }
+                    } catch {
+                        clearInterval(interval)
+                        actions.setSessionSummaryLoading(false)
+                    }
+                }, POLL_INTERVAL)
+            } catch (err) {
+                if (err instanceof ApiError) {
+                    lemonToast.error(err.message)
+                }
+                actions.setSessionSummaryLoading(false)
+            }
+        },
+        streamSessionSummary: async ({ id }: { id: string }) => {
+            // Give up waiting after 20 minutes. If the workflow finishes later,
             // the summary will show up next time the user opens this recording
             const timeout = setTimeout(
                 () => {
                     actions.setSessionSummaryLoading(false)
                 },
-                10 * 60 * 1000
+                20 * 60 * 1000
             )
 
             try {

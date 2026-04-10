@@ -23,6 +23,7 @@ from posthog.temporal.session_replay.session_summary.summarize_session import (
     fetch_session_data_activity,
     get_llm_single_session_summary_activity,
     stream_llm_single_session_summary_activity,
+    update_job_status_activity,
 )
 from posthog.temporal.session_replay.session_summary.summarize_session_group import (
     SummarizeSessionGroupWorkflow,
@@ -53,4 +54,5 @@ SESSION_SUMMARY_ACTIVITIES = [
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     capture_timing_activity,
+    update_job_status_activity,
 ]

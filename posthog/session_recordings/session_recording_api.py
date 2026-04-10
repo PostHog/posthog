@@ -94,7 +94,10 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session import (
+    execute_summarize_session,
+    execute_summarize_session_async,
+)
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
@@ -1423,7 +1426,7 @@ class SessionRecordingViewSet(
             )
 
     @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST", "GET"], detail=True)
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
@@ -1438,6 +1441,9 @@ class SessionRecordingViewSet(
         cached_response = cache.get(cache_key)
         if cached_response is not None:
             return Response(cached_response)
+
+        if request.method == "GET":
+            return self._summarize_poll(request, recording)
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
@@ -1459,6 +1465,14 @@ class SessionRecordingViewSet(
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
         video_based_summarization_enabled = self._determine_video_based_summarization_enabled(user)
+
+        use_polling = posthoganalytics.feature_enabled(
+            "session-summary-polling",
+            str(user.distinct_id),
+            send_feature_flag_events=False,
+        )
+        if use_polling:
+            return self._summarize_start(session_id, user, video_based_summarization_enabled, tracking_id)
 
         if video_based_summarization_enabled:
             # Use non-streaming workflow for video-based summarization
@@ -1494,6 +1508,103 @@ class SessionRecordingViewSet(
                 stream_recording_summary(session_id=session_id, user=user, team=self.team),
                 content_type=ServerSentEventRenderer.media_type,
             )
+
+    def _summarize_poll(self, request: request.Request, recording) -> Response:
+        """GET handler: poll for summary job status."""
+        from posthog.session_recordings.session_summary_job_status import SummaryJobStatusManager
+
+        from ee.models.session_summaries import SingleSessionSummary
+
+        job_id = request.query_params.get("job_id")
+        if not job_id:
+            raise exceptions.ValidationError("job_id query parameter is required")
+
+        manager = SummaryJobStatusManager(team_id=self.team.pk, job_id=job_id)
+        status = manager.get_status()
+
+        if status and status.status == "complete":
+            return Response({"status": "complete", "result": status.result})
+        if status and status.status == "error":
+            return Response(
+                {"status": "error", "error_message": status.error_message},
+                status=400,
+            )
+
+        # DB fallback: the workflow may have completed but failed to update Redis
+        summary_row = SingleSessionSummary.objects.get_summary(
+            team_id=self.team.pk,
+            session_id=str(recording.session_id),
+        )
+        if summary_row:
+            manager.mark_complete(summary_row.summary)
+            return Response({"status": "complete", "result": summary_row.summary})
+
+        if not status:
+            raise exceptions.NotFound("Summary job not found or expired")
+
+        return Response(
+            {"status": status.status, "progress": status.progress, "job_id": job_id},
+            status=202,
+        )
+
+    def _summarize_start(
+        self,
+        session_id: str,
+        user: User,
+        video_based: bool,
+        tracking_id: str,
+    ) -> Response:
+        """POST handler: start a summary job and return immediately."""
+        from posthog.session_recordings.session_summary_job_status import SummaryJobStatus, SummaryJobStatusManager
+
+        # Check if there's already a running job for this session
+        existing_job_id = SummaryJobStatusManager.get_running_job_for_session(self.team.pk, session_id)
+        if existing_job_id:
+            manager = SummaryJobStatusManager(team_id=self.team.pk, job_id=existing_job_id)
+            status = manager.get_status()
+            if status and status.status in ("pending", "running"):
+                return Response(
+                    {"job_id": existing_job_id, "status": status.status, "progress": status.progress},
+                    status=202,
+                )
+
+        # Start a new job
+        manager = SummaryJobStatusManager(team_id=self.team.pk)
+        job_status = SummaryJobStatus(
+            job_id=manager.job_id,
+            session_id=session_id,
+            team_id=self.team.pk,
+        )
+        manager.store_status(job_status)
+        SummaryJobStatusManager.register_running_session(self.team.pk, session_id, manager.job_id)
+
+        # Start the workflow. Returns the cached summary if one exists, otherwise None.
+        existing_result = async_to_sync(execute_summarize_session_async)(
+            session_id=session_id,
+            user=user,
+            team=self.team,
+            video_validation_enabled="full" if video_based else None,
+            job_id=manager.job_id,
+        )
+        if existing_result is not None:
+            manager.mark_complete(existing_result)
+            return Response({"status": "complete", "result": existing_result})
+
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=False,
+            session_ids=[session_id],
+            video_validation_enabled="full" if video_based else None,
+        )
+
+        return Response(
+            {"job_id": manager.job_id, "status": "pending"},
+            status=202,
+        )
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

@@ -24,6 +24,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.session_recordings.session_summary_job_status import SummaryJobStatusManager
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -82,6 +83,32 @@ logger = structlog.get_logger(__name__)
 
 # How often to poll for new chunks from the LLM stream
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
+
+
+@dataclasses.dataclass(frozen=True)
+class UpdateJobStatusInputs:
+    team_id: int
+    session_id: str
+    job_id: str
+    status: str  # "complete" or "error"
+    error_message: str | None = None
+
+
+@temporalio.activity.defn
+async def update_job_status_activity(inputs: UpdateJobStatusInputs) -> None:
+    manager = SummaryJobStatusManager(team_id=inputs.team_id, job_id=inputs.job_id)
+    if inputs.status == "complete":
+        summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+            team_id=inputs.team_id, session_id=inputs.session_id
+        )
+        if summary_row:
+            manager.mark_complete(summary_row.summary)
+        else:
+            manager.mark_error("Summary was not found after workflow completed")
+    elif inputs.status == "error":
+        manager.mark_error(inputs.error_message or "Unknown error")
+
+
 # How large the chunks should be when analyzing videos
 SESSION_VIDEO_CHUNK_DURATION_S = 60
 # How large should the active period be, so we still analyze it (or skip it, if it's smaller)
@@ -409,32 +436,60 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
         start_time = temporalio.workflow.now()
-        session_got_data = await temporalio.workflow.execute_activity(
-            fetch_session_data_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if not session_got_data:
-            return None  # If the session got no data, skip it
-        await ensure_llm_single_session_summary(inputs)
-        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
-        await temporalio.workflow.execute_activity(
-            capture_timing_activity,
-            CaptureTimingInputs(
-                distinct_id=inputs.user_distinct_id_to_log,
-                team_id=inputs.team_id,
-                session_id=inputs.session_id,
-                timing_type="single_session_flow",
-                duration_seconds=duration_seconds,
-                success=True,
-                extra_properties={
-                    "video_validation_enabled": inputs.video_validation_enabled,
-                },
-            ),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            session_got_data = await temporalio.workflow.execute_activity(
+                fetch_session_data_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if not session_got_data:
+                return None  # If the session got no data, skip it
+            await ensure_llm_single_session_summary(inputs)
+            duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+            await temporalio.workflow.execute_activity(
+                capture_timing_activity,
+                CaptureTimingInputs(
+                    distinct_id=inputs.user_distinct_id_to_log,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                    timing_type="single_session_flow",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                    extra_properties={
+                        "video_validation_enabled": inputs.video_validation_enabled,
+                    },
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            if inputs.job_id:
+                await temporalio.workflow.execute_activity(
+                    update_job_status_activity,
+                    UpdateJobStatusInputs(
+                        team_id=inputs.team_id,
+                        session_id=inputs.session_id,
+                        job_id=inputs.job_id,
+                        status="complete",
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+        except Exception as e:
+            if inputs.job_id:
+                await temporalio.workflow.execute_activity(
+                    update_job_status_activity,
+                    UpdateJobStatusInputs(
+                        team_id=inputs.team_id,
+                        session_id=inputs.session_id,
+                        job_id=inputs.job_id,
+                        status="error",
+                        error_message=str(e),
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            raise
 
 
 def _validate_period(
@@ -799,6 +854,7 @@ def _prepare_execution(
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
+    job_id: str | None = None,
 ) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
@@ -830,6 +886,7 @@ def _prepare_execution(
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
         video_validation_enabled=video_validation_enabled,
+        job_id=job_id,
     )
     workflow_id = (
         f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
@@ -892,6 +949,58 @@ async def execute_summarize_session(
         raise ValueError(msg)
     summary = summary_row.summary
     return summary
+
+
+async def execute_summarize_session_async(
+    session_id: str,
+    user: User,
+    team: Team,
+    model_to_use: str | None = None,
+    extra_summary_context: ExtraSummaryContext | None = None,
+    local_reads_prod: bool = False,
+    video_validation_enabled: bool | Literal["full"] | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Start the summarization workflow without waiting for completion.
+    Returns the existing summary if cached, otherwise starts the workflow and returns None.
+    """
+    existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id,
+        session_id=session_id,
+        extra_summary_context=extra_summary_context,
+    )
+    if existing_summary is not None:
+        return existing_summary.summary
+    if model_to_use is None:
+        model_to_use = (
+            SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
+        )
+    _, _, _, session_input, workflow_id = _prepare_execution(
+        session_id=session_id,
+        user=user,
+        team=team,
+        stream=False,
+        model_to_use=model_to_use,
+        extra_summary_context=extra_summary_context,
+        local_reads_prod=local_reads_prod,
+        video_validation_enabled=video_validation_enabled,
+        job_id=job_id,
+    )
+    try:
+        client = await async_connect()
+        retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
+        await client.start_workflow(
+            "summarize-session",
+            session_input,
+            id=workflow_id,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=retry_policy,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    return None
 
 
 def execute_summarize_session_stream(

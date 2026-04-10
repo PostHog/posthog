@@ -4035,6 +4035,23 @@ const api = {
             )
         },
 
+        async summarize(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ job_id: string; status: string; progress?: string; result?: any }> {
+            return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        },
+
+        async getSummarizeStatus(
+            recordingId: SessionRecordingType['id'],
+            jobId: string
+        ): Promise<{ status: string; progress?: string; result?: any; error_message?: string; job_id?: string }> {
+            return await new ApiRequest()
+                .recording(recordingId)
+                .withAction('summarize')
+                .withQueryString({ job_id: jobId })
+                .get()
+        },
+
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
