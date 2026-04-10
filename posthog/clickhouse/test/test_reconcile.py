@@ -754,3 +754,146 @@ class TestClusterRegistry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStructuralFieldDiffs(unittest.TestCase):
+    """Tests for High #1 fix: state_diff compares structural fields."""
+
+    def test_order_by_change_triggers_recreate(self) -> None:
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    engine="ReplicatedMergeTree",
+                    order_by=["a", "b"],
+                    columns=[ColumnDef(name="a", type="String"), ColumnDef(name="b", type="String")],
+                ),
+            }
+        )
+        current = {
+            "t": TableSchema(name="t", engine="ReplicatedMergeTree", sorting_key="a"),
+        }
+        diffs = diff_state(desired, current)
+        recreate_diffs = [d for d in diffs if d.action == "recreate"]
+        self.assertEqual(len(recreate_diffs), 1)
+        self.assertIn("ORDER BY", recreate_diffs[0].detail)
+
+    def test_partition_by_change_triggers_recreate(self) -> None:
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    engine="ReplicatedMergeTree",
+                    partition_by="toYYYYMM(created_at)",
+                    columns=[ColumnDef(name="created_at", type="DateTime")],
+                ),
+            }
+        )
+        current = {
+            "t": TableSchema(
+                name="t", engine="ReplicatedMergeTree", partition_key="toYYYYMMDD(created_at)"
+            ),
+        }
+        diffs = diff_state(desired, current)
+        recreate_diffs = [d for d in diffs if d.action == "recreate"]
+        self.assertEqual(len(recreate_diffs), 1)
+        self.assertIn("PARTITION BY", recreate_diffs[0].detail)
+
+    def test_distributed_source_change_triggers_recreate(self) -> None:
+        desired = _make_desired_state(
+            {
+                "dist_t": DesiredTable(
+                    name="dist_t",
+                    engine="Distributed",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["ALL"],
+                    source="new_sharded_t",
+                    sharding_key="rand()",
+                ),
+            }
+        )
+        current = {
+            "dist_t": TableSchema(
+                name="dist_t",
+                engine="Distributed",
+                engine_full="Distributed('posthog', 'posthog', 'old_sharded_t', rand())",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        recreate_diffs = [d for d in diffs if d.action == "recreate"]
+        self.assertEqual(len(recreate_diffs), 1)
+        self.assertIn("source table changed", recreate_diffs[0].detail)
+
+    def test_kafka_setting_change_triggers_recreate(self) -> None:
+        desired = _make_desired_state(
+            {
+                "kafka_t": _make_desired_table(
+                    "kafka_t",
+                    engine="Kafka",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    settings={"kafka_broker_list": "new-broker:9092", "kafka_topic_list": "events"},
+                ),
+            }
+        )
+        current = {
+            "kafka_t": TableSchema(
+                name="kafka_t",
+                engine="Kafka",
+                engine_full="Kafka('old-broker:9092', 'events', 'group1', 'JSONEachRow')",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        # Kafka column changes trigger drop+create, but structural changes trigger recreate
+        recreate_diffs = [d for d in diffs if d.action == "recreate"]
+        self.assertEqual(len(recreate_diffs), 1)
+        self.assertIn("kafka_broker_list", recreate_diffs[0].detail)
+
+    def test_column_default_change_triggers_modify(self) -> None:
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    columns=[
+                        ColumnDef(name="val", type="Int64", default_kind="DEFAULT", default_expression="0"),
+                    ],
+                ),
+            }
+        )
+        current = {
+            "t": _make_table_schema(
+                "t",
+                columns=[
+                    ColumnSchema(name="val", type="Int64", default_kind="DEFAULT", default_expression="42"),
+                ],
+            ),
+        }
+        diffs = diff_state(desired, current)
+        modify_diffs = [d for d in diffs if d.action == "alter_modify_column"]
+        self.assertEqual(len(modify_diffs), 1)
+        self.assertIn("default", modify_diffs[0].detail.lower())
+
+    def test_no_recreate_when_structural_fields_match(self) -> None:
+        """No structural diff when order_by/partition_by match current."""
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    engine="ReplicatedMergeTree",
+                    order_by=["a"],
+                    partition_by="toYYYYMM(ts)",
+                    columns=[ColumnDef(name="a", type="String"), ColumnDef(name="ts", type="DateTime")],
+                ),
+            }
+        )
+        current = {
+            "t": TableSchema(
+                name="t",
+                engine="ReplicatedMergeTree",
+                sorting_key="a",
+                partition_key="toYYYYMM(ts)",
+            ),
+        }
+        diffs = diff_state(desired, current)
+        # Only column adds since current has no columns defined
+        recreate_diffs = [d for d in diffs if d.action in ("recreate", "recreate_mv")]
+        self.assertEqual(len(recreate_diffs), 0)

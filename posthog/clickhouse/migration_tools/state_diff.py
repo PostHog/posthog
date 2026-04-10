@@ -247,6 +247,84 @@ def diff_state(
                 )
             continue
 
+        # Structural field comparisons (order_by, partition_by, sharding_key, source, target, settings)
+        structural_recreate = False
+        structural_details: list[str] = []
+
+        if _is_mergetree(desired_table.engine):
+            # ORDER BY
+            if desired_table.order_by:
+                current_sorting = current_table.sorting_key
+                desired_sorting = ", ".join(desired_table.order_by)
+                if current_sorting and current_sorting != desired_sorting:
+                    structural_details.append(f"ORDER BY changed: {current_sorting} -> {desired_sorting}")
+                    structural_recreate = True
+            # PARTITION BY
+            if desired_table.partition_by:
+                if current_table.partition_key and current_table.partition_key != desired_table.partition_by:
+                    structural_details.append(
+                        f"PARTITION BY changed: {current_table.partition_key} -> {desired_table.partition_by}"
+                    )
+                    structural_recreate = True
+
+        if _is_distributed(desired_table.engine):
+            # sharding_key — requires recreate
+            if desired_table.sharding_key and current_table.engine_full:
+                if desired_table.sharding_key not in current_table.engine_full:
+                    structural_details.append(f"sharding_key changed (desired: {desired_table.sharding_key})")
+                    structural_recreate = True
+            # source — the local table backing the Distributed table
+            if desired_table.source and current_table.engine_full:
+                if desired_table.source not in current_table.engine_full:
+                    structural_details.append(f"source table changed (desired: {desired_table.source})")
+                    structural_recreate = True
+
+        if _is_mv(desired_table.engine):
+            # target — the destination table for the MV
+            if desired_table.target and current_table.engine_full:
+                if desired_table.target not in current_table.engine_full:
+                    structural_details.append(f"MV target changed (desired: {desired_table.target})")
+                    structural_recreate = True
+
+        if _is_kafka(desired_table.engine):
+            # Kafka settings (broker_list, topic_list, group_name, format) — requires recreate
+            if desired_table.settings and current_table.engine_full:
+                for setting_key, setting_val in desired_table.settings.items():
+                    resolved = (
+                        _resolve_setting(setting_key) if str(setting_val) == _FROM_SETTINGS_SENTINEL else str(setting_val)
+                    )
+                    if resolved not in current_table.engine_full:
+                        structural_details.append(f"Kafka setting '{setting_key}' changed (desired: {resolved})")
+                        structural_recreate = True
+
+        if structural_recreate:
+            detail_str = "; ".join(structural_details)
+            if _is_mv(desired_table.engine):
+                recreates.append(
+                    StateDiff(
+                        action="recreate_mv",
+                        table=table_name,
+                        detail=f"Recreate MV {table_name} ({detail_str})",
+                        sql=f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}",
+                        node_roles=desired_table.on_nodes,
+                        depends_on=[desired_table.target] if desired_table.target else [],
+                    )
+                )
+            else:
+                recreates.append(
+                    StateDiff(
+                        action="recreate",
+                        table=table_name,
+                        detail=f"Recreate {table_name} ({detail_str})",
+                        sql=f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}",
+                        node_roles=desired_table.on_nodes,
+                        sharded=desired_table.sharded,
+                    )
+                )
+            continue
+
+        # Column default/codec changes — ALTER MODIFY COLUMN (checked during column comparison below)
+
         # For MVs, compare SELECT if both sides have it
         if _is_mv(desired_table.engine) and desired_table.select:
             current_select = current_table.as_select if hasattr(current_table, "as_select") else ""
@@ -356,6 +434,31 @@ def diff_state(
                             f"Modify column {col_name} from {current_col.type} to {desired_col.type} on {table_name}"
                         ),
                         sql=f"ALTER TABLE {db}.{table_name} MODIFY COLUMN {col_name} {desired_col.type}",
+                        node_roles=desired_table.on_nodes,
+                        sharded=desired_table.sharded,
+                        is_alter_on_replicated_table=is_replicated,
+                    )
+                )
+                continue
+
+            # Default kind/expression changes → MODIFY COLUMN
+            desired_default = f"{desired_col.default_kind} {desired_col.default_expression}".strip()
+            current_default = f"{current_col.default_kind} {current_col.default_expression}".strip()
+            desired_codec = desired_col.codec if hasattr(desired_col, "codec") else ""
+            current_codec = ""  # system.columns doesn't expose codec directly
+
+            if desired_default and desired_default != current_default:
+                kind = desired_col.default_kind or "DEFAULT"
+                modify_clause = f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}"
+                alters.append(
+                    StateDiff(
+                        action="alter_modify_column",
+                        table=table_name,
+                        detail=(
+                            f"Modify column {col_name} default on {table_name}: "
+                            f"{current_default!r} -> {desired_default!r}"
+                        ),
+                        sql=f"ALTER TABLE {db}.{table_name} MODIFY COLUMN {modify_clause}",
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,
                         is_alter_on_replicated_table=is_replicated,
