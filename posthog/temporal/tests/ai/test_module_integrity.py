@@ -137,6 +137,7 @@ class TestSessionSummaryTemporalModuleIntegrity:
             "cleanup_gemini_file_activity",
             "consolidate_video_segments_activity",
             "capture_timing_activity",
+            "update_job_status_activity",
         ]
         actual_activity_names = [a.__name__ for a in session_summary.SESSION_SUMMARY_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
