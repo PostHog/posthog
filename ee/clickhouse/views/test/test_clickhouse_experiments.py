@@ -259,6 +259,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
+                "creation_mode": "new",
             },
         )
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
@@ -3258,6 +3259,61 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             Experiment.objects.filter(team=self.team, name="Original Experiment (Copy)", deleted=False).count(),
             0,
+        )
+
+    @parameterized.expand(
+        [
+            ("duplicate", "duplicate", False),
+            ("copy_to_project", "copy_to_project", True),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_clone_experiment_reports_creation_mode(
+        self, _name: str, expected_mode: str, needs_target_team: bool, mock_report_user_action: MagicMock
+    ) -> None:
+        target_team = (
+            Team.objects.create(organization=self.organization, name="Target Team") if needs_target_team else None
+        )
+
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Original Experiment", "feature_flag_key": f"{expected_mode}-analytics-flag"},
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_id = original_response.json()["id"]
+        mock_report_user_action.reset_mock()
+
+        if target_team:
+            url = f"/api/projects/{self.team.id}/experiments/{original_id}/copy_to_project/"
+            body: dict = {"target_team_id": target_team.id}
+            expected_team = target_team
+        else:
+            url = f"/api/projects/{self.team.id}/experiments/{original_id}/duplicate/"
+            body = {}
+            expected_team = self.team
+
+        response = self.client.post(url, body)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        result = response.json()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "experiment created",
+            {
+                "experiment_id": result["id"],
+                "experiment_name": result["name"],
+                "feature_flag_key": result["feature_flag_key"],
+                "type": result["type"],
+                "status": result["status"],
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+                "creation_mode": expected_mode,
+            },
+            team=expected_team,
+            request=ANY,
         )
 
     def test_copy_experiment_to_project(self) -> None:
