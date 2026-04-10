@@ -6,6 +6,7 @@ import { uuid } from 'lib/utils'
 import {
     ItemEvent,
     ItemEventDetail,
+    ItemEventMenu,
     ItemEventProps,
 } from 'scenes/session-recordings/player/inspector/components/ItemEvent'
 import { InspectorListItemEvent } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -649,6 +650,51 @@ export const AITraceEvent: Story = {
                 $group_1: 'https://us.posthog.com',
                 $group_0: '00000000-0000-0000-0000-org000000004',
                 $group_2: '00000000-0000-0000-0000-proj00000004',
+            }
+        ),
+    },
+}
+
+const renderWithMenu = (props: Partial<ItemEventProps>): JSX.Element => {
+    props.item = props.item || makeItem(undefined, { event: 'A long event name if no other name is provided' })
+    const propsToUse = props as ItemEventProps
+
+    return (
+        <div className="flex flex-col gap-2 min-w-96">
+            <h3>Row</h3>
+            <ItemEvent {...propsToUse} />
+            <LemonDivider />
+            <h3>Menu</h3>
+            <ItemEventMenu {...propsToUse} />
+        </div>
+    )
+}
+
+export const AutocaptureWithElements: Story = {
+    render: renderWithMenu as any,
+    args: {
+        item: makeItem(
+            {},
+            {
+                event: '$autocapture',
+                elements: [
+                    {
+                        tag_name: 'button',
+                        text: 'Submit',
+                        attr_class: ['btn', 'btn-primary'],
+                        attributes: { attr__class: 'btn btn-primary' },
+                        order: 0,
+                    },
+                    {
+                        tag_name: 'form',
+                        attributes: { 'attr__data-testid': 'signup-form' },
+                        order: 1,
+                    },
+                ],
+            },
+            {
+                $current_url: 'https://example.com/signup',
+                $event_type: 'click',
             }
         ),
     },
