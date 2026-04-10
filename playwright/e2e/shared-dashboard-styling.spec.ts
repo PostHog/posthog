@@ -81,7 +81,7 @@ test.describe('Shared dashboard styling', () => {
 
         let fallbackWarningLogged = false
         page.on('console', (msg) => {
-            if (msg.type() === 'warn' && msg.text().includes('Failed to load stylesheet')) {
+            if (msg.type() === 'warning' && msg.text().includes('Failed to load stylesheet')) {
                 fallbackWarningLogged = true
             }
         })
