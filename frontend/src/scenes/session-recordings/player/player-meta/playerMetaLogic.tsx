@@ -135,6 +135,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         pollSessionSummary: (id: string) => ({ id }),
         streamSessionSummary: (id: string) => ({ id }),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
+        setSummaryProgress: (progress: string | null) => ({ progress }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
@@ -156,6 +157,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 summarizeSession: () => true,
                 setSessionSummaryContent: () => false,
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        summaryProgress: [
+            null as string | null,
+            {
+                setSummaryProgress: (_, { progress }) => progress,
+                setSessionSummaryContent: () => null,
+                setSessionSummaryLoading: () => null,
             },
         ],
         isPropertyPopoverOpen: [
@@ -465,41 +474,40 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 await actions.streamSessionSummary(id)
             }
         },
-        pollSessionSummary: async ({ id }: { id: string }) => {
+        pollSessionSummary: async ({ id }: { id: string }, breakpoint: () => Promise<void>) => {
+            const POLL_INTERVAL = 5000
+            const MAX_POLL_TIME = 20 * 60 * 1000
+
             try {
                 const startResponse = await api.recordings.summarize(id)
+                breakpoint()
 
                 if (startResponse.status === 'complete' && startResponse.result) {
                     actions.setSessionSummaryContent(startResponse.result)
                     return
                 }
 
+                actions.setSummaryProgress(startResponse.progress || 'Starting summary generation...')
                 const jobId = startResponse.job_id
-                const POLL_INTERVAL = 5000
-                const MAX_POLL_TIME = 20 * 60 * 1000
-
                 const pollStartTime = Date.now()
-                const interval = setInterval(async () => {
-                    if (Date.now() - pollStartTime > MAX_POLL_TIME) {
-                        clearInterval(interval)
+
+                while (Date.now() - pollStartTime < MAX_POLL_TIME) {
+                    await breakpoint(POLL_INTERVAL)
+                    const pollResponse = await api.recordings.getSummarizeStatus(id, jobId)
+                    breakpoint()
+
+                    if (pollResponse.status === 'complete' && pollResponse.result) {
+                        actions.setSessionSummaryContent(pollResponse.result)
+                        return
+                    } else if (pollResponse.status === 'error') {
+                        lemonToast.error(pollResponse.error_message || 'Summary generation failed')
                         actions.setSessionSummaryLoading(false)
                         return
                     }
-                    try {
-                        const pollResponse = await api.recordings.getSummarizeStatus(id, jobId)
-                        if (pollResponse.status === 'complete' && pollResponse.result) {
-                            clearInterval(interval)
-                            actions.setSessionSummaryContent(pollResponse.result)
-                        } else if (pollResponse.status === 'error') {
-                            clearInterval(interval)
-                            lemonToast.error(pollResponse.error_message || 'Summary generation failed')
-                            actions.setSessionSummaryLoading(false)
-                        }
-                    } catch {
-                        clearInterval(interval)
-                        actions.setSessionSummaryLoading(false)
-                    }
-                }, POLL_INTERVAL)
+                    actions.setSummaryProgress(pollResponse.progress || 'Generating summary...')
+                }
+
+                actions.setSessionSummaryLoading(false)
             } catch (err) {
                 if (err instanceof ApiError) {
                     lemonToast.error(err.message)

@@ -58,7 +58,7 @@ class SummaryJobStatusManager:
             status.result = result
             status.progress = None
             self.store_status(status)
-        self.unregister_running_session(self.team_id, status.session_id if status else "")
+            self.unregister_running_session(self.team_id, status.session_id)
 
     def mark_error(self, error_message: str) -> None:
         status = self.get_status()
@@ -67,7 +67,7 @@ class SummaryJobStatusManager:
             status.error_message = error_message
             status.progress = None
             self.store_status(status)
-        self.unregister_running_session(self.team_id, status.session_id if status else "")
+            self.unregister_running_session(self.team_id, status.session_id)
 
     @classmethod
     def get_running_job_for_session(cls, team_id: int, session_id: str) -> str | None:

@@ -717,7 +717,7 @@ function LoadSessionSummaryButton(): JSX.Element {
 
 export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummary, sessionSummaryLoading, summaryProgress } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="rounded border bg-surface-primary px-2 py-1">
@@ -725,7 +725,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
                 <>
                     <div className="flex items-center justify-between">
                         <div>
-                            Researching the session... <Spinner />
+                            {summaryProgress || 'Researching the session...'} <Spinner />
                         </div>
                         <div className="flex items-center gap-1 ml-auto">
                             <LoadingTimer />
