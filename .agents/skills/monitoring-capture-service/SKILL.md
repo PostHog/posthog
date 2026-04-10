@@ -16,6 +16,21 @@ Three deployment roles run the same binary with different `CAPTURE_MODE` configs
 This skill teaches how to **discover live metrics** using the Grafana MCP tools
 rather than memorizing metric names that change as the code evolves.
 
+## Environment context
+
+The Grafana MCP is connected to a **single Grafana instance** scoped to one environment.
+If the user hasn't specified, **ask which environment** they want to investigate:
+
+- **prod-us** — US production (us-east-1)
+- **prod-eu** — EU production (eu-central-1)
+
+Most capture app metrics (e.g. `capture_*`, `http_requests_*`, `envoy_cluster_*`) are
+environment-specific by virtue of which Grafana you're connected to — they don't carry
+an `environment` label. MSK and CloudWatch metrics do carry `environment` labels but
+are still scoped to the connected Grafana's AWS account.
+
+Cross-environment comparison requires switching Grafana instances (not possible in one session).
+
 ## Observability landscape
 
 Capture spans seven telemetry domains.
@@ -60,7 +75,8 @@ Scope with: `envoy_cluster_name=~"posthog_capture.*"`.
 
 ### Redis instance topology
 
-Capture depends on up to three logical Redis instances.
+Capture depends on up to three logical Redis instances,
+plus one external instance at the Envoy layer (not in the capture binary).
 None emit `capture_redis_*` metrics — Redis health is inferred from capture-side
 metrics and CloudWatch ElastiCache metrics.
 
