@@ -173,6 +173,7 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalAutonomyConfig
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
@@ -361,6 +362,7 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalAutonomyConfig
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
