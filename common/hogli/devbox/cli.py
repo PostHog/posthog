@@ -274,6 +274,12 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     default_git_name = existing_git_name or coder_git_name or ""
     default_git_email = existing_git_email or coder_git_email or ""
 
+    click.echo()
+    click.echo(click.style("Git identity", bold=True))
+    click.echo("  Set the name and email used for Git commits inside your workspace.")
+    click.echo("  These will be saved and reused for future workspaces.")
+    click.echo()
+
     git_name = click.prompt(
         "Git name",
         default=default_git_name,
@@ -313,6 +319,7 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     click.echo(click.style("Dotfiles (optional)", bold=True))
     click.echo("  Personalize your workspace with a dotfiles repository.")
     click.echo("  The repo will be cloned and applied on every workspace start.")
+    click.echo("  This will be saved and reused for future workspaces.")
     click.echo()
 
     dotfiles_uri = click.prompt(

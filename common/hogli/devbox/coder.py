@@ -306,6 +306,11 @@ def print_setup_summary() -> None:
     """Print a short summary after setup completes."""
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
+    click.echo()
+    click.echo("To reconfigure later:")
+    click.echo("  hogli devbox:setup --configure-git-identity")
+    click.echo("  hogli devbox:setup --configure-dotfiles")
+    click.echo("  hogli devbox:setup --configure-claude")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
