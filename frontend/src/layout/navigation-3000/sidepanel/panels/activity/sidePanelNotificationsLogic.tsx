@@ -215,17 +215,29 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
         },
         startSSE: () => {
+            // TEMPORARY: lifecycle tracking for /notifications SSE connection.
+            // Remove together with livestream_401_debug once root cause is known.
+            posthog.capture('livestream_sse_startsse_called', {
+                flag_enabled: values.realTimeNotificationsEnabled,
+                has_token: !!values.currentTeam?.live_events_token,
+                has_host: !!liveEventsHostOrigin(),
+                had_prior_connection: !!cache.sseConnection,
+            })
+
             if (!values.realTimeNotificationsEnabled) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
                 return
             }
 
             const token = values.currentTeam?.live_events_token
             if (!token) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
                 return
             }
 
             const host = liveEventsHostOrigin()
             if (!host) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
                 return
             }
 
@@ -234,6 +246,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             cache.sseConnection?.abort()
             const abortController = new AbortController()
             cache.sseConnection = abortController
+            cache.firstMessageLogged = false
+
+            posthog.capture('livestream_sse_connecting', { url })
 
             void api
                 .stream(url, {
@@ -243,6 +258,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     signal: abortController.signal,
                     onMessage: (event) => {
                         actions.clearErrorCount()
+                        if (!cache.firstMessageLogged) {
+                            cache.firstMessageLogged = true
+                            posthog.capture('livestream_sse_first_message', { url })
+                        }
                         if (!values.isInitialLoadComplete) {
                             return
                         }
@@ -288,9 +307,20 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             // Ignore malformed messages
                         }
                     },
-                    onError: () => {
+                    onError: (error) => {
+                        // TEMPORARY: livestream SSE lifecycle tracking.
+                        posthog.capture('livestream_sse_error', {
+                            url,
+                            error_name: (error as Error | undefined)?.name,
+                            error_message: (error as Error | undefined)?.message,
+                            error_count: values.errorCounter + 1,
+                        })
                         actions.incrementErrorCount()
                         if (values.errorCounter >= MAX_SSE_ERRORS) {
+                            posthog.capture('livestream_sse_max_errors', {
+                                url,
+                                max_errors: MAX_SSE_ERRORS,
+                            })
                             abortController.abort()
                             throw new Error(`SSE failed ${MAX_SSE_ERRORS} times, giving up`)
                         }
@@ -299,6 +329,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 .catch(() => {})
         },
         stopSSE: () => {
+            // TEMPORARY: livestream SSE lifecycle tracking.
+            posthog.capture('livestream_sse_stopped', {
+                had_connection: !!cache.sseConnection,
+            })
             cache.sseConnection?.abort()
             cache.sseConnection = null
         },

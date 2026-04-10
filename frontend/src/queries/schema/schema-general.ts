@@ -3396,6 +3396,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
+    precomputation_mode?: 'precomputed' | 'direct'
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -5937,6 +5938,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
+    SUBSCRIPTIONS = 'subscriptions',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',
