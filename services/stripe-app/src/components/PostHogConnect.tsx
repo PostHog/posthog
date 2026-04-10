@@ -125,7 +125,13 @@ const DevTokenEntry = ({ onSaved }: { onSaved: () => void }): JSX.Element => {
         setSaving(true)
         setError(null)
         try {
-            await saveCredentials(stripe, { region, accessToken, refreshToken })
+            // The dev command prints raw tokens; the rest of the app treats
+            // `accessToken` as the full Authorization header value.
+            await saveCredentials(stripe, {
+                region,
+                accessToken: `Bearer ${accessToken}`,
+                refreshToken,
+            })
             setAccessToken('')
             setRefreshToken('')
             onSaved()

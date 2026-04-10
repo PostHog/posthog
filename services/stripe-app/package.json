@@ -4,8 +4,8 @@
     "description": "PostHog Stripe app",
     "license": "MIT",
     "scripts": {
-        "dev": "stripe apps start --manifest stripe-app.dev.json",
-        "upload": "npm install --package-lock-only && stripe apps upload",
+        "dev": "APP_MANIFEST_VERSION_TWO=true stripe apps start --manifest stripe-app.dev.json",
+        "upload": "npm install --package-lock-only && APP_MANIFEST_VERSION_TWO=true stripe apps upload",
         "test": "jest --passWithNoTests"
     },
     "dependencies": {

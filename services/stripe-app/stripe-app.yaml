@@ -1,0 +1,61 @@
+id: com.posthog.stripe
+name: PostHog
+version: 1.0.0
+
+# During the private preview of Stripe Extensions, the v2 YAML manifest lives
+# alongside stripe-app.json and only holds the `extensions:` block. All other
+# manifest fields (declarations, permissions, provisioning, ui_extension,
+# constants, allowed_redirect_uris, etc.) stay in stripe-app.json.
+
+extensions:
+    - id: trigger_workflow
+      name: Trigger PostHog workflow
+      interface_id: core.workflows.custom_action
+      version: 0.0.1
+
+      script:
+          type: typescript
+          content: extensions/trigger_workflow/src/index.ts
+
+      endpoints:
+          - id: posthog_api_us
+            type: custom_http
+            live:
+                url: https://us.posthog.com
+                purpose: List and retrieve PostHog workflows so the merchant can configure the action (US region)
+                auth:
+                    type: header
+                    header_name: Authorization
+                    secret_name: posthog_access_token
+          - id: posthog_api_eu
+            type: custom_http
+            live:
+                url: https://eu.posthog.com
+                purpose: List and retrieve PostHog workflows so the merchant can configure the action (EU region)
+                auth:
+                    type: header
+                    header_name: Authorization
+                    secret_name: posthog_access_token
+          - id: posthog_webhook_us
+            type: custom_http
+            live:
+                url: https://webhooks.us.posthog.com
+                purpose: Fire the selected PostHog workflow via its public webhook (US region)
+          - id: posthog_webhook_eu
+            type: custom_http
+            live:
+                url: https://webhooks.eu.posthog.com
+                purpose: Fire the selected PostHog workflow via its public webhook (EU region)
+
+      methods:
+          execute:
+              implementation_type: script
+              custom_input:
+                  input_schema:
+                      type: json_schema
+                      content: extensions/trigger_workflow/src/custom_input.schema.json
+                  ui_schema:
+                      type: jsonforms
+                      content: extensions/trigger_workflow/src/custom_input.ui.schema.json
+          get_form_state:
+              implementation_type: script

@@ -5,6 +5,7 @@ import { saveCredentials } from './auth'
 export class PostHogClient {
     private baseUrl: string
     private clientId: string
+    /** Full HTTP Authorization header value, e.g. "Bearer pha_..." */
     private accessToken: string
     private refreshToken: string
     private stripe: Stripe
@@ -46,7 +47,10 @@ export class PostHogClient {
             throw new Error('Token refresh response missing access_token')
         }
 
-        this.accessToken = tokenData.access_token
+        // The OAuth server hands us the raw token; everywhere else in the app
+        // treats `accessToken` as the full Authorization header value, so we
+        // prepend once, here, at the boundary where it enters the system.
+        this.accessToken = `Bearer ${tokenData.access_token}`
         if (tokenData.refresh_token) {
             this.refreshToken = tokenData.refresh_token
         }
@@ -64,7 +68,7 @@ export class PostHogClient {
     async request(path: string, options?: RequestInit): Promise<Response> {
         const url = `${this.baseUrl}${path}`
         const headers = {
-            Authorization: `Bearer ${this.accessToken}`,
+            Authorization: this.accessToken,
             ...options?.headers,
         }
 
@@ -73,7 +77,7 @@ export class PostHogClient {
         // If we get a 401, try refreshing the token and retrying once
         if (response.status === 401) {
             await this.refreshAccessToken()
-            headers.Authorization = `Bearer ${this.accessToken}`
+            headers.Authorization = this.accessToken
             response = await fetch(url, { ...options, headers })
         }
 

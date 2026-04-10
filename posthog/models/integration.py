@@ -3064,9 +3064,14 @@ class StripeIntegration:
 
         region = get_instance_region() or "us"
 
+        # `posthog_access_token` stores the full "Bearer <token>" Authorization
+        # header value. The Stripe Scripts egress system (used by the Custom
+        # Workflow Action extension) injects secret payloads verbatim as header
+        # values, with no "Bearer " template. The UI-extension Stripe app side
+        # strips the prefix on load so the Node client sees the raw token.
         secrets = {
             "posthog_region": region.lower(),
-            "posthog_access_token": access_token_value,
+            "posthog_access_token": f"Bearer {access_token_value}",
             "posthog_refresh_token": refresh_token_value,
         }
 

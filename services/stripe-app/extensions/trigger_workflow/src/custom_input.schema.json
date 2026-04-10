@@ -1,0 +1,18 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "workflow_id": {
+            "type": "string",
+            "title": "PostHog workflow",
+            "description": "Only workflows with a webhook trigger are shown"
+        },
+        "variables": {
+            "type": "object",
+            "title": "Workflow variables",
+            "description": "Values for the selected workflow's declared variables"
+        }
+    },
+    "required": ["workflow_id"],
+    "additionalProperties": false
+}

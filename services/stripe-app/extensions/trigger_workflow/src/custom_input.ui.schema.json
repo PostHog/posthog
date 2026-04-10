@@ -1,0 +1,19 @@
+{
+    "type": "VerticalLayout",
+    "elements": [
+        {
+            "type": "Control",
+            "scope": "#/properties/workflow_id",
+            "options": {
+                "format": "dynamic_select"
+            }
+        },
+        {
+            "type": "Control",
+            "scope": "#/properties/variables",
+            "options": {
+                "format": "dynamic_schema"
+            }
+        }
+    ]
+}

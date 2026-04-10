@@ -5,7 +5,14 @@ import { logger } from '../logger'
 
 export type Region = 'us' | 'eu'
 
-// Keep in sync with the secret names defined in posthog/models/integration.py
+// Keep in sync with the secret names written by the PostHog backend's Stripe
+// integration OAuth callback.
+//
+// NOTE: `posthog_access_token` stores the full HTTP Authorization header
+// value ("Bearer <token>") so the Stripe Scripts egress system can inject it
+// verbatim on calls from the Custom Workflow Action extension — the egress
+// has no template for prefixing header values. The app uses the same prefixed
+// form in memory, so no transformation happens at the storage boundary.
 export const SECRET_NAMES = {
     region: 'posthog_region',
     accessToken: 'posthog_access_token',
@@ -14,6 +21,7 @@ export const SECRET_NAMES = {
 
 export interface StoredCredentials {
     region: Region
+    /** Full HTTP Authorization header value, e.g. "Bearer pha_..." */
     accessToken: string
     refreshToken: string
 }
@@ -69,7 +77,11 @@ export async function saveCredentials(stripe: Stripe, credentials: StoredCredent
     try {
         await Promise.all([
             stripe.apps.secrets.create({ name: SECRET_NAMES.region, payload: credentials.region, scope }),
-            stripe.apps.secrets.create({ name: SECRET_NAMES.accessToken, payload: credentials.accessToken, scope }),
+            stripe.apps.secrets.create({
+                name: SECRET_NAMES.accessToken,
+                payload: credentials.accessToken,
+                scope,
+            }),
             stripe.apps.secrets.create({
                 name: SECRET_NAMES.refreshToken,
                 payload: credentials.refreshToken,

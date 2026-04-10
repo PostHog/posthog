@@ -27,11 +27,18 @@ Connecting PostHog to Stripe requires **two** OAuth exchanges in sequence:
 
 The three secrets stored in Stripe are:
 
-| Secret name             | Value                 |
-| ----------------------- | --------------------- |
-| `posthog_region`        | `us` or `eu`          |
-| `posthog_access_token`  | PostHog OAuth token   |
-| `posthog_refresh_token` | PostHog OAuth refresh |
+| Secret name             | Value                          |
+| ----------------------- | ------------------------------ |
+| `posthog_region`        | `us` or `eu`                   |
+| `posthog_access_token`  | `Bearer` + PostHog OAuth token |
+| `posthog_refresh_token` | PostHog OAuth refresh          |
+
+`posthog_access_token` stores the full HTTP `Authorization` header value
+(`Bearer <token>`). The Stripe Scripts egress used by the Custom Workflow
+Action extension (`extensions/trigger_workflow/`) injects secret payloads
+verbatim as header values, with no `Bearer` template — so we persist the
+full header string. The UI-extension code in `src/posthog/auth.ts` strips the
+prefix on load so the rest of the Node client sees the raw token.
 
 ### PostHog backend
 
@@ -49,11 +56,22 @@ Key files:
 - `src/components/PostHogConnect.tsx` — connection status UI + dev-mode token entry
 - `src/views/` — Stripe Dashboard view entry points (Home, Settings, Onboarding)
 - `src/constants.ts` — typed access to manifest constants (PostHog URLs)
+- `extensions/trigger_workflow/` — Stripe Workflows Custom Action that fires a PostHog workflow
+  (Script implementation calling the public webhook URL)
 
 ### Manifest files
 
-- `stripe-app.json` — production manifest: PostHog URLs, permissions, CSP
-- `stripe-app.dev.json` — extends the production manifest, overrides URLs to `localhost:8010`
+- `stripe-app.json` — production manifest: PostHog URLs, permissions, CSP.
+- `stripe-app.dev.json` — extends the production manifest, overrides URLs to `localhost:8010`.
+- `stripe-app.yaml` — Manifest v2 entry that holds only the
+  Stripe Workflows `extensions:` block. Per the Stripe Extensions private
+  preview spec, the v2 YAML coexists with `stripe-app.json` rather than
+  replacing it.
+
+Manifest v2 requires the Stripe CLI apps plugin v1.15.5 or later. The `APP_MANIFEST_VERSION_TWO=true`
+environment variable is already baked into the `dev` and `upload`
+scripts in `package.json`, so nothing extra is needed when running them
+via `pnpm --filter=@posthog/stripe dev` / `pnpm --filter=@posthog/stripe upload`.
 
 ## Development
 
@@ -74,7 +92,7 @@ hogli start:stripe:app
 pnpm --filter=@posthog/stripe dev
 ```
 
-This runs `stripe apps start --manifest stripe-app.dev.json`,
+This runs `APP_MANIFEST_VERSION_TWO=true stripe apps start --manifest stripe-app.dev.json`,
 which serves the app UI inside the Stripe Dashboard in test mode.
 
 ### Connecting to PostHog locally

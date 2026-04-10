@@ -1057,6 +1057,13 @@ class TestStripeIntegrationOAuthTokens:
 
         calls = mock_client.apps.secrets.create.call_args_list
         assert len(calls) == 3
+        names = {call.kwargs["params"]["name"] for call in calls}
+        assert names == {"posthog_region", "posthog_access_token", "posthog_refresh_token"}
+        # The access token is stored as the full Authorization header value so
+        # the Stripe Scripts egress can inject it verbatim for the Custom
+        # Workflow Action extension.
+        access_token_call = next(call for call in calls if call.kwargs["params"]["name"] == "posthog_access_token")
+        assert access_token_call.kwargs["params"]["payload"].startswith("Bearer ")
         for call in calls:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_456"}
@@ -1082,6 +1089,8 @@ class TestStripeIntegrationOAuthTokens:
 
         calls = mock_client.apps.secrets.delete_where.call_args_list
         assert len(calls) == 3
+        names = {call.kwargs["params"]["name"] for call in calls}
+        assert names == {"posthog_region", "posthog_access_token", "posthog_refresh_token"}
         for call in calls:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_789"}
