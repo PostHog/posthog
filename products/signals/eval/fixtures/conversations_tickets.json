@@ -10,8 +10,8 @@
     "email_subject": null,
     "messages": [
       ["customer", "I have several tabs of Persons open. Some have the default filter of last 24hrs selected. If I navigate to either tab, set it to 7 days, navigate to another tab with the filter set to 24hrs and navigate back to the original tab the filter gets reset to 24hrs from 7 days."],
-      ["support", "Hey, thanks for reaching out! Just to confirm, could you share a screenshot of where you are seeing this? Is this on the persons page event tab? Happy to look at this further once confirmed."],
-      ["customer", "I attached a screenshot. So if I select Last 7 days in the events tab, and navigate to another Persons tab within posthog and navigate back the filter gets reset. Seems like the filters & column configurations aren't being persisted per tab. Thanks for looking into this!"]
+      ["support", "Hey, thanks for reaching out! Is this on the persons page event tab? Happy to look at this further once confirmed."],
+      ["customer", "So if I select Last 7 days in the events tab, and navigate to another Persons tab within posthog and navigate back the filter gets reset. Seems like the filters & column configurations aren't being persisted per tab. Thanks for looking into this!"]
     ]
   },
   {
