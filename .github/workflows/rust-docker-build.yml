@@ -101,6 +101,9 @@ jobs:
                     - release: kafka-assigner
                       digest_key: kafka-assigner
                       values_key: image
+                    - release: hypercache-server
+                      digest_key: hypercache-server
+                      values_key: image
         steps:
             - name: get deployer token
               id: deployer

@@ -25,7 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .cache import get_cached_slack_user, set_cached_slack_user
+from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
@@ -126,6 +126,35 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     except Exception as e:
         logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
         return dict(_UNKNOWN_USER)
+
+
+def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
+    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
+    if not email:
+        return None
+
+    cached = get_cached_slack_avatar(email)
+    if cached is not None:
+        return cached or None  # empty string = negative cache
+
+    try:
+        response = client.users_lookupByEmail(email=email)
+        raw_data = response.data if hasattr(response, "data") else None
+        data: dict = raw_data if isinstance(raw_data, dict) else {}
+
+        if not data.get("ok"):
+            set_cached_slack_avatar(email, "")
+            return None
+
+        profile = (data.get("user") or {}).get("profile") or {}
+        avatar = profile.get("image_72") or ""
+        set_cached_slack_avatar(email, avatar)
+        return avatar or None
+    except Exception:
+        # Don't negative-cache on transient errors (rate limits, network)
+        # so the next reply retries the lookup.
+        logger.warning("slack_avatar_lookup_failed", email=email)
+        return None
 
 
 def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:

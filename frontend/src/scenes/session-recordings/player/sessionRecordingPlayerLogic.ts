@@ -24,7 +24,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     CanvasReplayerPlugin,
     CorsPlugin,
-    HLSPlayerPlugin,
+    createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
 import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
@@ -1253,7 +1253,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
+            const hlsPlugin = createHLSPlayerPlugin()
+            const plugins: ReplayPlugin[] = [hlsPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
@@ -1406,6 +1407,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     return () => {
                         canvasPlugin.destroy()
+                        hlsPlugin.destroy()
 
                         if (replayer) {
                             for (const cleanup of iframeCleanups) {

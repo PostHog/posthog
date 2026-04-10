@@ -133,8 +133,8 @@ class TestFetchPersonByDistinctId:
         query = mock_sync_execute.call_args[0][0]
         params = mock_sync_execute.call_args[0][1]
 
-        assert "FROM person FINAL AS p" in query
-        assert "JOIN person_distinct_id2 FINAL AS pdi" in query
+        assert "FROM person AS p FINAL" in query
+        assert "JOIN person_distinct_id2 AS pdi FINAL" in query
         assert "pdi.distinct_id = %(distinct_id)s" in query
         assert "pdi.is_deleted = 0" in query
         assert "p.is_deleted = 0" in query

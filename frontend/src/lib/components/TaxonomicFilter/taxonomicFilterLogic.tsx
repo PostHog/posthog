@@ -810,9 +810,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
                         options: [
-                            { key: 'message', name: 'Message', propertyFilterType: 'span' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
+                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
                         ],
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
