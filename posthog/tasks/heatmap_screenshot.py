@@ -1,9 +1,12 @@
 import os
+from collections import deque
+from typing import Any
 
 import structlog
 import posthoganalytics
 from celery import shared_task
 from playwright.sync_api import (
+    ConsoleMessage,
     Page,
     ProxySettings,
     TimeoutError as PlaywrightTimeoutError,
@@ -19,6 +22,57 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"
+
+# Bound per-page console tail to avoid unbounded memory on noisy pages.
+CONSOLE_TAIL_LIMIT = 50
+
+
+def _attach_console_listener(page: Page) -> deque[dict[str, str]]:
+    """Collect a bounded tail of browser console messages for post-mortem diagnostics."""
+    tail: deque[dict[str, str]] = deque(maxlen=CONSOLE_TAIL_LIMIT)
+
+    def _on_console(message: ConsoleMessage) -> None:
+        try:
+            tail.append({"type": message.type, "text": message.text[:500]})
+        except Exception:
+            pass
+
+    page.on("console", _on_console)
+    return tail
+
+
+def _capture_page_diagnostics(page: Page | None, console_tail: deque[dict[str, str]] | None) -> dict[str, Any]:
+    """Best-effort snapshot of page state + console tail for failure reporting."""
+    diagnostics: dict[str, Any] = {}
+    if page is not None:
+        try:
+            diagnostics["page_url"] = page.url
+        except Exception:
+            pass
+        try:
+            diagnostics["page_title"] = page.title()
+        except Exception:
+            pass
+    if console_tail is not None:
+        diagnostics["console_tail"] = list(console_tail)
+        first_error = next(
+            (entry.get("text") for entry in console_tail if entry.get("type") in {"error", "warning"}),
+            None,
+        )
+        if first_error:
+            diagnostics["first_console_error"] = first_error
+    return diagnostics
+
+
+def _format_diagnostic_suffix(diagnostics: dict[str, Any]) -> str:
+    parts: list[str] = []
+    if diagnostics.get("page_url"):
+        parts.append(f"url={diagnostics['page_url']}")
+    if diagnostics.get("page_title"):
+        parts.append(f"title={diagnostics['page_title']}")
+    if diagnostics.get("first_console_error"):
+        parts.append(f"console_error={diagnostics['first_console_error'][:200]}")
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _dismiss_cookie_banners(page: Page) -> None:
@@ -210,8 +264,11 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             )
 
         except Exception as e:
+            diagnostics = getattr(e, "heatmap_diagnostics", {}) or {}
+            exception_text = f"{type(e).__name__}: {e}{_format_diagnostic_suffix(diagnostics)}"
+
             screenshot.status = SavedHeatmap.Status.FAILED
-            screenshot.exception = str(e)
+            screenshot.exception = exception_text
             screenshot.save(update_fields=["status", "exception"])
 
             logger.exception(
@@ -221,6 +278,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
                 url=screenshot.url,
                 exception=str(e),
                 exc_info=True,
+                **diagnostics,
             )
 
             capture_exception(
@@ -229,6 +287,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
                     "celery_task": "heatmap_screenshot",
                     "team_id": screenshot.team_id,
                     "screenshot_id": screenshot.id,
+                    **{f"heatmap_{k}": v for k, v in diagnostics.items()},
                 },
             )
             raise
@@ -281,32 +340,50 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                     ),
                 )
                 page = ctx.new_page()
+                console_tail = _attach_console_listener(page)
                 _block_internal_requests(page)
 
-                # Start navigation and try to wait for DOM ready, but only up to 5s
-                dom_ready = True
                 try:
-                    page.goto(screenshot.url, wait_until="domcontentloaded", timeout=5_000)
-                except PlaywrightTimeoutError:
-                    dom_ready = False
-                    # Navigation may still continue in the background; we just won't block on it.
+                    # Start navigation and try to wait for DOM ready, but only up to 5s
+                    dom_ready = True
+                    try:
+                        page.goto(screenshot.url, wait_until="domcontentloaded", timeout=5_000)
+                    except PlaywrightTimeoutError:
+                        dom_ready = False
+                        # Navigation may still continue in the background; we just won't block on it.
 
-                # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
-                page.wait_for_timeout(3000 if dom_ready else 1000)
+                    # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
+                    page.wait_for_timeout(3000 if dom_ready else 1000)
 
-                # Try to clear overlays/cookie banners if present
-                _dismiss_cookie_banners(page)
-                page.wait_for_timeout(500)
+                    # Try to clear overlays/cookie banners if present
+                    _dismiss_cookie_banners(page)
+                    page.wait_for_timeout(500)
 
-                # Scroll to bottom and back to top to trigger lazy-loaded content
-                _scroll_page(page)
+                    # Scroll to bottom and back to top to trigger lazy-loaded content
+                    _scroll_page(page)
 
-                # Take full-page screenshot without resizing viewport
-                # (resizing viewport causes elements with vh units to expand)
-                image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
-                snapshot_bytes.append((w, image_data))
-
-                ctx.close()
+                    # Take full-page screenshot without resizing viewport
+                    # (resizing viewport causes elements with vh units to expand)
+                    image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
+                    snapshot_bytes.append((w, image_data))
+                except Exception as e:
+                    diagnostics = _capture_page_diagnostics(page, console_tail)
+                    logger.warning(
+                        "heatmap_screenshot.page_failed",
+                        screenshot_id=screenshot.id,
+                        team_id=screenshot.team_id,
+                        url=screenshot.url,
+                        width=w,
+                        exception=str(e),
+                        **diagnostics,
+                    )
+                    # Attach diagnostics to the original exception so the outer handler
+                    # can include them in the user-visible SavedHeatmap.exception field.
+                    # This preserves the original exception class for Sentry/classification.
+                    e.heatmap_diagnostics = diagnostics  # type: ignore[attr-defined]
+                    raise
+                finally:
+                    ctx.close()
         finally:
             browser.close()
 
