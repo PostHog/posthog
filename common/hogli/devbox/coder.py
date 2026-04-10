@@ -522,7 +522,7 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
 
 def update_workspace(name: str, *, verbose: bool = False) -> None:
     """Update a workspace to the latest template version."""
-    result = _run_build(["coder", "update", name, "--yes"], verbose=verbose)
+    result = _run_build(["coder", "update", name], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
