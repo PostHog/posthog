@@ -74,9 +74,13 @@ services:
                     # node_modules, public assets, and the HMR websocket.
                     @vite {
                         path /@vite/*
+                        path /%40vite/*
                         path /@fs/*
+                        path /%40fs/*
                         path /@id/*
+                        path /%40id/*
                         path /@react-refresh
+                        path /%40react-refresh
                         path /src/*
                         path /node_modules/*
                         path /public/*
