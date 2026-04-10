@@ -63,13 +63,13 @@ export class WaitUntilEventHandler implements ActionHandler {
         }
 
         if (remaining.length === 0) {
-            // Consumer wiped them on a match -> continue edge.
-            return { nextAction: findContinueAction(invocation) }
+            // Consumer wiped them on a match -> branch edge (index 0 = "matched" path).
+            return { nextAction: findNextAction(invocation.hogFlow, action.id, 0) }
         }
 
-        // Subscriptions still present -> timeout fired -> branch edge.
+        // Subscriptions still present -> timeout fired -> continue edge (= "no match" path).
         await this.subscriptions.deleteForJob(invocation.id)
-        return { nextAction: findNextAction(invocation.hogFlow, action.id, 0) }
+        return { nextAction: findContinueAction(invocation) }
     }
 
     private async createAndPark(
