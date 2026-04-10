@@ -3,50 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
+import { alignResolvedDateRangeToInterval } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
-import { IntervalType } from '~/types'
-
 type InsightDateFilterProps = {
     disabled: boolean
-}
-
-// When an insight is grouped by month, the query's WHERE clause uses
-// toStartOfInterval(date_from, month), so the first and last chart buckets cover the
-// whole month. Expand the resolved range we show in the tooltip to match — otherwise
-// "Last 12 months" from April 7 looks like it excludes April 1–6, which it doesn't.
-export function alignResolvedDateRangeToInterval(
-    resolvedDateRange: ResolvedDateRangeResponse | null | undefined,
-    interval: IntervalType | null | undefined
-): ResolvedDateRangeResponse | undefined {
-    if (!resolvedDateRange?.date_from || !resolvedDateRange?.date_to) {
-        return resolvedDateRange ?? undefined
-    }
-    if (interval !== 'month') {
-        return resolvedDateRange
-    }
-    // Parse the wall-clock portion only, so manipulation stays in the original tz.
-    const TZ_SUFFIX_RE = /([+-]\d{2}:\d{2}|Z)$/
-    const splitTz = (iso: string): [string, string] => {
-        const match = iso.match(TZ_SUFFIX_RE)
-        if (!match) {
-            return [iso, '']
-        }
-        const suffix = match[0] === 'Z' ? '+00:00' : match[0]
-        return [iso.slice(0, -match[0].length), suffix]
-    }
-    const [fromWall, fromTz] = splitTz(resolvedDateRange.date_from)
-    const [toWall, toTz] = splitTz(resolvedDateRange.date_to)
-    const from = dayjs.utc(fromWall).startOf('month')
-    const to = dayjs.utc(toWall).endOf('month')
-    return {
-        date_from: from.format('YYYY-MM-DDTHH:mm:ss') + fromTz,
-        date_to: to.format('YYYY-MM-DDTHH:mm:ss') + toTz,
-    }
 }
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
