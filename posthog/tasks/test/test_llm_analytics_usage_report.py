@@ -96,6 +96,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             self.team, distinct_id, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "byok"}
         )
         self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 1)
+        self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
+        self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
+        self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
+        self._create_ai_events(self.team, distinct_id, "$ai_generation_clusters", 3)
         # Create events with cost and token properties
         self._create_ai_events(
             self.team,
@@ -136,6 +140,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
         assert metrics.ai_trial_evaluation_count == 3
+        assert metrics.ai_trace_summary_count == 7
+        assert metrics.ai_generation_summary_count == 12
+        assert metrics.ai_trace_clusters_count == 2
+        assert metrics.ai_generation_clusters_count == 3
 
         # Verify cost metrics (3 events with costs)
         assert metrics.total_cost == pytest.approx(0.045, rel=1e-6)  # 3 * 0.015
@@ -151,6 +159,104 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
+        """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with positive cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_total_cost_usd": 0.05},
+        )
+
+        # Create events with zero cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            2,
+            properties={"$ai_total_cost_usd": 0},
+        )
+
+        # Create events with negative cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_total_cost_usd": -0.01},
+        )
+
+        # Create events without cost (null)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 14  # 3 + 2 + 4 + 5
+        assert metrics.total_cost_count == 9  # 3 + 2 + 4 (events with non-null cost)
+        assert metrics.total_cost_negative_count == 4
+        assert metrics.total_cost_zero_count == 2
+        assert metrics.total_cost == pytest.approx(0.11, rel=1e-6)  # 3*0.05 + 2*0 + 4*(-0.01)
+
+    def test_get_all_ai_metrics_error_count(self) -> None:
+        """Test that ai_is_error_count is correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with $ai_is_error = true
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_is_error": "true"},
+        )
+
+        # Create events with $ai_is_error = false
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_is_error": "false"},
+        )
+
+        # Create events without $ai_is_error
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 12  # 4 + 3 + 5
+        assert metrics.ai_is_error_count == 4  # only events with $ai_is_error = 'true'
 
     def test_get_all_ai_dimension_breakdowns(self) -> None:
         """Test that we correctly get dimension breakdowns using the combined Map-based query."""
@@ -407,6 +513,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_cost_model_provider": "openai",
             },
         )
+        self._create_ai_events(self.team, distinct_id_1, "$ai_trace_summary", 6)
+        self._create_ai_events(self.team, distinct_id_1, "$ai_generation_summary", 8)
+        self._create_ai_events(self.team, distinct_id_1, "$ai_trace_clusters", 1)
+        self._create_ai_events(self.team, distinct_id_1, "$ai_generation_clusters", 2)
         self._create_ai_events(self.team, distinct_id_1, "$llm_prompt_fetched", 4)
 
         # Create survey events linked to LLM traces for team 1
@@ -447,6 +557,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
         assert org_1_report["ai_trial_evaluation_count"] == 3
+        assert org_1_report["ai_trace_summary_count"] == 6
+        assert org_1_report["ai_generation_summary_count"] == 8
+        assert org_1_report["ai_trace_clusters_count"] == 1
+        assert org_1_report["ai_generation_clusters_count"] == 2
         assert org_1_report["llm_prompt_fetched_count"] == 4
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
         assert org_1_report["input_cost_usd"] == pytest.approx(0.060, rel=1e-6)  # 3 * 0.020
@@ -461,7 +575,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["total_cache_creation_tokens"] == 1500  # 3 * 500
         assert org_1_report["model_breakdown"] == {"gpt-4o-mini": 3}
         assert org_1_report["provider_breakdown"] == {"openai": 3}
-        assert org_1_report["framework_breakdown"] == {"langchain": 3, "none": 15}
+        assert org_1_report["framework_breakdown"] == {"langchain": 3, "none": 32}
         assert org_1_report["library_breakdown"] == {"posthog-python": 3}
         assert org_1_report["cost_model_used_breakdown"] == {"openai/gpt-4o-mini": 3}
         assert org_1_report["cost_model_source_breakdown"] == {"openrouter": 3}
@@ -476,6 +590,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_2_report["ai_generation_count"] == 2
         assert org_2_report["llm_prompt_fetched_count"] == 1
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025
+        assert org_2_report["ai_trace_summary_count"] == 0
+        assert org_2_report["ai_generation_summary_count"] == 0
+        assert org_2_report["ai_trace_clusters_count"] == 0
+        assert org_2_report["ai_generation_clusters_count"] == 0
         assert org_2_report["active_llm_feedback_survey_count"] == 0
         assert org_2_report["llm_feedback_survey_response_count"] == 0
 
@@ -545,6 +663,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_report["ai_metric_count"] == 0
         assert org_report["ai_feedback_count"] == 0
         assert org_report["ai_evaluation_count"] == 0
+        assert org_report["ai_trace_summary_count"] == 0
+        assert org_report["ai_generation_summary_count"] == 0
+        assert org_report["ai_trace_clusters_count"] == 0
+        assert org_report["ai_generation_clusters_count"] == 0
         assert org_report["llm_prompt_fetched_count"] == 2
 
     def test_multiple_teams_in_same_org(self) -> None:

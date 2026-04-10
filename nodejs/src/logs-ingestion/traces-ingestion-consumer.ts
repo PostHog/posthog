@@ -1,10 +1,10 @@
-import { PluginsServerConfig } from '../types'
+import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './config'
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingestion-consumer'
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected name = 'TracesIngestionConsumer'
 
-    constructor(config: PluginsServerConfig, deps: LogsIngestionConsumerDeps) {
+    constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
         super(config, deps, {
             LOGS_INGESTION_CONSUMER_GROUP_ID: config.TRACES_INGESTION_CONSUMER_GROUP_ID,
             LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: config.TRACES_INGESTION_CONSUMER_CONSUME_TOPIC,

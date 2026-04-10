@@ -47,6 +47,18 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 logger = structlog.get_logger(__name__)
 
 
+class BlastRadiusRequestSerializer(serializers.Serializer):
+    filters = serializers.DictField(help_text="Property filters to apply")
+    group_type_index = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Group type index for group-based targeting"
+    )
+
+
+class BlastRadiusSerializer(serializers.Serializer):
+    affected = serializers.IntegerField(help_text="Number of users matching the filters")
+    total = serializers.IntegerField(help_text="Total number of users")
+
+
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
@@ -174,12 +186,12 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
         if len(keys) != len(set(keys)):
             raise serializers.ValidationError("Variable keys must be unique")
 
-        # Make sure entire variables definition is less than 1KB
+        # Make sure entire variables definition is less than 5KB
         # This is just a check for massive keys / default values, we also have a check for dynamically
         # set variables during execution
         total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > 1024:
-            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+        if total_size > 5120:
+            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
 
         return super().validate(attrs)
 
@@ -516,6 +528,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         return Response(res.json())
 
+    @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
         if "filters" not in request.data:
@@ -524,14 +537,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         filters = request.data.get("filters", {})
         group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
+        result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(
-            {
-                "users_affected": users_affected,
-                "total_users": total_users,
-            }
-        )
+        return Response(BlastRadiusSerializer(result).data)
 
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
@@ -637,13 +645,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
-            return Response(
-                {
-                    "users_affected": users_affected,
-                    "total_users": total_users,
-                }
-            )
+            result = get_user_blast_radius(team, filters, group_type_index)
+            return Response(BlastRadiusSerializer(result).data)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
@@ -688,6 +691,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction
 
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
@@ -732,6 +736,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
             for schedule_id in due_schedule_ids:
                 try:
+                    batch_job_params = None
                     with transaction.atomic():
                         # Per-schedule transaction: lock only one row at a time to minimize
                         # lock duration and allow concurrent replicas via skip_locked.
@@ -759,15 +764,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        processed.append(
-                            {
-                                "schedule_id": str(schedule.id),
-                                "team_id": schedule.team_id,
-                                "hog_flow_id": str(schedule.hog_flow_id),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
-                                "variables": resolve_variables(hog_flow, schedule),
-                            }
+                        batch_job_params = {
+                            "team_id": schedule.team_id,
+                            "hog_flow": hog_flow,
+                            "variables": resolve_variables(hog_flow, schedule),
+                            "filters": (hog_flow.trigger or {}).get("filters", {}),
+                        }
+
+                    # Create the batch job outside the transaction so the
+                    # post_save signal's HTTP call doesn't hold the row lock.
+                    if batch_job_params:
+                        HogFlowBatchJob.objects.create(
+                            **batch_job_params,
+                            status=HogFlowBatchJob.State.QUEUED,
                         )
+                        processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
                     failed.append(str(schedule_id))

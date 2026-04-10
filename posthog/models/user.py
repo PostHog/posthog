@@ -39,6 +39,9 @@ class Notifications(TypedDict, total=False):
     materialized_view_sync_failed: bool
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
+    organization_member_join_email_disabled: dict[
+        str, bool
+    ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -52,6 +55,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
+    "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -391,6 +395,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             **NOTIFICATION_DEFAULTS,
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
+
+    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True)."""
+        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+        return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)

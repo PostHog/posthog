@@ -10,6 +10,8 @@ export interface Span {
     timestamp: string
     end_time: string
     duration_nano: number
+    is_root_span: boolean
+    matched_filter: boolean
 }
 
 export const SPAN_KIND_LABELS: Record<number, string> = {

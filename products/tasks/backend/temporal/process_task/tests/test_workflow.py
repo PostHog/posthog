@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
+from unittest.mock import AsyncMock
 
 from django.conf import settings
 
@@ -16,11 +17,19 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
+    CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
+    PrepareSandboxForRepositoryOutput,
+    TaskProcessingContext,
+    checkout_branch_in_sandbox,
     cleanup_sandbox,
+    clone_repository_in_sandbox,
+    create_sandbox_for_repository,
     forward_pending_user_message,
-    get_sandbox_for_repository,
     get_task_processing_context,
+    prepare_sandbox_for_repository,
     read_sandbox_logs,
     start_agent_server,
     track_workflow_event,
@@ -32,9 +41,28 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+pytestmark = pytest.mark.asyncio
 
 
+def _build_context(
+    *, github_integration_id: int | None, repository: str | None = "posthog/posthog-js"
+) -> TaskProcessingContext:
+    return TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=github_integration_id,
+        repository=repository,
+        distinct_id="distinct-id",
+        create_pr=True,
+        state={},
+        _branch="feature-branch",
+    )
+
+
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.skipif(
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
@@ -66,7 +94,10 @@ class TestProcessTaskWorkflow:
                 activities=[
                     forward_pending_user_message,
                     get_task_processing_context,
-                    get_sandbox_for_repository,
+                    prepare_sandbox_for_repository,
+                    create_sandbox_for_repository,
+                    clone_repository_in_sandbox,
+                    checkout_branch_in_sandbox,
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
@@ -180,7 +211,10 @@ class TestProcessTaskWorkflow:
                 activities=[
                     forward_pending_user_message,
                     get_task_processing_context,
-                    get_sandbox_for_repository,
+                    prepare_sandbox_for_repository,
+                    create_sandbox_for_repository,
+                    clone_repository_in_sandbox,
+                    checkout_branch_in_sandbox,
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
@@ -202,3 +236,80 @@ class TestProcessTaskWorkflow:
 
         assert result.success is False
         assert result.error is not None
+
+
+@pytest.mark.django_db
+class TestProcessTaskWorkflowUnit:
+    async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+        read_sandbox_logs_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", read_sandbox_logs_mock)
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
+
+        async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
+            workflow._sandbox_id_for_cleanup = "sandbox-123"
+            raise RuntimeError("clone failed")
+
+        monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is False
+        assert result.error == "clone failed"
+        assert result.sandbox_id == "sandbox-123"
+        read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+
+    async def test_get_sandbox_for_repository_skips_clone_and_checkout_without_github_integration(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=None)
+
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="",
+            branch="feature-branch",
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        result = await workflow._get_sandbox_for_repository()
+
+        assert result.sandbox_id == "sandbox-123"
+        assert workflow._sandbox_id_for_cleanup == "sandbox-123"
+        assert clone_repository_in_sandbox not in activity_calls
+        assert checkout_branch_in_sandbox not in activity_calls

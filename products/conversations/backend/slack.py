@@ -9,7 +9,6 @@ Handles three triggers that create or update tickets from Slack:
 All three converge to create_or_update_slack_ticket().
 """
 
-from io import BytesIO
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -19,19 +18,18 @@ from django.conf import settings
 from django.db.models import F
 
 import structlog
-from PIL import Image
 from slack_sdk import WebClient
 
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 from posthog.models.user import User
 
-from .cache import get_cached_slack_user, set_cached_slack_user
+from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .services.attachments import is_valid_image, save_file_to_uploaded_media
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_MAX_IMAGE_BYTES,
@@ -130,6 +128,35 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
         return dict(_UNKNOWN_USER)
 
 
+def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
+    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
+    if not email:
+        return None
+
+    cached = get_cached_slack_avatar(email)
+    if cached is not None:
+        return cached or None  # empty string = negative cache
+
+    try:
+        response = client.users_lookupByEmail(email=email)
+        raw_data = response.data if hasattr(response, "data") else None
+        data: dict = raw_data if isinstance(raw_data, dict) else {}
+
+        if not data.get("ok"):
+            set_cached_slack_avatar(email, "")
+            return None
+
+        profile = (data.get("user") or {}).get("profile") or {}
+        avatar = profile.get("image_72") or ""
+        set_cached_slack_avatar(email, avatar)
+        return avatar or None
+    except Exception:
+        # Don't negative-cache on transient errors (rate limits, network)
+        # so the next reply retries the lookup.
+        logger.warning("slack_avatar_lookup_failed", email=email)
+        return None
+
+
 def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
     """Match a Slack user's email to a PostHog user within the team's organization."""
     if not email:
@@ -160,16 +187,6 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     if parsed.scheme != "https":
         return False
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES)
-
-
-def _is_valid_image_bytes(content: bytes) -> bool:
-    try:
-        image = Image.open(BytesIO(content))
-        image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        image.close()
-        return True
-    except Exception:
-        return False
 
 
 def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
@@ -233,35 +250,6 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
     return None
 
 
-def _save_image_to_uploaded_media(team: Team, file_name: str, mimetype: str, content: bytes) -> str | None:
-    team_id = _get_team_id(team)
-    if not settings.OBJECT_STORAGE_ENABLED:
-        logger.warning("🖼️ slack_file_copy_no_object_storage", team_id=team_id)
-        return None
-
-    uploaded_media = UploadedMedia.objects.create(
-        team=team,
-        file_name=file_name,
-        content_type=mimetype,
-        created_by=None,
-    )
-    try:
-        save_content_to_object_storage(uploaded_media, content)
-    except Exception as e:
-        logger.warning("🖼️ slack_file_copy_storage_failed", uploaded_media_id=str(uploaded_media.id), error=str(e))
-        uploaded_media.delete()
-        return None
-    logger.info(
-        "🖼️ slack_file_copy_saved",
-        team_id=team_id,
-        uploaded_media_id=str(uploaded_media.id),
-        file_name=file_name,
-        content_type=mimetype,
-        bytes_size=len(content),
-    )
-    return uploaded_media.get_absolute_url()
-
-
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
     """
     Extract image attachments from Slack and re-host them in UploadedMedia.
@@ -300,11 +288,13 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
             logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
             continue
 
-        if not _is_valid_image_bytes(image_bytes):
+        if not is_valid_image(image_bytes):
             logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
             continue
 
-        stored_url = _save_image_to_uploaded_media(team, f.get("name", "image"), mimetype, image_bytes)
+        stored_url = save_file_to_uploaded_media(
+            team, f.get("name", "image"), mimetype, image_bytes, validate_images=False
+        )
         if stored_url:
             images.append(
                 {
@@ -698,7 +688,18 @@ def _backfill_thread_replies(
         posthog_user = posthog_user_cache[reply_user]
         is_team_member = posthog_user is not None
 
-        cleaned_text, rich_content = slack_to_content_and_rich_content(reply_text, reply_blocks)
+        # Resolve in-message @mentions to display names
+        mentioned_ids = extract_slack_user_ids(reply_text, reply_blocks)
+        reply_user_names: dict[str, str] = {}
+        for uid in mentioned_ids:
+            if uid not in user_cache:
+                user_cache[uid] = resolve_slack_user(client, uid)
+            if user_cache[uid]["name"] != "Unknown":
+                reply_user_names[uid] = user_cache[uid]["name"]
+
+        cleaned_text, rich_content = slack_to_content_and_rich_content(
+            reply_text, reply_blocks, user_names=reply_user_names
+        )
         if not cleaned_text and not images:
             continue
 

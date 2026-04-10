@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -33,6 +34,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
@@ -54,7 +56,6 @@ export type SettingSectionId =
     | 'organization-integrations'
     | 'organization-oauth-apps'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -73,6 +74,12 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-notifications'
+    | 'conversations-slack'
+    | 'conversations-email'
+    | 'conversations-widget'
+    | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
@@ -145,7 +152,6 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
@@ -276,4 +282,11 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * Sections with the same group will be nested under a group header.
      */
     group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

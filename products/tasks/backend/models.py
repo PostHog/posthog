@@ -4,7 +4,7 @@ import json
 import uuid
 import string
 import secrets
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -28,6 +28,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +43,9 @@ class Task(DeletedMetaFields, models.Model):
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
+        # signal report tasks originate indirectly via signals from other products.
+        SIGNAL_REPORT = "signal_report", "Signal Report"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -66,11 +70,25 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    signal_report = models.ForeignKey(
+        "signals.SignalReport",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="task",
+        db_index=False,
+    )
+
     json_schema = models.JSONField(
         default=None,
         null=True,
         blank=True,
         help_text="JSON schema for the task. This is used to validate the output of the task.",
+    )
+
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -79,6 +97,9 @@ class Task(DeletedMetaFields, models.Model):
     class Meta:
         db_table = "posthog_task"
         managed = True
+        indexes = [
+            models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+        ]
 
     def __str__(self):
         return self.title
@@ -179,6 +200,7 @@ class Task(DeletedMetaFields, models.Model):
             state=state,
             branch=branch,
         )
+        task_run.publish_stream_state_event()
         self.capture_event(
             "task_run_created",
             {
@@ -219,6 +241,9 @@ class Task(DeletedMetaFields, models.Model):
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -230,6 +255,12 @@ class Task(DeletedMetaFields, models.Model):
             if not github_integration:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
+        sandbox_env = None
+        if sandbox_environment_id is not None:
+            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
+            if not sandbox_env:
+                raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -238,6 +269,8 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            internal=internal,
+            **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
         extra_state: dict[str, str] | None = None
@@ -247,6 +280,10 @@ class Task(DeletedMetaFields, models.Model):
                 extra_state["slack_thread_url"] = slack_thread_url
             if slack_thread_context:
                 extra_state["interaction_origin"] = "slack"
+
+        if sandbox_env is not None:
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
         task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
 
@@ -478,6 +515,7 @@ class TaskRun(models.Model):
         self.status = self.Status.COMPLETED
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
@@ -489,6 +527,7 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",
             {
@@ -496,6 +535,26 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+
+    def build_stream_state_event(self) -> dict[str, Any]:
+        return {
+            "type": "task_run_state",
+            "run_id": str(self.id),
+            "task_id": str(self.task_id),
+            "status": self.status,
+            "stage": self.stage,
+            "output": self.output,
+            "branch": self.branch,
+            "error_message": self.error_message,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def publish_stream_event(self, event: dict[str, Any]) -> None:
+        publish_task_run_stream_event(str(self.id), event)
+
+    def publish_stream_state_event(self) -> None:
+        self.publish_stream_event(self.build_stream_state_event())
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
@@ -513,6 +572,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
@@ -531,6 +591,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     @property
     def is_terminal(self) -> bool:

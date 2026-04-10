@@ -10,9 +10,11 @@ import { FeatureFlagFilters } from '~/types'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
+    convertIndexBasedPayloadsToVariantKeys,
     featureFlagLogic,
     hasMultipleVariantsActive,
     hasZeroRollout,
+    indexToVariantKeyFeatureFlagPayloads,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
@@ -40,6 +42,75 @@ const MOCK_DEPENDENT_FLAGS = [
     { id: 10, key: 'dependent-flag-1', name: 'Dependent Flag 1' },
     { id: 11, key: 'dependent-flag-2', name: 'Dependent Flag 2' },
 ]
+
+describe('payload conversion helpers', () => {
+    const variants = [
+        { key: 'control', rollout_percentage: 50 },
+        { key: 'test', rollout_percentage: 50 },
+    ]
+
+    it.each([
+        [
+            'already keyed by variant key',
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+        [
+            'keyed by variant index',
+            {
+                0: '{"color":"red"}',
+                1: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+        [
+            'with mixed keys while preferring explicit variant keys',
+            {
+                control: '{"color":"red"}',
+                0: '{"color":"green"}',
+                1: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+    ])('converts multivariate payloads %s', (_label, payloads, expected) => {
+        expect(convertIndexBasedPayloadsToVariantKeys(variants, payloads)).toEqual(expected)
+    })
+
+    it('keeps boolean flag payload handling unchanged', () => {
+        expect(
+            indexToVariantKeyFeatureFlagPayloads({
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                    multivariate: null,
+                    payloads: {
+                        true: '{"enabled":true}',
+                        false: '{"enabled":false}',
+                    },
+                },
+            } as unknown as FeatureFlagType)
+        ).toEqual({
+            filters: {
+                groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                multivariate: null,
+                payloads: {
+                    true: '{"enabled":true}',
+                },
+            },
+        })
+    })
+})
 
 describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>

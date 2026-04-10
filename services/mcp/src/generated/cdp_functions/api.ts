@@ -891,6 +891,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     .boolean()
                                     .nullish()
                                     .describe('Whether this mapping is enabled by default.'),
+                                use_all_events_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe(
+                                        'Whether this mapping should match all events by default, hiding the event filter UI.'
+                                    ),
                                 filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
                                 inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
                                 inputs_schema: zod

@@ -82,6 +82,11 @@ impl PersonhogStore {
         Ok(self.inner.get(&key).await?)
     }
 
+    pub async fn delete_pod(&self, pod_name: &str) -> Result<()> {
+        let key = self.key(StoreKey::Pod(pod_name));
+        Ok(self.inner.delete(&key).await?)
+    }
+
     pub async fn list_pods(&self) -> Result<Vec<RegisteredPod>> {
         let key = self.key(StoreKey::PodsPrefix);
         Ok(self.inner.list(&key).await?)

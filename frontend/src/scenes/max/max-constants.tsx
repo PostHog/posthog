@@ -1012,6 +1012,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching LLM traces...'
         },
     },
+    run_hog_eval_test: {
+        name: 'Test evaluation',
+        description: 'Test evaluation code against sample events',
+        product: Scene.LLMAnalyticsEvaluation,
+        icon: iconForType('llm_evaluations'),
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Tested evaluation code'
+            }
+            return 'Testing evaluation code...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<
@@ -1071,7 +1084,7 @@ export const MODE_DEFINITIONS: Record<
     },
     [AgentMode.LLMAnalytics]: {
         name: 'LLM analytics',
-        description: 'Analyzes LLM traces.',
+        description: 'Analyzes LLM traces and writes evaluation code for LLM analytics.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
             Scene.LLMAnalytics,

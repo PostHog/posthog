@@ -1,0 +1,310 @@
+import { CronExpressionParser } from 'cron-parser'
+import { actions, key, kea, listeners, path, props, reducers, selectors } from 'kea'
+
+import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { describeCron, featureFlagLogic } from './featureFlagLogic'
+import type { featureFlagScheduleEditLogicType } from './featureFlagScheduleEditLogicType'
+
+export interface FeatureFlagScheduleEditLogicProps {
+    id: number | 'new' | 'link'
+}
+
+export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType>([
+    path((id) => ['scenes', 'feature-flags', 'featureFlagScheduleEditLogic', id]),
+    props({} as FeatureFlagScheduleEditLogicProps),
+    key(({ id }) => id),
+    actions({
+        openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
+        closeEdit: true,
+        setEditScheduledAt: (date: Dayjs | null) => ({ date }),
+        setEditCronExpression: (cron: string | null) => ({ cron }),
+        setEditRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setEditEndDate: (date: Dayjs | null) => ({ date }),
+        setEditIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
+        setEditPayloadValue: (value: boolean) => ({ value }),
+        setEditRepeatsValue: (value: RecurrenceInterval | 'none' | 'cron') => ({ value }),
+        saveEdit: true,
+        saveEditSuccess: true,
+        saveEditFailure: true,
+    }),
+    reducers({
+        editingSchedule: [
+            null as ScheduledChangeType | null,
+            {
+                openEdit: (_, { schedule }) => schedule,
+                closeEdit: () => null,
+                saveEditSuccess: () => null,
+            },
+        ],
+        editScheduledAt: [
+            null as Dayjs | null,
+            {
+                openEdit: (_, { schedule }) => (schedule.scheduled_at ? dayjs(schedule.scheduled_at) : null),
+                setEditScheduledAt: (_, { date }) => date,
+                closeEdit: () => null,
+            },
+        ],
+        editCronExpression: [
+            null as string | null,
+            {
+                openEdit: (_, { schedule }) => schedule.cron_expression,
+                setEditCronExpression: (_, { cron }) => cron,
+                closeEdit: () => null,
+            },
+        ],
+        editRecurrenceInterval: [
+            null as RecurrenceInterval | null,
+            {
+                openEdit: (_, { schedule }) => schedule.recurrence_interval,
+                setEditRecurrenceInterval: (_, { interval }) => interval,
+                closeEdit: () => null,
+            },
+        ],
+        editEndDate: [
+            null as Dayjs | null,
+            {
+                openEdit: (_, { schedule }) => (schedule.end_date ? dayjs(schedule.end_date) : null),
+                setEditEndDate: (_, { date }) => date,
+                closeEdit: () => null,
+            },
+        ],
+        editIsRecurring: [
+            false,
+            {
+                openEdit: (_, { schedule }) =>
+                    schedule.is_recurring || !!schedule.recurrence_interval || !!schedule.cron_expression,
+                setEditIsRecurring: (_, { isRecurring }) => isRecurring,
+                closeEdit: () => false,
+            },
+        ],
+        editPayloadValue: [
+            true as boolean,
+            {
+                openEdit: (_, { schedule }) => {
+                    if (schedule.payload.operation === ScheduledChangeOperationType.UpdateStatus) {
+                        return schedule.payload.value
+                    }
+                    return true
+                },
+                setEditPayloadValue: (_, { value }) => value,
+                closeEdit: () => true,
+            },
+        ],
+        editSaving: [
+            false,
+            {
+                saveEdit: () => true,
+                saveEditSuccess: () => false,
+                saveEditFailure: () => false,
+            },
+        ],
+    }),
+    selectors({
+        isEditOpen: [(s) => [s.editingSchedule], (schedule): boolean => schedule !== null],
+        editRepeatsValue: [
+            (s) => [s.editIsRecurring, s.editCronExpression, s.editRecurrenceInterval],
+            (isRecurring, cron, interval): RecurrenceInterval | 'none' | 'cron' =>
+                isRecurring ? (cron !== null ? 'cron' : (interval ?? 'none')) : 'none',
+        ],
+        editCronPreview: [(s) => [s.editCronExpression], (cron): string | null => describeCron(cron)],
+        editOperationType: [
+            (s) => [s.editingSchedule],
+            (schedule): ScheduledChangeOperationType | null => schedule?.payload?.operation ?? null,
+        ],
+        hasEditChanges: [
+            (s) => [
+                s.editingSchedule,
+                s.editScheduledAt,
+                s.editCronExpression,
+                s.editRecurrenceInterval,
+                s.editEndDate,
+                s.editIsRecurring,
+                s.editPayloadValue,
+            ],
+            (schedule, scheduledAt, cron, interval, endDate, isRecurring, payloadValue): boolean => {
+                if (!schedule) {
+                    return false
+                }
+                const origScheduledAt = schedule.scheduled_at ? dayjs(schedule.scheduled_at).toISOString() : null
+                const newScheduledAt = scheduledAt ? scheduledAt.toISOString() : null
+                if (origScheduledAt !== newScheduledAt) {
+                    return true
+                }
+                if (schedule.cron_expression !== cron) {
+                    return true
+                }
+                if (schedule.recurrence_interval !== interval) {
+                    return true
+                }
+                const origEndDate = schedule.end_date ? dayjs(schedule.end_date).toISOString() : null
+                const newEndDate = endDate ? endDate.toISOString() : null
+                if (origEndDate !== newEndDate) {
+                    return true
+                }
+                // For paused schedules the effective recurring state may differ
+                const origIsRecurring =
+                    schedule.is_recurring || !!schedule.recurrence_interval || !!schedule.cron_expression
+                if (origIsRecurring !== isRecurring) {
+                    return true
+                }
+                if (
+                    schedule.payload.operation === ScheduledChangeOperationType.UpdateStatus &&
+                    schedule.payload.value !== payloadValue
+                ) {
+                    return true
+                }
+                return false
+            },
+        ],
+        editValidationErrors: [
+            (s) => [s.editScheduledAt, s.editCronExpression, s.editEndDate, s.editIsRecurring],
+            (scheduledAt, cron, endDate, isRecurring): Record<string, string> => {
+                const errors: Record<string, string> = {}
+                if (!scheduledAt) {
+                    errors.scheduledAt = 'Scheduled date is required'
+                } else if (!isRecurring && scheduledAt.isBefore(dayjs())) {
+                    errors.scheduledAt = 'Scheduled date must be in the future'
+                }
+                if (cron) {
+                    const fields = cron.trim().split(/\s+/)
+                    if (fields.length !== 5) {
+                        errors.cronExpression = 'Only 5-field cron expressions are supported'
+                    } else {
+                        try {
+                            CronExpressionParser.parse(cron)
+                        } catch {
+                            errors.cronExpression = 'Invalid cron expression'
+                        }
+                    }
+                } else if (isRecurring && cron !== null) {
+                    // User is in cron mode (cron is '' rather than null) but hasn't entered an expression
+                    errors.cronExpression = 'Enter a cron expression'
+                }
+                const normalizedEndDate = endDate ? endDate.endOf('day') : null
+                if (normalizedEndDate && scheduledAt && normalizedEndDate.isBefore(scheduledAt)) {
+                    errors.endDate = 'End date must be after the scheduled start date'
+                }
+                return errors
+            },
+        ],
+    }),
+    listeners(({ actions, values, props: logicProps }) => ({
+        setEditRepeatsValue: ({ value }) => {
+            if (value === 'none') {
+                actions.setEditIsRecurring(false)
+                actions.setEditRecurrenceInterval(null)
+                actions.setEditCronExpression(null)
+                actions.setEditEndDate(null)
+            } else if (value === 'cron') {
+                actions.setEditIsRecurring(true)
+                actions.setEditRecurrenceInterval(null)
+                actions.setEditCronExpression(values.editCronExpression ?? '')
+            } else {
+                actions.setEditIsRecurring(true)
+                actions.setEditRecurrenceInterval(value)
+                actions.setEditCronExpression(null)
+            }
+        },
+        setEditCronExpression: ({ cron }) => {
+            if (!cron) {
+                return
+            }
+            const fields = cron.trim().split(/\s+/)
+            if (fields.length !== 5) {
+                return
+            }
+            try {
+                // Use the later of now or the existing date so that paused/old
+                // schedules don't snap to an already-elapsed time.
+                const now = new Date()
+                const existing = values.editScheduledAt?.toDate()
+                const currentDate = existing && existing > now ? existing : now
+                const interval = CronExpressionParser.parse(cron, { currentDate })
+                const nextDate = interval.next().toDate()
+                actions.setEditScheduledAt(dayjs(nextDate))
+            } catch {
+                // Invalid — don't update
+            }
+        },
+        saveEdit: async () => {
+            const { editingSchedule, editValidationErrors } = values
+            if (!editingSchedule || Object.keys(editValidationErrors).length > 0) {
+                if (Object.keys(editValidationErrors).length > 0) {
+                    const firstError = Object.values(editValidationErrors)[0] as string
+                    lemonToast.error(firstError)
+                }
+                actions.saveEditFailure()
+                return
+            }
+
+            const patch: Record<string, unknown> = {}
+
+            // Compare and build patch with only changed fields
+            const newScheduledAt = values.editScheduledAt?.toISOString() ?? null
+            const origScheduledAt = editingSchedule.scheduled_at
+                ? dayjs(editingSchedule.scheduled_at).toISOString()
+                : null
+            if (newScheduledAt !== origScheduledAt) {
+                patch.scheduled_at = newScheduledAt
+            }
+
+            if (editingSchedule.cron_expression !== values.editCronExpression) {
+                patch.cron_expression = values.editCronExpression
+            }
+
+            if (editingSchedule.recurrence_interval !== values.editRecurrenceInterval) {
+                patch.recurrence_interval = values.editRecurrenceInterval
+            }
+
+            const timezone = teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
+            const newEndDate = values.editEndDate ? values.editEndDate.tz(timezone).endOf('day').toISOString() : null
+            const origEndDate = editingSchedule.end_date ? dayjs(editingSchedule.end_date).toISOString() : null
+            if (newEndDate !== origEndDate) {
+                patch.end_date = newEndDate
+            }
+
+            // Use the same derived comparison as hasEditChanges so that
+            // editing a paused schedule doesn't silently unpause it.
+            const origIsRecurring =
+                editingSchedule.is_recurring ||
+                !!editingSchedule.recurrence_interval ||
+                !!editingSchedule.cron_expression
+            if (origIsRecurring !== values.editIsRecurring) {
+                patch.is_recurring = values.editIsRecurring
+            }
+
+            if (
+                editingSchedule.payload.operation === ScheduledChangeOperationType.UpdateStatus &&
+                editingSchedule.payload.value !== values.editPayloadValue
+            ) {
+                patch.payload = {
+                    operation: ScheduledChangeOperationType.UpdateStatus,
+                    value: values.editPayloadValue,
+                }
+            }
+
+            if (Object.keys(patch).length === 0) {
+                lemonToast.info('No changes to save')
+                actions.closeEdit()
+                return
+            }
+
+            try {
+                await api.featureFlags.updateScheduledChange(editingSchedule.team_id, editingSchedule.id, patch)
+                lemonToast.success('Schedule updated')
+                actions.saveEditSuccess()
+                // Reload the schedule list in the parent logic
+                featureFlagLogic.findMounted({ id: logicProps.id })?.actions.loadScheduledChanges()
+            } catch {
+                lemonToast.error('Failed to update schedule')
+                actions.saveEditFailure()
+            }
+        },
+    })),
+])

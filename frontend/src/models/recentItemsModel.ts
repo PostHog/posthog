@@ -74,6 +74,20 @@ export const recentItemsModel = kea<recentItemsModelType>([
                 },
             },
         ],
+        recentsHasLoaded: [
+            false,
+            {
+                loadRecentsSuccess: () => true,
+                loadRecentsFailure: () => true,
+            },
+        ],
+        sceneLogViewsHasLoaded: [
+            false,
+            {
+                loadSceneLogViewsSuccess: () => true,
+                loadSceneLogViewsFailure: () => true,
+            },
+        ],
     }),
 
     afterMount(({ actions }) => {

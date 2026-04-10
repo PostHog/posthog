@@ -85,6 +85,7 @@ export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
 export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+export POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=${POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET:-1}
 
 # These default to localhost/127.0.0.1 in Node.js/Rust configs
 export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}

@@ -10,13 +10,13 @@ const NAV_RECENTS_LIMIT = 15
 export const navRecentsLogic = kea<navRecentsLogicType>([
     path(['layout', 'panel-layout', 'ai-first', 'tabs', 'navRecentsLogic']),
     connect(() => ({
-        values: [recentItemsModel, ['recents as cachedRecents', 'recentsLoading']],
+        values: [recentItemsModel, ['recents as cachedRecents', 'recentsHasLoaded']],
     })),
     selectors({
         recentItems: [
             (s) => [s.cachedRecents],
             (cachedRecents): FileSystemEntry[] => cachedRecents.slice(0, NAV_RECENTS_LIMIT),
         ],
-        recentItemsLoading: [(s) => [s.recentsLoading], (recentsLoading): boolean => recentsLoading],
+        recentItemsLoading: [(s) => [s.recentsHasLoaded], (recentsHasLoaded): boolean => !recentsHasLoaded],
     }),
 ])

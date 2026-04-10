@@ -1,73 +1,37 @@
+import json
 from dataclasses import dataclass
 
 from django.db import transaction
 
 import structlog
 import temporalio
-import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
     PriorityAssessment,
     ReportResearchOutput,
     SignalFinding,
     run_multi_turn_research,
 )
+from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, Priority
-from products.signals.backend.temporal.agentic import resolve_user_id_for_team
+from products.signals.backend.temporal.agentic import (
+    SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    get_or_create_signals_sandbox_env,
+    resolve_user_id_for_team,
+)
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
-
-SIGNALS_LEGACY_REPORT_GENERATION_FF = "signals-legacy-report-generation"
-
-
-@dataclass
-class SignalsLegacyReportGateInput:
-    team_id: int
-
-
-@temporalio.activity.defn
-async def signals_legacy_report_gate_activity(input: SignalsLegacyReportGateInput) -> bool:
-    """Evaluate whether Signals should use the legacy (non-agentic) report path for a team."""
-    try:
-        team = await Team.objects.only("id", "uuid", "organization_id").aget(id=input.team_id)
-    except Team.DoesNotExist:
-        logger.warning("signals legacy report gate: team does not exist", team_id=input.team_id)
-        return False
-
-    try:
-        return posthoganalytics.feature_enabled(
-            SIGNALS_LEGACY_REPORT_GENERATION_FF,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-        )
-    except Exception:
-        logger.exception(
-            "signals legacy report gate: failed to evaluate feature flag",
-            team_id=input.team_id,
-            flag=SIGNALS_LEGACY_REPORT_GENERATION_FF,
-        )
-        return False
 
 
 @dataclass
@@ -150,7 +114,56 @@ _AGENTIC_ARTEFACT_TYPES = [
     SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
     SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+    SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
 ]
+
+
+def _resolve_and_build_reviewers_artefact(
+    team_id: int,
+    report_id: str,
+    repository: str,
+    findings: list[SignalFinding],
+) -> SignalReportArtefact | None:
+    """Resolve commit authors to suggested reviewers and build the artefact.
+
+    Content is a plain list of GitHub-only reviewer dicts:
+      [{"github_login": "...", "github_name": "...", "relevant_commits": [...]}, ...]
+
+    PostHog user enrichment happens at read time (serializer) so it stays
+    fresh when users connect/disconnect their GitHub account.
+
+    The list view resolves is_suggested_reviewer by looking up the current
+    user's GitHub login and checking for jsonb containment on github_login
+    in this artefact's content — no cached user IDs needed.
+    """
+    commit_hashes_with_reasons: dict[str, str] = {}
+    for finding in findings:
+        for sha, reason in finding.relevant_commit_hashes.items():
+            if sha and sha not in commit_hashes_with_reasons:
+                commit_hashes_with_reasons[sha] = str(reason) if reason else ""
+
+    if not commit_hashes_with_reasons or not repository:
+        return None
+
+    resolved = resolve_suggested_reviewers(team_id, repository, commit_hashes_with_reasons)
+    if not resolved:
+        return None
+
+    content = [
+        {
+            "github_login": r.login.lower(),
+            "github_name": r.name,
+            "relevant_commits": [c.model_dump() for c in r.commits],
+        }
+        for r in resolved
+    ]
+
+    return SignalReportArtefact(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps(content),
+    )
 
 
 def _persist_agentic_report_artefacts(
@@ -190,6 +203,17 @@ def _persist_agentic_report_artefacts(
                 content=result.priority.model_dump_json(),
             )
         )
+
+    # Resolve suggested reviewers from commit hashes
+    reviewers_artefact = _resolve_and_build_reviewers_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        repository=repo_selection.repository or "",
+        findings=result.findings,
+    )
+    if reviewers_artefact:
+        artefacts.append(reviewers_artefact)
+
     with transaction.atomic():
         # Delete artefacts from previous agentic runs (re-promotion) before writing new ones.
         # Only deletes types owned by this path — safety_judgment is created by the safety judge
@@ -211,10 +235,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         async with Heartbeater():
             # 1. Get context for the sandbox
             user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, SandboxEnvironment.NetworkAccessLevel.TRUSTED
+            )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
+                sandbox_environment_id=sandbox_env_id,
+                posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
             )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await database_sync_to_async(_load_previous_research, thread_sensitive=False)(
@@ -227,6 +256,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
                 branch="master",
+                signal_report_id=input.report_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await database_sync_to_async(_persist_agentic_report_artefacts, thread_sensitive=False)(

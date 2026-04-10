@@ -6,12 +6,14 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
     PathsQuery,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
@@ -22,7 +24,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from .boxplot import BoxPlotResultsFormatter
 from .funnel import FunnelResultsFormatter
+from .lifecycle import LifecycleResultsFormatter
 from .paths import PathsResultsFormatter
 from .retention import RetentionResultsFormatter
 from .revenue_analytics import (
@@ -55,9 +59,14 @@ def format_query_results_for_llm(
         utc_now = datetime.now(UTC)
 
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
+        boxplot_data = response.get("boxplot_data")
+        if boxplot_data is not None:
+            return BoxPlotResultsFormatter(boxplot_data).format()
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
+    elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
+        return LifecycleResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
         return PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
@@ -79,7 +88,9 @@ def format_query_results_for_llm(
 
 
 __all__ = [
+    "BoxPlotResultsFormatter",
     "FunnelResultsFormatter",
+    "LifecycleResultsFormatter",
     "PathsResultsFormatter",
     "RetentionResultsFormatter",
     "SQLResultsFormatter",

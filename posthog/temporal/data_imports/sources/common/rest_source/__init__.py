@@ -265,7 +265,7 @@ def _make_paginate_dependent_resource(
             for child_page in client.paginate(
                 method=method,
                 path=formatted_path,
-                params=params,
+                params=dict(params),
                 paginator=paginator,
                 data_selector=data_selector,
                 hooks=hooks,

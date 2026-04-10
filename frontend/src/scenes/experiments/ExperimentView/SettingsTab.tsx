@@ -67,7 +67,7 @@ export function SettingsTab(): JSX.Element {
             {shouldShowSignificanceAlerts && (
                 <div>
                     <h2 className="font-semibold text-lg">Notifications</h2>
-                    <p>Get notified when a metric reaches significance.</p>
+                    <p className="text-muted text-xs mt-1">Get notified when a metric reaches significance.</p>
                     <LinkedHogFunctions
                         type="internal_destination"
                         subTemplateIds={['experiment-significant']}

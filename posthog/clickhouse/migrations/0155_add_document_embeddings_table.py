@@ -16,7 +16,7 @@ ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV = f"{ERROR_TRACKING_FINGERPRINT_EMBEDDI
 
 
 operations = [
-    run_sql_with_exceptions(DOCUMENT_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DOCUMENT_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(DOCUMENT_EMBEDDINGS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
@@ -27,6 +27,6 @@ operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}"),
     run_sql_with_exceptions(
         f"DROP TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE} SETTINGS max_table_size_to_drop = 0",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

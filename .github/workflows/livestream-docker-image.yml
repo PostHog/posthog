@@ -7,6 +7,16 @@ on:
         paths:
             - 'livestream/**'
             - '.github/workflows/livestream-docker-image.yml'
+    pull_request:
+        branches:
+            - master
+        paths:
+            - 'livestream/**'
+            - '.github/workflows/livestream-docker-image.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build:
@@ -39,6 +49,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # We don't push to ghcr.io/posthog/livestream due to that being a legacy repo that we can't delete :/
+                  push-to-ghcr: 'false'
                   # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
                   legacy-images: ghcr.io/posthog/posthog/livestream
 
@@ -47,7 +59,6 @@ jobs:
 
             - name: Build and push Docker image
               id: push
-              if: github.ref == 'refs/heads/master'
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: ./livestream/
@@ -62,6 +73,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
+        if: github.ref == 'refs/heads/master'
         steps:
             - name: get deployer token
               id: deployer

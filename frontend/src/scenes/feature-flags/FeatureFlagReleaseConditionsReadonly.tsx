@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
+import { IconFlag, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -61,7 +61,7 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
 
 function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter; isFirst: boolean }): JSX.Element {
     const propertyLabel =
-        property.type === PropertyFilterType.Cohort
+        property.type === PropertyFilterType.Cohort || property.type === PropertyFilterType.Flag
             ? null
             : getFilterLabel(
                   property.key,
@@ -80,7 +80,14 @@ function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter;
                 <LemonButton icon={<span className="text-xs font-medium">&</span>} size="small" noPadding />
             )}
             {propertyLabel && propertyLabel !== property.key && <span className="text-muted">{propertyLabel}</span>}
-            <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
+            {property.type === PropertyFilterType.Flag ? (
+                <LemonSnack>
+                    <IconFlag className="mr-1" />
+                    {property.label || property.key}
+                </LemonSnack>
+            ) : (
+                <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
+            )}
             <span className="text-muted">{operator}</span>
             <PropertyValueDisplay property={property} />
         </div>
@@ -128,7 +135,11 @@ export function FeatureFlagReleaseConditionsReadonly({
                                 OR
                             </div>
                         )}
-                        <ConditionSetCard group={group} index={index} aggregationTargetName={aggregationTargetName} />
+                        <ConditionSetCard
+                            group={group}
+                            index={index}
+                            aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                        />
                     </div>
                 ))}
 
@@ -263,12 +274,13 @@ export function FeatureFlagSuperConditionsReadonly({
                             <div className="text-sm">
                                 {group.properties?.length ? (
                                     <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
+                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
+                                        value set on <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match{' '}
+                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
                                     </>
                                 )}
                             </div>

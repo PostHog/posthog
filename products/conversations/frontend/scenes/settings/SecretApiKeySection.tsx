@@ -34,7 +34,6 @@ export function SecretApiKeySection(): JSX.Element {
         <SceneSection
             title="Secret API key"
             description="Authenticate external API requests for workflows. Generate a key to enable workflow integrations."
-            className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                 <div>

@@ -6,14 +6,23 @@ import datetime as dt
 from django.core.cache import cache
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQuery, OrderBy3, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogAttributesQuery,
+    LogsOrderBy,
+    LogsQuery,
+    LogValuesQuery,
+    PropertyGroupFilter,
+)
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -29,6 +38,7 @@ from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 from products.logs.backend.views_api import LogsViewViewSet
 
@@ -37,9 +47,132 @@ __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewView
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
+# Serializers below are used exclusively for OpenAPI spec generation via
+# drf-spectacular. They are NOT used for request validation — the existing
+# manual parsing in LogsViewSet is unchanged.
+
+
+class _LogsAttributesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, help_text="Search filter for attribute names")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attributes: "log" for log attributes, "resource" for resource attributes',
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Max results (default: 100)")
+    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0)")
+
+
+class _LogsValuesQuerySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key to get values for")
+    attribute_type = serializers.ChoiceField(
+        choices=["log", "resource"],
+        required=False,
+        help_text='Type of attribute: "log" or "resource"',
+    )
+    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
+
+
+_LOG_PROPERTY_TYPE_CHOICES = ["log", "log_attribute", "log_resource_attribute"]
+_LOG_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
+_LOG_NUMERIC_OPERATORS = ["exact", "gt", "lt"]
+_LOG_ARRAY_OPERATORS = ["exact", "is_not"]
+_LOG_DATE_OPERATORS = ["is_date_exact", "is_date_before", "is_date_after"]
+_LOG_EXISTENCE_OPERATORS = ["is_set", "is_not_set"]
+_LOG_ALL_OPERATORS = (
+    _LOG_STRING_OPERATORS
+    + _LOG_NUMERIC_OPERATORS
+    + _LOG_ARRAY_OPERATORS
+    + _LOG_DATE_OPERATORS
+    + _LOG_EXISTENCE_OPERATORS
+)
+
+
+class _DateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='End of the date range. Same format as date_from. Omit or null for "now".',
+    )
+
+
+class _LogPropertyFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text='Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").',
+    )
+    type = serializers.ChoiceField(
+        choices=_LOG_PROPERTY_TYPE_CHOICES,
+        help_text='"log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.',
+    )
+    operator = serializers.ChoiceField(
+        choices=_LOG_ALL_OPERATORS,
+        help_text="Comparison operator.",
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+    )
+
+
+class _LogsQueryBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range for the query. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=[],
+        help_text="Filter by log severity levels.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by service names.",
+    )
+    orderBy = serializers.ChoiceField(
+        choices=["latest", "earliest"],
+        required=False,
+        help_text="Order results by timestamp.",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters for the query.",
+    )
+    limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
+    after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
+
+
+class _LogsQueryRequestSerializer(serializers.Serializer):
+    query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+
+
+@extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
+    @staticmethod
+    def _normalize_filter_group(filter_group: object) -> dict:
+        """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""
+        if isinstance(filter_group, list):
+            if len(filter_group) > 0:
+                return {"type": "AND", "values": [{"type": "AND", "values": filter_group}]}
+            return {"type": "AND", "values": []}
+        if isinstance(filter_group, dict):
+            return filter_group
+        return {"type": "AND", "values": []}
+
+    @extend_schema(request=_LogsQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
@@ -52,8 +185,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
-        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
-            order_by = OrderBy3.LATEST
+        if order_by not in (LogsOrderBy.EARLIEST, LogsOrderBy.LATEST):
+            order_by = LogsOrderBy.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
@@ -61,7 +194,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST:
+                if order_by == LogsOrderBy.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -83,7 +216,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "serviceNames": query_data.get("serviceNames", []),
             "orderBy": order_by,
             "searchTerm": query_data.get("searchTerm", None),
-            "filterGroup": query_data.get("filterGroup", None),
+            "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
         }
@@ -112,14 +245,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             limit = logs_query_params["limit"]
 
             def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: OrderBy3 | None
+                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: LogsOrderBy | None
             ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
                 """
                 Slices a LogsQueryRunner into two query runners
                 The first one returns just the `slice_length` most recent logs
                 The second one returns the rest of the logs
                 """
-                if orderBy == OrderBy3.LATEST or orderBy is None:
+                if orderBy == LogsOrderBy.LATEST or orderBy is None:
                     slice_query = LogsQuery(
                         **{
                             **query.model_dump(),
@@ -281,6 +414,47 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response(response.results, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def services(self, request: Request, *args, **kwargs) -> Response:
+        query_data = request.data.get("query", {})
+
+        filter_group = query_data.get("filterGroup", None)
+        if filter_group is None:
+            filter_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
+
+        query = LogsQuery(
+            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=filter_group,
+        )
+
+        runner = ServicesQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs services queried",
+            {
+                "services_count": len(response.results.get("services", []))
+                if isinstance(response.results, dict)
+                else 0,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(parameters=[_LogsAttributesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
@@ -333,6 +507,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         result = runner.calculate()
         return Response({"results": result.results, "count": result.count}, status=status.HTTP_200_OK)
 
+    @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")

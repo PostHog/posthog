@@ -1,11 +1,14 @@
 from django.conf import settings
 from django.utils import timezone
 
+import structlog
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.models.oauth import find_oauth_access_token
+
+logger = structlog.get_logger(__name__)
 
 BEARER_PREFIX = "Bearer "
 
@@ -22,12 +25,24 @@ class StripeProvisioningBearerAuthentication(BaseAuthentication):
 
         access_token = find_oauth_access_token(token_value)
         if access_token is None:
+            logger.warning("stripe_app.bearer_auth.token_not_found")
             raise AuthenticationFailed("Invalid access token")
 
         if access_token.expires and access_token.expires < timezone.now():
+            logger.warning("stripe_app.bearer_auth.token_expired", token_id=access_token.id)
             raise AuthenticationFailed("Access token expired")
 
         if not _is_stripe_oauth_app(access_token.application):
+            app = access_token.application
+            logger.warning(
+                "stripe_app.bearer_auth.app_mismatch",
+                token_id=access_token.id,
+                has_application=app is not None,
+                app_client_id=app.client_id if app else None,
+                app_name=app.name if app else None,
+                app_id=app.id if app else None,
+                expected_client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
+            )
             raise AuthenticationFailed("Token not issued for Stripe provisioning")
 
         return (access_token.user, access_token)

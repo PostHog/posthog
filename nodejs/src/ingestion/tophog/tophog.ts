@@ -1,5 +1,6 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
+import { TOPHOG_OUTPUT, TophogOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'
 
 export interface MetricConfig {
@@ -8,8 +9,7 @@ export interface MetricConfig {
 }
 
 export interface TopHogRequiredConfig {
-    kafkaProducer: KafkaProducerWrapper
-    topic: string
+    outputs: IngestionOutputs<TophogOutput>
     pipeline: string
     lane: string
 }
@@ -83,31 +83,30 @@ export class TopHog {
 
     async flush(): Promise<void> {
         const timestamp = new Date().toISOString()
-        const messages: { value: string }[] = []
+        const messages: { value: Buffer }[] = []
 
         for (const tracker of this.allTrackers()) {
             for (const { key, value, count } of tracker.flush()) {
                 messages.push({
-                    value: JSON.stringify({
-                        timestamp,
-                        metric: tracker.metricName,
-                        type: tracker.type,
-                        key,
-                        value,
-                        count,
-                        pipeline: this.config.pipeline,
-                        lane: this.config.lane,
-                        labels: this.config.labels,
-                    }),
+                    value: Buffer.from(
+                        JSON.stringify({
+                            timestamp,
+                            metric: tracker.metricName,
+                            type: tracker.type,
+                            key,
+                            value,
+                            count,
+                            pipeline: this.config.pipeline,
+                            lane: this.config.lane,
+                            labels: this.config.labels,
+                        })
+                    ),
                 })
             }
         }
 
         if (messages.length > 0) {
-            await this.config.kafkaProducer.queueMessages({
-                topic: this.config.topic,
-                messages,
-            })
+            await this.config.outputs.queueMessages(TOPHOG_OUTPUT, messages)
         }
     }
 

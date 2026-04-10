@@ -8,8 +8,10 @@ from posthog.test.base import APIBaseTest
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.test.test_property_definition import exclude_virtual_properties
 from posthog.models import ActivityLog, EventProperty, Tag
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -138,7 +140,34 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        db_results = [r for r in response_data["results"] if not r.get("name", "").startswith("$virt_")]
+        self.assertEqual(len(db_results), 2)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["verified_prop"]),
+            ("unverified_only", "false", ["unverified_prop"]),
+            ("all_when_not_specified", None, ["unverified_prop", "verified_prop"]),
+        ]
+    )
+    def test_filter_property_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="verified_prop", verified=True)
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="unverified_prop", verified=False)
+
+        url = "/api/projects/@current/property_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in exclude_virtual_properties(response.json()["results"])]) == expected_names
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -490,9 +519,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties))
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", False, None),
             ("2_when_verified", False, None),
             ("3_when_verified", False, None),
@@ -510,7 +539,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", True, None),
             ("2_when_verified", True, None),
             ("3_when_verified", True, None),
@@ -525,7 +555,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("3_when_verified", True, True),
             ("4_when_verified", False, True),
             ("1_when_verified", True, False),

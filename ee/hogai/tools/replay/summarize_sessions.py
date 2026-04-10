@@ -12,14 +12,14 @@ from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import (
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import (
     SessionProgressStreamData,
     SessionStatusChange,
     SessionSummaryStreamUpdate,
 )
-from posthog.temporal.common.heartbeat import Heartbeater
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,

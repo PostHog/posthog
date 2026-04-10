@@ -1,12 +1,16 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
 
 import { MultiFieldQuestion, QuestionField } from './QuestionField'
 
 describe('QuestionField', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
     const baseQuestion: MultiQuestionFormQuestion = {
         id: 'test',
         title: 'Test',
@@ -55,6 +59,15 @@ describe('QuestionField', () => {
         fireEvent.click(submitButton!)
         expect(screen.getByText('Select at least one option')).toBeInTheDocument()
         expect(onAnswer).not.toHaveBeenCalled()
+    })
+
+    it('renders a skip button when onSkip is provided for select questions', () => {
+        const onSkip = jest.fn()
+        render(<QuestionField question={selectQuestion} value={undefined} onAnswer={jest.fn()} onSkip={onSkip} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Skip question' }))
+
+        expect(onSkip).toHaveBeenCalledTimes(1)
     })
 
     describe('MultiFieldQuestion', () => {
@@ -116,6 +129,23 @@ describe('QuestionField', () => {
             expect(submitButton).not.toHaveAttribute('aria-disabled', 'true')
             fireEvent.click(submitButton!)
             expect(onSubmit).toHaveBeenCalled()
+        })
+
+        it('calls onSkip when the skip button is clicked', () => {
+            const onSkip = jest.fn()
+            render(
+                <MultiFieldQuestion
+                    question={multiFieldQuestion}
+                    answers={{ confidence: '95', notify: 'true' }}
+                    onFieldChange={jest.fn()}
+                    onSubmit={jest.fn()}
+                    onSkip={onSkip}
+                />
+            )
+
+            fireEvent.click(screen.getAllByRole('button', { name: 'Skip question' }).at(-1)!)
+
+            expect(onSkip).toHaveBeenCalledTimes(1)
         })
     })
 })

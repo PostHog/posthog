@@ -14,12 +14,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
-    Option,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
@@ -71,7 +71,7 @@ class TestExternalDataSource(APIBaseTest):
             created_by=self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 
@@ -90,7 +90,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -141,7 +141,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": False,
                 },
             },
@@ -160,7 +160,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
                     ],
@@ -183,7 +183,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -214,7 +214,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -246,7 +246,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -278,7 +278,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -315,7 +315,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -382,7 +382,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -443,7 +443,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -614,8 +614,153 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        # we should scrape out `stripe_secret_key` from job_inputs
-        assert result.get("job_inputs") == {}
+        # sensitive fields like stripe_secret_key should be stripped, but auth_method selection is kept
+        assert result.get("job_inputs") == {"auth_method": {"selection": "api_key"}}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_stripe_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # GET strips stripe_secret_key from auth_method
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "stripe_secret_key" not in get_data["job_inputs"]["auth_method"]
+
+        # PATCH with the sanitized data from GET (simulating user saving without changes)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        # stripe_secret_key must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_switching_auth_method_drops_old_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # Switch from api_key to oauth — old stripe_secret_key should NOT carry over
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": {"selection": "oauth", "stripe_integration_id": "42"}}},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["selection"] == "oauth"
+        assert source.job_inputs["auth_method"]["stripe_integration_id"] == "42"
+        # Old secret key must not carry over — config round-trip may include it as None (default)
+        assert source.job_inputs["auth_method"].get("stripe_secret_key") is None
+
+    def test_get_github_oauth_preserves_integration_id_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "github_integration_id": "99"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "github_integration_id": "99"}
+
+    def test_get_github_pat_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "pat"}
+        assert "personal_access_token" not in auth_method
+
+    def test_get_stripe_oauth_preserves_integration_id(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="st",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "stripe_integration_id": "42"},
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "stripe_integration_id": "42"}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_github_pat(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        assert "personal_access_token" not in get_response.json()["job_inputs"]["auth_method"]
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_response.json()["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["personal_access_token"] == "ghp_secret"
+
+    def test_update_with_malformed_auth_method_returns_400(self):
+        source = self._create_external_data_source()
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": "invalid"}},
+        )
+        assert patch_response.status_code == 400
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -666,6 +811,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
+                    "cdc_table_mode": "consolidated",
                 }
             ],
         )
@@ -1589,7 +1735,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "blah",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1606,7 +1752,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
@@ -1626,12 +1772,12 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
             assert response.status_code == 400
-            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
+            assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -1678,7 +1824,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1740,6 +1886,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -1792,6 +1939,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -2028,7 +2176,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "  sk_test_123   ",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "  sk_test_123   "},
                     "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
@@ -2043,7 +2191,7 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=payload["id"])
         assert source.job_inputs is not None
 
-        assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "  sk_test_123   "
         assert source.job_inputs["stripe_account_id"] == "blah"
 
     def test_update_then_get_external_data_source_with_ssh_tunnel(self):
@@ -3234,7 +3382,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -3280,7 +3428,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -3647,7 +3795,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 required=True,
                 defaultValue="password",
                 options=[
-                    Option(
+                    SourceFieldSelectConfigOption(
                         label="Password",
                         value="password",
                         fields=[
@@ -4241,3 +4389,77 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert response.status_code == 204
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert mock_capture_exception.called
+
+
+class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
+    def test_destroy_source_deletes_companion_cdc_tables(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+
+        main_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=main_table,
+        )
+
+        # Companion _cdc table — linked to source but NOT to schema.table
+        companion_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders_cdc",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/cdc",
+        )
+
+        # Unrelated table from another source — should NOT be deleted
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_456"},
+        )
+        unrelated_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="other_table",
+            external_data_source_id=other_source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/other",
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+
+        # Main table soft-deleted via schema.table
+        main_table.refresh_from_db()
+        assert main_table.deleted is True
+
+        # Schema soft-deleted
+        schema.refresh_from_db()
+        assert schema.deleted is True
+
+        # Companion _cdc table soft-deleted by the companion cleanup query
+        companion_table.refresh_from_db()
+        assert companion_table.deleted is True
+
+        # Unrelated table NOT deleted
+        unrelated_table.refresh_from_db()
+        assert unrelated_table.deleted is False

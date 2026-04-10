@@ -159,14 +159,6 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
-export type CompleteRunInputApiBaselineHashes = { [key: string]: string }
-
-export interface CompleteRunInputApi {
-    removed_identifiers?: string[]
-    unchanged_count?: number
-    baseline_hashes?: CompleteRunInputApiBaselineHashes
-}
-
 export interface SnapshotHistoryEntryApi {
     run_id: string
     result: string
