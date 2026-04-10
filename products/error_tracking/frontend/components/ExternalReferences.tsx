@@ -26,7 +26,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab', 'jira']
+const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
@@ -59,7 +59,7 @@ export const ExternalReferences = (): JSX.Element | null => {
         )
     }
 
-    const errorTrackingIntegrations = getIntegrationsByKind(ERROR_TRACKING_INTEGRATIONS)
+    const errorTrackingIntegrations = getIntegrationsByKind([...ERROR_TRACKING_INTEGRATIONS])
     const externalReferences = issue.external_issues ?? []
     const creatingIssue = issue && issueLoading
 
