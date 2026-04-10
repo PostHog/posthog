@@ -280,7 +280,8 @@ class Command(BaseCommand):
                 print("Aborted.")
                 return
 
-        acquired, reason = acquire_apply_lock(client, database, hostname, force=force)
+        cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+        acquired, reason = acquire_apply_lock(client, database, hostname, force=force, cluster=cluster_name)
         if not acquired:
             print(reason)
             return
@@ -468,7 +469,8 @@ class Command(BaseCommand):
 
         from posthog.clickhouse.migration_tools.tracking import TRACKING_TABLE_NAME, _ensure_tracking_table
 
-        _ensure_tracking_table(client, database)
+        cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+        _ensure_tracking_table(client, database, cluster_name)
 
         node_filter = options.get("node")
 
@@ -513,8 +515,9 @@ class Command(BaseCommand):
 
         from posthog.clickhouse.migration_tools.tracking import _ensure_tracking_table
 
-        _ensure_tracking_table(client, database)
-        print(f"Tracking table ensured in database '{database}'.")
+        cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+        _ensure_tracking_table(client, database, cluster_name)
+        print(f"Tracking table ensured in database '{database}' on cluster '{cluster_name}'.")
 
     # ------------------------------------------------------------------
     # check -- pending legacy migrations
@@ -613,7 +616,8 @@ class Command(BaseCommand):
         cluster = get_cluster_by_name("main")
         client = _any_client(cluster)
 
-        _ensure_tracking_table(client, database)
+        cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+        _ensure_tracking_table(client, database, cluster_name)
         version = get_latest_schema_version(client, database)
 
         if version is None:

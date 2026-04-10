@@ -1,5 +1,12 @@
-"""Advisory locking for concurrent apply prevention."""
+"""Advisory locking for concurrent apply prevention.
 
+The tracking table is ReplicatedMergeTree ON CLUSTER so that every node
+in the cluster sees the same lock/history rows. This prevents two
+concurrent ``ch_migrate apply`` calls on different hosts from both
+acquiring the advisory lock.
+"""
+
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -7,7 +14,7 @@ from typing import Any
 TRACKING_TABLE_NAME = "clickhouse_schema_migrations"
 
 TRACKING_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {database}.clickhouse_schema_migrations (
+CREATE TABLE IF NOT EXISTS {database}.clickhouse_schema_migrations ON CLUSTER {cluster} (
     migration_number UInt32,
     migration_name String,
     step_index Int32,
@@ -17,7 +24,7 @@ CREATE TABLE IF NOT EXISTS {database}.clickhouse_schema_migrations (
     checksum String,
     applied_at DateTime64(3),
     success Bool
-) ENGINE = MergeTree()
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{{shard}}/{database}/clickhouse_schema_migrations', '{{replica}}')
 ORDER BY (migration_number, step_index, host, direction, applied_at)
 """
 
@@ -39,9 +46,9 @@ class StepRecord:
     success: bool
 
 
-def _ensure_tracking_table(client: Any, database: str) -> None:
-    """Create the tracking table if it doesn't exist (idempotent)."""
-    client.execute(TRACKING_TABLE_DDL.format(database=database))
+def _ensure_tracking_table(client: Any, database: str, cluster: str = "posthog_migrations") -> None:
+    """Create the tracking table on every node via ON CLUSTER (idempotent)."""
+    client.execute(TRACKING_TABLE_DDL.format(database=database, cluster=cluster))
 
 
 def _record_step(
@@ -72,15 +79,22 @@ def _record_step(
     client.execute(sql, params)
 
 
-def acquire_apply_lock(client: Any, database: str, hostname: str, *, force: bool = False) -> tuple[bool, str]:
-    """Best-effort advisory lock via INSERT...SELECT WHERE NOT EXISTS. Returns (acquired, message).
+def acquire_apply_lock(
+    client: Any,
+    database: str,
+    hostname: str,
+    *,
+    force: bool = False,
+    cluster: str = "posthog_migrations",
+) -> tuple[bool, str]:
+    """Cluster-wide advisory lock via ReplicatedMergeTree INSERT.
 
-    Auto-creates the tracking table if needed. Uses a single query to check
-    for existing locks and insert, but MergeTree is eventually consistent —
-    two concurrent pods could both acquire in the same merge cycle.
-    Sufficient for single-deploy-at-a-time; use --force to break stale locks.
+    The tracking table is replicated across all nodes, so a lock row
+    inserted on any host is visible to every other host after replication
+    converges. We INSERT a lock row, wait briefly for replication, then
+    verify no other host also acquired — if so, we back off.
     """
-    _ensure_tracking_table(client, database)
+    _ensure_tracking_table(client, database, cluster)
     table_ref = f"{database}.{TRACKING_TABLE_NAME}"
 
     if force:
@@ -100,42 +114,76 @@ def acquire_apply_lock(client: Any, database: str, hostname: str, *, force: bool
         )
         return (True, "")
 
-    # Atomic: INSERT only if no active lock from another host
-    atomic_sql = f"""
-        INSERT INTO {table_ref}
-        (migration_number, migration_name, step_index, host, node_role, direction, checksum, applied_at, success)
-        SELECT
-            {LOCK_MIGRATION_NUMBER}, '__lock__', {LOCK_STEP_INDEX},
-            %(hostname)s, '*', 'up', 'lock', now64(), 1
-        WHERE NOT EXISTS (
-            SELECT 1 FROM {table_ref}
-            WHERE migration_number = {LOCK_MIGRATION_NUMBER}
-              AND step_index = {LOCK_STEP_INDEX}
-              AND success = 1
-              AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
-              AND host != %(hostname)s
-        )
+    # Check for an existing active lock before attempting to insert.
+    # A lock is "active" when there is an 'up' row with no subsequent 'down' row.
+    check_sql = f"""
+        SELECT host, applied_at
+        FROM {table_ref}
+        WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+          AND step_index = {LOCK_STEP_INDEX}
+          AND direction = 'up'
+          AND success = 1
+          AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
+          AND host != %(hostname)s
+          AND applied_at > (
+              SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
+              FROM {table_ref}
+              WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+                AND step_index = {LOCK_STEP_INDEX}
+                AND direction = 'down'
+          )
+        ORDER BY applied_at DESC
+        LIMIT 1
     """
-    client.execute(atomic_sql, {"hostname": hostname})
+    existing = client.execute(check_sql, {"hostname": hostname})
+    if existing:
+        return (
+            False,
+            f"Another ch_migrate apply is running on {existing[0][0]} (started {existing[0][1]}). Use --force to override.",
+        )
 
-    # Verify we got the lock by checking if our row is the latest
+    # Insert the acquire record
+    _record_step(
+        client=client,
+        record=StepRecord(
+            migration_number=LOCK_MIGRATION_NUMBER,
+            migration_name="__lock__",
+            step_index=LOCK_STEP_INDEX,
+            host=hostname,
+            node_role="*",
+            direction="up",
+            checksum="lock",
+            success=True,
+        ),
+        database=database,
+    )
+
+    # Wait for replication convergence then re-check for double-locks
+    time.sleep(0.5)
     verify_sql = f"""
         SELECT host, applied_at
         FROM {table_ref}
         WHERE migration_number = {LOCK_MIGRATION_NUMBER}
           AND step_index = {LOCK_STEP_INDEX}
+          AND direction = 'up'
           AND success = 1
           AND applied_at > now() - INTERVAL {LOCK_TIMEOUT_MINUTES} MINUTE
+          AND applied_at > (
+              SELECT coalesce(max(applied_at), toDateTime64('1970-01-01', 3))
+              FROM {table_ref}
+              WHERE migration_number = {LOCK_MIGRATION_NUMBER}
+                AND step_index = {LOCK_STEP_INDEX}
+                AND direction = 'down'
+          )
         ORDER BY applied_at DESC
-        LIMIT 1
     """
-    rows = client.execute(verify_sql)
-    if rows and rows[0][0] != hostname:
-        lock_host = rows[0][0]
-        lock_time = rows[0][1]
+    active = client.execute(verify_sql)
+    if len(active) > 1 and active[0][0] != hostname:
+        # Race: another host won. Release and back off.
+        release_apply_lock(client, database, hostname)
         return (
             False,
-            f"Another ch_migrate apply is running on {lock_host} (started {lock_time}). Use --force to override.",
+            f"Race detected — lock held by {active[0][0]}. Use --force to override.",
         )
 
     return (True, "")
@@ -182,7 +230,11 @@ def get_latest_schema_version(client: Any, database: str) -> tuple[str, str, str
 
 
 def release_apply_lock(client: Any, database: str, hostname: str) -> None:
-    """Release the advisory lock by inserting a success=False row that shadows the lock."""
+    """Release the advisory lock by inserting a direction='down' row.
+
+    The acquire logic checks for 'up' rows whose applied_at exceeds the
+    latest 'down' row — this release row makes the lock invisible.
+    """
     _record_step(
         client=client,
         record=StepRecord(
@@ -193,7 +245,7 @@ def release_apply_lock(client: Any, database: str, hostname: str) -> None:
             node_role="*",
             direction="down",
             checksum="unlock",
-            success=False,
+            success=True,
         ),
         database=database,
     )
