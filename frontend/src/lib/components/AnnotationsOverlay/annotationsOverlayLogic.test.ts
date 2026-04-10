@@ -889,56 +889,41 @@ describe('annotationsOverlayLogic', () => {
             )
         }
 
-        it('computes fractional indices for mid-month annotations on a monthly chart', async () => {
-            useInsightMocks('month')
-            await mountAndWait({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+        it.each<{
+            name: string
+            interval: IntervalType
+            dates: string[]
+            ticks: number[]
+            expected: Array<[string, number]>
+        }>([
+            {
+                name: 'monthly chart → fractional indices for mid-month annotations',
+                interval: 'month',
                 dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
-                ticks: [{ value: 0 }, { value: 1 }, { value: 2 }],
-                dashboardId: MOCK_DASHBOARD_ID,
-            })
-
-            const indices = indicesByKey(logic.values)
-
-            // Aug 10 → 0 + 9/31 ≈ 0.29 (Aug has 31 days)
-            expect(indices['2022-08-10 00:00:00+0000']).toBeCloseTo(9 / 31, 5)
-            // Aug 11 → 0 + 10/31
-            expect(indices['2022-08-11 00:00:00+0000']).toBeCloseTo(10 / 31, 5)
-            // Aug 17 → 0 + 16/31
-            expect(indices['2022-08-17 00:00:00+0000']).toBeCloseTo(16 / 31, 5)
-            // Sep 10 → 1 + 9/30 (Sep has 30 days)
-            expect(indices['2022-09-10 00:00:00+0000']).toBeCloseTo(1 + 9 / 30, 5)
-        })
-
-        it('places Monday-aligned weekly data points at integer indices (no Sunday drift)', async () => {
-            useInsightMocks('week')
-            // Aug 8 2022 is a Monday; these are Monday-aligned week-start dates.
-            await mountAndWait({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                ticks: [0, 1, 2],
+                expected: [
+                    ['2022-08-10 00:00:00+0000', 9 / 31],
+                    ['2022-08-11 00:00:00+0000', 10 / 31],
+                    ['2022-08-17 00:00:00+0000', 16 / 31],
+                    ['2022-09-10 00:00:00+0000', 1 + 9 / 30],
+                ],
+            },
+            {
+                // Regression: startOf('week') drifts Monday-aligned dates back to Sunday.
+                name: 'weekly Monday-aligned chart → no Sunday drift',
+                interval: 'week',
                 dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
-                ticks: [{ value: 0 }, { value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }, { value: 5 }],
-                dashboardId: MOCK_DASHBOARD_ID,
-            })
-
-            const indices = indicesByKey(logic.values)
-
-            // Aug 10 (Wed) = 2 days into the week beginning Aug 8 → ~2/7
-            expect(indices['2022-08-10 00:00:00+0000']).toBeCloseTo(2 / 7, 5)
-            // Aug 11 (Thu) = 3 days in → 3/7
-            expect(indices['2022-08-11 00:00:00+0000']).toBeCloseTo(3 / 7, 5)
-            // Aug 17 (Wed) = 9 days in → week index 1 + 2/7
-            expect(indices['2022-08-17 00:00:00+0000']).toBeCloseTo(1 + 2 / 7, 5)
-            // Sep 10 (Sat) = in the week beginning Sep 5 → week index 4 + 5/7
-            expect(indices['2022-09-10 00:00:00+0000']).toBeCloseTo(4 + 5 / 7, 5)
-        })
-
-        it('yields whole-number indices for day-interval annotations', async () => {
-            useInsightMocks('day')
-            await mountAndWait({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                ticks: [0, 1, 2, 3, 4, 5],
+                expected: [
+                    ['2022-08-10 00:00:00+0000', 2 / 7],
+                    ['2022-08-11 00:00:00+0000', 3 / 7],
+                    ['2022-08-17 00:00:00+0000', 1 + 2 / 7],
+                    ['2022-09-10 00:00:00+0000', 4 + 5 / 7],
+                ],
+            },
+            {
+                name: 'daily chart → whole-number indices',
+                interval: 'day',
                 dates: [
                     '2022-08-10',
                     '2022-08-11',
@@ -949,23 +934,31 @@ describe('annotationsOverlayLogic', () => {
                     '2022-08-16',
                     '2022-08-17',
                 ],
-                ticks: [{ value: 0 }, { value: 7 }],
+                ticks: [0, 7],
+                expected: [
+                    ['2022-08-10 00:00:00+0000', 0],
+                    ['2022-08-11 00:00:00+0000', 1],
+                    ['2022-08-17 00:00:00+0000', 7],
+                ],
+            },
+        ])('$name', async ({ interval, dates, ticks, expected }) => {
+            useInsightMocks(interval)
+            await mountAndWait({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates,
+                ticks: ticks.map((value) => ({ value })),
                 dashboardId: MOCK_DASHBOARD_ID,
             })
 
             const indices = indicesByKey(logic.values)
-
-            expect(indices['2022-08-10 00:00:00+0000']).toBe(0)
-            expect(indices['2022-08-11 00:00:00+0000']).toBe(1)
-            expect(indices['2022-08-17 00:00:00+0000']).toBe(7)
+            for (const [dateKey, expectedIndex] of expected) {
+                expect(indices[dateKey]).toBeCloseTo(expectedIndex, 5)
+            }
         })
 
         it('clamps annotations past the last data point to the last index', async () => {
             useInsightMocks('month')
-            // Chart ends Sep 1 2022, so MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3 (Sep 10)
-            // would compute a dataIndex > lastIndex — it must clamp to lastIndex instead of
-            // extrapolating past the canvas. dateRange extends to Oct 1 so the annotation is
-            // still kept by relevantAnnotations.
             await mountAndWait({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
@@ -975,10 +968,7 @@ describe('annotationsOverlayLogic', () => {
             })
 
             const indices = indicesByKey(logic.values)
-            const lastIndex = 1
-
-            expect(indices['2022-09-10 00:00:00+0000']).toBe(lastIndex)
-            // Sanity: at least one earlier group is well inside the range and still fractional.
+            expect(indices['2022-09-10 00:00:00+0000']).toBe(1)
             expect(indices['2022-08-10 00:00:00+0000']).toBeGreaterThan(0)
             expect(indices['2022-08-10 00:00:00+0000']).toBeLessThan(1)
         })
@@ -1001,17 +991,8 @@ describe('annotationsOverlayLogic', () => {
             await mountAndWait({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
-                dates: [
-                    '2022-08-10',
-                    '2022-08-11',
-                    '2022-08-12',
-                    '2022-08-13',
-                    '2022-08-14',
-                    '2022-08-15',
-                    '2022-08-16',
-                    '2022-08-17',
-                ],
-                ticks: [{ value: 0 }, { value: 7 }],
+                dates: ['2022-08-10', '2022-08-11', '2022-08-17'],
+                ticks: [{ value: 0 }, { value: 2 }],
                 dashboardId: MOCK_DASHBOARD_ID,
             })
 
