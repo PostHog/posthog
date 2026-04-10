@@ -42,7 +42,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
@@ -771,6 +771,100 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
         return None
 
 
+def _resolve_or_create_team(
+    user: User,
+    access_token: OAuthAccessToken,
+    scoped_teams: list[int],
+    project_id: str,
+    project_name: str | None,
+) -> Team | None:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    if project_id:
+        existing = (
+            TeamProvisioningConfig.objects.filter(
+                stripe_project_id=project_id,
+                team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+            )
+            .select_related("team")
+            .first()
+        )
+        if existing:
+            return existing.team
+
+    if not project_id:
+        team_id = scoped_teams[0]
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return None
+        if project_name:
+            team.name = project_name
+            team.save(update_fields=["name"])
+        return team
+
+    first_team = Team.objects.filter(id=scoped_teams[0]).first()
+    if not first_team:
+        return None
+
+    team = Team.objects.create_with_data(
+        initiating_user=user,
+        organization=first_team.organization,
+        name=project_name or "Default project",
+    )
+
+    try:
+        TeamProvisioningConfig.objects.update_or_create(
+            team=team,
+            defaults={"stripe_project_id": project_id},
+        )
+    except IntegrityError:
+        team.delete()
+        existing = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        if existing:
+            return existing.team
+        return None
+
+    _add_team_to_token_scopes(access_token, team.id)
+
+    return team
+
+
+def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    teams = list(access_token.scoped_teams or [])
+    if team_id not in teams:
+        teams.append(team_id)
+        access_token.scoped_teams = teams
+        access_token.save(update_fields=["scoped_teams"])
+
+    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+    for rt in refresh_tokens:
+        rt_teams = list(rt.scoped_teams or [])
+        if team_id not in rt_teams:
+            rt_teams.append(team_id)
+            rt.scoped_teams = rt_teams
+            rt.save(update_fields=["scoped_teams"])
+
+
+def _get_provisioning_service_id(team: Team) -> str:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        config = TeamProvisioningConfig.objects.get(team=team)
+        return config.service_id
+    except TeamProvisioningConfig.DoesNotExist:
+        return ANALYTICS_SERVICE_ID
+
+
+def _set_provisioning_service_id(team: Team, service_id: str) -> None:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    TeamProvisioningConfig.objects.update_or_create(
+        team=team,
+        defaults={"service_id": service_id},
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /provisioning/resources
 # ---------------------------------------------------------------------------
@@ -801,23 +895,20 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event("resource_created", "error", error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
-    team_id = scoped_teams[0]
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
-        return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
-
+    project_id = request.data.get("project_id", "")
     configuration = request.data.get("configuration")
     if not isinstance(configuration, dict):
         configuration = {}
     project_name = configuration.get("project_name")
-    if project_name:
-        team.name = project_name
-        team.save(update_fields=["name"])
 
+    team = _resolve_or_create_team(user, access_token, scoped_teams, project_id, project_name)
+    if team is None:
+        _capture_provisioning_event("resource_created", "error", error_code="team_not_found")
+        return _error_response("team_not_found", "Team not found", status=404)
+
+    team_id = team.id
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+    _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
     if billing_result is False:
@@ -916,7 +1007,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -989,7 +1080,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             resource_id=resource_id,
         )
 
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", service_id, timeout=None)
+    _set_provisioning_service_id(team, service_id)
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -1056,7 +1147,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
