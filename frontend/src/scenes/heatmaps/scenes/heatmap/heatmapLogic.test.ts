@@ -11,10 +11,10 @@ describe('resolveHeatmapExportUrl', () => {
         )
     })
 
-    it('returns the display URL unchanged for browser-type heatmaps', () => {
+    it('returns the display URL unchanged for iframe-type heatmaps', () => {
         expect(
             resolveHeatmapExportUrl(
-                'browser',
+                'iframe',
                 '/api/environments/1/heatmap_screenshots/42/content/',
                 'https://example.com/page',
                 origin
@@ -26,8 +26,8 @@ describe('resolveHeatmapExportUrl', () => {
         expect(resolveHeatmapExportUrl('screenshot', null, 'https://example.com/page', origin)).toBe('')
     })
 
-    it('returns an empty string for browser heatmaps without a displayUrl', () => {
-        expect(resolveHeatmapExportUrl('browser', '/api/something', null, origin)).toBe('')
+    it('returns an empty string for iframe heatmaps without a displayUrl', () => {
+        expect(resolveHeatmapExportUrl('iframe', '/api/something', null, origin)).toBe('')
     })
 
     it('preserves an already-absolute screenshot URL', () => {
