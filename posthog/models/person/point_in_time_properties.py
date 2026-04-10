@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def get_person_distinct_ids_from_clickhouse(
     team_id: int,
     distinct_id: Optional[str] = None,
-    person_id: Optional[Union[str, int]] = None,
+    person_id: Optional[str] = None,
 ) -> tuple[Optional[str], list[str]]:
     """
     Get person_id and all distinct_ids from ClickHouse for a person identified by either distinct_id or person_id.
@@ -121,7 +121,7 @@ def get_person_distinct_ids_from_clickhouse(
 def get_person_and_distinct_ids_for_identifier(
     team_id: int,
     distinct_id: Optional[str] = None,
-    person_id: Optional[Union[str, int]] = None,
+    person_id: Optional[str] = None,
 ) -> tuple[Optional["Person"], list[str]]:
     """
     Helper function to get person object and all distinct_ids for a person based on either distinct_id or person_id.
@@ -208,7 +208,7 @@ def get_person_and_distinct_ids_for_identifier(
 def get_distinct_ids_for_person_identifier(
     team_id: int,
     distinct_id: Optional[str] = None,
-    person_id: Optional[Union[str, int]] = None,
+    person_id: Optional[str] = None,
 ) -> list[str]:
     """
     Legacy helper function that returns only distinct_ids.

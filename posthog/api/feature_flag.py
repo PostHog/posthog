@@ -1056,7 +1056,12 @@ class FeatureFlagSerializer(
                             code="invalid_value",
                         )
                     try:
-                        if float(prop.value[0]) > float(prop.value[1]):
+                        min_val = prop.value[0]
+                        max_val = prop.value[1]
+                        # Type check: ensure both values can be converted to float
+                        if not isinstance(min_val, (int, float, str)) or not isinstance(max_val, (int, float, str)):
+                            raise ValueError("Values must be numeric")
+                        if float(min_val) > float(max_val):
                             raise serializers.ValidationError(
                                 detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
                                 code="invalid_value",
@@ -3264,7 +3269,8 @@ class FeatureFlagViewSet(
             )
         except ValueError as e:
             return Response({"error": f"Invalid parameters: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception:
+        except Exception as e:
+            capture_exception(e)
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if not person or not distinct_ids:
@@ -3281,14 +3287,16 @@ class FeatureFlagViewSet(
         # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
         # since rollout/variant assignment can depend on the exact distinct_id used.
         evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else distinct_ids[0]
-        person_properties = {}
+        person_properties: dict[str, Any] = {}
 
         # Build person properties at timestamp if provided
         if timestamp:
             try:
-                person_properties = build_person_properties_at_time(
+                result = build_person_properties_at_time(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
                 )
+                # build_person_properties_at_time returns dict[str, Any] when return_debug_info=False (default)
+                person_properties = result if isinstance(result, dict) else result[0]
             except Exception:
                 return Response(
                     {"error": "Failed to build person properties at specified timestamp"},
@@ -3388,7 +3396,7 @@ class FeatureFlagViewSet(
         throttle_classes=[RemoteConfigThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
-        is_flag_id_provided = kwargs["pk"].isdigit()
+        is_flag_id_provided: bool = kwargs["pk"].isdigit()
 
         try:
             feature_flag = (

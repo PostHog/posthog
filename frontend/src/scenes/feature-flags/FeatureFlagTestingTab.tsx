@@ -10,6 +10,7 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 
+import type { Dayjs } from 'lib/dayjs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType } from '~/types'
@@ -166,8 +167,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             format="YYYY-MM-DD HH:mm:ss"
                             visible={datePickerOpen}
                             onClickOutside={() => setDatePickerOpen(false)}
-                            onChange={(selectedDate) => {
-                                setDatePickerValue(selectedDate)
+                            onChange={(selectedDate: Dayjs | null) => {
+                                setDatePickerValue(selectedDate || undefined)
                                 setTestFormData({
                                     timestamp: selectedDate ? selectedDate.toISOString() : '',
                                 })
@@ -211,7 +212,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 lineNumbersMinChars: 0,
                                 glyphMargin: false,
                             }}
-                            placeholder='{"company": "acme", "team": "engineering"}'
                         />
                         <p className="text-xs text-muted">
                             Groups for group-based feature flags in JSON format. Used when testing flags that target
@@ -398,12 +398,12 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                             {
                                                                 title: 'Property',
                                                                 key: 'property',
-                                                                render: (_, key: string) => (
+                                                                render: (_, record: { key: string }) => (
                                                                     <div className="flex items-center gap-2">
                                                                         <span className="font-medium">
-                                                                            {formatPropertyKey(key)}
+                                                                            {formatPropertyKey(record.key)}
                                                                         </span>
-                                                                        {usedProps.has(key) && (
+                                                                        {usedProps.has(record.key) && (
                                                                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
                                                                                 Used in condition
                                                                             </span>
@@ -414,26 +414,27 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                             {
                                                                 title: 'Value',
                                                                 key: 'value',
-                                                                render: (_, key: string) => (
+                                                                render: (_, record: { key: string }) => (
                                                                     <span
                                                                         className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                            result.person_properties[key] === null ||
-                                                                            result.person_properties[key] === undefined
+                                                                            result.person_properties[record.key] ===
+                                                                                null ||
+                                                                            result.person_properties[record.key] ===
+                                                                                undefined
                                                                                 ? 'bg-muted text-muted-alt'
                                                                                 : 'bg-bg-light border'
                                                                         }`}
                                                                     >
                                                                         {formatPropertyValue(
-                                                                            result.person_properties[key]
+                                                                            result.person_properties[record.key]
                                                                         )}
                                                                     </span>
                                                                 ),
                                                             },
                                                         ]}
-                                                        dataSource={sortedProperties}
-                                                        rowKey={(key) => key}
+                                                        dataSource={sortedProperties.map((key) => ({ key }))}
+                                                        rowKey={(record) => record.key}
                                                         size="small"
-                                                        pagination={false}
                                                     />
                                                 )
                                             })()}
