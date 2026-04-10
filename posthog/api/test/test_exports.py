@@ -112,6 +112,8 @@ class TestExports(APIBaseTest):
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
+            "exception_type": None,
+            "failure_type": None,
             "export_format": "image/png",
             "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
@@ -155,6 +157,8 @@ class TestExports(APIBaseTest):
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
+            "exception_type": None,
+            "failure_type": None,
             "export_format": "image/png",
             "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
@@ -209,6 +213,8 @@ class TestExports(APIBaseTest):
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,
+                "exception_type": None,
+                "failure_type": None,
                 "export_context": None,
                 # PNG format gets 180 days (6 months) expiry
                 "expires_after": (now() + timedelta(days=180))
@@ -575,13 +581,16 @@ class TestExports(APIBaseTest):
 
         stuck_result = results_by_id[stuck_export.id]
         self.assertIsNotNone(stuck_result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
+        self.assertIn("Export is stuck", stuck_result["exception"])
+        self.assertEqual(stuck_result["failure_type"], "stuck")
 
         recent_result = results_by_id[recent_export.id]
         self.assertIsNone(recent_result["exception"])
+        self.assertIsNone(recent_result["failure_type"])
 
         completed_result = results_by_id[completed_export.id]
         self.assertIsNone(completed_result["exception"])
+        self.assertIsNone(completed_result["failure_type"])
 
         completed_result = results_by_id[errored_export.id]
         self.assertEqual("exception", completed_result["exception"])
@@ -615,11 +624,13 @@ class TestExports(APIBaseTest):
 
         # Check that the stuck export appears to have an exception in the response
         self.assertIsNotNone(result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", result["exception"])
+        self.assertIn("Export is stuck", result["exception"])
+        self.assertEqual(result["failure_type"], "stuck")
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+        self.assertIsNone(stuck_export.failure_type)
 
     @parameterized.expand(
         [

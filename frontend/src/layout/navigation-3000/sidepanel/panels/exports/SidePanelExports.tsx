@@ -10,12 +10,20 @@ import { dayjs } from 'lib/dayjs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { ExportedAssetType, ExporterFormat } from '~/types'
+import { ExportedAssetFailureType, ExportedAssetType, ExporterFormat } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
 const ROW_LIMIT_IN_THOUSANDS = 300
+
+const FAILURE_TYPE_LABELS: Record<ExportedAssetFailureType, { label: string; className: string }> = {
+    user: { label: 'User error', className: 'text-warning' },
+    system: { label: 'System error', className: 'text-danger' },
+    timeout_generation: { label: 'Timed out', className: 'text-warning' },
+    stuck: { label: 'Stuck', className: 'text-warning' },
+    unknown: { label: 'Failed', className: 'text-danger' },
+}
 
 export const SidePanelExportsIcon = (): JSX.Element => {
     const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
@@ -78,6 +86,13 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
+    const hasFailure = !!asset.exception && !asset.has_content
+    const failureMeta =
+        hasFailure && asset.failure_type
+            ? (FAILURE_TYPE_LABELS[asset.failure_type] ?? FAILURE_TYPE_LABELS.unknown)
+            : hasFailure
+              ? FAILURE_TYPE_LABELS.unknown
+              : null
     let disabledReason: string | undefined = undefined
     if (asset.exception) {
         disabledReason = asset.exception
@@ -106,6 +121,20 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                                 : `${ROW_LIMIT_IN_THOUSANDS}k`}{' '}
                             row limit
                         </span>
+                    )}
+                    {failureMeta && (
+                        <div className="mt-1 flex items-start gap-1 text-xs">
+                            <IconWarning className={`${failureMeta.className} mt-0.5 shrink-0`} />
+                            <div className="flex flex-col">
+                                <span className={`font-medium ${failureMeta.className}`}>
+                                    {failureMeta.label}
+                                    {asset.exception_type ? ` · ${asset.exception_type}` : ''}
+                                </span>
+                                {asset.exception && (
+                                    <span className="text-secondary break-words">{asset.exception}</span>
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>

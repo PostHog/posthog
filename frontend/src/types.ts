@@ -5147,6 +5147,8 @@ export type ExportContext = (
     variables_override?: Record<string, any>
 }
 
+export type ExportedAssetFailureType = 'user' | 'system' | 'timeout_generation' | 'stuck' | 'unknown'
+
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
@@ -5158,6 +5160,8 @@ export interface ExportedAssetType {
     created_at: string
     expires_after?: string
     exception?: string
+    exception_type?: string | null
+    failure_type?: ExportedAssetFailureType | null
 }
 
 export enum FeatureFlagReleaseType {

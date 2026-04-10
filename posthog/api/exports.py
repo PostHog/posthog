@@ -58,8 +58,19 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "filename",
             "expires_after",
             "exception",
+            "exception_type",
+            "failure_type",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "has_content",
+            "filename",
+            "expires_after",
+            "exception",
+            "exception_type",
+            "failure_type",
+        ]
 
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
@@ -74,8 +85,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             and not instance.has_content
             and not instance.exception
         ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+            timeout_message = (
+                "Export is stuck — the worker never reported success or failure. "
+                "This usually means the task was hard-killed (timeout or OOM). "
+                "Please retry; if it keeps failing, contact support."
+            )
             data["exception"] = timeout_message
+            data["failure_type"] = "stuck"
 
             distinct_id = (
                 self.context["request"].user.distinct_id
