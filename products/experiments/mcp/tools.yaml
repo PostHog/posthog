@@ -115,3 +115,6 @@ tools:
     experiments-ship-variant-create:
         operation: experiments_ship_variant_create
         enabled: false
+    experiments-copy-to-project-create:
+        operation: experiments_copy_to_project_create
+        enabled: false

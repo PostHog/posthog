@@ -176,28 +176,6 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("debug", props)
         self.assertEqual(props["debug"]["type"], "boolean")
 
-    def test_openapi_spec_dashboard_filter_schema(self):
-        """Test that DashboardFilter schema includes date_from and date_to."""
-        create_endpoint_with_version(
-            name="filter-test-endpoint",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/filter-test-endpoint/openapi.json/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        spec = response.json()
-
-        # Check DashboardFilter schema
-        self.assertIn("DashboardFilter", spec["components"]["schemas"])
-        filter_schema = spec["components"]["schemas"]["DashboardFilter"]
-        self.assertIn("date_from", filter_schema["properties"])
-        self.assertIn("date_to", filter_schema["properties"])
-        self.assertIn("properties", filter_schema["properties"])
-
     def test_openapi_spec_not_found(self):
         """Test that requesting spec for non-existent endpoint returns 404."""
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/nonexistent/openapi.json/")

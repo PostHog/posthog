@@ -232,7 +232,26 @@ def get_rows(
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     data_col = table.column("data").to_pylist()
-    rows = [orjson.loads(data_str)["object"] for data_str in data_col if data_str is not None]
+    created_col = table.column("created").to_pylist()
+
+    # Deduplicate by object id, keeping the event with the latest created timestamp.
+    # Multiple webhook events (e.g. customer.created then customer.updated) can reference
+    # the same object, and delta merge doesn't deduplicate within the source batch.
+    best_by_id: dict[str, tuple[int, dict]] = {}
+    for data_str, event_created in zip(data_col, created_col):
+        if data_str is None:
+            continue
+        obj = orjson.loads(data_str)["object"]
+        obj_id = obj.get("id")
+        if obj_id is None:
+            continue
+
+        ts = event_created if isinstance(event_created, int) else 0
+        existing = best_by_id.get(obj_id)
+        if existing is None or ts > existing[0]:
+            best_by_id[obj_id] = (ts, obj)
+
+    rows = [obj for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
 
 

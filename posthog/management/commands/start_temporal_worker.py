@@ -12,6 +12,7 @@ import structlog
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -479,6 +480,11 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
+        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        if enable_otel is True:
+            # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
+            initialize_otel(settings.OTEL_SERVICE_NAME)  # type: ignore
+
         async def shutdown_all(
             worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
         ) -> None:
@@ -556,6 +562,7 @@ class Command(BaseCommand):
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
                     enable_combined_metrics_server=not disable_combined_metrics_server,
+                    enable_open_telemetry_plugin=enable_otel,
                 )
             )
 

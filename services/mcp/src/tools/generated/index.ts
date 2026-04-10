@@ -16,6 +16,7 @@ import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as llm_analytics } from './llm_analytics'
+import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as prompts } from './prompts'
@@ -40,6 +41,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...feature_flags,
     ...integrations,
     ...llm_analytics,
+    ...logs,
     ...notebooks,
     ...persons,
     ...prompts,

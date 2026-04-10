@@ -456,7 +456,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Email channel',
                 component: <EmailSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
                 keywords: ['conversation', 'ticket', 'message', 'support'],
             },
             {

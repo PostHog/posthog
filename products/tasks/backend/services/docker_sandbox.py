@@ -519,7 +519,9 @@ class DockerSandbox:
 
         return result
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+    def clone_repository(
+        self, repository: str, github_token: Optional[str] = "", shallow: bool = True
+    ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -533,13 +535,14 @@ class DockerSandbox:
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
         org_path = f"/tmp/workspace/repos/{org}"
 
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
+            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
+        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:

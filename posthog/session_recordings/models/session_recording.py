@@ -89,6 +89,7 @@ class SessionRecording(UUIDTModel):
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
     has_summary: Optional[bool] = None
+    summary_outcome: Optional[dict] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
 

@@ -46,9 +46,24 @@ jobs:
                         - Dockerfile
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
-                        - 'bin/*'
+                        # Hobby-specific scripts
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        # Docker runtime (Dockerfile CMD chain)
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
                         - 'bin/hobby-installer/**'
-                        - 'docker/*'
+                        - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       installer:

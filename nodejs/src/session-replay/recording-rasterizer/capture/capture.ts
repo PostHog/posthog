@@ -88,6 +88,11 @@ export async function capturePlayback(
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
     const onCaptureStopped = (): void => {
+        if (captureDone || player.isEnded()) {
+            // Playback finished naturally — ffmpeg exiting is expected.
+            log.info({ frames: frameCount }, 'capture stopped after playback ended')
+            return
+        }
         log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
         const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         captureAborted = err
@@ -159,10 +164,15 @@ export async function capturePlayback(
         try {
             await recorder.stop()
         } catch (stopErr) {
-            // recorder.stop() throws the stored _error when capture was
-            // terminated by page close, session disconnect, or ffmpeg crash.
-            // Log it so we can see the actual root cause.
-            log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
+            if (stopErr instanceof Error && stopErr.message === 'Capture is not in progress') {
+                // Recorder already stopped (ffmpeg exited before we called stop) — harmless.
+                log.info({ frames: frameCount }, 'recorder already stopped')
+            } else {
+                // recorder.stop() throws the stored _error when capture was
+                // terminated by page close, session disconnect, or ffmpeg crash.
+                // Log it so we can see the actual root cause.
+                log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
+            }
         }
     }
 

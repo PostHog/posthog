@@ -175,6 +175,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         elif detector_type:
             has_preprocessing = bool(detector_config.get("preprocessing"))
 
+        schedule_restriction = self.schedule_restriction
+        blocked_window_count: int | None = None
+        if isinstance(schedule_restriction, dict):
+            windows = schedule_restriction.get("blocked_windows")
+            if isinstance(windows, list):
+                blocked_window_count = len(windows)
+
         return {
             "alert_id": self.id,
             "alert_name": self.name,
@@ -183,6 +190,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             **derive_detector_event_fields(detector_config),
             "ensemble_detector_types": ensemble_detector_types,
             "has_preprocessing": has_preprocessing,
+            "schedule_restriction_blocked_window_count": blocked_window_count,
         }
 
     def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:

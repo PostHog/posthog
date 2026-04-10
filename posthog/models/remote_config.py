@@ -456,8 +456,6 @@ class RemoteConfig(UUIDTModel):
             return config
 
         enriched = {**sdk_version, "resolved": resolved}
-        if settings.POSTHOG_JS_SCRIPTS_BASE_URL:
-            enriched["scriptBaseUrl"] = f"{settings.POSTHOG_JS_SCRIPTS_BASE_URL.rstrip('/')}/{resolved}"
         return {**config, "sdkVersion": enriched}
 
     @classmethod
