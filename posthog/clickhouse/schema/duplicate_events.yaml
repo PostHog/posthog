@@ -54,7 +54,7 @@ tables:
         engine: Distributed
         source: duplicate_events
         sharding_key: 'rand()'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit duplicate_events
 
     kafka_duplicate_events:

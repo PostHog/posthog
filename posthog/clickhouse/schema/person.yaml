@@ -34,7 +34,7 @@ tables:
         engine: Distributed
         source: person
         sharding_key: 'cityHash64(id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit person
 
     kafka_person:
@@ -71,7 +71,7 @@ tables:
         engine: Distributed
         source: sharded_person
         sharding_key: 'cityHash64(id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit person
 
     person_collapsing:

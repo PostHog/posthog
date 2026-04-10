@@ -137,7 +137,7 @@ tables:
         engine: Distributed
         source: sharded_ai_events
         sharding_key: "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_ai_events
 
     ai_events:

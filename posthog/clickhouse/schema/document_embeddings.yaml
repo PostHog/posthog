@@ -62,7 +62,7 @@ tables:
         sharding_key: 'cityHash64(document_id)'
         on_nodes:
             - DATA
-            - DATA
+            - COORDINATOR
         columns: inherit partitioned_sharded_posthog_document_embeddings
 
     writable_posthog_document_embeddings:
@@ -226,7 +226,7 @@ tables:
         sharding_key: 'cityHash64(document_id)'
         on_nodes:
             - DATA
-            - DATA
+            - COORDINATOR
         columns: inherit sharded_posthog_document_embeddings_text_embedding_3_small_1536
 
     writable_posthog_document_embeddings_text_embedding_3_small_1536:
@@ -298,7 +298,7 @@ tables:
         sharding_key: 'cityHash64(document_id)'
         on_nodes:
             - DATA
-            - DATA
+            - COORDINATOR
         columns: inherit sharded_posthog_document_embeddings_text_embedding_3_large_3072
 
     writable_posthog_document_embeddings_text_embedding_3_large_3072:
