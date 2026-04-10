@@ -37,6 +37,7 @@ import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { FeaturePreviewGate } from './FeaturePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
@@ -45,6 +46,16 @@ export const scene: SceneExport = {
 }
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
+        return <FeaturePreviewGate />
+    }
+
+    return <CustomerAnalyticsDashboard tabId={tabId} />
+}
+
+function CustomerAnalyticsDashboard({ tabId }: { tabId?: string }): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)

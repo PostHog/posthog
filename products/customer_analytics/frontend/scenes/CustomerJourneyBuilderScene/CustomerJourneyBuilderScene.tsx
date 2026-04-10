@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -12,6 +14,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JourneyBuilder } from '../../components/CustomerJourneys/JourneyBuilder'
 import { journeyBuilderLogic } from '../../components/CustomerJourneys/journeyBuilderLogic'
+import { FeaturePreviewGate } from '../../FeaturePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerJourneyBuilderScene,
@@ -20,6 +23,16 @@ export const scene: SceneExport = {
 }
 
 export function CustomerJourneyBuilderScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
+        return <FeaturePreviewGate />
+    }
+
+    return <CustomerJourneyBuilderSceneContent />
+}
+
+function CustomerJourneyBuilderSceneContent(): JSX.Element {
     const { journeyName, journeyDescription, isSaving, isEditMode } = useValues(journeyBuilderLogic)
     const { setJourneyName, setJourneyDescription, saveJourney } = useActions(journeyBuilderLogic)
 
