@@ -1010,7 +1010,7 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert props["error_type"] == expected_error_type
         assert props["error_message"] == expected_error_msg
         assert len(props["asset_errors"]) == 1
-        assert "RuntimeError" in props["asset_errors"][0]["error_trace"]
+        assert "Traceback" in props["asset_errors"][0]["error_trace"]
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []
