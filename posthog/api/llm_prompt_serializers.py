@@ -198,7 +198,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
         data = super().to_representation(instance)
-        if "prompt" in data and not isinstance(data["prompt"], str):
+        if "prompt" in data:
             data["prompt"] = normalize_prompt_to_string(data["prompt"])
         return data
 
