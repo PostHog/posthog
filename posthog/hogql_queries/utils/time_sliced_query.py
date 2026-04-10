@@ -27,7 +27,6 @@ class TimeSliceableRunner(Protocol):
 
 def time_sliced_results(
     runner: TimeSliceableRunner,
-    limit: int,
     order_by_earliest: bool,
     make_runner: Callable[[DateRange], TimeSliceableRunner],
     analytics_props: Any = None,
@@ -42,7 +41,9 @@ def time_sliced_results(
         - then the remainder
 
     Most queries hit the limit within the first 3 minutes, avoiding a full scan.
+    The limit is read from runner.query.limit.
     """
+    limit = runner.query.limit or 0
     qdr = runner.query_date_range
     date_range_length = qdr.date_to() - qdr.date_from()
 

@@ -39,8 +39,12 @@ class FakeResponse:
 class FakeRunner:
     """Minimal runner that satisfies the interface expected by time_sliced_results."""
 
-    def __init__(self, date_from: dt.datetime, date_to: dt.datetime, results: list[Any] | None = None):
-        self.query = FakeQuery(dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()))
+    def __init__(
+        self, date_from: dt.datetime, date_to: dt.datetime, results: list[Any] | None = None, limit: int = 100
+    ):
+        self.query = FakeQuery(
+            dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()), limit=limit
+        )
         self._query_date_range = FakeDateRange(date_from, date_to)
         self._results = results or []
 
@@ -85,7 +89,7 @@ class TestTimeSlicedResults(TestCase):
         )
         make_runner, created_ranges = self._make_runner_factory([])
 
-        results = list(time_sliced_results(runner, limit=100, order_by_earliest=False, make_runner=make_runner))
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
         self.assertEqual(results, ["a", "b", "c"])
         # No slicing should have been done — make_runner never called
@@ -107,7 +111,7 @@ class TestTimeSlicedResults(TestCase):
             ]
         )
 
-        results = list(time_sliced_results(runner, limit=100, order_by_earliest=False, make_runner=make_runner))
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
         self.assertEqual(results, ["a", "b", "c"])
         self.assertEqual(len(created_ranges), 2)
@@ -132,7 +136,7 @@ class TestTimeSlicedResults(TestCase):
             ]
         )
 
-        results = list(time_sliced_results(runner, limit=100, order_by_earliest=False, make_runner=make_runner))
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
         self.assertEqual(results, ["a", "b", "c", "d"])
         self.assertEqual(len(created_ranges), 6)
@@ -143,6 +147,7 @@ class TestTimeSlicedResults(TestCase):
             date_from=now - dt.timedelta(hours=1),
             date_to=now,
             results=[],
+            limit=3,
         )
         make_runner, created_ranges = self._make_runner_factory(
             [
@@ -151,7 +156,7 @@ class TestTimeSlicedResults(TestCase):
             ]
         )
 
-        results = list(time_sliced_results(runner, limit=3, order_by_earliest=False, make_runner=make_runner))
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
         self.assertEqual(results, ["a", "b", "c"])
 
@@ -161,6 +166,7 @@ class TestTimeSlicedResults(TestCase):
             date_from=now - dt.timedelta(hours=5),
             date_to=now,
             results=[],
+            limit=3,
         )
         make_runner, created_ranges = self._make_runner_factory(
             [
@@ -171,7 +177,7 @@ class TestTimeSlicedResults(TestCase):
             ]
         )
 
-        results = list(time_sliced_results(runner, limit=3, order_by_earliest=False, make_runner=make_runner))
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
         self.assertEqual(results, ["a", "b", "c"])
 
@@ -193,7 +199,7 @@ class TestTimeSlicedResults(TestCase):
             ]
         )
 
-        list(time_sliced_results(runner, limit=100, order_by_earliest=order_by_earliest, make_runner=make_runner))
+        list(time_sliced_results(runner, order_by_earliest=order_by_earliest, make_runner=make_runner))
 
         self.assertEqual(len(created_ranges), 2)
         slice_range = created_ranges[0]
@@ -219,11 +225,7 @@ class TestTimeSlicedResults(TestCase):
         make_runner, _ = self._make_runner_factory([])
         props = {"source": "test"}
 
-        list(
-            time_sliced_results(
-                runner, limit=100, order_by_earliest=False, make_runner=make_runner, analytics_props=props
-            )
-        )
+        list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, analytics_props=props))
 
         run_mock.assert_called_once()
         _, kwargs = run_mock.call_args

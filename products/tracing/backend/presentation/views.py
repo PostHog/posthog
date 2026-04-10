@@ -96,7 +96,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         results = list(
             time_sliced_results(
                 runner=TraceSpansQueryRunner(spans_query, self.team),
-                limit=requested_limit + 1,
                 order_by_earliest=order_by == "earliest",
                 make_runner=make_runner,
             )

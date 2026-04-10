@@ -243,7 +243,6 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             results = list(
                 time_sliced_results(
                     runner=LogsQueryRunner(query, self.team),
-                    limit=logs_query_params["limit"],
                     order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                     make_runner=make_runner,
                     analytics_props=analytics_props,
