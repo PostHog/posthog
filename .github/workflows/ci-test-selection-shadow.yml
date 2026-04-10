@@ -33,11 +33,10 @@ jobs:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   git fetch --no-tags origin "$BASE_SHA"
-                  CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD | tr '\n' ' ')
                   echo "### Changed files" >&2
-                  echo "$CHANGED" | tr ' ' '\n' >&2
+                  git diff --name-only "$BASE_SHA"...HEAD >&2
 
-                  RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>/dev/stderr | tail -1)
+                  RESULT=$(git diff --name-only "$BASE_SHA"...HEAD | uv run bin/find_affected_tests.py --stdin 2>/dev/stderr | tail -1)
                   echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
             - name: Write job summary
