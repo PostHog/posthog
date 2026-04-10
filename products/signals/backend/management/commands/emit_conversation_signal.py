@@ -14,6 +14,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from posthog.models import Team
 from posthog.models.comment import Comment
@@ -186,6 +187,8 @@ class Command(BaseCommand):
                 item_id=str(ticket.id),
                 deleted=False,
             )
+            # Exclude private notes and AI drafts (mirrors widget.py / suggest.py semantics)
+            .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
             .order_by("created_at")
             .values_list("content", "item_context")
         )

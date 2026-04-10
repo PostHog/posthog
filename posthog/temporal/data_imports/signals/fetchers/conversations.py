@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import CharField, Exists, OuterRef
+from django.db.models import CharField, Exists, OuterRef, Q
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -65,6 +65,8 @@ def conversations_ticket_fetcher(
             item_id__in=[str(tid) for tid in ticket_ids],
             deleted=False,
         )
+        # Exclude private notes and AI drafts (mirrors widget.py / suggest.py semantics)
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
         .order_by("created_at")
         .values_list("item_id", "content", "item_context")
     )
