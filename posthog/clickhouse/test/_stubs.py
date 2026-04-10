@@ -120,6 +120,18 @@ def _install() -> None:
         "HostInfo",
         ["connection_info", "shard_num", "replica_num", "host_cluster_type", "host_cluster_role"],
     )
+    # _CLUSTER_REGISTRY is needed by state_diff._resolve_physical_cluster.
+    # Mirrors the real registry in posthog/clickhouse/cluster.py — maps YAML
+    # logical names to (host_attr, cluster_attr) tuples.
+    fake_cluster._CLUSTER_REGISTRY = {  # type: ignore[attr-defined]
+        "main": ("CLICKHOUSE_HOST", "CLICKHOUSE_CLUSTER"),
+        "logs": ("CLICKHOUSE_LOGS_CLUSTER_HOST", "CLICKHOUSE_LOGS_CLUSTER"),
+        "migrations": ("CLICKHOUSE_MIGRATIONS_HOST", "CLICKHOUSE_MIGRATIONS_CLUSTER"),
+        "sessions": ("CLICKHOUSE_HOST", "CLICKHOUSE_SESSIONS_CLUSTER"),
+        "ops": ("CLICKHOUSE_HOST", "CLICKHOUSE_OPS_CLUSTER"),
+        "ai_events": ("CLICKHOUSE_HOST", "CLICKHOUSE_AI_EVENTS_CLUSTER"),
+        "aux": ("CLICKHOUSE_HOST", "CLICKHOUSE_AUX_CLUSTER"),
+    }
     sys.modules.setdefault("posthog.clickhouse.cluster", fake_cluster)
 
     # infi.clickhouse_orm
@@ -187,6 +199,11 @@ def _install() -> None:
             CLICKHOUSE_LOGS_CLUSTER="posthog_single_shard",
             CLICKHOUSE_MIGRATIONS_HOST="localhost",
             CLICKHOUSE_MIGRATIONS_CLUSTER="posthog_migrations",
+            # Satellite cluster names resolved by _CLUSTER_REGISTRY via state_diff
+            CLICKHOUSE_SESSIONS_CLUSTER="posthog_sessions",
+            CLICKHOUSE_OPS_CLUSTER="posthog_ops",
+            CLICKHOUSE_AI_EVENTS_CLUSTER="posthog_ai_events",
+            CLICKHOUSE_AUX_CLUSTER="posthog_aux",
         )
         sys.modules["django.conf"].settings = settings_ns  # type: ignore[attr-defined]
 

@@ -32,6 +32,26 @@ _SETTINGS_RESOLUTION: dict[str, str] = {
 }
 
 
+def _resolve_physical_cluster(logical_name: str) -> str:
+    """Resolve a YAML logical cluster name to the physical CH cluster name.
+
+    Uses _CLUSTER_REGISTRY from cluster.py to map logical names (e.g. 'main')
+    to Django settings attrs (e.g. 'CLICKHOUSE_CLUSTER'), then reads the
+    setting value. Unknown names pass through unchanged so the eventual CH
+    error (CLUSTER_DOESNT_EXIST) still surfaces as the signal to fix the YAML.
+
+    Needed because the dev stack's physical cluster is 'posthog_migrations'
+    while production uses 'main' — same YAML, different CH cluster name.
+    """
+    from posthog.clickhouse.cluster import _CLUSTER_REGISTRY
+
+    entry = _CLUSTER_REGISTRY.get(logical_name)
+    if entry is None:
+        return logical_name
+    _host_attr, cluster_attr = entry
+    return getattr(django_settings, cluster_attr, logical_name)
+
+
 def _resolve_setting(key: str) -> str:
     """Resolve a __from_settings__ sentinel to its Django settings value."""
     attr = _SETTINGS_RESOLUTION.get(key)
@@ -128,10 +148,11 @@ def _generate_create_sql(
     if _is_distributed(table.engine):
         source = table.source or ""
         sharding = table.sharding_key or "rand()"
+        physical_cluster = _resolve_physical_cluster(cluster)
         return (
             f"CREATE TABLE IF NOT EXISTS {database}.{table.name}\n"
             f"(\n{cols}\n"
-            f") ENGINE = Distributed('{cluster}', '{database}', '{source}', {sharding})"
+            f") ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
         )
 
     if _is_kafka(table.engine):

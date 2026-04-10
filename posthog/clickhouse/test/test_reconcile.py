@@ -978,6 +978,62 @@ class TestReplicatedEngineExplicitZkPath(unittest.TestCase):
         self.assertNotIn("{replica}", sql)
 
 
+class TestDistributedClusterResolution(unittest.TestCase):
+    """Regression tests for the P1 Distributed cluster name mismatch found in
+    Round 4 e2e (2026-04-10). Before the fix, `_generate_create_sql` embedded
+    the YAML logical cluster name (e.g. 'main') directly into the Distributed
+    engine SQL. On dev stacks where the physical CH cluster is named
+    'posthog_migrations' (not 'main'), apply failed with:
+        Code: 701. DB::Exception: Requested cluster 'main' not found.
+    The fix resolves logical -> physical cluster name via _CLUSTER_REGISTRY.
+    """
+
+    def test_distributed_uses_physical_cluster_name(self) -> None:
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = DesiredTable(
+            name="events_dist",
+            engine="Distributed",
+            columns=[ColumnDef(name="id", type="UUID")],
+            on_nodes=["ALL"],
+            source="sharded_events",
+            sharding_key="cityHash64(distinct_id)",
+        )
+        sql = _generate_create_sql(table, database="posthog", cluster="main")
+        # 'main' should resolve to settings.CLICKHOUSE_CLUSTER (test stub: 'posthog')
+        self.assertIn("Distributed('posthog',", sql)
+        self.assertNotIn("Distributed('main',", sql)
+
+    def test_distributed_unknown_cluster_passes_through(self) -> None:
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = DesiredTable(
+            name="events_dist",
+            engine="Distributed",
+            columns=[ColumnDef(name="id", type="UUID")],
+            on_nodes=["ALL"],
+            source="sharded_events",
+            sharding_key="rand()",
+        )
+        sql = _generate_create_sql(table, database="posthog", cluster="unknown_thing")
+        self.assertIn("Distributed('unknown_thing',", sql)
+
+    def test_distributed_satellite_cluster_resolves(self) -> None:
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = DesiredTable(
+            name="sessions_dist",
+            engine="Distributed",
+            columns=[ColumnDef(name="id", type="UUID")],
+            on_nodes=["ALL"],
+            source="sharded_sessions",
+            sharding_key="rand()",
+        )
+        sql = _generate_create_sql(table, database="posthog", cluster="sessions")
+        # 'sessions' should resolve to CLICKHOUSE_SESSIONS_CLUSTER (test stub: 'posthog_sessions')
+        self.assertIn("Distributed('posthog_sessions',", sql)
+
+
 class TestKafkaRecreateWarning(unittest.TestCase):
     """Tests for High #2 fix: Kafka DROP+CREATE operator warning."""
 
