@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-09 20:13:58 UTC
+// Generated at: 2026-04-10 20:08:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
-    | 'arcee-ai-bf16'
     | 'arcee-ai-prime'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'

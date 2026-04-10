@@ -166,6 +166,33 @@ pnpm build
 pnpm storybook
 ```
 
+## Publishing
+
+Quill is published to npm via a manually triggered GitHub Actions workflow: [`.github/workflows/publish-quill-npm.yml`](../../.github/workflows/publish-quill-npm.yml).
+
+The umbrella `@posthog/quill` package is private — only the four sub-packages under `packages/quill/packages/*` are published:
+
+- `@posthog/quill-tokens`
+- `@posthog/quill-primitives`
+- `@posthog/quill-components`
+- `@posthog/quill-blocks`
+
+### How it works
+
+1. **Trigger** — `workflow_dispatch` only. A maintainer runs "Publish Quill npm packages" from the Actions tab and picks an npm dist-tag (`alpha` or `latest`).
+2. **Auth** — runs under the `Release` GitHub environment with `id-token: write`, publishing with npm provenance (`NPM_CONFIG_PROVENANCE: true`) via OIDC trusted publishing — no long-lived npm token.
+3. **Build** — installs the quill workspace with pnpm and runs `pnpm quill:build` (fans out to each sub-package's `vite build`).
+4. **Publish** — loops over the four sub-packages in dependency order and runs `pnpm --filter "@posthog/$pkg" publish --tag "$NPM_TAG" --no-git-checks --access public`. Each sub-package declares `"publishConfig": { "access": "public" }` and ships `src` + `dist`.
+5. **Notify** — posts success/failure and the published versions to the client-libraries Slack channel.
+
+### Versioning
+
+There's no changesets or semantic-release setup — versions are bumped manually. To cut a release:
+
+1. Bump `version` in each of the four sub-package `package.json` files.
+2. Merge to `master`.
+3. Go to Actions → "Publish Quill npm packages" → Run workflow → pick `alpha` or `latest`.
+
 ## Component checklist
 
 - [x] Tokens (colors, shadows, spacing, typography)
