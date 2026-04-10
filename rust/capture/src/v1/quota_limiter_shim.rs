@@ -109,6 +109,7 @@ mod tests {
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
+    use crate::v1::test_utils::events_map;
 
     fn test_config() -> Config {
         Config {
@@ -207,6 +208,7 @@ mod tests {
                 pyroscope_application_name: String::new(),
                 pyroscope_sample_rate: 100,
             },
+            capture_v1_sinks: String::new(),
         }
     }
 
@@ -277,13 +279,6 @@ mod tests {
             destination: Destination::AnalyticsMain,
             skip_person_processing: false,
         }
-    }
-
-    fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
-        events
-            .into_iter()
-            .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
-            .collect()
     }
 
     fn ok_event_names(events: &HashMap<Uuid, WrappedEvent>) -> Vec<&str> {
