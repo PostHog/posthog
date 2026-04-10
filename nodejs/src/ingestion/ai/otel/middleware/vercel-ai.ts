@@ -153,10 +153,10 @@ function process(event: PluginEvent, next: () => void): void {
     }
 
     const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
-    if (props['posthog_distinct_id'] === undefined && posthogDistinctId !== undefined) {
-        props['posthog_distinct_id'] = posthogDistinctId
-    }
-    if (typeof posthogDistinctId === 'string' && posthogDistinctId !== '') {
+    if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
+        if (!props['posthog_distinct_id']) {
+            props['posthog_distinct_id'] = posthogDistinctId
+        }
         event.distinct_id = posthogDistinctId
     }
 
