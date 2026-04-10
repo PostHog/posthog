@@ -34,7 +34,6 @@ export function sanitizeEventName(eventName: any): string {
     return eventName.substr(0, 200)
 }
 
-
 export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
