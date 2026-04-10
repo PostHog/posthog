@@ -1040,15 +1040,65 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["success"], True)
         self.assertEqual(response.json()["code"], "TEST-CODE-123")
-        mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"})
+        mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"}, authorizer_actor=None)
 
-    def test_claim_coupon_non_admin_failure(self):
+    def test_claim_coupon_non_admin_code_failure(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(self.url, self.data)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_claim_coupon_non_admin_disallowed_campaign_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, {"campaign_slug": "not-in-allowed-list"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_non_admin_allowed_campaign_success(self, mock_claim_coupon):
+        # Create an owner for privilege escalation
+        from posthog.models import User
+
+        owner = User.objects.create_and_join(
+            self.organization, "owner@posthog.com", "password", level=OrganizationMembership.Level.OWNER
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        mock_claim_coupon.return_value = {"success": True, "campaign": "Hesoyam"}
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], True)
+        mock_claim_coupon.assert_called_once_with(
+            self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=owner
+        )
+
+    def test_claim_coupon_non_admin_allowed_campaign_no_owner_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_admin_campaign_no_escalation(self, mock_claim_coupon):
+        mock_claim_coupon.return_value = {"success": True, "campaign": "Hesoyam"}
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Admin users don't need privilege escalation
+        mock_claim_coupon.assert_called_once_with(
+            self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=None
+        )
 
     def test_claim_coupon_missing_code(self):
         empty_data: dict[str, Any] = {}

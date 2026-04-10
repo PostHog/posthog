@@ -31,6 +31,13 @@ logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
+# Campaign slugs that any org member can claim (not just admins).
+# For these campaigns, we do privilege escalation using the org owner
+# so the billing service JWT has an admin-level role.
+CAMPAIGNS_CLAIMABLE_BY_ANY_MEMBER: set[str] = {
+    "hesoyam",
+}
+
 
 class IsOrganizationAdmin(permissions.BasePermission):
     """
@@ -486,7 +493,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -498,12 +505,36 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if code and campaign_slug:
             raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
 
+        is_admin = OrganizationMembership.objects.filter(
+            user=request.user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists()
+
+        # Non-admin users can only claim specific campaigns, not arbitrary coupon codes
+        if not is_admin:
+            if code or campaign_slug not in CAMPAIGNS_CLAIMABLE_BY_ANY_MEMBER:
+                raise PermissionDenied("You must be an organization admin to claim this coupon.")
+
         payload = {"code": code} if code else {"campaign_slug": campaign_slug}
+
+        # For non-admin users claiming allowed campaigns, escalate privilege
+        # using the org owner so the billing service JWT has admin role
+        authorizer_actor = None
+        if not is_admin:
+            first_owner_membership = (
+                OrganizationMembership.objects.filter(
+                    organization=organization, level=OrganizationMembership.Level.OWNER
+                )
+                .order_by("-joined_at")
+                .first()
+            )
+            if not first_owner_membership:
+                raise PermissionDenied("Organization has no owner to authorize this claim.")
+            authorizer_actor = first_owner_membership.user
 
         billing_manager = self.get_billing_manager()
 
         try:
-            res = billing_manager.claim_coupon(organization, payload)
+            res = billing_manager.claim_coupon(organization, payload, authorizer_actor=authorizer_actor)
             if campaign_slug:
                 report_user_action(
                     request.user,
