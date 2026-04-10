@@ -198,9 +198,29 @@ class FunnelDWValidator:
         if not has_dw_steps:
             return
 
-        # Block DW funnels entirely until implementation is complete
-        # This prevents valid DW configurations from hitting NotImplementedError at query time
-        errors["not_implemented"] = (
-            "Datawarehouse funnel steps are not yet supported. This feature is under active development."
-        )
-        raise ValidationError(errors)
+        # 1. Validate required fields for each DW step
+        field_errors: list[str] = []
+        for i, step in enumerate(metric.series):
+            if isinstance(step, ExperimentDataWarehouseNode):
+                step_errors = cls.validate_required_fields(step, i + 1)
+                field_errors.extend(step_errors)
+
+        if field_errors:
+            errors["datawarehouse_configuration"] = field_errors
+            errors["help"] = "All DW steps need table name, timestamp field, and join keys configured."
+            # Early return - downstream checks are unreliable with missing fields
+            raise ValidationError(errors)
+
+        # 2. Validate join key consistency
+        join_key_error = cls.validate_consistent_join_keys(metric)
+        if join_key_error:
+            errors.update(join_key_error)
+
+        # 3. Validate complexity limits
+        complexity_error = cls.validate_complexity_limits(metric)
+        if complexity_error:
+            errors.update(complexity_error)
+
+        # Raise if any errors found
+        if errors:
+            raise ValidationError(errors)
