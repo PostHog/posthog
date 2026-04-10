@@ -856,6 +856,10 @@ export interface ExportedAssetApi {
     readonly expires_after: string | null
     /** @nullable */
     readonly exception: string | null
+    /** @nullable */
+    readonly exception_type: string | null
+    /** @nullable */
+    readonly failure_type: string | null
 }
 
 export interface PaginatedExportedAssetListApi {
