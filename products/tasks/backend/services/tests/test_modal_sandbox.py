@@ -7,8 +7,10 @@ from requests.exceptions import ConnectionError, Timeout
 
 from products.tasks.backend.services.modal_sandbox import (
     AGENT_SERVER_PORT,
+    DEFAULT_MODAL_REGION,
     SANDBOX_IMAGE,
     ModalSandbox,
+    _get_modal_region,
     _get_sandbox_image_reference,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
@@ -124,6 +126,22 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestGetModalRegion:
+    @pytest.mark.parametrize(
+        "cloud_deployment,expected_region",
+        [
+            ("EU", "eu-central-1"),
+            ("US", "us-east-1"),
+            ("DEV", DEFAULT_MODAL_REGION),
+            (None, DEFAULT_MODAL_REGION),
+            ("LOCAL", DEFAULT_MODAL_REGION),
+        ],
+    )
+    def test_returns_correct_region(self, cloud_deployment, expected_region):
+        with patch("products.tasks.backend.services.modal_sandbox.CLOUD_DEPLOYMENT", cloud_deployment):
+            assert _get_modal_region() == expected_region
 
 
 class TestModalSandboxAgentServer:

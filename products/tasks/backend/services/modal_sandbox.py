@@ -20,6 +20,7 @@ import modal
 import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
@@ -54,6 +55,19 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+
+# Modal region mapping based on cloud deployment
+MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
+    "EU": "eu-central-1",
+    "US": "us-east-1",
+}
+DEFAULT_MODAL_REGION = "us-east-1"
+
+
+def _get_modal_region() -> str:
+    return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
 LOCAL_BUILT_SKILLS_PATH = Path("products/posthog_ai/dist/skills")
 LOCAL_SOURCE_SKILLS_PATHS = (Path(".agents/skills"), Path("products/posthog_ai/skills"))
 LOCAL_MODAL_DOCKERFILES = {
@@ -270,6 +284,8 @@ class ModalSandbox:
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
+            region = _get_modal_region()
+
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
@@ -277,6 +293,7 @@ class ModalSandbox:
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
                 "memory": int(config.memory_gb * 1024),
+                "region": region,
                 "verbose": True,
             }
 
