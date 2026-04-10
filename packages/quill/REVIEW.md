@@ -88,7 +88,7 @@ Use this file as a backlog. Check things off as they land.
       `packages/quill/packages/quill` workspace member holds the public
       surface and re-exports primitives / components / blocks through a
       single `src/index.ts`. Consumers `import { Button } from
-    '@posthog/quill'`. The old `packages/quill/package.json` umbrella
+'@posthog/quill'`. The old `packages/quill/package.json` umbrella
       was renamed from `@posthog/quill` to `@posthog/quill-workspace`
       (private) so the name is free for the aggregate. The
       `@posthog/quill-primitives`, `@posthog/quill-components`, and
