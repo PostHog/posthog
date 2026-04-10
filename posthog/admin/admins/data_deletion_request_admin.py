@@ -22,6 +22,17 @@ def _build_event_filter(obj) -> tuple[str, dict]:
     }
 
 
+def _jsonhas_expr(prop: str, param_prefix: str) -> str:
+    """Build a JSONHas expression for a property path.
+
+    Splits dotted names so ``"sub.prop"`` becomes
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
+    """
+    parts = prop.split(".")
+    args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
+    return f"JSONHas(properties, {args})"
+
+
 def _build_property_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause addition and params for matching properties."""
     params: dict = {
@@ -30,12 +41,17 @@ def _build_property_filter(obj) -> tuple[str, dict]:
         "end_time": obj.end_time,
         "events": obj.events,
     }
-    if len(obj.properties) == 1:
-        filter_clause = "AND JSONHas(properties, %(property)s)"
-        params["property"] = obj.properties[0]
+    properties = obj.properties
+    if len(properties) == 1:
+        filter_clause = f"AND {_jsonhas_expr(properties[0], 'fp_0')}"
     else:
-        filter_clause = "AND hasAny(JSONExtractKeys(properties), %(properties)s)"
-        params["properties"] = obj.properties
+        exprs = [_jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+        filter_clause = f"AND ({' OR '.join(exprs)})"
+
+    for i, prop in enumerate(properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+
     return filter_clause, params
 
 

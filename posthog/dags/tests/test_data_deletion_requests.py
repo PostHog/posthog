@@ -437,3 +437,110 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
 
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_subfield_only(cluster: ClickhouseCluster):
+    """Property removal with ONLY dotted subfield properties (no top-level fallback)."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    target_props = json.dumps(
+        {
+            "keep": "yes",
+            "sub": {"prop": "value", "other": "keep"},
+            "sub2": {"a": "b", "c": "d"},
+        }
+    )
+    no_target_props = json.dumps({"keep": "yes", "other": "value"})
+
+    target_events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), target_props) for i in range(30)]
+    control_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), no_target_props) for i in range(20)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_properties, target_events + control_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["sub.prop", "sub2.a"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 50
+
+    pageview_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    for props in pageview_props:
+        assert "prop" not in props.get("sub", {}), f"sub.prop should be removed, got {props}"
+        assert "a" not in props.get("sub2", {}), f"sub2.a should be removed, got {props}"
+        assert "keep" in props, f"keep should be preserved, got {props}"
+        if "sub" in props:
+            assert "other" in props["sub"], f"sub.other should be preserved, got {props}"
+        if "sub2" in props:
+            assert "c" in props["sub2"], f"sub2.c should be preserved, got {props}"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_single_subfield_only(cluster: ClickhouseCluster):
+    """Property removal with a single dotted subfield property."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    props = json.dumps({"keep": "yes", "nested": {"secret": "value", "visible": "ok"}})
+    events = [(PROP_TEAM_ID, "custom_event", uuid4(), now - timedelta(hours=i), props) for i in range(20)]
+
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["custom_event"],
+        properties=["nested.secret"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "custom_event")).result()
+    for event_props in all_props:
+        assert "secret" not in event_props.get("nested", {}), f"nested.secret should be removed, got {event_props}"
+        assert event_props.get("nested", {}).get("visible") == "ok", (
+            f"nested.visible should be preserved, got {event_props}"
+        )
+        assert "keep" in event_props, f"keep should be preserved, got {event_props}"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED

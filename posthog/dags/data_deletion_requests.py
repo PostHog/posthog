@@ -44,16 +44,30 @@ def _temp_table_name(team_id: int, request_id: str) -> str:
     return f"tmp_dag_team_{team_id}_prop_rm_{request_id[:8]}"
 
 
+def _jsonhas_expr(prop: str, param_prefix: str) -> str:
+    """Build a JSONHas expression for a property path.
+
+    Splits dotted names so ``"sub.prop"`` becomes
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
+    """
+    parts = prop.split(".")
+    args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
+    return f"JSONHas(properties, {args})"
+
+
 def _property_filter_clause(properties: list[str]) -> str:
     if len(properties) == 1:
-        return "JSONHas(properties, %(filter_property)s)"
-    return "hasAny(JSONExtractKeys(properties), %(filter_properties)s)"
+        return _jsonhas_expr(properties[0], "fp_0")
+    exprs = [_jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+    return f"({' OR '.join(exprs)})"
 
 
 def _property_filter_params(properties: list[str]) -> dict:
-    if len(properties) == 1:
-        return {"filter_property": properties[0]}
-    return {"filter_properties": properties}
+    params: dict[str, str] = {}
+    for i, prop in enumerate(properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+    return params
 
 
 def _base_params(ctx: DeletionRequestContext) -> dict:
