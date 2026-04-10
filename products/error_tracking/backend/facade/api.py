@@ -20,6 +20,7 @@ from .contracts import (
     ErrorTrackingIssueAssignmentContract,
     ErrorTrackingIssueContract,
     ErrorTrackingIssueFingerprintContract,
+    ErrorTrackingRemoteConfigContract,
     ErrorTrackingWeeklyDigestProjectContract,
     IssueSummary,
     TeamCountContract,
@@ -245,10 +246,30 @@ def get_client_safe_suppression_rules(team: Team) -> list[dict]:
     return get_client_safe_suppression_rules(team)
 
 
-def build_remote_config(team: Team) -> dict:
+def build_remote_config(team: Team) -> ErrorTrackingRemoteConfigContract:
+    """Return the typed Error tracking remote config contract for a team.
+
+    Consumers that need to serialize this to the SDK-facing JSON payload should
+    call :func:`build_remote_config_payload` instead — it returns the exact
+    camelCase dict shape the SDK parses.
+    """
+    return ErrorTrackingRemoteConfigContract(
+        autocapture_exceptions=bool(team.autocapture_exceptions_opt_in),
+        suppression_rules=get_client_safe_suppression_rules(team),
+    )
+
+
+def build_remote_config_payload(team: Team) -> dict:
+    """Return the byte-stable Error tracking block of the /decide remote config.
+
+    This is the exact dict shape the PostHog SDKs parse. Keep keys in
+    camelCase and the structure byte-identical — wire-format regressions here
+    are user-visible SDK breakages.
+    """
+    contract = build_remote_config(team)
     return {
-        "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
-        "suppressionRules": get_client_safe_suppression_rules(team),
+        "autocaptureExceptions": contract.autocapture_exceptions,
+        "suppressionRules": contract.suppression_rules,
     }
 
 

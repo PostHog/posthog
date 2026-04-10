@@ -41,6 +41,13 @@
             },
             "frozen": true
         },
+        "ErrorTrackingRemoteConfigContract": {
+            "fields": {
+                "autocapture_exceptions": "<class 'bool'>",
+                "suppression_rules": "list[dict[str, typing.Any]]"
+            },
+            "frozen": true
+        },
         "ErrorTrackingWeeklyDigestProjectContract": {
             "fields": {
                 "crash_free": "<class 'dict'>",
@@ -142,6 +149,16 @@
             "return": "str"
         },
         "build_remote_config": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingRemoteConfigContract"
+        },
+        "build_remote_config_payload": {
             "parameters": {
                 "team": {
                     "annotation": "Team",

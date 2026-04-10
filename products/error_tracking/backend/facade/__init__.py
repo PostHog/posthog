@@ -2,6 +2,7 @@ from importlib import import_module
 from typing import Any
 
 __all__ = [
+    "ErrorTrackingRemoteConfigContract",
     "ErrorTrackingWeeklyDigestProjectContract",
     "ErrorTrackingIssueAssignmentContract",
     "ErrorTrackingIssueContract",
@@ -14,6 +15,7 @@ __all__ = [
     "auto_select_project_for_user",
     "build_ingestion_failures_url",
     "build_remote_config",
+    "build_remote_config_payload",
     "compute_week_over_week_change",
     "count_issues_created_since",
     "count_issues_for_team",
@@ -42,6 +44,7 @@ __all__ = [
 ]
 
 _CONTRACT_EXPORTS = {
+    "ErrorTrackingRemoteConfigContract",
     "ErrorTrackingWeeklyDigestProjectContract",
     "ErrorTrackingIssueAssignmentContract",
     "ErrorTrackingIssueContract",
