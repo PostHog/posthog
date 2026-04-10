@@ -458,7 +458,7 @@ def user_phase() -> None:
     lock = WORKSPACE / "bin/start.lock"
     lock.unlink(missing_ok=True)
 
-    os.execvp("tmux", ["tmux", "-L", "sandbox", "new-session", "-s", "posthog", "bin/start --phrocs"])
+    os.execvp("tmux", ["tmux", "-L", "sandbox", "new-session", "-d", "-s", "posthog", "bin/start --phrocs"])
 
 
 # ---------------------------------------------------------------------------
