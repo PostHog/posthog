@@ -57,6 +57,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.services.customerio_sync_service import push_unsubscribe_to_customerio
 
 logger = structlog.get_logger(__name__)
 
@@ -475,6 +476,23 @@ def api_key_search_view(request: HttpRequest):
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
+def _sync_unsubscribe_to_customerio_if_needed(team_id: int, identifier: str, all_opted_out: bool) -> None:
+    """Fire-and-forget outbound sync to Customer.io.
+
+    Only pushes when the recipient is globally opted out ($all = OPTED_OUT); we deliberately
+    do not sync category-specific toggles because Customer.io models those under a different
+    primitive (``cio_subscription_preferences`` topic IDs) which would require a mapping that
+    already exists only in the opposite direction.
+    """
+    if not all_opted_out:
+        return
+    try:
+        push_unsubscribe_to_customerio(team_id=team_id, identifier=identifier)
+    except Exception as e:
+        # Never let sync failures surface to the recipient.
+        capture_exception(e)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
@@ -508,6 +526,10 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
         recipient.preferences = preferences_dict
         recipient.save(update_fields=["preferences"])
+
+        # Mirror the opt-out to Customer.io so campaigns still sending from there also
+        # respect it. Best-effort — we never block the local unsubscribe on external sync.
+        _sync_unsubscribe_to_customerio_if_needed(team_id=team_id, identifier=identifier, all_opted_out=True)
 
         if request.method == "POST":
             return HttpResponse(status=200)
@@ -601,6 +623,12 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
         recipient.save()
+
+        _sync_unsubscribe_to_customerio_if_needed(
+            team_id=team_id,
+            identifier=identifier,
+            all_opted_out=all_opted_out and bool(preferences_dict),
+        )
 
         return JsonResponse({"success": True})
 

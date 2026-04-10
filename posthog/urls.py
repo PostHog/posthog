@@ -48,6 +48,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.messaging.backend.api.customerio_webhook import customerio_webhook
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.slack_app.backend.api import (
@@ -314,6 +315,12 @@ urlpatterns = [
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
+    # Incoming Customer.io reporting webhook (unsubscribe sync)
+    path(
+        "webhooks/customerio/<int:team_id>/",
+        customerio_webhook,
+        name="customerio_webhook",
+    ),
 ]
 
 if settings.DEBUG:

@@ -2,6 +2,7 @@ import logging
 from typing import Any, Optional
 
 import requests
+from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
 
@@ -99,3 +100,62 @@ class CustomerIOClient:
             elif "403" in str(e):
                 logger.exception("Authorization failed - the API key may not have the required permissions")
             return False
+
+
+class CustomerIOTrackClient:
+    """Client for Customer.io Track API — used to push attribute updates (identify) such as
+    setting the global ``unsubscribed`` flag on a person. The Track API is a separate product
+    from the App API (different host, different credentials: Basic auth with Site ID + Track
+    API Key).
+
+    Docs: https://docs.customer.io/integrations/api/track/
+    """
+
+    US_BASE_URL = "https://track.customer.io/api/v1"
+    EU_BASE_URL = "https://track-eu.customer.io/api/v1"
+
+    def __init__(self, site_id: str, track_api_key: str, region: str = "us", timeout: int = 15):
+        self.site_id = site_id
+        self.track_api_key = track_api_key
+        self.timeout = timeout
+        self.BASE_URL = self.EU_BASE_URL if region.lower() == "eu" else self.US_BASE_URL
+        self.session = requests.Session()
+        self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
+
+    def _request(self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        url = f"{self.BASE_URL}{endpoint}"
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                json=json_data,
+                auth=HTTPBasicAuth(self.site_id, self.track_api_key),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            if response.status_code == 204 or not response.content:
+                return {}
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            # Do NOT include response body in the log message to avoid leaking any sensitive fields.
+            logger.exception(f"Customer.io Track API request failed. Status: {status_code}")
+            raise CustomerIOAPIError(f"Customer.io Track API HTTP error: status={status_code}")
+        except requests.exceptions.RequestException as e:
+            raise CustomerIOAPIError(f"Customer.io Track API request failed: {e}")
+
+    def set_unsubscribed(self, identifier: str, unsubscribed: bool = True) -> None:
+        """Set the global ``unsubscribed`` attribute on a person in Customer.io.
+
+        ``identifier`` is whatever uniquely identifies the person in the workspace — typically
+        the email address (when the workspace is configured to identify people by email) or
+        the internal ``id``. Customer.io treats a missing person as a create.
+        """
+        if not identifier:
+            raise ValueError("identifier is required to set unsubscribed in Customer.io")
+        # URL-encode the identifier defensively — emails contain characters like '@' that are
+        # generally safe in path segments but we pass through requests' quoting to be safe.
+        from urllib.parse import quote
+
+        encoded = quote(identifier, safe="")
+        self._request("PUT", f"/customers/{encoded}", json_data={"unsubscribed": bool(unsubscribed)})

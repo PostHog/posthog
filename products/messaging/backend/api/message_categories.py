@@ -5,9 +5,11 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.integration import Integration
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
+from products.messaging.backend.services.customerio_sync_service import CUSTOMERIO_INTEGRATION_KIND, get_sync_config
 
 
 class MessageCategorySerializer(serializers.ModelSerializer):
@@ -54,6 +56,33 @@ class CustomerIOImportSerializer(serializers.Serializer):
     app_api_key = serializers.CharField(required=True, help_text="Customer.io App API Key")
 
 
+class CustomerIOSyncConfigSerializer(serializers.Serializer):
+    """Serializer for configuring bi-directional Customer.io unsubscribe sync.
+
+    All fields are optional on update — only provided fields are overwritten so the caller
+    can e.g. rotate the webhook secret without re-submitting the Track API key.
+    """
+
+    site_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Customer.io Site ID (Settings > API Credentials > Track API Keys)",
+    )
+    track_api_key = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        write_only=True,
+        help_text="Customer.io Track API Key — used to push outbound unsubscribes",
+    )
+    webhook_signing_secret = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        write_only=True,
+        help_text="Shared secret used to sign incoming Customer.io reporting webhooks",
+    )
+    region = serializers.ChoiceField(choices=["us", "eu"], required=False, default="us")
+
+
 class MessageCategoryViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -88,6 +117,80 @@ class MessageCategoryViewSet(
 
         # Return the result directly
         return Response(result, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get", "post"], url_path="customerio_sync")
+    def customerio_sync(self, request, **kwargs):
+        """Read or update the Customer.io sync configuration for the current team.
+
+        GET returns the non-sensitive fields of the configuration (if any) and whether
+        outbound/inbound sync are enabled. POST creates or updates the stored credentials.
+
+        Credentials are stored on the shared ``Integration`` model with ``kind="customerio"``
+        so they share the same encrypted-at-rest storage as other third-party integrations.
+        """
+        if request.method == "GET":
+            config = get_sync_config(self.team.id)
+            if config is None:
+                return Response(
+                    {"configured": False, "outbound_enabled": False, "webhook_configured": False},
+                    status=status.HTTP_200_OK,
+                )
+            return Response(
+                {
+                    "configured": True,
+                    "site_id": config.site_id,
+                    "region": config.region,
+                    "outbound_enabled": config.outbound_enabled,
+                    "webhook_configured": bool(config.webhook_signing_secret),
+                    "webhook_url": request.build_absolute_uri(f"/webhooks/customerio/{self.team.id}/"),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = CustomerIOSyncConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        integration, _ = Integration.objects.get_or_create(
+            team_id=self.team.id,
+            kind=CUSTOMERIO_INTEGRATION_KIND,
+            integration_id=None,
+            defaults={
+                "config": {},
+                "sensitive_config": {},
+                "created_by": request.user,
+            },
+        )
+        # Only overwrite fields that were supplied in the request — this lets callers
+        # rotate a single credential without re-sending the others.
+        config_updates: dict = {}
+        if "site_id" in data:
+            config_updates["site_id"] = data["site_id"]
+        if "region" in data:
+            config_updates["region"] = data["region"]
+        if config_updates:
+            integration.config = {**(integration.config or {}), **config_updates}
+
+        sensitive_updates: dict = {}
+        if "track_api_key" in data:
+            sensitive_updates["track_api_key"] = data["track_api_key"]
+        if "webhook_signing_secret" in data:
+            sensitive_updates["webhook_signing_secret"] = data["webhook_signing_secret"]
+        if sensitive_updates:
+            integration.sensitive_config = {**(integration.sensitive_config or {}), **sensitive_updates}
+
+        integration.save()
+
+        refreshed = get_sync_config(self.team.id)
+        response_body = {
+            "configured": True,
+            "site_id": refreshed.site_id if refreshed else None,
+            "region": refreshed.region if refreshed else "us",
+            "outbound_enabled": refreshed.outbound_enabled if refreshed else False,
+            "webhook_configured": bool(refreshed.webhook_signing_secret) if refreshed else False,
+            "webhook_url": request.build_absolute_uri(f"/webhooks/customerio/{self.team.id}/"),
+        }
+        return Response(response_body, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def import_preferences_csv(self, request, **kwargs):

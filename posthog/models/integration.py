@@ -124,6 +124,7 @@ class Integration(models.Model):
         JIRA = "jira"
         PINTEREST_ADS = "pinterest-ads"
         STRIPE = "stripe"
+        CUSTOMERIO = "customerio"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
