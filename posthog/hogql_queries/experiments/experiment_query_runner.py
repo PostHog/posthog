@@ -561,6 +561,20 @@ class ExperimentQueryRunner(QueryRunner):
         else:
             funnel_step_breakdown = funnel_step_breakdown_raw
 
+        # Add experiment-specific tags for monitoring and alerting
+        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
+        tag_queries(
+            product=Product.EXPERIMENTS,
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=feature_flag_key,
+            experiment_metric_uuid=self.metric.uuid,
+            experiment_metric_name=metric_name,
+            experiment_actors_query_step=funnel_step,
+            experiment_actors_query_variant=str(funnel_step_breakdown) if funnel_step_breakdown else "",
+            experiment_actors_query_includes_recordings=self.actors_query.includeRecordings or False,
+        )
+
         # Build the actors query using the same infrastructure as main query
         builder = ExperimentFunnelActorsQueryBuilder(
             team=self.team,
