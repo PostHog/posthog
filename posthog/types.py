@@ -39,6 +39,7 @@ from posthog.schema import (
     StickinessActorsQuery,
     StickinessQuery,
     TrendsQuery,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.models.filters.filter import Filter
@@ -75,6 +76,7 @@ type AnyPropertyFilter = Union[
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 ]
 
 type EntityNode = Union[

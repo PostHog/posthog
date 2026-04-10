@@ -108,18 +108,31 @@ class PriorityAssessment(BaseModel):
 
 class ReportPresentationOutput(BaseModel):
     title: str = Field(
-        description=(
-            "A PR-style title (max 70 chars) scoped to one concrete concern. "
-            "It should read like a pull request title that one engineer could ship."
-        ),
-        max_length=70,
+        description="""
+A PR-style title (max 70 chars) scoped to one concrete concern.
+It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
+Follow the Conventional Commits style (sentence-cased).
+If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
+- Good: fix(date-picker): Handle timezone conversion in insights
+- Good: feat(funnel): Add percentile options to Time to Convert
+- Bad: fix(funnel): various funnel improvements and bug fixes
+- Bad: multiple analytics issues
+        """,
+        max_length=72,  # Simply the same as GitHub's max commit name length before truncation, 2 chars for breathing room
     )
     summary: str = Field(
-        description=(
-            "A very short factual summary of the report in 1-3 sentences. "
-            "Focus on what the signals collectively indicate and what product area is affected. "
-            "Do not restate actionability or priority."
-        ),
+        description="""
+An Axios-style summary in four brief paragraphs:
+- A one-sentence "why it matters" tl;dr of the report.
+- '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
+- '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
+- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+
+Principles:
+- Be direct and specific. Every sentence must carry information.
+- No filler phrases ("various issues detected", "it's worth noting").
+- Bold the section labels exactly as shown above.
+"""
     )
 
     @field_validator("title", "summary")
@@ -132,7 +145,7 @@ class ReportPresentationOutput(BaseModel):
 
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
-    summary: str = Field(description="Generated short factual report summary.")
+    summary: str = Field(description="Generated factual report summary.")
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
@@ -254,6 +267,14 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
 
 _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
 Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
+
+<writing_guide>
+We use American English.
+We use the Oxford comma.
+We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
+When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
+We never use the em-dash, only the en-dash (–).
+</writing_guide>
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
@@ -437,20 +458,7 @@ def build_report_presentation_prompt(
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
-## Output goals
-
-- **Title**: a PR-style title (max 70 chars) scoped to one concrete concern.
-- If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
-- It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
-  - Good: "Fix date picker timezone handling in insights"
-  - Good: "Add percentile options to funnel Time to Convert"
-  - Bad: "Various funnel improvements and bug fixes"
-  - Bad: "Multiple analytics issues"
-
-- **Summary**: 1-3 short factual sentences explaining what the signals collectively indicate and what area of the product or codebase is involved.
-- Do **not** restate actionability, priority, urgency, or next steps unless they are part of the factual issue itself.
-- Keep the summary compact and information-dense.
-
+Style rules:
 {previous_presentation_context}
 
 Respond with a JSON object matching this schema:

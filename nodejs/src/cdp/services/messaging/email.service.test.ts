@@ -8,8 +8,32 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { EmailService, parseAddressList } from './email.service'
+import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+
+describe('sanitizeEmailSubject', () => {
+    it.each([
+        ['passes through normal text', 'Hello World', 'Hello World'],
+        ['strips null bytes', 'Hello\x00World', 'HelloWorld'],
+        ['replaces newlines with space', 'Hello\r\nWorld', 'Hello World'],
+        ['replaces lone CR with space', 'Hello\rWorld', 'Hello World'],
+        ['replaces lone LF with space', 'Hello\nWorld', 'Hello World'],
+        ['strips control chars (BEL, BS, ESC)', 'He\x07ll\x08o\x1BWorld', 'HelloWorld'],
+        ['strips DEL character', 'Hello\x7FWorld', 'HelloWorld'],
+        ['preserves horizontal tab', 'Hello\tWorld', 'Hello\tWorld'],
+        ['trims leading/trailing whitespace', '  Hello World  ', 'Hello World'],
+        [
+            'collapses multiple newlines into single space',
+            'Hello \\ \ goodbye rn\r\n\r\nn ¯\_(ツ)_/¯',
+            'Hello \\  goodbye rn n ¯\_(ツ)_/¯',
+        ],
+        ['handles mixed control chars and newlines', '\x00Hello\r\n\x07World\x1B', 'Hello World'],
+        ['preserves unicode characters', 'Héllo Wörld 🎉', 'Héllo Wörld 🎉'],
+        ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
+    ])('%s', (_name, input, expected) => {
+        expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
 
 describe('parseAddressList', () => {
     it.each([
