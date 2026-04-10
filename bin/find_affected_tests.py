@@ -184,7 +184,13 @@ def output_full(reason: str) -> None:
     sys.stdout.write(json.dumps({"mode": "full", "reason": reason}) + "\n")
 
 
-def output_selective(affected_tests: list[str], suggested_shards: int, total_test_count: int) -> None:
+def output_selective(
+    affected_tests: list[str],
+    suggested_shards: int,
+    total_test_count: int,
+    affected_duration_seconds: float = 0,
+    total_duration_seconds: float = 0,
+) -> None:
     sys.stdout.write(
         json.dumps(
             {
@@ -193,6 +199,8 @@ def output_selective(affected_tests: list[str], suggested_shards: int, total_tes
                 "affected_test_count": len(affected_tests),
                 "total_test_count": total_test_count,
                 "suggested_shards": max(1, suggested_shards),
+                "affected_duration_seconds": round(affected_duration_seconds),
+                "total_duration_seconds": round(total_duration_seconds),
             }
         )
         + "\n"
@@ -278,14 +286,16 @@ def check_sync() -> None:
         sys.stderr.write(f"OK: all {len(patterns)} dorny backend patterns are covered\n")
 
 
-def estimate_duration(test_files: list[str]) -> float:
+def load_durations() -> dict[str, float]:
     if not DURATIONS_PATH.exists():
-        return 0
+        return {}
     try:
-        durations = json.loads(DURATIONS_PATH.read_text())
+        return json.loads(DURATIONS_PATH.read_text())
     except (json.JSONDecodeError, OSError):
-        return 0
+        return {}
 
+
+def estimate_duration(test_files: list[str], durations: dict[str, float]) -> float:
     test_file_set = set(test_files)
     total = 0.0
     for test_id, dur in durations.items():
@@ -294,6 +304,10 @@ def estimate_duration(test_files: list[str]) -> float:
         if file_part in test_file_set:
             total += dur
     return total
+
+
+def estimate_total_duration(durations: dict[str, float]) -> float:
+    return sum(durations.values())
 
 
 def main():
@@ -419,13 +433,15 @@ def main():
     sys.stderr.write(f"Affected test files: {len(affected_sorted)}\n")
 
     # Estimate duration and suggest shard count
-    estimated_duration = estimate_duration(affected_sorted)
+    durations = load_durations()
+    affected_duration = estimate_duration(affected_sorted, durations)
+    total_duration = estimate_total_duration(durations)
     # Apply safety factor (durations underpredict by ~2x per turbo-discover.js)
-    suggested_shards = max(1, int((estimated_duration * 2) / TARGET_SHARD_SECONDS) + 1)
+    suggested_shards = max(1, int((affected_duration * 2) / TARGET_SHARD_SECONDS) + 1)
 
-    sys.stderr.write(f"Estimated duration: {estimated_duration:.0f}s, suggested shards: {suggested_shards}\n")
+    sys.stderr.write(f"Estimated duration: {affected_duration:.0f}s, suggested shards: {suggested_shards}\n")
 
-    output_selective(affected_sorted, suggested_shards, total_test_count)
+    output_selective(affected_sorted, suggested_shards, total_test_count, affected_duration, total_duration)
 
 
 if __name__ == "__main__":

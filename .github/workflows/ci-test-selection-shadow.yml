@@ -28,6 +28,7 @@ jobs:
               run: uv run bin/find_affected_tests.py --check-sync
 
             - name: Compute affected tests (shadow mode)
+              id: selection
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
@@ -37,21 +38,93 @@ jobs:
                   echo "$CHANGED" | tr ' ' '\n' >&2
 
                   RESULT=$(uv run bin/find_affected_tests.py --changed-files "$CHANGED" 2>/dev/stderr | tail -1)
-                  MODE=$(echo "$RESULT" | jq -r '.mode')
+                  echo "result=$RESULT" >> "$GITHUB_OUTPUT"
 
-                  echo ""
-                  echo "### Shadow test selection result"
-                  echo "$RESULT" | jq .
+            - name: Write job summary
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  CURRENT_SHARDS: 38
+                  SHARD_OVERHEAD_MINUTES: 4
+              run: |
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
 
                   if [ "$MODE" = "selective" ]; then
                     COUNT=$(echo "$RESULT" | jq -r '.affected_test_count')
                     TOTAL=$(echo "$RESULT" | jq -r '.total_test_count')
                     SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
-                    echo ""
-                    echo "**Would run $COUNT test files in $SHARDS shards (instead of 38)**"
-                    echo "Estimated savings: $(($TOTAL - $COUNT)) test files not run"
+                    AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
+                    TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+
+                    SAVED_TESTS=$(($TOTAL - $COUNT))
+                    SAVED_SHARDS=$(($CURRENT_SHARDS - $SHARDS))
+                    # Each shard has fixed overhead (docker, deps, migrations) + test time
+                    FULL_MINUTES=$(( ($CURRENT_SHARDS * $SHARD_OVERHEAD_MINUTES) + ($TOTAL_DUR / 60) ))
+                    SELECTIVE_MINUTES=$(( ($SHARDS * $SHARD_OVERHEAD_MINUTES) + ($AFFECTED_DUR / 60) ))
+                    SAVED_MINUTES=$(($FULL_MINUTES - $SELECTIVE_MINUTES))
+
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow test selection
+
+                  | Metric | Full run | Selective | Saved |
+                  |---|---|---|---|
+                  | Test files | $TOTAL | $COUNT | **$SAVED_TESTS** |
+                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
+                  | Est. test duration | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$(($TOTAL_DUR - $AFFECTED_DUR))s** |
+                  EOF
                   else
                     REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
-                    echo ""
-                    echo "**Would fall back to full run: $REASON**"
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow test selection
+
+                  **Full run required:** $REASON
+                  EOF
                   fi
+
+            - name: Send PostHog event
+              if: always()
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  POSTHOG_API_KEY: ${{ secrets.POSTHOG_CI_API_KEY }}
+              run: |
+                  if [ -z "$POSTHOG_API_KEY" ]; then
+                    echo "POSTHOG_CI_API_KEY not set, skipping event"
+                    exit 0
+                  fi
+
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+
+                  if [ "$MODE" = "selective" ]; then
+                    PROPERTIES=$(echo "$RESULT" | jq '{
+                      mode: .mode,
+                      affected_test_count: .affected_test_count,
+                      total_test_count: .total_test_count,
+                      suggested_shards: .suggested_shards,
+                      current_shards: 38,
+                      affected_duration_seconds: .affected_duration_seconds,
+                      total_duration_seconds: .total_duration_seconds,
+                      pr_number: ${{ github.event.pull_request.number }},
+                      repository: "${{ github.repository }}"
+                    }')
+                  else
+                    PROPERTIES=$(echo "$RESULT" | jq '{
+                      mode: .mode,
+                      reason: .reason,
+                      pr_number: ${{ github.event.pull_request.number }},
+                      repository: "${{ github.repository }}"
+                    }')
+                  fi
+
+                  curl -sS --fail-with-body \
+                    -X POST https://us.i.posthog.com/capture/ \
+                    -H "Content-Type: application/json" \
+                    -d "$(jq -n \
+                      --arg key "$POSTHOG_API_KEY" \
+                      --argjson props "$PROPERTIES" \
+                      '{
+                        api_key: $key,
+                        event: "ci_test_selection_shadow",
+                        distinct_id: "ci-backend-test-selection",
+                        properties: $props
+                      }'
+                    )" || echo "Warning: failed to send PostHog event"
