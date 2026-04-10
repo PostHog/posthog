@@ -162,22 +162,7 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
                     {
                         title: `${capitalizeFirstLetter(recordLabel)} exported`,
                         key: 'rowsExported',
-                        render: (_, run) => {
-                            if (run.records_completed == null) {
-                                return ''
-                            }
-                            if (run.records_failed != null && run.records_failed > 0) {
-                                return (
-                                    <span>
-                                        {humanFriendlyNumber(run.records_completed)}
-                                        <span className="text-warning ml-1">
-                                            ({humanFriendlyNumber(run.records_failed)} failed)
-                                        </span>
-                                    </span>
-                                )
-                            }
-                            return humanFriendlyNumber(run.records_completed)
-                        },
+                        render: (_, run) => <RecordsExportedCell run={run} />,
                     },
                     // Only show bytes exported column for batch exports
                     ...(context !== 'hog_function'
@@ -289,22 +274,7 @@ export function BatchExportRunsGrouped({
                                     {
                                         title: `${capitalizeFirstLetter(recordLabel)} exported`,
                                         key: 'rowsExported',
-                                        render: (_, run) => {
-                                            if (run.records_completed == null) {
-                                                return ''
-                                            }
-                                            if (run.records_failed != null && run.records_failed > 0) {
-                                                return (
-                                                    <span>
-                                                        {humanFriendlyNumber(run.records_completed)}
-                                                        <span className="text-warning ml-1">
-                                                            ({humanFriendlyNumber(run.records_failed)} failed)
-                                                        </span>
-                                                    </span>
-                                                )
-                                            }
-                                            return humanFriendlyNumber(run.records_completed)
-                                        },
+                                        render: (_, run) => <RecordsExportedCell run={run} />,
                                     },
                                     // Only show bytes exported column for batch exports
                                     ...(context !== 'hog_function'
@@ -523,6 +493,21 @@ const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun
         return 'Failed'
     }
     return status
+}
+
+function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | string {
+    if (run.records_completed == null) {
+        return ''
+    }
+    if (run.records_failed != null && run.records_failed > 0) {
+        return (
+            <span>
+                {humanFriendlyNumber(run.records_completed)}
+                <span className="text-warning ml-1">({humanFriendlyNumber(run.records_failed)} failed)</span>
+            </span>
+        )
+    }
+    return humanFriendlyNumber(run.records_completed)
 }
 
 const colorForStatus = (
