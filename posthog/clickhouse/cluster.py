@@ -498,6 +498,15 @@ _CLUSTER_REGISTRY: dict[str, tuple[str, str]] = {
     "single_shard": ("CLICKHOUSE_HOST", "CLICKHOUSE_SINGLE_SHARD_CLUSTER"),
     "writable": ("CLICKHOUSE_HOST", "CLICKHOUSE_WRITABLE_CLUSTER"),
     "primary_replica": ("CLICKHOUSE_HOST", "CLICKHOUSE_PRIMARY_REPLICA_CLUSTER"),
+    # Satellite clusters — each runs an independent keeper ensemble in prod.
+    # Main ClickhouseCluster also discovers these via the satellite_clusters
+    # parameter (see CLICKHOUSE_SATELLITE_CLUSTERS env var). The registry
+    # entries let callers bootstrap a cluster object directly by name when
+    # they already know which satellite they want.
+    "sessions": ("CLICKHOUSE_HOST", "CLICKHOUSE_SESSIONS_CLUSTER"),
+    "aux": ("CLICKHOUSE_HOST", "CLICKHOUSE_AUX_CLUSTER"),
+    "ops": ("CLICKHOUSE_HOST", "CLICKHOUSE_OPS_CLUSTER"),
+    "ai_events": ("CLICKHOUSE_HOST", "CLICKHOUSE_AI_EVENTS_CLUSTER"),
 }
 
 
@@ -511,7 +520,8 @@ def get_cluster_by_name(
     registry. Falls back to the default cluster for unknown names.
     """
     if logical_name not in _CLUSTER_REGISTRY:
-        return get_cluster(**kwargs)
+        known = ", ".join(sorted(_CLUSTER_REGISTRY.keys()))
+        raise ValueError(f"Unknown cluster '{logical_name}'. Known clusters: {known}")
 
     host_attr, cluster_attr = _CLUSTER_REGISTRY[logical_name]
     host = getattr(settings, host_attr, settings.CLICKHOUSE_HOST)
