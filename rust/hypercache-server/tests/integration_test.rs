@@ -172,6 +172,12 @@ impl TestServer {
             enable_metrics: hypercache_server::config::FlexBool(false),
             debug: hypercache_server::config::FlexBool(true),
             max_concurrency: 100,
+            otel_url: None,
+            otel_sampling_rate: 1.0,
+            otel_service_name: "hypercache-server-test".to_string(),
+            otel_export_timeout_secs: 3,
+            otel_log_level: tracing::level_filters::LevelFilter::ERROR,
+            continuous_profiling: common_continuous_profiling::ContinuousProfilingConfig::default(),
         };
 
         let listener = TcpListener::bind("127.0.0.1:0").await?;

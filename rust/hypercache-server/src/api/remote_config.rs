@@ -221,7 +221,6 @@ pub async fn config_js_endpoint(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_utils::helpers::*;
     use axum::http::StatusCode;
     use common_redis::MockRedisClient;
