@@ -809,11 +809,9 @@ export interface FeatureFlagConditionAnalysisApi {
     index: number
     /** Whether this condition was the one that matched */
     matched: boolean
-    /** Overall result for this condition (matches, no_match) */
-    result: string
     /** Human-readable explanation of why this condition matched/didn't match */
     explanation: string
-    /** Rollout percentage for this condition */
+    /** Rollout percentage for this condition (0.0-100.0) */
     rollout_percentage: number
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
