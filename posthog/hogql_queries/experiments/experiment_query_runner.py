@@ -205,6 +205,8 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
+        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag.key,
@@ -218,6 +220,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             force_precomputation=self.force_precomputation,
             only_count_matured_users=self.experiment.only_count_matured_users,
+            funnel_steps_data_disabled=funnel_steps_data_disabled,
         )
 
         # Skip precomputation for data warehouse metrics because the precomputed table
