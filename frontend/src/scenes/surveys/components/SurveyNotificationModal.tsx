@@ -148,6 +148,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         isNotificationFormSubmitting,
         selectedSlackIntegration,
         hasSlackIntegration,
+        canNotifyOnPartialResponses,
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
@@ -222,18 +223,22 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                             <div className="text-xs text-muted">
                                 {destinationDeliveryDescription(notificationForm.destination)}
                             </div>
-                            <Field name="onlyCompletedResponses">
-                                {({ value, onChange }) => (
-                                    <LemonSwitch
-                                        checked={value}
-                                        onChange={onChange}
-                                        label="Only notify for full responses"
-                                    />
-                                )}
-                            </Field>
-                            <div className="text-xs text-muted">
-                                Turn this off if partial responses matter for this survey.
-                            </div>
+                            {canNotifyOnPartialResponses ? (
+                                <>
+                                    <Field name="onlyCompletedResponses">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                checked={value}
+                                                onChange={onChange}
+                                                label="Only notify for full responses"
+                                            />
+                                        )}
+                                    </Field>
+                                    <div className="text-xs text-muted">
+                                        Turn this off if partial responses matter for this survey.
+                                    </div>
+                                </>
+                            ) : null}
                         </div>
 
                         {notificationForm.destination === 'slack' ? (

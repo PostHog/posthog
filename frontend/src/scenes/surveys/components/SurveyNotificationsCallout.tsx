@@ -25,7 +25,7 @@ export function SurveyNotificationsCallout({ surveyId }: { surveyId: string }): 
     }
 
     return (
-        <LemonBanner type="info">
+        <LemonBanner type="info" dismissKey={`survey-notifications-callout-${surveyId}`}>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
                     <div className="text-sm font-medium">Stay on top of incoming survey responses</div>

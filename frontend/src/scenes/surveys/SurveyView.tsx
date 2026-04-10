@@ -55,7 +55,14 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { QueryContextColumn } from '~/queries/types'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, Survey, SurveyQuestionType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    Survey,
+    SurveyEventName,
+    SurveyQuestionType,
+} from '~/types'
 
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'

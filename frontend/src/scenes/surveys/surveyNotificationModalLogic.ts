@@ -14,7 +14,9 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyNotificationFilters, getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
-import { HogFunctionTemplateType, HogFunctionType, Survey, SurveyQuestionType } from '~/types'
+import { HogFunctionTemplateType, HogFunctionType, IntegrationType, Survey, SurveyQuestionType } from '~/types'
+
+import type { surveyNotificationModalLogicType } from './surveyNotificationModalLogicType'
 
 export const WEBHOOK_METHOD_OPTIONS = [
     { value: 'POST', label: 'POST' },
@@ -51,6 +53,8 @@ export interface SurveyNotificationModalLogicProps {
 }
 
 type SurveyMessageField = 'slackMessage' | 'discordMessage' | 'teamsMessage'
+type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
+type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
@@ -174,7 +178,7 @@ function buildWebhookBodyTemplate(questions: SurveyQuestionForNotification[]): R
     }
 }
 
-function buildSurveyNotificationForm(survey: Survey): SurveyNotificationForm {
+function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyNotificationForm {
     const defaultMessage = getDefaultSurveyMessage(survey.questions)
 
     return {
@@ -194,7 +198,7 @@ function buildSurveyNotificationForm(survey: Survey): SurveyNotificationForm {
     }
 }
 
-function buildTemplateGlobals(survey: Survey): Record<string, unknown> {
+function buildTemplateGlobals(survey: SurveyNotificationContext): Record<string, unknown> {
     const responseProperties = Object.fromEntries(
         survey.questions
             .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
@@ -260,12 +264,14 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
+    canNotifyOnPartialResponses,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
+    canNotifyOnPartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -323,7 +329,10 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId, form.onlyCompletedResponses),
+        filters: getSurveyNotificationFilters(
+            surveyId,
+            canNotifyOnPartialResponses ? form.onlyCompletedResponses : true
+        ),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
@@ -332,9 +341,9 @@ function createSurveyNotificationPayload({
 
 function getNotificationFormErrors(
     form: SurveyNotificationForm,
-    survey: Survey,
+    survey: SurveyNotificationContext,
     hasSlackIntegration: boolean
-): Partial<Record<keyof SurveyNotificationForm, string>> {
+): SurveyNotificationFormErrors {
     if (survey.id === NEW_SURVEY.id) {
         return {}
     }
@@ -380,7 +389,7 @@ function getNotificationFormErrors(
     }
 }
 
-export const surveyNotificationModalLogic = kea([
+export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType>([
     path(['scenes', 'surveys', 'surveyNotificationModalLogic']),
     props({} as SurveyNotificationModalLogicProps),
     key((props) => props.surveyId),
@@ -415,12 +424,13 @@ export const surveyNotificationModalLogic = kea([
 
     forms(({ values }) => ({
         notificationForm: {
-            defaults: buildSurveyNotificationForm(NEW_SURVEY as Survey),
+            defaults: buildSurveyNotificationForm(NEW_SURVEY),
             errors: (form: SurveyNotificationForm) =>
                 getNotificationFormErrors(
                     form,
                     values.survey,
-                    (values.integrations?.some((integration) => integration.kind === 'slack') ?? false) as boolean
+                    (values.integrations?.some((integration: IntegrationType) => integration.kind === 'slack') ??
+                        false) as boolean
                 ),
             submit: async (form: SurveyNotificationForm) => {
                 const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
@@ -431,10 +441,11 @@ export const surveyNotificationModalLogic = kea([
                     destination: form.destination,
                     surveyName: values.survey.name,
                     surveyId: values.survey.id,
+                    canNotifyOnPartialResponses: values.survey.enable_partial_responses === true,
                     form,
                 })
 
-                return await api.hogFunctions.create(payload)
+                await api.hogFunctions.create(payload)
             },
         },
     })),
@@ -442,17 +453,27 @@ export const surveyNotificationModalLogic = kea([
     selectors({
         hasSlackIntegration: [
             (s) => [s.integrations],
-            (integrations) => integrations?.some((integration) => integration.kind === 'slack') ?? false,
+            (integrations: IntegrationType[] | null) =>
+                integrations?.some((integration: IntegrationType) => integration.kind === 'slack') ?? false,
         ],
         selectedSlackIntegration: [
             (s) => [s.integrations, s.notificationForm],
-            (integrations, form) =>
-                integrations?.find((integration) => integration.id === form.slackIntegrationId) ?? null,
+            (integrations: IntegrationType[] | null, form: SurveyNotificationForm) =>
+                integrations?.find((integration: IntegrationType) => integration.id === form.slackIntegrationId) ??
+                null,
         ],
-        templateGlobals: [(s) => [s.survey], (survey) => buildTemplateGlobals(survey)],
+        canNotifyOnPartialResponses: [
+            (s) => [s.survey],
+            (survey: SurveyNotificationContext) => survey.enable_partial_responses === true,
+        ],
+        templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
         submitDisabledReason: [
             (s) => [s.survey, s.notificationFormErrors, s.isNotificationFormSubmitting],
-            (survey, errors, isSubmitting): string | undefined => {
+            (
+                survey: SurveyNotificationContext,
+                errors: SurveyNotificationFormErrors,
+                isSubmitting: boolean
+            ): string | undefined => {
                 if (survey.id === NEW_SURVEY.id) {
                     return 'Save the survey before creating notifications.'
                 }
@@ -468,6 +489,9 @@ export const surveyNotificationModalLogic = kea([
         openDialog: () => {
             actions.resetNotificationForm()
             actions.setNotificationFormValues(buildSurveyNotificationForm(values.survey))
+            if (values.survey.enable_partial_responses !== true) {
+                actions.setNotificationFormValue('onlyCompletedResponses', true)
+            }
         },
         closeDialog: () => {
             actions.resetNotificationForm()
