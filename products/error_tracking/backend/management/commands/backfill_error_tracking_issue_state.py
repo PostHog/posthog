@@ -17,6 +17,9 @@ Usage:
     # Resume from a specific team (skips teams with id < start value)
     python manage.py backfill_error_tracking_issue_state --live-run --start-from-team-id 1234
 
+    # Stop at a team id (inclusive); combine with --start-from-team-id for a range
+    python manage.py backfill_error_tracking_issue_state --live-run --end-team-id 9999
+
     # Custom batch size
     python manage.py backfill_error_tracking_issue_state --live-run --batch-size 10000
 """
@@ -64,6 +67,12 @@ class Command(BaseCommand):
             help="Resume from this team_id (inclusive). Skips all teams with id < this value.",
         )
         parser.add_argument(
+            "--end-team-id",
+            type=int,
+            default=None,
+            help="Only include teams with team_id <= this value (inclusive). Ignored when --team-id is set.",
+        )
+        parser.add_argument(
             "--batch-size",
             type=int,
             default=DEFAULT_BATCH_SIZE,
@@ -71,7 +80,14 @@ class Command(BaseCommand):
         )
 
     def handle(
-        self, *, live_run: bool, team_id: int | None, start_from_team_id: int | None, batch_size: int, **options
+        self,
+        *,
+        live_run: bool,
+        team_id: int | None,
+        start_from_team_id: int | None,
+        end_team_id: int | None,
+        batch_size: int,
+        **options,
     ):
         logger.setLevel(logging.INFO)
 
@@ -80,7 +96,7 @@ class Command(BaseCommand):
         else:
             logger.info("backfill_starting", mode="DRY-RUN (use --live-run to produce)")
 
-        queryset = self._build_queryset(team_id=team_id, start_from_team_id=start_from_team_id)
+        queryset = self._build_queryset(team_id=team_id, start_from_team_id=start_from_team_id, end_team_id=end_team_id)
 
         total_count = queryset.count()
         logger.info("backfill_total_fingerprints", count=total_count)
@@ -94,14 +110,13 @@ class Command(BaseCommand):
         since_last_flush = 0
         start_time = time.monotonic()
         current_team_id = None
-        version = int(time.time() * 1000)
 
         for fp in queryset.iterator(chunk_size=batch_size):
             if fp.team_id != current_team_id:
                 current_team_id = fp.team_id
                 logger.info("backfill_processing_team", team_id=current_team_id, produced_so_far=produced)
 
-            data = self._build_row(fp, version=version)
+            data = self._build_row(fp)
             producer.produce(
                 sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
                 topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
@@ -131,19 +146,22 @@ class Command(BaseCommand):
         elapsed = time.monotonic() - start_time
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 
-    def _build_queryset(self, *, team_id: int | None, start_from_team_id: int | None):
+    def _build_queryset(self, *, team_id: int | None, start_from_team_id: int | None, end_team_id: int | None):
         qs = ErrorTrackingIssueFingerprintV2.objects.select_related("issue", "issue__assignment").order_by(
             "team_id", "id"
         )
 
         if team_id is not None:
             qs = qs.filter(team_id=team_id)
-        elif start_from_team_id is not None:
-            qs = qs.filter(team_id__gte=start_from_team_id)
+        else:
+            if start_from_team_id is not None:
+                qs = qs.filter(team_id__gte=start_from_team_id)
+            if end_team_id is not None:
+                qs = qs.filter(team_id__lte=end_team_id)
 
         return qs
 
-    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2, *, version: int) -> dict:
+    def _build_row(self, fp: ErrorTrackingIssueFingerprintV2) -> dict:
         issue = fp.issue
         assignment = getattr(issue, "assignment", None)
 
@@ -157,6 +175,7 @@ class Command(BaseCommand):
 
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
+        version = int(fp.created_at.timestamp() * 1000)
 
         return {
             "team_id": fp.team_id,

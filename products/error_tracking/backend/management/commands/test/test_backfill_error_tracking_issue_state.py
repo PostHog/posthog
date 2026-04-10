@@ -3,6 +3,7 @@ from datetime import UTC
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.models import Team
 
 from products.error_tracking.backend.management.commands.backfill_error_tracking_issue_state import Command
 from products.error_tracking.backend.models import (
@@ -23,7 +24,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
     def _get_rows(self, team_id: int) -> list[dict]:
         rows = sync_execute(
             """
-            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, is_deleted, first_seen
+            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, is_deleted, first_seen, version
             FROM error_tracking_fingerprint_issue_state
             WHERE team_id = %(team_id)s
             ORDER BY fingerprint
@@ -40,13 +41,20 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
                 "assigned_role_id": r[5],
                 "is_deleted": r[6],
                 "first_seen": r[7],
+                "version": r[8],
             }
             for r in rows
         ]
 
-    def _run_backfill(self, *, team_id=None, start_from_team_id=None, live_run=True):
+    def _run_backfill(self, *, team_id=None, start_from_team_id=None, end_team_id=None, live_run=True):
         cmd = Command()
-        cmd.handle(live_run=live_run, team_id=team_id, start_from_team_id=start_from_team_id, batch_size=100)
+        cmd.handle(
+            live_run=live_run,
+            team_id=team_id,
+            start_from_team_id=start_from_team_id,
+            end_team_id=end_team_id,
+            batch_size=100,
+        )
 
     def test_backfill_creates_rows_in_clickhouse(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TestError", status="active")
@@ -106,6 +114,56 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(start_from_team_id=self.team.pk + 1)
 
         self.assertEqual(self._count_rows(self.team.pk), 0)
+
+    def test_end_team_id_excludes_later_teams(self):
+        team_first = Team.objects.create(organization=self.organization, name="End filter team A")
+        team_second = Team.objects.create(organization=self.organization, name="End filter team B")
+        self.assertLess(team_first.pk, team_second.pk)
+
+        issue_first = ErrorTrackingIssue.objects.create(team=team_first, name="First", status="active")
+        issue_second = ErrorTrackingIssue.objects.create(team=team_second, name="Second", status="active")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=team_first, issue=issue_first, fingerprint="fp_first")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=team_second, issue=issue_second, fingerprint="fp_second")
+
+        self._run_backfill(end_team_id=team_first.pk)
+
+        self.assertEqual(self._count_rows(team_first.pk), 1)
+        self.assertEqual(self._count_rows(team_second.pk), 0)
+
+    def test_start_and_end_team_id_limits_to_range(self):
+        team_low = Team.objects.create(organization=self.organization, name="Range low")
+        team_mid = Team.objects.create(organization=self.organization, name="Range mid")
+        team_high = Team.objects.create(organization=self.organization, name="Range high")
+        self.assertLess(team_low.pk, team_mid.pk)
+        self.assertLess(team_mid.pk, team_high.pk)
+
+        for team, fp in (
+            (team_low, "fp_low"),
+            (team_mid, "fp_mid"),
+            (team_high, "fp_high"),
+        ):
+            issue = ErrorTrackingIssue.objects.create(team=team, name="R", status="active")
+            ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=fp)
+
+        self._run_backfill(start_from_team_id=team_mid.pk, end_team_id=team_mid.pk)
+
+        self.assertEqual(self._count_rows(team_low.pk), 0)
+        self.assertEqual(self._count_rows(team_mid.pk), 1)
+        self.assertEqual(self._count_rows(team_high.pk), 0)
+
+    def test_backfill_version_is_fingerprint_created_at_epoch_ms(self):
+        from datetime import datetime
+
+        created_at = datetime(2024, 2, 10, 9, 15, 30, tzinfo=UTC)
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="VersionError", status="active")
+        fp = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_version")
+        ErrorTrackingIssueFingerprintV2.objects.filter(pk=fp.pk).update(created_at=created_at)
+
+        self._run_backfill(team_id=self.team.pk)
+
+        rows = self._get_rows(self.team.pk)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["version"], int(created_at.timestamp() * 1000))
 
     def test_backfill_uses_fingerprint_first_seen(self):
         from datetime import datetime
