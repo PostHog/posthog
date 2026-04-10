@@ -46,6 +46,18 @@ def _make_duckgres_conninfo(team_id: int) -> str:
     )
 
 
+# TODO: remove hardcoded schemas and derive the search path from the team's
+# data warehouse sources / DAG configuration instead
+_SEARCH_PATH_SCHEMAS = ["revenue", "stripe", "billing_public", "credit", "posthog"]
+
+
+def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | None = None) -> None:
+    schemas = (extra_schemas or []) + _SEARCH_PATH_SCHEMAS
+    literal = psql.Literal(",".join(schemas))
+    sql = psql.SQL("SET search_path TO {}").format(literal)
+    conn.execute(sql)
+
+
 def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
     """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
 
@@ -86,7 +98,7 @@ def execute_ducklake_query(
 
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
+        _set_search_path(conn)
         with conn.cursor() as cur:
             cur.execute(sql)
             columns = [desc.name for desc in cur.description] if cur.description else []
@@ -101,6 +113,26 @@ def execute_ducklake_query(
     )
 
 
+def _calculate_table_size(conninfo: str, safe_schema: str, safe_table: str) -> int:
+    try:
+        with psycopg.connect(conninfo) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT t.file_size_bytes
+                    FROM ducklake_table_info('ducklake') t
+                    JOIN __ducklake_metadata_ducklake.ducklake_schema s
+                    ON t.schema_id = s.schema_id AND s.end_snapshot IS NULL
+                    WHERE s.schema_name = %s AND t.table_name = %s
+                    """,
+                    (safe_schema, safe_table),
+                )
+                row = cur.fetchone()
+                return int(row[0]) if row and row[0] else 0
+    except Exception:
+        return 0
+
+
 def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
@@ -111,42 +143,36 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
     qualified = psql.Identifier(safe_schema, safe_table)
     conninfo = _make_duckgres_conninfo(team_id)
+    # capture previous table size before replacing — best-effort, don't block materialization
+    previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
-        # TODO: remove hardcoded schemas and derive the search path from the team's
-        # data warehouse sources / DAG configuration instead
-        # duckgres SET seems to only accepts a single comma-separated string value
-        conn.execute(
-            psql.SQL("SET search_path TO '{},revenue,stripe,billing_public,credit,posthog'").format(
-                psql.SQL(safe_schema)
-            )
-        )
+        # duckgres SET seems to only accept a single comma-separated string value with single quotes
+        _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
-            # capture previous table size before replacing
             cur.execute(
-                "SELECT file_size_bytes FROM posthog.table_info() WHERE schema_name = %s AND table_name = %s",
-                (safe_schema, safe_table),
+                psql.SQL("""
+                    CREATE OR REPLACE TABLE {} AS (
+                        {}
+                    )
+                """).format(qualified, psql.SQL(sql))
             )
-            prev_row = cur.fetchone()
-            prev_file_size_bytes = int(prev_row[0]) if prev_row and prev_row[0] else 0
-            cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS {}").format(qualified, sql))
-    with psycopg.connect(conninfo) as conn:
-        conn.execute("SET search_path TO 'posthog'")
-        with conn.cursor() as cur:
-            cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
-            row = cur.fetchone()
-            row_count = int(row[0]) if row else 0
-            cur.execute(
-                "SELECT file_size_bytes FROM posthog.table_info() WHERE schema_name = %s AND table_name = %s",
-                (safe_schema, safe_table),
-            )
-            size_row = cur.fetchone()
-            file_size_bytes = int(size_row[0]) if size_row and size_row[0] else 0
+    row_count = 0
+    try:
+        with psycopg.connect(conninfo) as conn:
+            _set_search_path(conn, extra_schemas=[safe_schema])
+            with conn.cursor() as cur:
+                cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
+                row = cur.fetchone()
+                row_count = int(row[0]) if row else 0
+    except Exception:
+        pass
+    # capture new table size — best-effort, don't block materialization
+    file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     return DuckLakeTableResult(
         schema_name=safe_schema,
         table_name=safe_table,
         row_count=row_count,
         file_size_bytes=file_size_bytes,
-        file_size_delta_bytes=file_size_bytes - prev_file_size_bytes,
+        file_size_delta_bytes=file_size_bytes - previous_file_size_bytes,
     )

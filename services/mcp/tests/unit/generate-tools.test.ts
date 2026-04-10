@@ -207,7 +207,8 @@ describe('generateToolCode with input_schema', () => {
             new Set<string>()
         )
 
-        expect(result.code).toContain('body: params')
+        expect(result.code).toContain('const parsedParams = ThingsCreateSchema.parse(params)')
+        expect(result.code).toContain('body: parsedParams')
     })
 
     it('generates query forwarding for GET with input_schema', () => {
@@ -220,7 +221,27 @@ describe('generateToolCode with input_schema', () => {
 
         const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
 
-        expect(result.code).toContain('query: params')
+        expect(result.code).toContain('const parsedParams = ThingsListSchema.parse(params)')
+        expect(result.code).toContain('query: parsedParams')
+    })
+
+    it('uses response_type override for custom input schema tools', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            response_type: "Omit<Schemas.ThingList, 'results'> & { results: unknown[] }",
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode('things-list', config, resolved, defaultCategory, makeSpec(), new Set<string>())
+
+        expect(result.code).toContain(
+            "const thingsList = (): ToolBase<typeof ThingsListSchema, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
+        )
+        expect(result.code).toContain(
+            "const result = await context.api.request<Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>({"
+        )
     })
 
     it('destructures path params for input_schema with path params', () => {
@@ -556,6 +577,15 @@ describe('ToolConfigSchema validation', () => {
 
     it('allows input_schema without include_params, exclude_params, or param_overrides', () => {
         const result = ToolConfigSchema.safeParse(validBase)
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts response_type override', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            response_type: "Omit<Schemas.ThingList, 'results'>",
+        })
         expect(result.success).toBe(true)
     })
 

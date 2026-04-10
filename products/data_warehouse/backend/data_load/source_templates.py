@@ -44,7 +44,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         source_table_key="JSONExtractString(metadata, 'posthog_person_distinct_id')",
         joining_table_name="persons",
         joining_table_key="pdi.distinct_id",
-        field_name="person",
+        field_name="persons",
     )
 
 

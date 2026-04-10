@@ -4,6 +4,7 @@
 # dependencies = [
 #     "claude-agent-sdk",
 #     "anthropic",
+#     "posthoganalytics",
 # ]
 # ///
 # ruff: noqa: T201

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
-import { generateViolinPath } from '~/scenes/experiments/legacy'
+import { generateViolinPath } from '~/scenes/experiments/MetricsView/violinUtils'
 
 import { useChartColors } from '../shared/colors'
 import {

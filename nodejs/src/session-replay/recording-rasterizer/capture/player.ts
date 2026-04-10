@@ -17,7 +17,10 @@ import { RequestInterceptor } from './request-interceptor'
  * so the capture loop can poll it without touching browser globals.
  */
 export class PlayerController {
+    private capturePage: CapturePage
+    private log: Logger
     private interceptor: RequestInterceptor
+    private onProgress: () => void
 
     private state = {
         ended: false,
@@ -30,11 +33,15 @@ export class PlayerController {
     private resetStaleTimer: (() => void) | null = null
 
     constructor(
-        private capturePage: CapturePage,
+        capturePage: CapturePage,
         blockProxy: BlockProxy,
-        private log: Logger = createLogger()
+        onProgress: () => void,
+        log: Logger = createLogger()
     ) {
-        this.interceptor = new RequestInterceptor(capturePage, blockProxy, log)
+        this.capturePage = capturePage
+        this.log = log
+        this.onProgress = onProgress
+        this.interceptor = new RequestInterceptor(capturePage, blockProxy, this.log)
     }
 
     get page(): Page {
@@ -60,6 +67,7 @@ export class PlayerController {
         switch (msg.type) {
             case 'loading_progress':
                 this.resetStaleTimer?.()
+                this.onProgress()
                 this.log.info({ loaded: msg.loaded, total: msg.total }, 'loading blocks')
                 break
             case 'started':
@@ -130,6 +138,11 @@ export class PlayerController {
         })
     }
 
+    /** Wrap timer/rAF callbacks in try/catch so player JS errors don't kill capture. */
+    async installCallbackErrorGuards(): Promise<void> {
+        await this.capturePage.installCallbackErrorGuards()
+    }
+
     /** Resolves when all tracked stylesheet requests have a response. */
     waitForSettled(): Promise<void> {
         return this.interceptor.waitForSettled()
@@ -141,7 +154,7 @@ export class PlayerController {
      * after the player is loaded and before captureVideo().
      */
     prepareBrowserForCapture(screenshotFormat: 'jpeg' | 'png', screenshotQuality: number | undefined): void {
-        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled())
+        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled(), this.log)
     }
 
     /** Install request interception, set up the message bridge, and navigate. */
@@ -171,7 +184,7 @@ export class PlayerController {
      * Wait for the player to finish loading and signal started.
      * Times out if no loading_progress arrives within `staleMs`.
      */
-    async waitForStart(playerConfig: PlayerConfig, staleMs = 30000): Promise<void> {
+    async waitForStart(playerConfig: PlayerConfig, staleMs = 15000): Promise<void> {
         const startedPromise = new Promise<void>((resolve) => {
             this.startedResolve = resolve
         })

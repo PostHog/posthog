@@ -25,7 +25,7 @@ import {
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
-import { WizardDividerSection, WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
+import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: string }[] = [
     { value: 'once', days: undefined, label: 'Once ever' },
@@ -213,9 +213,10 @@ export function WhenStep(): JSX.Element {
                 )}
             </WizardSection>
 
-            <WizardDividerSection
+            <WizardSection
                 title="How often can the same person see this?"
                 description="Control how frequently the same person can be shown this survey again."
+                descriptionClassName="text-sm"
             >
                 <LemonSegmentedButton
                     value={frequency}
@@ -231,9 +232,9 @@ export function WhenStep(): JSX.Element {
                 {recommendedFrequency.value === frequency && (
                     <p className="text-sm text-success mt-3">{recommendedFrequency.reason}</p>
                 )}
-            </WizardDividerSection>
+            </WizardSection>
 
-            <WizardDividerSection contentClassName="space-y-2">
+            <section className="space-y-2 border-t border-border pt-5">
                 <label className="text-sm font-medium">Delay before showing</label>
                 <div className="flex items-center gap-2">
                     <LemonInput
@@ -248,7 +249,29 @@ export function WhenStep(): JSX.Element {
                 <p className="text-muted text-xs">
                     Once a user matches the targeting conditions, wait this long before displaying the survey
                 </p>
-            </WizardDividerSection>
+            </section>
+
+            <section className="space-y-2">
+                <label className="text-sm font-medium">Response limit</label>
+                <div className="flex items-center gap-2">
+                    <LemonCheckbox
+                        checked={survey.responses_limit != null}
+                        onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
+                        label="Stop the survey after"
+                    />
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        value={survey.responses_limit ?? undefined}
+                        onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : null)}
+                        className="w-20"
+                    />
+                    <span className="text-secondary text-sm">completed responses</span>
+                </div>
+                <p className="text-muted text-xs">
+                    Automatically stop showing the survey once you've collected enough responses
+                </p>
+            </section>
         </WizardStepLayout>
     )
 }

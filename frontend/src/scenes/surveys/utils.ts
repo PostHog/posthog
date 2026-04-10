@@ -1,6 +1,5 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,10 +7,10 @@ import { dateStringToDayJs } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
-import { urls } from 'scenes/urls'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     LinkSurveyQuestion,
@@ -67,6 +66,9 @@ export function validateSurveyAppearance(
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        textColor: validateCSSProperty('color', appearance.textColor),
+        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
+        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
             ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
@@ -415,6 +417,27 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
 export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>): boolean {
     return !!(survey.start_date && !survey.end_date)
+}
+
+// Some fields can only be edited in the full editor — opening such a survey
+// in the wizard would hide those values from the user, so we route them to
+// the full editor regardless of their general editor preference. Keep this
+// list in sync with what the wizard's steps actually expose.
+export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
+    if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // Adaptive sampling — WhenStep exposes a simple responses_limit but not
+    // the adaptive sampling controls
+    if (survey.response_sampling_limit || survey.response_sampling_start_date) {
+        return false
+    }
+    // Property-based targeting filters — WhereStep handles linked_flag
+    // (release conditions) but not targeting_flag_filters
+    if (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) {
+        return false
+    }
+    return true
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
@@ -1001,22 +1024,41 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function newSurveyNotificationUrl(surveyId: string, templateId: string = 'template-webhook'): string {
-    const filters = {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    onlyCompletedResponses: boolean = true
+): CyclotronJobFiltersType {
+    const properties: EventPropertyFilter[] = [
+        {
+            key: SurveyEventProperties.SURVEY_RESPONSE,
+            type: PropertyFilterType.Event,
+            value: 'is_set',
+            operator: PropertyOperator.IsSet,
+        },
+        {
+            key: SurveyEventProperties.SURVEY_ID,
+            type: PropertyFilterType.Event,
+            value: surveyId,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
+    if (onlyCompletedResponses) {
+        properties.push({
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: true,
+            operator: PropertyOperator.Exact,
+        })
+    }
+
+    return {
         events: [
             {
                 id: SurveyEventName.SENT,
                 type: 'events',
-                properties: [
-                    {
-                        key: SurveyEventProperties.SURVEY_ID,
-                        type: PropertyFilterType.Event,
-                        value: surveyId,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                properties,
             },
         ],
     }
-    return combineUrl(urls.hogFunctionNew(templateId), {}, { configuration: { filters } }).url
 }

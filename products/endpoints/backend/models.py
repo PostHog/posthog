@@ -209,11 +209,8 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         MATERIALIZABLE_QUERY_TYPES = {
             "HogQLQuery",
             "TrendsQuery",
-            "FunnelsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
@@ -301,7 +298,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(

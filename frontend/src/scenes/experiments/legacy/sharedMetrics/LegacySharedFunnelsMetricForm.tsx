@@ -14,15 +14,14 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { BreakdownAttributionType, FilterType } from '~/types'
-
 import {
-    FunnelAggregationSelect,
-    FunnelAttributionSelect,
-    FunnelConversionWindowFilter,
-    commonActionFilterProps,
-} from '../../Metrics/Selectors'
-import { sharedMetricLogic } from '../../SharedMetrics/sharedMetricLogic'
+    LegacyFunnelAttributionSelect,
+    LegacyFunnelConversionWindowFilter,
+    LegacyFunnelAggregationSelect,
+} from '~/scenes/experiments/legacy'
+import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
+import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { BreakdownAttributionType, FilterType } from '~/types'
 
 export function LegacySharedFunnelsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
@@ -77,7 +76,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                 {...actionFilterProps}
             />
             <div className="mt-4 deprecated-space-y-4">
-                <FunnelAggregationSelect
+                <LegacyFunnelAggregationSelect
                     value={getHogQLValue(
                         sharedMetricQuery.funnels_query.aggregation_group_type_index ?? undefined,
                         sharedMetricQuery.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
@@ -97,7 +96,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                         })
                     }}
                 />
-                <FunnelConversionWindowFilter
+                <LegacyFunnelConversionWindowFilter
                     funnelWindowInterval={sharedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowInterval}
                     funnelWindowIntervalUnit={sharedMetricQuery.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
@@ -130,7 +129,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                         })
                     }}
                 />
-                <FunnelAttributionSelect
+                <LegacyFunnelAttributionSelect
                     value={(() => {
                         const breakdownAttributionType =
                             sharedMetricQuery.funnels_query?.funnelsFilter?.breakdownAttributionType

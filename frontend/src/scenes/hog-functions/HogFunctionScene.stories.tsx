@@ -222,3 +222,81 @@ export const Configuration: Story = {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID),
     },
 }
+
+const MOCK_HOG_FUNCTION_LOG_RESULTS = {
+    results: [
+        [
+            'invocation-aaa-bbb-ccc',
+            '2024-01-15 10:00:00.000001',
+            'DEBUG',
+            "Executing function on event 'https://example.com/events/abc123'",
+        ],
+        ['invocation-aaa-bbb-ccc', '2024-01-15 10:00:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
+        [
+            'invocation-aaa-bbb-ccc',
+            '2024-01-15 10:00:00.250003',
+            'DEBUG',
+            "Function completed in 250ms. Sync: 2ms. Mem: 128kb. Ops: 42. Event: 'https://example.com/events/abc123'",
+        ],
+        [
+            'invocation-ddd-eee-fff',
+            '2024-01-15 10:01:00.000001',
+            'DEBUG',
+            "Executing function on event 'https://example.com/events/def456'",
+        ],
+        ['invocation-ddd-eee-fff', '2024-01-15 10:01:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
+        [
+            'invocation-ddd-eee-fff',
+            '2024-01-15 10:01:00.350003',
+            'ERROR',
+            'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1000ms.',
+        ],
+        [
+            'invocation-ddd-eee-fff',
+            '2024-01-15 10:01:01.400004',
+            'ERROR',
+            'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2000ms.',
+        ],
+        [
+            'invocation-ddd-eee-fff',
+            '2024-01-15 10:01:03.500005',
+            'ERROR',
+            'HTTP fetch failed on attempt 3 with status code 500.',
+        ],
+        [
+            'invocation-ggg-hhh-iii',
+            '2024-01-15 10:02:00.000001',
+            'DEBUG',
+            "Executing function on event 'https://example.com/events/ghi789'",
+        ],
+        ['invocation-ggg-hhh-iii', '2024-01-15 10:02:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
+        [
+            'invocation-ggg-hhh-iii',
+            '2024-01-15 10:02:00.150003',
+            'DEBUG',
+            "Function completed in 150ms. Sync: 1ms. Mem: 96kb. Ops: 38. Event: 'https://example.com/events/ghi789'",
+        ],
+    ],
+}
+
+export const Logs: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID, 'logs'),
+    },
+    decorators: [
+        mswDecorator({
+            ...commonMocks,
+            get: {
+                ...commonMocks.get,
+                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/backfills/`]: {
+                    results: [],
+                    next: null,
+                },
+            },
+            post: {
+                ...commonMocks.post,
+                '/api/environments/:team_id/query/HogQLQuery/': MOCK_HOG_FUNCTION_LOG_RESULTS,
+            },
+        }),
+    ],
+}

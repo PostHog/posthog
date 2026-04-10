@@ -66,7 +66,19 @@ const LOGS_ALERT_SLACK_BLOCKS = [
     },
     {
         type: 'context',
-        elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+        elements: [
+            {
+                type: 'mrkdwn',
+                text: [
+                    '{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(',
+                    "if(length(event.properties.severity_levels) > 0, concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')), ''),",
+                    "if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0, ' | ', ''),",
+                    "if(length(event.properties.service_names) > 0, concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')), '')",
+                    "), 'All log levels and services')}",
+                ].join(''),
+            },
+            { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+        ],
     },
     { type: 'divider' },
     {
@@ -95,12 +107,16 @@ const LOGS_ALERT_SLACK_INPUTS = {
 
 const LOGS_ALERT_WEBHOOK_BODY: Record<string, string> = {
     event: "{if(event.event == '$logs_alert_resolved', 'resolved', 'firing')}",
+    alert_id: '{event.properties.alert_id}',
     alert_name: '{event.properties.alert_name}',
     result_count: '{event.properties.result_count}',
     threshold_count: '{event.properties.threshold_count}',
     threshold_operator: '{event.properties.threshold_operator}',
     window_minutes: '{event.properties.window_minutes}',
+    service_names: '{event.properties.service_names}',
+    severity_levels: '{event.properties.severity_levels}',
     logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
+    triggered_at: '{event.properties.triggered_at}',
 }
 
 export function buildLogsAlertHogFunctionPayload(

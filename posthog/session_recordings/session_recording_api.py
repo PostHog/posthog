@@ -22,7 +22,7 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -97,6 +97,7 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
+from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
@@ -263,6 +264,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
+    summary_outcome = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -300,6 +302,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             # Keep this aligned with summarize() default behavior (no extra context).
             extra_summary_context__isnull=True,
         ).exists()
+
+    @extend_schema_field(OutcomeSerializer(allow_null=True))
+    def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
+        return getattr(obj, "summary_outcome", None)
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -353,6 +359,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "ongoing",
             "activity_score",
             "has_summary",
+            "summary_outcome",
             "external_references",
         ]
 
@@ -1873,6 +1880,7 @@ def list_recordings_from_query(
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
     default_summary_session_ids: set[str] = set()
+    summary_outcomes: dict[str, dict] = {}
     if recording_ids_in_list:
         try:
             from ee.models.session_summaries import SingleSessionSummary
@@ -1880,14 +1888,21 @@ def list_recordings_from_query(
             default_summary_session_ids = set()
         else:
             with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                default_summary_session_ids = set(
+                summaries = (
                     SingleSessionSummary.objects.filter(
                         team_id=team.id,
                         session_id__in=recording_ids_in_list,
                         # Keep this aligned with summarize() default behavior (no extra context).
                         extra_summary_context__isnull=True,
-                    ).values_list("session_id", flat=True)
+                    )
+                    .order_by("session_id", "-created_at")
+                    .distinct("session_id")
+                    .values_list("session_id", "summary__session_outcome")
                 )
+                for session_id, outcome in summaries:
+                    default_summary_session_ids.add(session_id)
+                    if outcome and isinstance(outcome, dict):
+                        summary_outcomes[session_id] = outcome
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
@@ -1898,6 +1913,7 @@ def list_recordings_from_query(
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
             recording.has_summary = recording.session_id in default_summary_session_ids
+            recording.summary_outcome = summary_outcomes.get(recording.session_id)
             matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if matched_person:
                 recording.person = matched_person

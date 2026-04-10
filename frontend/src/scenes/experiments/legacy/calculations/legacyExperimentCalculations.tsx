@@ -18,6 +18,12 @@ import {
     TrendResult,
 } from '~/types'
 
+/**
+ * @deprecated
+ * Legacy experiment calculations for ExperimentTrendsQuery/ExperimentFunnelsQuery.
+ * Frozen copy for legacy experiments - do not modify.
+ */
+
 // Type definitions
 export type LegacyExperimentMetricResult =
     | CachedLegacyExperimentQueryResponse
@@ -43,9 +49,10 @@ export interface VariantCalculationResult {
 }
 
 /**
+ * @deprecated
  * Calculate conversion rate for a specific variant in experiment results
  */
-export function conversionRateForVariant(
+export function legacyConversionRateForVariant(
     metricResult: LegacyExperimentMetricResult,
     variantKey: string
 ): number | null {
@@ -78,9 +85,10 @@ export function conversionRateForVariant(
 }
 
 /**
+ * @deprecated
  * Get exposure count data for a specific variant
  */
-export function exposureCountDataForVariant(
+export function legacyExposureCountDataForVariant(
     metricResult: LegacyExperimentMetricResult,
     variant: string
 ): number | null {
@@ -106,9 +114,10 @@ export function exposureCountDataForVariant(
 }
 
 /**
+ * @deprecated
  * Get count data for a specific variant with optional math aggregation
  */
-export function countDataForVariant(
+export function legacyCountDataForVariant(
     metricResult: LegacyExperimentMetricResult,
     variant: string,
     type: 'primary' | 'secondary' = 'primary',
@@ -167,9 +176,10 @@ export function countDataForVariant(
 }
 
 /**
+ * @deprecated
  * Calculate credible interval for a variant as percentage difference from control
  */
-export function credibleIntervalForVariant(
+export function legacyCredibleIntervalForVariant(
     metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType
@@ -214,9 +224,10 @@ export function credibleIntervalForVariant(
 }
 
 /**
+ * @deprecated
  * Get the index for a variant in experiment results (for UI display order)
  */
-export function getIndexForVariant(
+export function legacyGetIndexForVariant(
     metricResult: LegacyExperimentMetricResult,
     variant: string,
     metricType: InsightType
@@ -257,9 +268,10 @@ export function getIndexForVariant(
 }
 
 /**
+ * @deprecated
  * Get the variant with the highest win probability
  */
-export function getHighestProbabilityVariant(results: LegacyExperimentMetricResult): string | undefined {
+export function legacyGetHighestProbabilityVariant(results: LegacyExperimentMetricResult): string | undefined {
     if (results && results.probability) {
         const maxValue = Math.max(...Object.values(results.probability))
         return Object.keys(results.probability).find(
@@ -269,9 +281,10 @@ export function getHighestProbabilityVariant(results: LegacyExperimentMetricResu
 }
 
 /**
+ * @deprecated
  * Calculate minimum sample size per variant for a given conversion rate and MDE
  */
-export function minimumSampleSizePerVariant(mde: number, conversionRate: number): number {
+export function legacyMinimumSampleSizePerVariant(mde: number, conversionRate: number): number {
     // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
     // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
     // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
@@ -284,9 +297,10 @@ export function minimumSampleSizePerVariant(mde: number, conversionRate: number)
 }
 
 /**
+ * @deprecated
  * Calculate recommended exposure for count data based on MDE
  */
-export function recommendedExposureForCountData(mde: number, baseCountData: number): number {
+export function legacyRecommendedExposureForCountData(mde: number, baseCountData: number): number {
     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
     if (!mde) {
         return 0
@@ -309,9 +323,10 @@ export function recommendedExposureForCountData(mde: number, baseCountData: numb
 }
 
 /**
+ * @deprecated
  * Calculate expected running time for an experiment
  */
-export function expectedRunningTime(
+export function legacyExpectedRunningTime(
     entrants: number,
     sampleSize: number,
     duration: number = EXPERIMENT_DEFAULT_DURATION
@@ -321,9 +336,10 @@ export function expectedRunningTime(
 }
 
 /**
+ * @deprecated
  * Calculate delta (percentage change) between a variant and control
  */
-export function calculateDelta(
+export function legacyCalculateDelta(
     metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType
@@ -351,8 +367,8 @@ export function calculateDelta(
         const variantMean = variantData.count / variantData.absolute_exposure
         delta = (variantMean - controlMean) / controlMean
     } else {
-        const variantRate = conversionRateForVariant(metricResult, variantKey)
-        const controlRate = conversionRateForVariant(metricResult, 'control')
+        const variantRate = legacyConversionRateForVariant(metricResult, variantKey)
+        const controlRate = legacyConversionRateForVariant(metricResult, 'control')
 
         if (!variantRate || !controlRate) {
             return null
@@ -369,19 +385,20 @@ export function calculateDelta(
 }
 
 /**
+ * @deprecated
  * Get comprehensive calculation result for a variant
  */
-export function getVariantCalculationResult(
+export function legacyGetVariantCalculationResult(
     metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType,
     experimentMathAggregation?: PropertyMathType | CountPerActorMathType
 ): VariantCalculationResult {
-    const conversionRate = conversionRateForVariant(metricResult, variantKey)
-    const count = countDataForVariant(metricResult, variantKey, 'primary', experimentMathAggregation)
-    const exposure = exposureCountDataForVariant(metricResult, variantKey)
-    const credibleInterval = credibleIntervalForVariant(metricResult, variantKey, metricType)
-    const delta = calculateDelta(metricResult, variantKey, metricType)
+    const conversionRate = legacyConversionRateForVariant(metricResult, variantKey)
+    const count = legacyCountDataForVariant(metricResult, variantKey, 'primary', experimentMathAggregation)
+    const exposure = legacyExposureCountDataForVariant(metricResult, variantKey)
+    const credibleInterval = legacyCredibleIntervalForVariant(metricResult, variantKey, metricType)
+    const delta = legacyCalculateDelta(metricResult, variantKey, metricType)
 
     // Calculate mean for trends
     let mean: number | null = null
@@ -400,9 +417,10 @@ export function getVariantCalculationResult(
 }
 
 /**
+ * @deprecated
  * Generate significance details text based on experiment results
  */
-export function getSignificanceDetails(metricResult: LegacyExperimentMetricResult): string {
+export function legacyGetSignificanceDetails(metricResult: LegacyExperimentMetricResult): string {
     if (!metricResult) {
         return ''
     }

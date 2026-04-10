@@ -95,6 +95,7 @@ class DummyExportInputs(BaseBatchExportInputs):
     """Inputs for the Dummy export workflow."""
 
     exception_to_raise: str | None = None
+    records_failed_count: int | None = None
 
 
 @dataclass(kw_only=True)
@@ -102,6 +103,7 @@ class DummyInsertInputs(BatchExportInsertInputs):
     """Inputs for the Dummy insert activity."""
 
     exception_to_raise: str | None = None
+    records_failed_count: int | None = None
 
 
 @workflow.defn(name="dummy-export", failure_exception_types=[workflow.NondeterminismError])
@@ -160,6 +162,7 @@ class DummyExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=None,
             exception_to_raise=inputs.exception_to_raise,
+            records_failed_count=inputs.records_failed_count,
         )
 
         await execute_batch_export_using_internal_stage(
@@ -178,7 +181,13 @@ async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> Ba
         # get the exception class from the string
         exception_cls = globals()[inputs.exception_to_raise]
         raise exception_cls()
-    return BatchExportResult(records_completed=100, bytes_exported=100)
+    records_failed = inputs.records_failed_count
+    records_completed = 100 - (records_failed or 0)
+    return BatchExportResult(
+        records_completed=records_completed,
+        bytes_exported=100,
+        records_failed=records_failed,
+    )
 
 
 class TestErrorHandling:
@@ -269,3 +278,18 @@ class TestErrorHandling:
         run = await self._run_workflow(inputs, expect_workflow_failure=False)
         assert run.status == "Completed"
         assert run.records_completed == 100
+        assert run.records_failed is None
+
+    async def test_completed_with_records_failed(self, batch_export):
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+            records_failed_count=5,
+        )
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
+        assert run.status == "Completed"
+        assert run.records_completed == 95
+        assert run.records_failed == 5

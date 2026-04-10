@@ -148,23 +148,24 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error_factory,expected_exception_class,expected_call_count",
+    "error_factory,expected_exception_class,expected_call_count,expected_outcome",
     [
-        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1),
-        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10),
+        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1, SloOutcome.SUCCESS),
+        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1, SloOutcome.FAILURE),
+        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10, SloOutcome.FAILURE),
     ],
     ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_failure_emits_slo_failure(
+async def test_export_failure_emits_slo_outcome(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
     error_factory,
     expected_exception_class: str,
     expected_call_count: int,
+    expected_outcome: SloOutcome,
 ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
@@ -182,6 +183,6 @@ async def test_export_failure_emits_slo_failure(
     assert call_count == expected_call_count
 
     props = _get_slo_completed_props(mock_analytics)
-    assert props["outcome"] == SloOutcome.FAILURE
+    assert props["outcome"] == expected_outcome
     assert props["error"] is not None
     assert expected_exception_class in str(props["error"])

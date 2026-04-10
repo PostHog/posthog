@@ -282,6 +282,48 @@ class TestCombineFilterBytecodes:
         result = execute_bytecode(combined, globals_input)
         assert result.result == expected_result
 
+    @parameterized.expand(
+        [
+            (
+                "single_failing",
+                ["failing_condition"],
+                ["working_condition"],
+                {"working_condition": True},
+            ),
+            (
+                "multiple_failing",
+                ["fail1", "fail2"],
+                ["work"],
+                {"work": True},
+            ),
+        ]
+    )
+    def test_failing_filters_are_omitted_from_results(self, _, failing_hashes, working_hashes, expected):
+        """Failing filters should be omitted from results, not crash the entire execution."""
+        from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+            evaluate_combined_filters_with_fallback_sync,
+        )
+
+        failing_bytecode = ["_H", 1, 31, 32, "nonexistent", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
+        working_bytecode = ["_H", 1, 29]  # Always true
+
+        filters = [
+            PersonPropertyFilter(condition_hash=h, bytecode=failing_bytecode, cohort_ids=[i], property_key=None)
+            for i, h in enumerate(failing_hashes)
+        ] + [
+            PersonPropertyFilter(
+                condition_hash=h, bytecode=working_bytecode, cohort_ids=[len(failing_hashes) + i], property_key=None
+            )
+            for i, h in enumerate(working_hashes)
+        ]
+
+        combined = combine_filter_bytecodes(filters)
+        result = evaluate_combined_filters_with_fallback_sync(
+            combined, filters, {"person": {"properties": {}}}, "test-person"
+        )
+
+        assert result == expected
+
 
 class TestEvaluateCombinedFiltersSync:
     """Tests for evaluate_combined_filters_sync."""
