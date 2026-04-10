@@ -236,7 +236,7 @@ class Reviewer:
         posthog_kwargs: dict = {}
         if _POSTHOG_AI_AVAILABLE:
             posthog_kwargs = {
-                "posthog_distinct_id": "stamphog",
+                "posthog_distinct_id": pr.author,
                 "posthog_properties": {
                     "ai_product": "stamphog",
                     "stamphog_pr_number": pr.number,

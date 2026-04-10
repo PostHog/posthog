@@ -127,6 +127,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         pyroscope_application_name: String::new(),
         pyroscope_sample_rate: 100,
     },
+    capture_v1_sinks: String::new(),
 });
 
 static TRACING_INIT: Once = Once::new();

@@ -1595,8 +1595,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
 
                 // When the active pinned tab changes remotely, make sure the local window navigates too.
+                // Use replace instead of push to avoid growing the history stack in idle
+                // tabs that receive cross-tab sync events (history state is non-heap memory).
                 if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
-                    router.actions.push(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                    router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
                 }
             }
 

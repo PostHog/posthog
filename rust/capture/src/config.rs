@@ -100,7 +100,7 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    // --- Token-only limiter config ---
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
     #[envconfig(default = "5000000")]
@@ -249,6 +249,12 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
+    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Empty string means the v1 sink layer is disabled.
+    #[envconfig(default = "")]
+    pub capture_v1_sinks: String,
 }
 
 #[derive(Envconfig, Clone)]
