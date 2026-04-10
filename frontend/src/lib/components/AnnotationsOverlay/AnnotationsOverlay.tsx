@@ -23,14 +23,9 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
-import {
-    AnnotationBadgeCluster,
-    MIN_BADGE_SPACING_PX,
-    tickOverlapsAnyCluster,
-    useAnnotationClusters,
-} from './useAnnotationClusters'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
+const MIN_BADGE_SPACING_PX = 24
 const EMPTY_ANNOTATIONS: DatedAnnotationType[] = []
 
 const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -40,6 +35,28 @@ const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: 'MMMM D, YYYY',
     month: 'MMMM D, YYYY',
+}
+
+interface AnnotationBadgeCluster {
+    date: dayjs.Dayjs
+    dateRange: [dayjs.Dayjs, dayjs.Dayjs]
+    annotations: DatedAnnotationType[]
+    leftPx: number
+    rightPx: number
+}
+
+function getInterpolatedDataPointX(dataIndex: number, getDataPointX: (index: number) => number | null): number | null {
+    const floor = Math.floor(dataIndex)
+    const fraction = dataIndex - floor
+    const xFloor = getDataPointX(floor)
+    if (xFloor === null) {
+        return null
+    }
+    if (fraction === 0) {
+        return xFloor
+    }
+    const xNext = getDataPointX(floor + 1)
+    return xNext !== null ? xFloor + fraction * (xNext - xFloor) : xFloor
 }
 
 export interface AnnotationsOverlayProps {
@@ -105,12 +122,47 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
     const chartAreaLeft = chart ? chart.scales.x.left : 0
 
-    const { clusters, clusterByKey } = useAnnotationClusters({
-        annotationBadgeDataIndices,
-        getDataPointX,
-        chartAreaLeft,
-        groupedAnnotations,
-    })
+    const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
+        const positioned = annotationBadgeDataIndices
+            .map(({ dateKey, date, dataIndex }) => {
+                const absoluteX = getInterpolatedDataPointX(dataIndex, getDataPointX)
+                if (absoluteX === null) {
+                    return null
+                }
+                return {
+                    date,
+                    leftPx: absoluteX - chartAreaLeft,
+                    annotations: groupedAnnotations[dateKey] || [],
+                }
+            })
+            .filter((b): b is NonNullable<typeof b> => b !== null)
+            .sort((a, b) => a.leftPx - b.leftPx)
+
+        const out: AnnotationBadgeCluster[] = []
+        for (const badge of positioned) {
+            const last = out[out.length - 1]
+            if (last && badge.leftPx - last.rightPx < MIN_BADGE_SPACING_PX) {
+                last.annotations = [...last.annotations, ...badge.annotations]
+                last.dateRange = [last.dateRange[0], badge.date]
+                last.rightPx = badge.leftPx
+            } else {
+                out.push({
+                    date: badge.date,
+                    dateRange: [badge.date, badge.date],
+                    annotations: badge.annotations,
+                    leftPx: badge.leftPx,
+                    rightPx: badge.leftPx,
+                })
+            }
+        }
+        return out
+    }, [annotationBadgeDataIndices, getDataPointX, chartAreaLeft, groupedAnnotations])
+
+    const clusterByKey = React.useMemo(() => {
+        const m = new Map<string, AnnotationBadgeCluster>()
+        clusters.forEach((c) => m.set(c.date.toISOString(), c))
+        return m
+    }, [clusters])
 
     const activeBadgeElement = activeDate ? badgeRefs.current.get(activeDate.toISOString()) : undefined
     const activeCluster = activeDate ? clusterByKey.get(activeDate.toISOString()) : undefined
@@ -131,7 +183,10 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
             >
                 {tickDates.map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
-                    if (tickOverlapsAnyCluster(leftPx, clusters, MIN_BADGE_SPACING_PX)) {
+                    const overlapsCluster = clusters.some(
+                        (c) => leftPx >= c.leftPx - MIN_BADGE_SPACING_PX && leftPx <= c.rightPx + MIN_BADGE_SPACING_PX
+                    )
+                    if (overlapsCluster) {
                         return null
                     }
                     return (
