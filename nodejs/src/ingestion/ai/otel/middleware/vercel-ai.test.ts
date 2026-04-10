@@ -96,6 +96,26 @@ describe('vercel-ai middleware', () => {
             }
             expect(event.properties!['$ai_stop_reason']).toBe('stop')
         })
+
+        it('maps gen_ai.response.finish_reasons array to $ai_stop_reason', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.response.finish_reasons': ['length'],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
+            expect(event.properties!['$ai_stop_reason']).toBe('length')
+        })
+
+        it('leaves $ai_stop_reason undefined when no finish reason is present', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_stop_reason']).toBeUndefined()
+        })
     })
 
     describe('$ai_trace (top-level span)', () => {
