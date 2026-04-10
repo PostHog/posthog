@@ -279,7 +279,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                         const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
                         return { dateKey, date, dataIndex }
                     })
-                    .filter(({ dataIndex }) => dataIndex >= 0 && dataIndex <= lastIndex)
+                    .filter(({ dataIndex }) => dataIndex >= 0)
                     .sort((a, b) => a.dataIndex - b.dataIndex)
             },
         ],

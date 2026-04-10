@@ -183,8 +183,10 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
             >
                 {tickDates.map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
+                    // Strict `<` on both sides mirrors the cluster merge criterion so the
+                    // suppression zone matches the merge zone exactly (no boundary gap).
                     const overlapsCluster = clusters.some(
-                        (c) => leftPx >= c.leftPx - MIN_BADGE_SPACING_PX && leftPx <= c.rightPx + MIN_BADGE_SPACING_PX
+                        (c) => leftPx - c.leftPx > -MIN_BADGE_SPACING_PX && leftPx - c.rightPx < MIN_BADGE_SPACING_PX
                     )
                     if (overlapsCluster) {
                         return null
