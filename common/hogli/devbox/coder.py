@@ -502,8 +502,23 @@ def ssh_replace(name: str) -> None:
 
 
 def phrocs_replace(name: str) -> None:
-    """Attach to the phrocs tmux session in a workspace."""
-    _run_or_exit(["coder", "ssh", name, "--", "tmux", "-L", "sandbox", "attach-session", "-t", "posthog"])
+    """Attach to the phrocs tmux session in a workspace, starting it if needed."""
+    # If the session already exists, attach directly.
+    # If phrocs is running outside tmux, warn rather than start a second instance.
+    # Otherwise create the session (running hogli start) and attach.
+    remote_cmd = (
+        "if tmux -L sandbox has-session -t posthog 2>/dev/null; then "
+        "  tmux -L sandbox attach-session -t posthog; "
+        "elif pgrep -x phrocs > /dev/null 2>&1; then "
+        "  echo 'phrocs is already running outside a tmux session.'; "
+        "  echo 'Stop it first (pkill phrocs), then re-run hogli devbox:phrocs.'; "
+        "  exit 1; "
+        "else "
+        "  tmux -L sandbox new-session -d -s posthog 'hogli start' && "
+        "  tmux -L sandbox attach-session -t posthog; "
+        "fi"
+    )
+    _run_or_exit(["coder", "ssh", name, "--", "bash", "-c", remote_cmd])
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
