@@ -5,7 +5,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { NewDashboardModal } from './NewDashboardModal'
@@ -58,7 +57,9 @@ jest.mock('lib/ui/DialogPrimitive/DialogPrimitive', () => ({
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseMountedLogic = useMountedLogic as jest.Mock
-const mockedDashboardTemplatesLogic = dashboardTemplatesLogic as jest.Mock
+const mockedDashboardTemplatesLogic = jest.requireMock<{
+    dashboardTemplatesLogic: jest.Mock
+}>('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
 
 const mockTemplatesLogic = { __mock: 'dashboardTemplatesLogic' }
 
