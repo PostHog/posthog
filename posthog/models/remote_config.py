@@ -1,7 +1,6 @@
 import copy
 import json
 import hashlib
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Optional
 
@@ -23,6 +22,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.js_snippet_versioning import (
     DEFAULT_SNIPPET_VERSION,
+    SourceObserver,
     get_disk_js_hash,
     get_js_content,
     resolve_version,
@@ -98,9 +98,9 @@ class ArrayJSMetadata(NamedTuple):
 
 @dataclass
 class ArrayJSObservers:
-    config_source: Optional[Callable[[str], None]] = None
-    manifest_source: Optional[Callable[[str], None]] = None
-    js_content_source: Optional[Callable[[str], None]] = None
+    config_source: Optional[SourceObserver] = None
+    manifest_source: Optional[SourceObserver] = None
+    js_content_source: Optional[SourceObserver] = None
 
 
 @dataclass
@@ -530,7 +530,7 @@ class RemoteConfig(UUIDTModel):
     def _compute_array_js_metadata_from_config(
         config: dict,
         *,
-        manifest_source_observer: Optional[Callable[[str], None]] = None,
+        manifest_source_observer: Optional[SourceObserver] = None,
     ) -> ArrayJSMetadata:
         sdk_version = config.get("sdkVersion", {})
         requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
@@ -550,7 +550,7 @@ class RemoteConfig(UUIDTModel):
         cls,
         token: str,
         *,
-        manifest_source_observer: Optional[Callable[[str], None]] = None,
+        manifest_source_observer: Optional[SourceObserver] = None,
     ) -> ArrayJSMetadata:
         """Compute an ETag for the array.js response without building it.
 
@@ -604,7 +604,7 @@ class RemoteConfig(UUIDTModel):
         config: dict,
         resolved_version: Optional[str] = None,
         request: Optional[HttpRequest] = None,
-        js_content_source_observer: Optional[Callable[[str], None]] = None,
+        js_content_source_observer: Optional[SourceObserver] = None,
     ) -> str:
         """Build the full array.js + config JS response body.
 
