@@ -85,7 +85,6 @@ class ExperimentQueryBuilder:
             ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
         ] = None,
         breakdowns: list[Breakdown] | None = None,
-        force_precomputation: bool = False,
         only_count_matured_users: bool = False,
     ):
         self.team = team
@@ -101,7 +100,6 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
-        self.force_precomputation = force_precomputation
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
     # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
@@ -1223,11 +1221,6 @@ class ExperimentQueryBuilder:
     def _get_exposure_query(self) -> ast.SelectQuery:
         if self.preaggregation_job_ids and not self.breakdowns:
             return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
-
-        if self.force_precomputation:
-            raise Exception(
-                "Precomputation required but not available. preaggregation_job_ids is None or breakdowns are present."
-            )
 
         return self._build_exposure_select_query()
 
