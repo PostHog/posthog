@@ -238,17 +238,14 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
-    /// Enable routing of exception events to the Node error tracking pipeline.
-    #[envconfig(default = "false")]
-    pub error_tracking_node_rollout_enabled: bool,
-
-    /// Percentage of exception events routed to the Node pipeline (0.0 to 100.0).
-    /// Only applies when error_tracking_node_rollout_enabled is true.
-    #[envconfig(default = "0.0")]
-    pub error_tracking_node_rollout_rate: f64,
-
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
+    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Empty string means the v1 sink layer is disabled.
+    #[envconfig(default = "")]
+    pub capture_v1_sinks: String,
 }
 
 #[derive(Envconfig, Clone)]
@@ -274,8 +271,6 @@ pub struct KafkaConfig {
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "exceptions_ingestion")]
-    pub kafka_exceptions_topic: String,
     #[envconfig(default = "error_tracking_events")]
     pub kafka_error_tracking_topic: String,
     #[envconfig(default = "heatmaps_ingestion")]

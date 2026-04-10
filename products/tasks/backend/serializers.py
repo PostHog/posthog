@@ -495,6 +495,12 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         max_value=5000,
         help_text="Maximum number of entries to return (default 1000, max 5000)",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Zero-based offset into the filtered log entries",
+    )
 
 
 class SandboxEnvironmentSerializer(serializers.ModelSerializer):
