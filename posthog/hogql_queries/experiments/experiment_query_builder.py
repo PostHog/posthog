@@ -322,11 +322,24 @@ class ExperimentQueryBuilder:
         # Build the JOIN clause with conditional temporal filter
         temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
-        session_map_columns = ""
-        if not self.funnel_steps_data_disabled:
-            session_map_columns = """,
+        if self.funnel_steps_data_disabled:
+            # When steps data is disabled, we skip the expensive session/event maps and
+            # the per-exposure columns that are only needed for steps_event_data.
+            # The exposures CTE already deduplicates to one row per (entity_id, variant),
+            # so removing these from GROUP BY doesn't change results.
+            extra_select_columns = ""
+            extra_group_by_columns = ""
+        else:
+            extra_select_columns = """,
+                    exposures.exposure_event_uuid AS exposure_event_uuid,
+                    exposures.exposure_session_id AS exposure_session_id,
+                    exposures.first_exposure_time AS exposure_timestamp,
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
+            extra_group_by_columns = """,
+                    exposures.exposure_event_uuid,
+                    exposures.exposure_session_id,
+                    exposures.first_exposure_time"""
 
         ctes_sql = f"""
             exposures AS (
@@ -339,20 +352,14 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    exposures.exposure_event_uuid AS exposure_event_uuid,
-                    exposures.exposure_session_id AS exposure_session_id,
-                    exposures.first_exposure_time AS exposure_timestamp,
-                    {{funnel_aggregation}} AS value{session_map_columns}
+                    {{funnel_aggregation}} AS value{extra_select_columns}
                 FROM exposures
                 LEFT JOIN metric_events
                     ON exposures.entity_id = metric_events.entity_id
                     {temporal_filter}  -- Only for unordered: filters out events before exposure
                 GROUP BY
                     exposures.entity_id,
-                    exposures.variant,
-                    exposures.exposure_event_uuid,
-                    exposures.exposure_session_id,
-                    exposures.first_exposure_time
+                    exposures.variant{extra_group_by_columns}
             )
         """
 
