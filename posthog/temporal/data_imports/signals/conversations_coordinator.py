@@ -70,7 +70,11 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
         log.warning("No signal config registered for conversations/tickets")
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
     async with Heartbeater():
-        team = await Team.objects.aget(id=inputs.team_id)
+        try:
+            team = await Team.objects.aget(id=inputs.team_id)
+        except Team.DoesNotExist:
+            log.warning("Team no longer exists, skipping")
+            return {"status": "skipped", "reason": "team_deleted", "signals_emitted": 0}
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(team, config, {})
         return await run_signal_pipeline(
             team=team,
