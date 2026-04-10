@@ -239,7 +239,7 @@
             "intents": []
         },
         {
-            "path": "Event filtering",
+            "path": "Event ingestion filtering",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
             "type": "event_filter",

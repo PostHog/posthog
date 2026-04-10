@@ -124,7 +124,7 @@ export function EventFilterScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Event filtering"
+                name="Event ingestion filtering"
                 description="Drop events at ingestion time based on event name or distinct ID."
                 resourceType={{ type: 'data_pipeline' }}
             />
@@ -132,8 +132,8 @@ export function EventFilterScene(): JSX.Element {
                 <div className="space-y-4">
                     <LemonBanner type="info">
                         <p className="mb-1">
-                            Event filtering is the most efficient way to drop unwanted events. Filters are evaluated
-                            early in the ingestion pipeline, before transformations run.
+                            Event ingestion filtering is the most efficient way to drop unwanted events. Filters are
+                            evaluated early in the ingestion pipeline, before transformations run.
                         </p>
                         <p className="mb-0">
                             Events that pass these filters will still go through any active{' '}

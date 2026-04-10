@@ -18,7 +18,7 @@ export const manifest: ProductManifest = {
         EventFiltering: {
             import: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
             projectBased: true,
-            name: 'Event filtering',
+            name: 'Event ingestion filtering',
             description: 'Drop events at ingestion time based on event metadata.',
             iconType: 'data_pipeline',
         },
@@ -85,7 +85,7 @@ export const manifest: ProductManifest = {
             sceneKeys: ['Transformations'],
         },
         {
-            path: 'Event filtering',
+            path: 'Event ingestion filtering',
             category: 'Pipeline',
             type: 'event_filter',
             iconType: 'data_pipeline_metadata',

@@ -304,7 +304,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: 'EventFiltering',
-                    name: 'Event filtering',
+                    name: 'Event ingestion filtering',
                     iconType: 'data_pipeline',
                 },
             ],
