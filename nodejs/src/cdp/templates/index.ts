@@ -2,6 +2,7 @@ import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
+import { template as adjustTemplate } from './_destinations/adjust/adjust.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
@@ -70,6 +71,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdateTicketTemplate,
     hubspotCompanyTemplate,
     accoilTemplate,
+    adjustTemplate,
     klimeTemplate,
     unifyTemplate,
 ]

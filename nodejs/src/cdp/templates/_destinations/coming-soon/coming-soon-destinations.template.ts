@@ -301,12 +301,6 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // Attribution Platforms
     {
-        name: 'Adjust',
-        id: 'coming-soon-adjust',
-        icon_url: '/static/coming-soon-destinations/Adjust.svg',
-        category: ['Attribution Platforms'],
-    },
-    {
         name: 'AppsFlyer',
         id: 'coming-soon-appsflyer',
         icon_url: '/static/coming-soon-destinations/AppsFlyer.svg',
