@@ -19,12 +19,9 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.cohort import Cohort
 
+from products.error_tracking.backend.facade import get_issue_by_fingerprint
 from products.error_tracking.backend.logic import ErrorTrackingIssueService, IssueAssignmentService
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueCohort,
-    ErrorTrackingIssueFingerprintV2,
-)
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueCohort
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
 from .utils import ErrorTrackingIssueAssignmentSerializer
@@ -146,20 +143,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
-                team=self.team
-            )
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            resolved = get_issue_by_fingerprint(self.team, fingerprint)
 
-            if record:
-                if not str(record.issue_id) == self.kwargs.get("pk"):
-                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+            if resolved is not None:
+                if resolved.id != self.kwargs.get("pk"):
+                    return JsonResponse({"issue_id": resolved.id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
                 issue = (
                     ErrorTrackingIssue.objects.with_first_seen()
                     .select_related("assignment")
                     .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id, team=self.team)
+                    .get(id=resolved.id, team=self.team)
                 )
                 serializer = self.get_serializer(issue)
                 return Response(serializer.data)
