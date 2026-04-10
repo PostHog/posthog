@@ -91,7 +91,13 @@ export function NewDashboardModal(): JSX.Element {
         <DialogPrimitive
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
-            className={cn('w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8', 'bg-surface-primary')}
+            className={cn(
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8',
+                'bg-surface-primary',
+                // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
+                // that layer so dropdown options render above the dialog instead of behind it.
+                'z-[calc(var(--z-popover)-1)]'
+            )}
         >
             <div className="flex shrink-0 flex-col gap-3 border-b border-primary px-4 py-3 pr-2">
                 <div className="flex items-start justify-between gap-2">
