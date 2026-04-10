@@ -46,6 +46,7 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
+    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -122,23 +123,27 @@ export const MarketingAnalyticsTable = ({
                                             },
                                         ],
                                     },
-                                    {
-                                        title: 'UTM',
-                                        options: [
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Medium,
-                                                label: 'Medium',
-                                            },
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Content,
-                                                label: 'Content',
-                                            },
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Term,
-                                                label: 'Term',
-                                            },
-                                        ],
-                                    },
+                                    ...(hasExtendedDrillDown
+                                        ? [
+                                              {
+                                                  title: 'UTM',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                          label: 'Medium',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Content,
+                                                          label: 'Content',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Term,
+                                                          label: 'Term',
+                                                      },
+                                                  ],
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                                 size="small"
                             />

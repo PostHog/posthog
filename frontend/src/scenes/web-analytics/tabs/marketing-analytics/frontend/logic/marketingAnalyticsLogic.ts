@@ -409,10 +409,26 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     selectors({
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
-            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) =>
-                featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]
-                    ? level
-                    : MarketingAnalyticsDrillDownLevel.Campaign,
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
+                // Base drill-down flag gates all levels except Campaign (the released default).
+                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                // Extended drill-down flag gates levels added after the v1 release (UTM and beyond).
+                // Without it, persisted/url-loaded extended levels fall back to Campaign.
+                const extendedLevels: MarketingAnalyticsDrillDownLevel[] = [
+                    MarketingAnalyticsDrillDownLevel.Medium,
+                    MarketingAnalyticsDrillDownLevel.Content,
+                    MarketingAnalyticsDrillDownLevel.Term,
+                ]
+                if (
+                    extendedLevels.includes(level) &&
+                    !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
+                ) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                return level
+            },
         ],
         validSourcesMap: [
             (s) => [s.sources_map],
