@@ -55,20 +55,41 @@ jobs:
               with:
                   filters: |
                       dagster:
+                        # DAG code and tests
                         - 'posthog/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*'
-                        - 'ee/**/*'
-                        - 'products/*'
-                        - 'products/*/!(frontend)/**'
-                        # Make sure we run if someone is explicitly change the workflow
+                        - 'products/*/dags/**'
+                        - 'ee/billing/dags/**'
+                        # posthog modules imported by DAGs (intentionally NOT posthog/**/*;
+                        # notably excludes posthog/api/, posthog/temporal/, posthog/batch_exports/, etc.)
+                        - 'posthog/*.py'
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/ducklake/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/llm/**'
+                        - 'posthog/models/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/test/**'
+                        - 'posthog/conftest.py'
+                        # ee modules imported by DAGs
+                        - 'ee/billing/salesforce_enrichment/**'
+                        - 'ee/clickhouse/materialized_columns/**'
+                        - 'ee/hogai/eval/**'
+                        # Product backend modules imported by DAGs
+                        - 'products/data_warehouse/backend/**'
+                        - 'products/error_tracking/backend/models/**'
+                        - 'products/event_definitions/backend/models/**'
+                        - 'products/growth/backend/constants.py'
+                        - 'products/llm_analytics/backend/models/**'
+                        # Infrastructure
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
-                        # We use docker compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
-                        # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - frontend/public/email/*
+                        - pyproject.toml
+                        - uv.lock
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

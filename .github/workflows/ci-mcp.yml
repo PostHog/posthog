@@ -23,17 +23,29 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            # Not only the MCP folder but any file that generates schema for the mcp folder
+            # MCP wraps the PostHog REST API — trigger on the service itself, tool configs,
+            # and the specific API viewsets/serializers it depends on (not all of posthog/**)
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       mcp:
+                        # MCP service
                         - 'services/mcp/**'
-                        - 'products/**'
-                        - 'ee/**/*'
-                        - 'posthog/**/*'
+                        # Tool definitions and UI apps per product
+                        - 'products/*/mcp/**'
+                        # PostHog API surface (MCP wraps the REST API)
+                        - 'posthog/api/**'
+                        # Product API endpoints wrapped by MCP tools
+                        - 'products/*/backend/**'
+                        # Query schemas used by MCP analytics tools
+                        - 'frontend/src/queries/schema.json'
+                        # Shared UI component library (used by MCP UI apps)
+                        - 'common/mosaic/**'
+                        # Code generation tooling
+                        - 'tools/openapi-codegen/**'
+                        # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
