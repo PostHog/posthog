@@ -171,7 +171,6 @@ class Command(BaseCommand):
                         cohort_id=cohort.id,
                         team_id=team.pk,
                         reason="Invalid filter structure - keeping original filters",
-                        validation_error_details=validation_error_list,
                     )
                     continue
 
