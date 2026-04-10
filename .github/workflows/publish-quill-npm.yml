@@ -76,8 +76,15 @@ jobs:
 
             - name: Build Slack summary
               id: versions
+              env:
+                  # Route step outputs through env vars rather than interpolating them
+                  # directly into `run:` — semgrep's github-actions-shell-injection rule
+                  # treats any `${{ steps.*.outputs.* }}` inside a shell script as a
+                  # defense-in-depth hazard, even when the upstream value is trusted.
+                  TOKENS_VERSION: ${{ steps.publish-tokens.outputs.version }}
+                  QUILL_VERSION: ${{ steps.publish-quill.outputs.version }}
               run: |
-                  echo "summary=@posthog/quill-tokens@${{ steps.publish-tokens.outputs.version }}, @posthog/quill@${{ steps.publish-quill.outputs.version }}" >> $GITHUB_OUTPUT
+                  echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}" >> $GITHUB_OUTPUT
 
             - name: Notify Slack
               if: ${{ !cancelled() }}
