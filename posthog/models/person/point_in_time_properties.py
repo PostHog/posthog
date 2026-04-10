@@ -44,8 +44,8 @@ def get_person_distinct_ids_from_clickhouse(
     from posthog.clickhouse.client import sync_execute
 
     logger = logging.getLogger(__name__)
-    logger.info(
-        f"[ClickHouse Person Lookup] Called with team_id={team_id}, distinct_id={distinct_id}, person_id={person_id}"
+    logger.debug(
+        f"[ClickHouse Person Lookup] Called with team_id={team_id}, distinct_id=<redacted>, person_id=<redacted>"
     )
 
     # Validation
@@ -63,7 +63,7 @@ def get_person_distinct_ids_from_clickhouse(
 
     try:
         if distinct_id is not None:
-            logger.info(f"[ClickHouse Person Lookup] Looking up by distinct_id: {distinct_id}")
+            logger.debug("[ClickHouse Person Lookup] Looking up by distinct_id")
             # First, get the person_id for this distinct_id
             query = """
             SELECT person_id
@@ -80,14 +80,14 @@ def get_person_distinct_ids_from_clickhouse(
 
             result = sync_execute(query, params)
             if not result:
-                logger.warning(f"[ClickHouse Person Lookup] No person found for distinct_id: {distinct_id}")
+                logger.warning("[ClickHouse Person Lookup] No person found for distinct_id")
                 return None, []
 
             found_person_id = result[0][0]
-            logger.info(f"[ClickHouse Person Lookup] Found person_id: {found_person_id}")
+            logger.debug("[ClickHouse Person Lookup] Found person_id")
 
         else:  # person_id provided
-            logger.info(f"[ClickHouse Person Lookup] Looking up by person_id: {person_id}")
+            logger.debug("[ClickHouse Person Lookup] Looking up by person_id")
             found_person_id = str(person_id)
 
         # Now get all distinct_ids for this person_id
@@ -107,15 +107,15 @@ def get_person_distinct_ids_from_clickhouse(
         distinct_ids = [row[0] for row in result]
 
         if not distinct_ids:
-            logger.warning(f"[ClickHouse Person Lookup] No distinct_ids found for person_id: {found_person_id}")
+            logger.warning("[ClickHouse Person Lookup] No distinct_ids found for person_id")
             return None, []
 
-        logger.info(f"[ClickHouse Person Lookup] Found person_id: {found_person_id}, distinct_ids: {distinct_ids}")
+        logger.debug(f"[ClickHouse Person Lookup] Found {len(distinct_ids)} distinct_ids")
         return found_person_id, distinct_ids
 
-    except Exception as e:
-        logger.exception(f"[ClickHouse Person Lookup] Exception during lookup: {str(e)}")
-        raise Exception(f"Failed to query person distinct_ids from ClickHouse: {str(e)}") from e
+    except Exception:
+        logger.exception("[ClickHouse Person Lookup] Failed to query person distinct_ids")
+        raise
 
 
 def get_person_and_distinct_ids_for_identifier(
@@ -141,7 +141,7 @@ def get_person_and_distinct_ids_for_identifier(
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.info(f"[Person Lookup] Called with team_id={team_id}, distinct_id={distinct_id}, person_id={person_id}")
+    logger.debug(f"[Person Lookup] Called with team_id={team_id}, distinct_id=<redacted>, person_id=<redacted>")
 
     # Validation
     if distinct_id is not None and person_id is not None:
@@ -157,103 +157,36 @@ def get_person_and_distinct_ids_for_identifier(
         raise ValueError("person_id must be a non-empty value")
 
     try:
-        from django.conf import settings
-
         from posthog.models import (
             Person as PersonModel,
             PersonDistinctId,
         )
         from posthog.models.person.person import READ_DB_FOR_PERSONS
 
-        logger.info(f"[Person Lookup] Database configuration:")
-        logger.info(f"[Person Lookup] READ_DB_FOR_PERSONS = {READ_DB_FOR_PERSONS}")
-        logger.info(f"[Person Lookup] Available databases: {list(settings.DATABASES.keys())}")
-        if "persons_db_reader" in settings.DATABASES:
-            logger.info(
-                f"[Person Lookup] persons_db_reader URL: {settings.DATABASES['persons_db_reader'].get('NAME', 'Not set')}"
-            )
-        if "persons_db_writer" in settings.DATABASES:
-            logger.info(
-                f"[Person Lookup] persons_db_writer URL: {settings.DATABASES['persons_db_writer'].get('NAME', 'Not set')}"
-            )
+        logger.debug("[Person Lookup] Database configuration loaded")
 
         # Create the query manager and log which database it will use
         query_manager = PersonModel.objects.db_manager(READ_DB_FOR_PERSONS)
-        actual_database = query_manager.db
-        logger.info(f"[Person Lookup] Query will use database: '{actual_database}'")
+        logger.debug("[Person Lookup] Query manager configured")
 
-        # Log the database connection details
-        try:
-            db_config = settings.DATABASES[actual_database]
-            db_name = db_config.get("NAME", "Unknown")
-            db_host = db_config.get("HOST", "localhost")
-            db_port = db_config.get("PORT", "5432")
-            logger.info(f"[Person Lookup] Database details: name='{db_name}', host='{db_host}', port='{db_port}'")
-        except Exception as e:
-            logger.warning(f"[Person Lookup] Could not get database details: {e}")
+        # Database configuration is handled internally
 
         if distinct_id is not None:
-            logger.info(f"[Person Lookup] Looking up person by distinct_id using direct ORM: {distinct_id}")
+            logger.debug("[Person Lookup] Looking up person by distinct_id using direct ORM")
             # Direct ORM query avoiding PersonHog routing
             person = query_manager.filter(team_id=team_id, persondistinctid__distinct_id=distinct_id).first()
         else:
-            logger.info(f"[Person Lookup] Looking up person by person_id using direct ORM: {person_id}")
+            logger.debug("[Person Lookup] Looking up person by person_id using direct ORM")
             # Direct ORM query avoiding PersonHog routing
             person = query_manager.filter(team_id=team_id, uuid=person_id).first()
 
-        logger.info(f"[Person Lookup] ORM query result: person={person}")
-        logger.info(f"[Person Lookup] Query executed on database: '{actual_database}'")
+        logger.debug(f"[Person Lookup] ORM query result: {'found' if person else 'not found'}")
 
         if person is None:
             logger.warning(f"[Person Lookup] No person found for team_id={team_id}")
 
-            # Debug information to help understand what went wrong
-            try:
-                if distinct_id is not None:
-                    # Check if distinct_id exists at all
-                    distinct_id_obj = PersonDistinctId.objects.filter(distinct_id=distinct_id).first()
-                    logger.info(
-                        f"[Person Lookup] Direct DB check - distinct_id '{distinct_id}' exists: {distinct_id_obj is not None}"
-                    )
-                    if distinct_id_obj:
-                        logger.info(
-                            f"[Person Lookup] Found distinct_id with team_id={distinct_id_obj.team_id}, person_id={distinct_id_obj.person_id}"
-                        )
-
-                    # Check if it exists for this specific team
-                    team_distinct_id = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                    logger.info(
-                        f"[Person Lookup] Team-specific check - distinct_id exists for team {team_id}: {team_distinct_id is not None}"
-                    )
-
-                elif person_id is not None:
-                    # Check if person_id (UUID) exists
-                    person_obj = PersonModel.objects.filter(uuid=person_id).first()
-                    logger.info(
-                        f"[Person Lookup] Direct DB check - person_id '{person_id}' exists: {person_obj is not None}"
-                    )
-                    if person_obj:
-                        logger.info(
-                            f"[Person Lookup] Found person with team_id={person_obj.team_id}, uuid={person_obj.uuid}"
-                        )
-
-                    # Check if it exists for this specific team
-                    team_person = PersonModel.objects.filter(team_id=team_id, uuid=person_id).first()
-                    logger.info(
-                        f"[Person Lookup] Team-specific check - person_id exists for team {team_id}: {team_person is not None}"
-                    )
-
-                    # Also check total person count for this team
-                    total_persons = PersonModel.objects.filter(team_id=team_id).count()
-                    logger.info(f"[Person Lookup] Total persons in team {team_id}: {total_persons}")
-
-                    # Show a few sample person UUIDs for comparison
-                    sample_persons = PersonModel.objects.filter(team_id=team_id)[:3]
-                    for i, p in enumerate(sample_persons):
-                        logger.info(f"[Person Lookup] Sample person {i + 1}: uuid={p.uuid}")
-
-            except Exception as e:
-                logger.exception(f"[Person Lookup] Error during direct DB check: {e}")
+            # Debug information available at DEBUG level only
+            logger.debug("[Person Lookup] Person lookup failed - enable DEBUG logging for detailed analysis")
 
             return None, []
 
@@ -264,12 +197,12 @@ def get_person_and_distinct_ids_for_identifier(
             .values_list("distinct_id", flat=True)
         )
 
-        logger.info(f"[Person Lookup] Found person: uuid={person.uuid}, distinct_ids={distinct_ids}")
+        logger.debug(f"[Person Lookup] Found person with {len(distinct_ids)} distinct_ids")
         return person, distinct_ids
 
-    except Exception as e:
-        logger.exception(f"[Person Lookup] Exception during lookup: {str(e)}")
-        raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
+    except Exception:
+        logger.exception("[Person Lookup] Failed to query person distinct_ids")
+        raise
 
 
 def get_distinct_ids_for_person_identifier(
@@ -377,8 +310,12 @@ def build_person_properties_at_time(
 
     try:
         rows = sync_execute(query, params, settings={"max_execution_time": timeout})
-    except Exception as e:
-        raise Exception(f"Failed to query ClickHouse events: {str(e)}") from e
+    except Exception:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to query ClickHouse events for person properties")
+        raise
 
     # Build person properties by applying operations chronologically
     person_properties = {}

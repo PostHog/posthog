@@ -6,6 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -19,6 +20,44 @@ import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export const FLAGS_PER_PAGE = 100
+
+// Testing tab types
+interface PropertyAnalysis {
+    key: string
+    operator: string
+    value: any
+    actual_value: any
+    matched: boolean
+    explanation: string
+}
+
+interface ConditionAnalysis {
+    index: number
+    matched: boolean
+    rollout_excluded?: boolean
+    result: string
+    explanation: string
+    rollout_percentage: number
+    variant?: string
+    properties: PropertyAnalysis[]
+}
+
+interface TestResult {
+    flag_key: string
+    result: boolean | string
+    reason: string
+    condition_index: number | null
+    payload: any
+    person_properties: Record<string, any>
+    conditions?: ConditionAnalysis[]
+}
+
+interface TestFormData {
+    distinct_id: string
+    person_id: string
+    timestamp: string
+    groups: string
+}
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
     if (!search?.trim()) {
@@ -162,6 +201,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         closeEnrichAnalyticsNotice: true,
         setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
+        // Testing tab actions
+        setTestFormData: (formData: Partial<TestFormData>) => ({ formData }),
+        setIdentifierType: (identifierType: 'distinct_id' | 'person_id') => ({ identifierType }),
+        setTestError: (error: string | null) => ({ error }),
+        setTestResult: (result: TestResult | null) => ({ result }),
+        setShowAllProperties: (showAll: boolean) => ({ showAll }),
+        setDatePickerOpen: (open: boolean) => ({ open }),
+        setDatePickerValue: (value: ReturnType<typeof dayjs> | undefined) => ({ value }),
+        clearTestForm: true,
     }),
     loaders(({ values }) => ({
         featureFlags: [
@@ -201,6 +249,42 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         }
                         throw e
                     }
+                },
+            },
+        ],
+        testEvaluation: [
+            null as TestResult | null,
+            {
+                testFlagEvaluation: async ({
+                    flagId,
+                    formData,
+                    identifierType,
+                }: {
+                    flagId: number
+                    formData: TestFormData
+                    identifierType: 'distinct_id' | 'person_id'
+                }) => {
+                    const data: Record<string, any> = {}
+
+                    // Only send the identifier that matches the current identifier type
+                    if (identifierType === 'distinct_id' && formData.distinct_id?.trim()) {
+                        data.distinct_id = formData.distinct_id.trim()
+                    }
+                    if (identifierType === 'person_id' && formData.person_id?.trim()) {
+                        data.person_id = formData.person_id.trim()
+                    }
+                    if (formData.groups?.trim()) {
+                        try {
+                            data.groups = JSON.parse(formData.groups.trim())
+                        } catch {
+                            throw new Error('Invalid JSON format for groups')
+                        }
+                    }
+                    if (formData.timestamp?.trim()) {
+                        data.timestamp = formData.timestamp.trim()
+                    }
+
+                    return await api.featureFlagTestEvaluation(flagId).create({ data })
                 },
             },
         ],
@@ -274,6 +358,53 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return state
                 },
                 updateFeatureFlagFailure: () => ({}),
+            },
+        ],
+        // Testing tab reducers
+        testFormData: [
+            { distinct_id: '', person_id: '', timestamp: '', groups: '' } as TestFormData,
+            {
+                setTestFormData: (state, { formData }) => ({ ...state, ...formData }),
+                clearTestForm: () => ({ distinct_id: '', person_id: '', timestamp: '', groups: '' }),
+            },
+        ],
+        identifierType: [
+            'distinct_id' as 'distinct_id' | 'person_id',
+            {
+                setIdentifierType: (_, { identifierType }) => identifierType,
+            },
+        ],
+        testError: [
+            null as string | null,
+            {
+                setTestError: (_, { error }) => error,
+                testFlagEvaluation: () => null,
+                testFlagEvaluationFailure: (_, { error }) => error?.message || 'An error occurred',
+            },
+        ],
+        testResult: [
+            null as TestResult | null,
+            {
+                setTestResult: (_, { result }) => result,
+                testFlagEvaluationSuccess: (_, { testEvaluation }) => testEvaluation,
+            },
+        ],
+        showAllProperties: [
+            false,
+            {
+                setShowAllProperties: (_, { showAll }) => showAll,
+            },
+        ],
+        datePickerOpen: [
+            false,
+            {
+                setDatePickerOpen: (_, { open }) => open,
+            },
+        ],
+        datePickerValue: [
+            undefined as ReturnType<typeof dayjs> | undefined,
+            {
+                setDatePickerValue: (_, { value }) => value,
             },
         ],
     }),

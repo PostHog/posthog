@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import {
     LemonButton,
@@ -10,64 +10,35 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType } from '~/types'
 
-interface PropertyAnalysis {
-    key: string
-    operator: string
-    value: any
-    actual_value: any
-    matched: boolean
-    explanation: string
-}
-
-interface ConditionAnalysis {
-    index: number
-    matched: boolean
-    rollout_excluded?: boolean
-    result: string
-    explanation: string
-    rollout_percentage: number
-    variant?: string
-    properties: PropertyAnalysis[]
-}
-
-interface TestResult {
-    flag_key: string
-    result: boolean | string
-    reason: string
-    condition_index: number | null
-    payload: any
-    person_properties: Record<string, any>
-    conditions?: ConditionAnalysis[]
-}
-
-interface TestFormData {
-    distinct_id: string
-    person_id: string
-    timestamp: string
-    groups: string
-}
+import { featureFlagsLogic } from './featureFlagsLogic'
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const [formData, setFormData] = useState<TestFormData>({
-        distinct_id: '',
-        person_id: '',
-        timestamp: '',
-        groups: '',
-    })
+    const {
+        testFormData: formData,
+        identifierType,
+        testError: error,
+        testResult: result,
+        showAllProperties,
+        datePickerOpen,
+        datePickerValue,
+        testEvaluationLoading: isLoading,
+    } = useValues(featureFlagsLogic)
 
-    const [identifierType, setIdentifierType] = useState<'distinct_id' | 'person_id'>('distinct_id')
-    const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const [result, setResult] = useState<TestResult | null>(null)
-    const [showAllProperties, setShowAllProperties] = useState(false)
-    const [datePickerOpen, setDatePickerOpen] = useState(false)
-    const [datePickerValue, setDatePickerValue] = useState<ReturnType<typeof dayjs> | undefined>(undefined)
+    const {
+        setTestFormData,
+        setIdentifierType,
+        setTestError,
+        setTestResult,
+        setShowAllProperties,
+        setDatePickerOpen,
+        setDatePickerValue,
+        clearTestForm,
+        testFlagEvaluation,
+    } = useActions(featureFlagsLogic)
 
     const formatPropertyKey = (key: string): string => {
         return key
@@ -111,66 +82,25 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     }
 
     const handleSubmit = async (): Promise<void> => {
-        if (!formData.distinct_id.trim() && !formData.person_id.trim()) {
-            setError('Please provide either a distinct_id or person_id')
+        // Validate the active identifier field
+        const activeValue = identifierType === 'distinct_id' ? formData.distinct_id : formData.person_id
+        if (!activeValue?.trim()) {
+            setTestError(`Please provide a ${identifierType.replace('_', ' ')}`)
             return
         }
 
-        setIsLoading(true)
-        setError(null)
-        setResult(null)
-
         try {
-            let groups: Record<string, string> = {}
-            if (formData.groups.trim()) {
-                try {
-                    groups = JSON.parse(formData.groups)
-                } catch {
-                    throw new Error('Groups must be valid JSON (e.g., {"company": "acme"})')
-                }
-            }
-
-            const data: any = { groups }
-
-            if (identifierType === 'distinct_id' && formData.distinct_id.trim()) {
-                data.distinct_id = formData.distinct_id.trim()
-            }
-            if (identifierType === 'person_id' && formData.person_id.trim()) {
-                data.person_id = formData.person_id.trim()
-            }
-            if (formData.timestamp.trim()) {
-                data.timestamp = formData.timestamp.trim()
-            }
-
-            const response = await api.featureFlags.testEvaluation(featureFlag.id, data)
-            setResult(response)
-        } catch (err) {
-            if (err instanceof Error) {
-                if (err.message.includes('Person not found')) {
-                    setError(
-                        'Person not found. Please check that the distinct_id or person_id exists in your PostHog instance.'
-                    )
-                } else {
-                    setError(err.message)
-                }
-            } else {
-                setError('Failed to evaluate flag')
-            }
-        } finally {
-            setIsLoading(false)
+            await testFlagEvaluation({ flagId: featureFlag.id, formData, identifierType })
+        } catch {
+            // Error handling is done in the kea logic
         }
     }
 
     const handleClear = (): void => {
-        setFormData({
-            distinct_id: '',
-            person_id: '',
-            timestamp: '',
-            groups: '',
-        })
+        clearTestForm()
         setDatePickerValue(undefined)
-        setError(null)
-        setResult(null)
+        setTestError(null)
+        setTestResult(null)
         setShowAllProperties(false)
     }
 
@@ -179,8 +109,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
             <div>
                 <h3 className="font-semibold">Test flag evaluation</h3>
                 <p className="text-muted">
-                    Test how this feature flag evaluates for a specific user, optionally at a historical timestamp. This
-                    uses Python evaluation and provides detailed explanations of why the flag matched or didn't match.
+                    Test how this feature flag evaluates for a specific user, optionally at a historical timestamp.
+                    Provides detailed explanations of why the flag matched or didn't match.
                 </p>
             </div>
 
@@ -207,7 +137,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 <LemonInput
                                     placeholder="Enter distinct_id (e.g., user@example.com)"
                                     value={formData.distinct_id}
-                                    onChange={(value) => setFormData((prev) => ({ ...prev, distinct_id: value }))}
+                                    onChange={(value) => setTestFormData({ distinct_id: value })}
                                 />
                                 <p className="text-xs text-muted mt-1">
                                     Use a distinct_id that exists in your PostHog instance. You can find these in the
@@ -219,7 +149,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 <LemonInput
                                     placeholder="Enter person_id (UUID format)"
                                     value={formData.person_id}
-                                    onChange={(value) => setFormData((prev) => ({ ...prev, person_id: value }))}
+                                    onChange={(value) => setTestFormData({ person_id: value })}
                                 />
                                 <p className="text-xs text-muted mt-1">
                                     Use a person UUID that exists in your PostHog instance.
@@ -238,10 +168,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             onClickOutside={() => setDatePickerOpen(false)}
                             onChange={(selectedDate) => {
                                 setDatePickerValue(selectedDate)
-                                setFormData((prev) => ({
-                                    ...prev,
+                                setTestFormData({
                                     timestamp: selectedDate ? selectedDate.toISOString() : '',
-                                }))
+                                })
                                 setDatePickerOpen(false)
                             }}
                             onClose={() => setDatePickerOpen(false)}
@@ -270,7 +199,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             className="border"
                             language="json"
                             value={formData.groups || '{}'}
-                            onChange={(value) => setFormData((prev) => ({ ...prev, groups: value || '' }))}
+                            onChange={(value) => setTestFormData({ groups: value || '' })}
                             height={100}
                             options={{
                                 minimap: { enabled: false },
@@ -296,11 +225,13 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             type="primary"
                             loading={isLoading}
                             onClick={handleSubmit}
-                            disabledReason={
-                                !formData.distinct_id.trim() && !formData.person_id.trim()
-                                    ? 'Please provide a distinct_id or person_id'
+                            disabledReason={(() => {
+                                const activeValue =
+                                    identifierType === 'distinct_id' ? formData.distinct_id : formData.person_id
+                                return !activeValue?.trim()
+                                    ? `Please provide a ${identifierType.replace('_', ' ')}`
                                     : undefined
-                            }
+                            })()}
                         >
                             Test evaluation
                         </LemonButton>

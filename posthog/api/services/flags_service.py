@@ -67,7 +67,7 @@ def get_flags_from_service(
     if groups:
         payload["groups"] = groups
 
-    if person_properties:
+    if person_properties is not None:
         payload["person_properties"] = person_properties
 
     if flag_keys:
