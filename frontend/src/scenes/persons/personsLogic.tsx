@@ -49,6 +49,27 @@ export interface PersonsLogicProps {
 
 export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
 
+// Persist query state to sessionStorage so it survives kea logic destruction,
+// hot module replacement, and navigation between person pages.
+const QUERY_CACHE_PREFIX = 'person-query-cache:'
+
+function getCachedQuery(cacheKey: string): DataTableNode | null {
+    try {
+        const raw = sessionStorage.getItem(`${QUERY_CACHE_PREFIX}${cacheKey}`)
+        return raw ? (JSON.parse(raw) as DataTableNode) : null
+    } catch {
+        return null
+    }
+}
+
+function setCachedQuery(cacheKey: string, query: DataTableNode): void {
+    try {
+        sessionStorage.setItem(`${QUERY_CACHE_PREFIX}${cacheKey}`, JSON.stringify(query))
+    } catch {
+        // Ignore quota or serialization errors
+    }
+}
+
 function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
@@ -182,12 +203,15 @@ export const personsLogic = kea<personsLogicType>([
                     if (person) {
                         actions.reportPersonDetailViewed(person)
                         if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
+                            actions.setEventsQuery(
+                                getCachedQuery(`events-${person.id}`) ?? createInitialEventsPayload(person.id)
+                            )
+                            actions.setExceptionsQuery(
+                                getCachedQuery(`exceptions-${person.id}`) ?? createInitialExceptionsPayload(person.id)
+                            )
+                            actions.setSurveyResponsesQuery(
+                                getCachedQuery(`surveys-${person.id}`) ?? createInitialSurveyResponsesPayload(person.id)
+                            )
                         }
                     }
 
@@ -200,12 +224,15 @@ export const personsLogic = kea<personsLogicType>([
                         const person = parsePersonFromHogQLRow(row)
                         actions.reportPersonDetailViewed(person)
                         if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
+                            actions.setEventsQuery(
+                                getCachedQuery(`events-${person.id}`) ?? createInitialEventsPayload(person.id)
+                            )
+                            actions.setExceptionsQuery(
+                                getCachedQuery(`exceptions-${person.id}`) ?? createInitialExceptionsPayload(person.id)
+                            )
+                            actions.setSurveyResponsesQuery(
+                                getCachedQuery(`surveys-${person.id}`) ?? createInitialSurveyResponsesPayload(person.id)
+                            )
                         }
                         return person
                     }
@@ -395,6 +422,29 @@ export const personsLogic = kea<personsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        setEventsQuery: ({ eventsQuery }) => {
+            const personId =
+                eventsQuery?.source?.kind === NodeKind.EventsQuery ? eventsQuery.source.personId : undefined
+            if (personId && eventsQuery) {
+                setCachedQuery(`events-${personId}`, eventsQuery)
+            }
+        },
+        setExceptionsQuery: ({ exceptionsQuery }) => {
+            const personId =
+                exceptionsQuery?.source?.kind === NodeKind.EventsQuery ? exceptionsQuery.source.personId : undefined
+            if (personId && exceptionsQuery) {
+                setCachedQuery(`exceptions-${personId}`, exceptionsQuery)
+            }
+        },
+        setSurveyResponsesQuery: ({ surveyResponsesQuery }) => {
+            const personId =
+                surveyResponsesQuery?.source?.kind === NodeKind.EventsQuery
+                    ? surveyResponsesQuery.source.personId
+                    : undefined
+            if (personId && surveyResponsesQuery) {
+                setCachedQuery(`surveys-${personId}`, surveyResponsesQuery)
+            }
+        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
