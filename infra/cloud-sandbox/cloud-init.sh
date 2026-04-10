@@ -279,17 +279,53 @@ else
     sudo -u ubuntu HOME=/home/ubuntu git checkout -b "$SANDBOX_BRANCH" origin/master
 fi
 
-log "Creating sandbox via bin/sandbox create..."
-export SANDBOX_HOSTNAME
-sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
+# Provision a Tailscale HTTPS cert *before* starting the containers so the
+# sandbox boots with the correct JS_URL baked into JS bundles / HMR client.
+# HTTP/2 requires TLS in browsers, and Tailscale's ACME integration gives us
+# a real Let's Encrypt cert for the node's .ts.net FQDN — no self-signed
+# cert warnings. The win: the browser can multiplex ~2000 Vite asset
+# requests over one connection instead of hitting HTTP/1.1's 6-per-origin
+# cap on a ~70ms tailnet RTT (which is the difference between a 40s and a
+# 5s page load).
+log "Determining Tailscale DNS suffix..."
+TAILNET_SUFFIX=$(
+    tailscale status --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('MagicDNSSuffix',''))" \
+        2>/dev/null || true
+)
 
-# Expose the sandbox web UI on port 80 of the Tailscale interface so users can
-# visit http://<hostname>/ without remembering the port number. The sandbox
-# proxy container is already published on the host at 48001 — Tailscale Serve
-# proxies tailnet traffic on port 80 to it.
-log "Exposing sandbox on port 80 via Tailscale Serve..."
-tailscale serve --bg --http=80 http://localhost:48001 \
-    || log "WARNING: tailscale serve failed — fall back to http://$SANDBOX_HOSTNAME:48001"
+SANDBOX_JS_URL=""
+USER_URL="http://$SANDBOX_HOSTNAME:48001"
+if [ -n "$TAILNET_SUFFIX" ]; then
+    FQDN="${SANDBOX_HOSTNAME}.${TAILNET_SUFFIX}"
+    log "Requesting Tailscale HTTPS cert for $FQDN..."
+    if tailscale cert "$FQDN" 2>&1; then
+        SANDBOX_JS_URL="https://$FQDN"
+        USER_URL="https://$FQDN"
+        log "Cert obtained."
+    else
+        log "WARNING: tailscale cert failed. Enable HTTPS in https://login.tailscale.com/admin/dns to get HTTP/2. Falling back to HTTP."
+    fi
+else
+    log "WARNING: could not read tailnet MagicDNSSuffix. Falling back to HTTP."
+fi
+
+log "Creating sandbox via bin/sandbox create..."
+export SANDBOX_HOSTNAME SANDBOX_JS_URL
+sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
+
+# Now expose the running sandbox via Tailscale Serve. HTTPS path (if the
+# cert call above succeeded) gives us HTTP/2 multiplexing; HTTP path is the
+# same fallback we had before — slower but functional.
+if [ -n "$SANDBOX_JS_URL" ]; then
+    log "Enabling HTTPS + HTTP/2 via tailscale serve (port 443)..."
+    tailscale serve --bg --https=443 http://localhost:48001 \
+        || log "WARNING: tailscale serve --https failed"
+else
+    log "Exposing sandbox on port 80 via Tailscale Serve..."
+    tailscale serve --bg --http=80 http://localhost:48001 \
+        || log "WARNING: tailscale serve failed — fall back to http://$SANDBOX_HOSTNAME:48001"
+fi
 
 log "Waiting for app to be healthy..."
 HEALTH_DEADLINE=$((SECONDS + 600))
@@ -305,4 +341,4 @@ BOOT_STATUS="complete"
 log "Cloud sandbox boot complete at $(date)"
 log "Total boot time: ${SECONDS}s"
 log "Tailscale hostname: $SANDBOX_HOSTNAME"
-log "PostHog will be available at http://$SANDBOX_HOSTNAME/ once healthy"
+log "PostHog will be available at $USER_URL once healthy"

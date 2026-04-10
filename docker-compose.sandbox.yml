@@ -67,6 +67,23 @@ services:
                         path /public/m/*
                     }
 
+                    # Vite dev server: same-origin routing so the browser can
+                    # multiplex 1900+ module requests over one HTTP/2 connection
+                    # instead of hitting the HTTP/1.1 6-per-origin cap on a
+                    # second origin. Covers Vite internals, ESM sources,
+                    # node_modules, public assets, and the HMR websocket.
+                    @vite {
+                        path /@vite/*
+                        path /@fs/*
+                        path /@id/*
+                        path /@react-refresh
+                        path /src/*
+                        path /node_modules/*
+                        path /public/*
+                        path /vite-hmr
+                        path /vite-hmr/*
+                    }
+
                     handle @capture-ai {
                         reverse_proxy app:3309
                     }
@@ -93,6 +110,10 @@ services:
 
                     handle @webhooks {
                         reverse_proxy app:6738
+                    }
+
+                    handle @vite {
+                        reverse_proxy app:8234
                     }
 
                     handle {
@@ -163,7 +184,11 @@ services:
             # don't overwrite each other's login sessions.
             # (CSRF cookie is NOT varied — frontend hardcodes 'posthog_csrftoken'.)
             SESSION_COOKIE_NAME: 'sessionid_${SANDBOX_PORT:-48001}'
-            JS_URL: 'http://${SANDBOX_HOSTNAME:-localhost}:${SANDBOX_VITE_PORT:-49001}'
+            # Same-origin asset URL. bin/sandbox computes this — see
+            # _compose_env() — so Vite assets reach the browser through the
+            # same port as Django via the @vite matcher in the proxy service
+            # above. cloud-init can override with an HTTPS FQDN for HTTP/2.
+            JS_URL: '${SANDBOX_JS_URL}'
         depends_on:
             db:
                 condition: service_healthy

@@ -103,9 +103,26 @@ export default defineConfig(({ mode }) => {
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
             allowedHosts: true,
-            // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
+            // JS_URL overrides for sandbox environments where Vite is exposed
+            // through a reverse proxy at a different origin (same-origin via
+            // Caddy in local sandboxes, https FQDN via Tailscale in cloud).
             origin: process.env.JS_URL || 'http://localhost:8234',
-            hmr: process.env.JS_URL ? { clientPort: parseInt(process.env.JS_URL.split(':').pop()!) } : undefined,
+            hmr: (() => {
+                if (!process.env.JS_URL) {
+                    return undefined
+                }
+                const parsed = new URL(process.env.JS_URL)
+                const isHttps = parsed.protocol === 'https:'
+                return {
+                    host: parsed.hostname,
+                    // No explicit port means 443 for https, 80 for http.
+                    clientPort: parsed.port ? parseInt(parsed.port) : isHttps ? 443 : 80,
+                    protocol: isHttps ? 'wss' : 'ws',
+                    // Dedicated path so the sandbox Caddy @vite matcher can
+                    // route the HMR websocket to Vite instead of Django.
+                    path: '/vite-hmr',
+                }
+            })(),
             proxy: {
                 '/static': {
                     target: 'http://localhost:8000',

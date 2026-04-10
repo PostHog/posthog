@@ -431,6 +431,12 @@ def _compose_env(port: int, worktree_path: str) -> dict[str, str]:
     """Env vars threaded through every docker compose invocation."""
     config = _load_config()
     ide = config.get("jetbrains")
+    hostname = os.environ.get("SANDBOX_HOSTNAME", "localhost")
+    # Cloud-init sets SANDBOX_JS_URL to an https FQDN so HTTP/2 multiplexing
+    # works. Local sandboxes fall back to the same-origin http URL on the
+    # main app port — the Caddy @vite matcher in docker-compose.sandbox.yml
+    # forwards frontend asset paths to Vite on app:8234.
+    js_url = os.environ.get("SANDBOX_JS_URL") or f"http://{hostname}:{port}"
     return {
         "SANDBOX_PORT": str(port),
         "SANDBOX_VITE_PORT": str(port + 1000),
@@ -442,6 +448,7 @@ def _compose_env(port: int, worktree_path: str) -> dict[str, str]:
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         "SANDBOX_GIT_DIR": str(REPO_ROOT / ".git"),
+        "SANDBOX_JS_URL": js_url,
         "SANDBOX_CLAUDE_JSON": str(_claude_json)
         if (_claude_json := Path.home() / ".claude.json").is_file()
         else "/dev/null",

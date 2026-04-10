@@ -26,6 +26,31 @@ from _sandbox_lib import (
 )
 
 
+def _tailnet_url(hostname: str) -> str:
+    """Return the best-effort browser URL for a cloud sandbox.
+
+    Prefers the https FQDN (HTTP/2 via Tailscale Serve + Let's Encrypt) when
+    we can read the tailnet MagicDNSSuffix from the local tailscale daemon.
+    Falls back to plain http on the short hostname when the suffix isn't
+    available or tailscale isn't reachable locally.
+    """
+    try:
+        result = subprocess.run(
+            ["tailscale", "status", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            suffix = (json.loads(result.stdout) or {}).get("MagicDNSSuffix", "")
+            if suffix:
+                return f"https://{hostname}.{suffix}"
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        pass
+    return f"http://{hostname}"
+
+
 def _load_cloud_config() -> dict:
     try:
         return json.loads(CLOUD_CONFIG_FILE.read_text())
@@ -518,9 +543,10 @@ def cmd_cloud_create(branch: str) -> None:
     print()
     success(f"Cloud sandbox ready for '{branch}'")
 
-    # Tailscale Serve maps port 80 on the instance's tailnet interface to the
-    # sandbox proxy on 48001, so the canonical URL has no port.
-    url = f"http://{hostname}"
+    # Tailscale Serve terminates TLS at 443 (or plain HTTP at 80 as a
+    # fallback) and proxies to the sandbox proxy on 48001, so the canonical
+    # URL has no port.
+    url = _tailnet_url(hostname)
     subprocess.Popen(
         [sys.executable, "-c", f"import webbrowser; webbrowser.open({url!r})"],
         stdin=subprocess.DEVNULL,
@@ -576,7 +602,7 @@ def cmd_cloud_open(branch: str) -> None:
     import webbrowser
 
     _config, _instance, hostname = _require_instance(branch)
-    url = f"http://{hostname}"
+    url = _tailnet_url(hostname)
     info(f"Opening {url}...")
     webbrowser.open(url)
 
