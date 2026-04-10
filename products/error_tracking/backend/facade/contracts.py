@@ -7,6 +7,7 @@ shapes that can safely cross product boundaries.
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 
@@ -55,6 +56,23 @@ class ErrorTrackingIssueFingerprintContract:
 class TeamCountContract:
     team_id: int
     total: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRemoteConfigContract:
+    """Typed representation of the Error tracking block in the /decide remote config.
+
+    Use :func:`products.error_tracking.backend.facade.api.build_remote_config_payload`
+    to convert to the byte-stable camelCase dict the SDK consumes.
+    """
+
+    autocapture_exceptions: bool
+    # Each rule is a raw filter dict (`type`, `values`, optional `samplingRate`)
+    # produced by `logic.get_client_safe_suppression_rules`. Kept as `list[dict]`
+    # because the filter shape is recursive / dynamic and changes shape per rule
+    # — typing it as a frozen dataclass would require mirroring the full HogQL
+    # property-filter schema.
+    suppression_rules: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)

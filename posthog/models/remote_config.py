@@ -233,7 +233,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.facade import build_remote_config
+        from products.error_tracking.backend.facade import build_remote_config_payload
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -268,7 +268,7 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        config["errorTracking"] = build_remote_config(team)
+        config["errorTracking"] = build_remote_config_payload(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
