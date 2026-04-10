@@ -119,12 +119,25 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Modified CSS loader to handle both files
+    // CSS loader with fallback to non-hashed file (with cache-busting build ID)
+    // when the hashed version fails to load (e.g. CDN returns 403).
+    // This mirrors the JS fallback pattern above.
+    const cssFileFallback = `${entry}.css?t=${buildId}`
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
+        link.onerror = function() {
+            if (${JSON.stringify(cssFile)} !== ${JSON.stringify(cssFileFallback)}) {
+                console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
+                var fallbackLink = document.createElement("link");
+                fallbackLink.rel = "stylesheet";
+                fallbackLink.crossOrigin = "anonymous";
+                fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+                document.head.appendChild(fallbackLink);
+            }
+        };
         document.head.appendChild(link)
     `
 
