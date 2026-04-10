@@ -1,6 +1,106 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
 import { HogFunctionTemplate } from '~/cdp/types'
 
+/**
+ * Adjust S2S Event Destination
+ *
+ * Sends server-to-server events to Adjust's S2S API (https://s2s.adjust.com/event).
+ * Designed for mobile apps using PostHog's iOS or Android SDKs alongside Adjust.
+ *
+ * ## Adjust setup
+ *
+ * 1. Get your **app token** from the Adjust dashboard (App settings > App token).
+ * 2. Create **event tokens** for each event type you want to track (Adjust dashboard > Events).
+ *    Each mapping below needs its own event token — Adjust identifies events by token, not name.
+ *
+ * ## Client-side SDK requirements
+ *
+ * This destination relies on device identifiers captured by PostHog's mobile SDKs.
+ * At least one device ID must resolve for events to be accepted by Adjust.
+ *
+ * ### Auto-captured properties (no extra setup)
+ *
+ * These are captured automatically by PostHog's iOS and Android SDKs:
+ *   - `$device_id`   — a PostHog-generated device identifier (maps to `idfv` by default)
+ *   - `$device_type`  — "Mobile", "Tablet", etc.
+ *   - `$os`           — "iOS", "Android"
+ *   - `$os_version`   — e.g. "17.0"
+ *   - `$app_version`  — your app's version string
+ *   - `$app_build`    — your app's build number
+ *   - `$ip`           — device IP address (forwarded to Adjust for attribution)
+ *   - `$raw_user_agent` — device user agent string
+ *
+ * ### Advertising IDs (require explicit opt-in)
+ *
+ * IDFA and GAID are NOT captured automatically — they require user consent and
+ * additional SDK configuration:
+ *
+ * **iOS (IDFA):**
+ *   PostHog does not capture IDFA by default. To enable it:
+ *   1. Add the App Tracking Transparency framework to your app
+ *   2. Request tracking permission via ATTrackingManager
+ *   3. Once granted, capture the IDFA as a person property:
+ *
+ *      ```swift
+ *      import AdSupport
+ *      import AppTrackingTransparency
+ *
+ *      ATTrackingManager.requestTrackingAuthorization { status in
+ *          if status == .authorized {
+ *              let idfa = ASIdentifierManager.shared().advertisingIdentifier.uuidString
+ *              PostHogSDK.shared.identify("<user-id>", userProperties: [
+ *                  "$device_idfa": idfa
+ *              ])
+ *          }
+ *      }
+ *      ```
+ *
+ * **Android (GAID / GPS Ad ID):**
+ *   PostHog does not capture the Google Advertising ID by default. To enable it:
+ *   1. Add `com.google.android.gms:play-services-ads-identifier` dependency
+ *   2. Capture the GAID as a person property:
+ *
+ *      ```kotlin
+ *      import com.google.android.gms.ads.identifier.AdvertisingIdClient
+ *
+ *      val adInfo = AdvertisingIdClient.getAdvertisingIdInfo(context)
+ *      if (!adInfo.isLimitAdTrackingEnabled) {
+ *          PostHogAndroid.with(context).identify("<user-id>", mapOf(
+ *              "\$android_advertising_id" to adInfo.id
+ *          ))
+ *      }
+ *      ```
+ *
+ * ### Default device identifier mapping
+ *
+ * The default `deviceIdentifiers` dictionary maps:
+ *   - `idfa`     -> `{person.properties.$device_idfa}`          (iOS advertising ID, requires opt-in)
+ *   - `gps_adid` -> `{person.properties.$android_advertising_id}` (Android ad ID, requires opt-in)
+ *   - `idfv`     -> `{event.properties.$device_id}`              (auto-captured, works as fallback)
+ *
+ * Users can customize this mapping to use whatever properties their SDK captures.
+ * For example, if you store the Adjust device ID (`adid`) from the Adjust SDK:
+ *   - `adid` -> `{person.properties.adjust_device_id}`
+ *
+ * ### Recommended: capture Adjust device ID client-side
+ *
+ * If you're running the Adjust SDK alongside PostHog, you can capture Adjust's
+ * own device ID (`adid`) and pass it through for the most reliable attribution:
+ *
+ *   ```swift
+ *   // iOS — after Adjust SDK initialization
+ *   Adjust.adid { adid in
+ *       if let adid = adid {
+ *           PostHogSDK.shared.identify("<user-id>", userProperties: [
+ *               "adjust_device_id": adid
+ *           ])
+ *       }
+ *   }
+ *   ```
+ *
+ *   Then set `adid` -> `{person.properties.adjust_device_id}` in the device identifiers config.
+ */
+
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
         {
