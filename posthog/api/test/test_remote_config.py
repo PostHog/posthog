@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -214,35 +214,28 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
             == "public, max-age=3600, stale-while-revalidate=86400, stale-if-error=86400"
         )
 
-    @patch("posthog.api.remote_config.ARRAY_JS_CONFIG_SOURCE_COUNTER")
+    @patch("posthog.api.remote_config._observe_array_js_config_source")
     @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_array_js_tracks_config_source_on_200(
         self,
         _mock_get_array_js_content,
-        mock_config_source_counter,
+        mock_observe_config_source,
     ):
-        config_source_metric = MagicMock()
-        mock_config_source_counter.labels.return_value = config_source_metric
-
         response = self.client.get(f"/array/{self.team.api_token}/array.js")
 
         assert response.status_code == status.HTTP_200_OK
-        mock_config_source_counter.labels.assert_called_once_with(source="db")
-        config_source_metric.inc.assert_called_once()
+        mock_observe_config_source.assert_called_once_with("db")
 
-    @patch("posthog.api.remote_config.ARRAY_JS_CONFIG_SOURCE_COUNTER")
+    @patch("posthog.api.remote_config._observe_array_js_config_source")
     @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_array_js_tracks_config_source_on_304(
         self,
         _mock_get_array_js_content,
-        mock_config_source_counter,
+        mock_observe_config_source,
     ):
         etag = self.client.get(f"/array/{self.team.api_token}/array.js").headers["ETag"]
 
-        mock_config_source_counter.reset_mock()
-
-        config_source_metric = MagicMock()
-        mock_config_source_counter.labels.return_value = config_source_metric
+        mock_observe_config_source.reset_mock()
 
         response = self.client.get(
             f"/array/{self.team.api_token}/array.js",
@@ -250,25 +243,19 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
-        mock_config_source_counter.labels.assert_called_once_with(source="redis")
-        config_source_metric.inc.assert_called_once()
+        mock_observe_config_source.assert_called_once_with("redis")
 
-    @patch("posthog.api.remote_config.ARRAY_JS_CONTENT_SOURCE_COUNTER")
-    @patch("posthog.api.remote_config.ARRAY_JS_MANIFEST_SOURCE_COUNTER")
+    @patch("posthog.api.remote_config._observe_array_js_content_source")
+    @patch("posthog.api.remote_config._observe_array_js_manifest_source")
     @patch("posthog.models.remote_config.resolve_version")
     @patch("posthog.models.remote_config.get_js_content")
     def test_array_js_tracks_manifest_and_content_sources(
         self,
         mock_get_js_content,
         mock_resolve_version,
-        mock_manifest_source_counter,
-        mock_content_source_counter,
+        mock_observe_manifest_source,
+        mock_observe_content_source,
     ):
-        manifest_metric = MagicMock()
-        content_metric = MagicMock()
-        mock_manifest_source_counter.labels.return_value = manifest_metric
-        mock_content_source_counter.labels.return_value = content_metric
-
         def fake_resolve_version(requested_version, *, strict=False, manifest_source_observer=None):
             if manifest_source_observer is not None:
                 manifest_source_observer("redis")
@@ -285,10 +272,8 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/array/{self.team.api_token}/array.js")
 
         assert response.status_code == status.HTTP_200_OK
-        mock_manifest_source_counter.labels.assert_called_once_with(source="redis")
-        manifest_metric.inc.assert_called_once()
-        mock_content_source_counter.labels.assert_called_once_with(source="s3")
-        content_metric.inc.assert_called_once()
+        mock_observe_manifest_source.assert_called_once_with("redis")
+        mock_observe_content_source.assert_called_once_with("s3")
 
     @patch("posthog.models.remote_config.get_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):

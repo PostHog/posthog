@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 
 from django.conf import settings
 from django.http import Http404, HttpResponse, JsonResponse
@@ -32,16 +33,16 @@ ARRAY_JS_MANIFEST_SOURCE_COUNTER = Counter(
 tracer = trace.get_tracer(__name__)
 
 
-def _observe_array_js_config_source(source: str) -> None:
-    ARRAY_JS_CONFIG_SOURCE_COUNTER.labels(source=source).inc()
+def _make_source_observer(counter: Counter) -> Callable[[str], None]:
+    def _observe(source: str) -> None:
+        counter.labels(source=source).inc()
+
+    return _observe
 
 
-def _observe_array_js_content_source(source: str) -> None:
-    ARRAY_JS_CONTENT_SOURCE_COUNTER.labels(source=source).inc()
-
-
-def _observe_array_js_manifest_source(source: str) -> None:
-    ARRAY_JS_MANIFEST_SOURCE_COUNTER.labels(source=source).inc()
+_observe_array_js_config_source = _make_source_observer(ARRAY_JS_CONFIG_SOURCE_COUNTER)
+_observe_array_js_content_source = _make_source_observer(ARRAY_JS_CONTENT_SOURCE_COUNTER)
+_observe_array_js_manifest_source = _make_source_observer(ARRAY_JS_MANIFEST_SOURCE_COUNTER)
 
 
 def add_vary_headers(response):
