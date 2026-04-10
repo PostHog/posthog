@@ -22,7 +22,7 @@ import sys
 from typing import Any
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.cluster import get_all_logical_clusters, get_cluster_by_name, is_known_cluster
 from posthog.clickhouse.migration_tools.schema_introspect import detect_drift, dump_schema
@@ -322,7 +322,11 @@ class Command(BaseCommand):
                                 database=database,
                             )
                             print("\nApply halted. Review the error and retry.")
-                            return
+                            # Raise CommandError so the process exits non-zero.
+                            # The finally block still runs and releases the apply lock.
+                            raise CommandError(
+                                f"Apply failed on step {i} ({step.comment or 'reconcile'}): {exc}"
+                            )
 
                 if success:
                     print("OK")

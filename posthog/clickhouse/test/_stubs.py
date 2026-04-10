@@ -215,8 +215,18 @@ def _install() -> None:
         def print_help(self, *args: object) -> None:
             pass
 
+    class _FakeCommandError(Exception):
+        """Stand-in for django.core.management.base.CommandError.
+
+        Used by ch_migrate.handle_apply to signal non-zero exit on step failure.
+        Real Django raises this and Django's management runner catches it to
+        print a clean error and exit with code 1.
+        """
+
     if not hasattr(sys.modules.get("django.core.management.base"), "BaseCommand"):
         sys.modules["django.core.management.base"].BaseCommand = _FakeBaseCommand  # type: ignore[attr-defined]
+    if not hasattr(sys.modules.get("django.core.management.base"), "CommandError"):
+        sys.modules["django.core.management.base"].CommandError = _FakeCommandError  # type: ignore[attr-defined]
 
     # Wire submodule attributes so `from posthog import settings` works
     sys.modules["posthog"].settings = sys.modules["posthog.settings"]  # type: ignore[attr-defined]
