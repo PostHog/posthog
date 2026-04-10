@@ -434,18 +434,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     Instance panel
                                 </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link
-                                    to={urls.queryPerformance()}
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    data-attr="top-menu-query-performance"
-                                >
-                                    <IconDatabase />
-                                    Query performance
-                                </Link>
-                            </DropdownMenuItem>
 
                             {user?.is_impersonated ||
                             preflight?.is_debug ||
