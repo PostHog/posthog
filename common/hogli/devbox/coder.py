@@ -113,10 +113,10 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
         def _spin() -> None:
             while not stop_event.is_set():
                 if is_tty:
-                    click.echo(f"\r  {next(frames)} {status}...", nl=False, err=True)
+                    click.echo(f"\r  {next(frames)} {status}...\033[K", nl=False, err=True)
                 stop_event.wait(0.08)
             if is_tty:
-                click.echo(f"\r  {status}   ", err=True)
+                click.echo(f"\r  {status}\033[K", err=True)
 
         spinner = threading.Thread(target=_spin, daemon=True)
         spinner.start()
@@ -532,9 +532,7 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
 def update_workspace(name: str, *, verbose: bool = False) -> None:
     """Update a workspace to the latest template version."""
     args = ["coder", "update", name]
-    for key, value in _TEMPLATE_PARAMETER_DEFAULTS.items():
-        args.extend(["--parameter-default", f"{key}={value}"])
-    result = _run_build(args, verbose=verbose)
+    result = _run_with_rich_parameters(args, _TEMPLATE_PARAMETER_DEFAULTS, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
