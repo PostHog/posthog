@@ -293,6 +293,10 @@ describe('snapshotDataLogic (store-based loading)', () => {
             // Pre-condition: store is mounted but has no sources yet.
             expect(logic.values.snapshotStore!.sourceCount).toBe(0)
 
+            // Force memoization at false so the test catches a missing storeUpdated
+            // after scheduler.seekTo (per review feedback on #53893).
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+
             logic.actions.setTargetTimestamp(tsMs(5, 0))
             await expectLogic(logic).toFinishAllListeners()
 

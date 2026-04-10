@@ -257,6 +257,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
 
                 cache.scheduler.seekTo(timestamp)
+                actions.storeUpdated()
                 actions.loadNextSnapshotSource()
             }
         },
