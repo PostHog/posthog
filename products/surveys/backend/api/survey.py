@@ -103,8 +103,6 @@ else:
     READ_DB_FOR_SURVEYS = "default"
 
 
-
-
 class EventStats(TypedDict):
     total_count: int
     total_count_only_seen: int
