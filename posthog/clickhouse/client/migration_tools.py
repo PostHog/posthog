@@ -15,6 +15,8 @@ from posthog.settings.data_stores import (
 
 logger = logging.getLogger("migrations")
 
+_deprecation_warned = False
+
 
 @cache
 def get_migrations_cluster() -> ClickhouseCluster:
@@ -37,14 +39,17 @@ def run_sql_with_exceptions(
         Use desired-state YAML with ``ch_migrate reconcile`` instead.
         See ``posthog/clickhouse/migrations/README.md``.
     """
-    import warnings
+    global _deprecation_warned
+    if not _deprecation_warned:
+        import warnings
 
-    warnings.warn(
-        "run_sql_with_exceptions is deprecated. Use desired-state YAML with ch_migrate reconcile. "
-        "See posthog/clickhouse/migrations/README.md",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+        warnings.warn(
+            "run_sql_with_exceptions is deprecated. Use desired-state YAML with ch_migrate reconcile. "
+            "See posthog/clickhouse/migrations/README.md",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _deprecation_warned = True
 
     if node_roles and not isinstance(node_roles, list):
         node_roles = [node_roles]
