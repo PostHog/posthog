@@ -273,12 +273,16 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     if (identifierType === 'person_id' && formData.person_id?.trim()) {
                         data.person_id = formData.person_id.trim()
                     }
+                    // Parse groups JSON, defaulting to empty object if not provided or empty
                     if (formData.groups?.trim()) {
                         try {
                             data.groups = JSON.parse(formData.groups.trim())
                         } catch {
                             throw new Error('Invalid JSON format for groups')
                         }
+                    } else {
+                        // Send empty object instead of undefined to match expected API format
+                        data.groups = {}
                     }
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
