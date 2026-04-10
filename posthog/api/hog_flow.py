@@ -264,7 +264,8 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
             # Force the scheduler to recalculate the next occurrence on its next poll
             instance.next_run_at = None
-            instance.status = HogFlowSchedule.Status.ACTIVE
+            if instance.status != HogFlowSchedule.Status.PAUSED:
+                instance.status = HogFlowSchedule.Status.ACTIVE
         return super().update(instance, validated_data)
 
 

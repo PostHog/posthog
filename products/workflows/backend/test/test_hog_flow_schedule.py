@@ -112,6 +112,41 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at == expected_next_run
 
+    def test_update_completed_schedule_reactivates(self):
+        workflow = self._create_batch_workflow()
+        create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+        schedule_id = create_response.json()["id"]
+
+        schedule = HogFlowSchedule.objects.get(id=schedule_id)
+        schedule.status = "completed"
+        schedule.save(update_fields=["status"])
+
+        response = self.client.patch(
+            self._schedule_detail_url(workflow["id"], schedule_id),
+            {"rrule": "FREQ=MONTHLY;BYMONTHDAY=1"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        schedule.refresh_from_db()
+        assert schedule.status == "active"
+
+    def test_update_paused_schedule_stays_paused(self):
+        workflow = self._create_batch_workflow()
+        create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+        schedule_id = create_response.json()["id"]
+
+        schedule = HogFlowSchedule.objects.get(id=schedule_id)
+        schedule.status = "paused"
+        schedule.save(update_fields=["status"])
+
+        response = self.client.patch(
+            self._schedule_detail_url(workflow["id"], schedule_id),
+            {"rrule": "FREQ=MONTHLY;BYMONTHDAY=1"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        schedule.refresh_from_db()
+        assert schedule.status == "paused"
+        assert schedule.next_run_at is None
+
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
         create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
