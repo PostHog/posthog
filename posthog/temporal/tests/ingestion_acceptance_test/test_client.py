@@ -241,10 +241,6 @@ class TestPollUntilFoundRetries:
             pytest.param(ClickHouseAtCapacity(), id="TOO_MANY_SIMULTANEOUS_QUERIES"),
             pytest.param(ClickHouseQueryTimeOut(), id="TIMEOUT_EXCEEDED"),
             pytest.param(ClickHouseQueryMemoryLimitExceeded(), id="MEMORY_LIMIT_EXCEEDED"),
-            pytest.param(
-                InternalCHQueryError("server error", code=999, code_name="UNKNOWN"),
-                id="non-retryable-InternalCHQueryError",
-            ),
         ],
     )
     @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
@@ -258,20 +254,23 @@ class TestPollUntilFoundRetries:
             {"key": "value"},
             datetime(2024, 1, 1),
         )
-        is_fatal = isinstance(exception, InternalCHQueryError)
-
-        # First call raises the transient error, second call succeeds
         mock_sync_execute.side_effect = [exception, [event_row]]
 
-        if is_fatal:
-            with pytest.raises(InternalCHQueryError):
-                client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
-            assert mock_sync_execute.call_count == 1
-        else:
-            result = client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
-            assert result is not None
-            assert result.uuid == "00000000-0000-0000-0000-000000000001"
-            assert mock_sync_execute.call_count == 2
+        result = client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
+
+        assert result is not None
+        assert result.uuid == "00000000-0000-0000-0000-000000000001"
+        assert mock_sync_execute.call_count == 2
+
+    @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
+    def test_raises_on_non_retryable_clickhouse_error(
+        self, mock_sync_execute: MagicMock, client: PostHogClient
+    ) -> None:
+        mock_sync_execute.side_effect = InternalCHQueryError("server error", code=999, code_name="UNKNOWN")
+
+        with pytest.raises(InternalCHQueryError):
+            client.query_event_by_uuid("00000000-0000-0000-0000-000000000001")
+        assert mock_sync_execute.call_count == 1
 
 
 class TestTimestampFiltering:
