@@ -73,14 +73,14 @@ services:
                     # second origin. Covers Vite internals, ESM sources,
                     # node_modules, public assets, and the HMR websocket.
                     @vite {
-                        path /@vite/*
-                        path /%40vite/*
-                        path /@fs/*
-                        path /%40fs/*
-                        path /@id/*
-                        path /%40id/*
-                        path /@react-refresh
-                        path /%40react-refresh
+                        # Catch-all for Vite internals (@vite, @fs, @id,
+                        # @react-refresh) AND every scoped package alias
+                        # (@posthog/lemon-ui, @babel/..., @radix-ui/..., etc).
+                        # Without this wildcard, scoped aliases fall through
+                        # to Django's SPA catch-all which returns HTML,
+                        # breaking module loading with a MIME type error.
+                        path /@*
+                        path /%40*
                         path /src/*
                         path /node_modules/*
                         path /public/*
