@@ -868,4 +868,40 @@ describe('annotationsOverlayLogic', () => {
             })
         })
     })
+
+    describe('annotationBadgeDataIndices', () => {
+        it.each([
+            {
+                interval: 'month' as IntervalType,
+                dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
+                expected: { '2022-08-10 00:00:00+0000': 9 / 31, '2022-09-10 00:00:00+0000': 1 + 9 / 30 },
+            },
+            {
+                // Regression: dayjs week starts Sunday, would drift Monday-aligned dates back 1 day.
+                interval: 'week' as IntervalType,
+                dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
+                expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
+            },
+        ])('$interval chart → fractional indices', async ({ interval, dates, expected }) => {
+            useInsightMocks(interval)
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates,
+                ticks: dates.map((_, i) => ({ value: i })),
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+
+            for (const b of logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]) {
+                if (expected[b.dateKey] !== undefined) {
+                    expect(b.dataIndex).toBeCloseTo(expected[b.dateKey], 5)
+                }
+            }
+        })
+    })
 })
