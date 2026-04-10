@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => {
         },
         server: {
             port: 8234,
-            host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            host: process.argv.includes('--host') || process.env.POSTHOG_SANDBOX ? '0.0.0.0' : 'localhost',
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
             allowedHosts: true,
