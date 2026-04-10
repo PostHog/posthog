@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange
 
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
+from posthog.hogql_queries.utils.time_sliced_query import TimeSliceableRunner, time_sliced_results
 
 
 @dataclass
@@ -58,7 +58,7 @@ class TestTimeSlicedResults(TestCase):
         call_index = [0]
         created_ranges: list[DateRange] = []
 
-        def make_runner(date_range: DateRange) -> FakeRunner:
+        def make_runner(date_range: DateRange) -> TimeSliceableRunner:
             idx = call_index[0]
             call_index[0] += 1
             created_ranges.append(date_range)
@@ -212,8 +212,9 @@ class TestTimeSlicedResults(TestCase):
 
     def test_analytics_props_passed_through(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        run_mock = MagicMock(return_value=FakeResponse(results=["a"]))
         runner = FakeRunner(date_from=now - dt.timedelta(minutes=5), date_to=now, results=["a"])
-        runner.run = MagicMock(return_value=FakeResponse(results=["a"]))
+        runner.run = run_mock  # type: ignore[method-assign]
 
         make_runner, _ = self._make_runner_factory([])
         props = {"source": "test"}
@@ -224,6 +225,6 @@ class TestTimeSlicedResults(TestCase):
             )
         )
 
-        runner.run.assert_called_once()
-        _, kwargs = runner.run.call_args
+        run_mock.assert_called_once()
+        _, kwargs = run_mock.call_args
         self.assertEqual(kwargs["analytics_props"], props)

@@ -1,18 +1,36 @@
 import datetime as dt
 from collections.abc import Callable, Generator
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from posthog.schema import DateRange
 
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+
+
+class _HasResults(Protocol):
+    results: Any
+
+
+@runtime_checkable
+class TimeSliceableRunner(Protocol):
+    """Protocol for runners that support time-sliced execution."""
+
+    @property
+    def query_date_range(self) -> QueryDateRange: ...
+
+    @property
+    def query(self) -> Any: ...
+
+    def run(self, execution_mode: ExecutionMode, **kwargs: Any) -> _HasResults: ...
 
 
 def time_sliced_results(
-    runner: AnalyticsQueryRunner,
+    runner: TimeSliceableRunner,
     limit: int,
     order_by_earliest: bool,
-    make_runner: Callable[[DateRange], AnalyticsQueryRunner],
-    analytics_props: dict[str, Any] | None = None,
+    make_runner: Callable[[DateRange], TimeSliceableRunner],
+    analytics_props: Any = None,
 ) -> Generator[Any, None, None]:
     """
     A generator that yields results by splitting the query into progressive time slices.
@@ -29,29 +47,30 @@ def time_sliced_results(
     date_range_length = qdr.date_to() - qdr.date_from()
 
     def runner_slice(
-        current_runner: AnalyticsQueryRunner, slice_length: dt.timedelta
-    ) -> tuple[AnalyticsQueryRunner, AnalyticsQueryRunner]:
+        current_runner: TimeSliceableRunner, slice_length: dt.timedelta
+    ) -> tuple[TimeSliceableRunner, TimeSliceableRunner]:
         """
         Splits a runner into two: one for the slice closest to the sort edge,
         and one for the remainder.
         """
+        current_qdr = current_runner.query_date_range
         if not order_by_earliest:
             slice_date_range = DateRange(
-                date_from=(current_runner.query_date_range.date_to() - slice_length).isoformat(),
-                date_to=current_runner.query_date_range.date_to().isoformat(),
+                date_from=(current_qdr.date_to() - slice_length).isoformat(),
+                date_to=current_qdr.date_to().isoformat(),
             )
             remainder_date_range = DateRange(
-                date_from=current_runner.query_date_range.date_from().isoformat(),
-                date_to=(current_runner.query_date_range.date_to() - slice_length).isoformat(),
+                date_from=current_qdr.date_from().isoformat(),
+                date_to=(current_qdr.date_to() - slice_length).isoformat(),
             )
         else:
             slice_date_range = DateRange(
-                date_from=current_runner.query_date_range.date_from().isoformat(),
-                date_to=(current_runner.query_date_range.date_from() + slice_length).isoformat(),
+                date_from=current_qdr.date_from().isoformat(),
+                date_to=(current_qdr.date_from() + slice_length).isoformat(),
             )
             remainder_date_range = DateRange(
-                date_from=(current_runner.query_date_range.date_from() + slice_length).isoformat(),
-                date_to=current_runner.query_date_range.date_to().isoformat(),
+                date_from=(current_qdr.date_from() + slice_length).isoformat(),
+                date_to=current_qdr.date_to().isoformat(),
             )
 
         return make_runner(slice_date_range), make_runner(remainder_date_range)
