@@ -6427,6 +6427,13 @@ export namespace Schemas {
        */
       records_completed?: number | null;
       /**
+       * The number of records that failed downstream processing (e.g. hog function execution errors).
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      records_failed?: number | null;
+      /**
        * The latest error that occurred during this run.
        * @nullable
        */
@@ -14778,6 +14785,7 @@ export namespace Schemas {
       metrics_secondary?: unknown | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      allow_unknown_events?: boolean;
       _create_in_folder?: string;
       conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
@@ -23705,6 +23713,7 @@ export namespace Schemas {
       metrics_secondary?: unknown | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      allow_unknown_events?: boolean;
       _create_in_folder?: string;
       conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */

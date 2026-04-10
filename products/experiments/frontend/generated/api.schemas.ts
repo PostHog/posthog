@@ -313,6 +313,7 @@ export interface ExperimentApi {
     metrics_secondary?: unknown | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    allow_unknown_events?: boolean
     _create_in_folder?: string
     conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
@@ -379,6 +380,7 @@ export interface PatchedExperimentApi {
     metrics_secondary?: unknown | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    allow_unknown_events?: boolean
     _create_in_folder?: string
     conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */

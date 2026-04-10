@@ -393,8 +393,8 @@ class PostHogClient:
         """
         query = """
             SELECT p.id, p.properties, p.created_at
-            FROM person FINAL AS p
-            JOIN person_distinct_id2 FINAL AS pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
+            FROM person AS p FINAL
+            JOIN person_distinct_id2 AS pdi FINAL ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
             WHERE p.team_id = %(team_id)s
               AND pdi.distinct_id = %(distinct_id)s
               AND pdi.is_deleted = 0
