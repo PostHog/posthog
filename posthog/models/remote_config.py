@@ -32,7 +32,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -234,7 +233,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.error_tracking.backend.facade import build_remote_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -269,7 +268,7 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        config["errorTracking"] = build_error_tracking_config(team)
+        config["errorTracking"] = build_remote_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -713,8 +712,8 @@ def product_tour_deleted(sender, instance, **kwargs):
     transaction.on_commit(_on_commit)
 
 
-@receiver(post_save, sender=ErrorTrackingSuppressionRule)
-def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+@receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")
+def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

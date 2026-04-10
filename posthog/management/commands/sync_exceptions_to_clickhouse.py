@@ -7,9 +7,10 @@ import structlog
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssueFingerprintV2,
-    override_error_tracking_issue_fingerprint,
+from products.error_tracking.backend.facade import (
+    get_issue_fingerprint,
+    publish_issue_fingerprint_override,
+    update_issue_fingerprint_first_seen_and_version,
 )
 
 logger = structlog.get_logger(__name__)
@@ -83,10 +84,8 @@ class Command(BaseCommand):
 
         for fingerprint in fingerprint_rows:
             logger.info("getting postgres fingerprint")
-            postgres_fingerprint: ErrorTrackingIssueFingerprintV2 | None = (
-                ErrorTrackingIssueFingerprintV2.objects.filter(
-                    fingerprint=fingerprint["fingerprint"], team_id=fingerprint["team_id"]
-                ).first()
+            postgres_fingerprint = get_issue_fingerprint(
+                team_id=fingerprint["team_id"], fingerprint=fingerprint["fingerprint"]
             )
             if postgres_fingerprint is not None:
                 logger.info("fingerprint found")
@@ -94,17 +93,20 @@ class Command(BaseCommand):
                 new_version = max_version + 1
                 override = {
                     "team_id": fingerprint["team_id"],
-                    "issue_id": postgres_fingerprint.issue.id,
+                    "issue_id": postgres_fingerprint.issue_id,
                     "fingerprint": postgres_fingerprint.fingerprint,
                     "version": new_version,
                 }
                 if dry_run is False:
-                    postgres_fingerprint.first_seen = fingerprint["timestamp"]
-                    postgres_fingerprint.version = new_version
                     logger.info("overriding postgres fingerprint ", override)
-                    postgres_fingerprint.save()
+                    update_issue_fingerprint_first_seen_and_version(
+                        team_id=fingerprint["team_id"],
+                        fingerprint=postgres_fingerprint.fingerprint,
+                        first_seen=fingerprint["timestamp"],
+                        version=new_version,
+                    )
                     logger.info("sending fingerprint override to clickhouse ", override)
-                    override_error_tracking_issue_fingerprint(**override)
+                    publish_issue_fingerprint_override(**override)
                 found_issues_count += 1
             else:
                 logger.info("fingerprint not found")

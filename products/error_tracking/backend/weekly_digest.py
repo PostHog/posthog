@@ -61,7 +61,7 @@ def get_exception_summary_for_team(team: Team) -> dict:
     }
 
 
-def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> None:
+def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict | object]) -> None:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
     and persist the selection to their notification settings"""
     from posthog.models.user import User
@@ -73,7 +73,12 @@ def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[
     if not team_exception_counts:
         return
 
-    busiest_team_id = max(team_exception_counts, key=lambda tid: team_exception_counts[tid]["exception_count"])
+    def _exception_count(team_data: dict | object) -> int:
+        if isinstance(team_data, dict):
+            return int(team_data["exception_count"])
+        return int(team_data.exception_count)
+
+    busiest_team_id = max(team_exception_counts, key=lambda tid: _exception_count(team_exception_counts[tid]))
 
     current_settings["error_tracking_weekly_digest_project_enabled"] = {str(busiest_team_id): True}
     User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)

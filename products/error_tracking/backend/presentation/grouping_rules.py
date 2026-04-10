@@ -6,14 +6,13 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
-from posthog.schema import PropertyGroupFilterValue
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 
-from products.error_tracking.backend.models import ErrorTrackingGroupingRule, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.logic import ErrorTrackingGroupingRuleService, ErrorTrackingIssueService
+from products.error_tracking.backend.models import ErrorTrackingGroupingRule
 
-from .utils import RuleReorderingMixin, generate_byte_code
+from .utils import RuleReorderingMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -55,21 +54,6 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-def _build_issue_map(team_id: int, rule_ids: list[str]) -> dict:
-    """Build a mapping of rule_id -> ErrorTrackingIssue for grouping rules."""
-    if not rule_ids:
-        return {}
-    fingerprints = (
-        ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
-        .filter(
-            team_id=team_id,
-            fingerprint__in=[f"custom-rule:{rid}" for rid in rule_ids],
-        )
-        .only("fingerprint", "issue_id", "issue__id", "issue__name")
-    )
-    return {fp.fingerprint.removeprefix("custom-rule:"): fp.issue for fp in fingerprints}
-
-
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
     queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
@@ -81,7 +65,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     def list(self, request, *args, **kwargs) -> Response:
         queryset = list(self.filter_queryset(self.get_queryset()))
         rule_ids = [str(r.id) for r in queryset]
-        issue_map = _build_issue_map(self.team.id, rule_ids)
+        issue_map = ErrorTrackingIssueService.build_grouping_rule_issue_map(team_id=self.team.id, rule_ids=rule_ids)
         context = {**self.get_serializer_context(), "issue_map": issue_map}
         serializer = self.get_serializer(queryset, many=True, context=context)
         return Response({"results": serializer.data})
@@ -92,24 +76,12 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         json_filters = request.data.get("filters")
         description = request.data.get("description")
 
-        if json_filters:
-            parsed_filters = PropertyGroupFilterValue(**json_filters)
-            grouping_rule.filters = json_filters
-            grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-
-        if assignee:
-            grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
-            grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
-
-        if description:
-            grouping_rule.description = description
-
-        grouping_rule.disabled_data = None
-        grouping_rule.save()
-
-        posthoganalytics.capture(
-            "error_tracking_grouping_rule_edited",
-            groups=groups(self.team.organization, self.team),
+        ErrorTrackingGroupingRuleService.update_rule(
+            grouping_rule=grouping_rule,
+            team=self.team,
+            json_filters=json_filters,
+            assignee=assignee,
+            description=description,
         )
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -135,22 +107,11 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         if not json_filters:
             return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        parsed_filters = PropertyGroupFilterValue(**json_filters)
-        bytecode = generate_byte_code(self.team, parsed_filters)
-
-        grouping_rule = ErrorTrackingGroupingRule.objects.create(
+        grouping_rule = ErrorTrackingGroupingRuleService.create_rule(
             team=self.team,
-            filters=json_filters,
-            bytecode=bytecode,
-            order_key=0,
-            user_id=None if (not assignee or assignee["type"] != "user") else assignee["id"],
-            role_id=None if (not assignee or assignee["type"] != "role") else assignee["id"],
+            json_filters=json_filters,
+            assignee=assignee,
             description=description,
-        )
-
-        posthoganalytics.capture(
-            "error_tracking_grouping_rule_created",
-            groups=groups(self.team.organization, self.team),
         )
 
         serializer = ErrorTrackingGroupingRuleSerializer(grouping_rule)

@@ -6,7 +6,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade import ErrorTrackingIssueContract, aget_issue
 
 from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
 
@@ -30,12 +30,9 @@ class ErrorTrackingIssueContext:
         self._issue_id = issue_id
         self._issue_name = issue_name
 
-    async def aget_issue(self) -> ErrorTrackingIssue | None:
-        """Fetch the issue from the database using async."""
-        try:
-            return await ErrorTrackingIssue.objects.aget(id=self._issue_id, team=self._team)
-        except ErrorTrackingIssue.DoesNotExist:
-            return None
+    async def aget_issue(self) -> ErrorTrackingIssueContract | None:
+        """Fetch the issue through the Error tracking facade using async."""
+        return await aget_issue(self._issue_id, self._team)
 
     async def aget_first_event(self) -> dict | None:
         """Fetch the first event for the issue to get stack trace data."""

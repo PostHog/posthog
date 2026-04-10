@@ -12,16 +12,16 @@ from .suppression_rules import ErrorTrackingSuppressionRuleViewSet
 from .symbol_sets import ErrorTrackingSymbolSetViewSet
 
 __all__ = [
+    "ErrorTrackingAssignmentRuleViewSet",
     "ErrorTrackingExternalReferenceViewSet",
-    "ErrorTrackingIssueViewSet",
-    "ErrorTrackingStackFrameViewSet",
-    "ErrorTrackingSymbolSetViewSet",
     "ErrorTrackingFingerprintViewSet",
     "ErrorTrackingGroupingRuleViewSet",
+    "ErrorTrackingIssueViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
     "ErrorTrackingSpikeEventViewSet",
+    "ErrorTrackingStackFrameViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
-    "ErrorTrackingAssignmentRuleViewSet",
+    "ErrorTrackingSymbolSetViewSet",
     "GitProviderFileLinksViewSet",
 ]
