@@ -474,7 +474,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 await actions.streamSessionSummary(id)
             }
         },
-        pollSessionSummary: async ({ id }: { id: string }, breakpoint: () => Promise<void>) => {
+        pollSessionSummary: async ({ id }, breakpoint) => {
             const POLL_INTERVAL = 5000
             const MAX_POLL_TIME = 20 * 60 * 1000
 
