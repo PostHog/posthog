@@ -27,7 +27,9 @@ def conversations_ticket_fetcher(
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Fetch conversation tickets from Postgres and record emission in SignalEmissionRecord."""
-    cutoff = timezone.now() - timedelta(hours=TICKET_COOLDOWN_HOURS)
+    now = timezone.now()
+    cutoff = now - timedelta(hours=TICKET_COOLDOWN_HOURS)
+    lookback = now - timedelta(days=config.first_sync_lookback_days)
     # Pick tickets we haven't emitted signals for yet (NOT EXISTS subquery)
     already_emitted = SignalEmissionRecord.objects.filter(
         team=team,
@@ -37,6 +39,7 @@ def conversations_ticket_fetcher(
     )
     tickets_qs = Ticket.objects.filter(
         team=team,
+        created_at__gte=lookback,
         created_at__lte=cutoff,
     ).filter(~Exists(already_emitted))
     if config.where_clause:
@@ -74,7 +77,6 @@ def conversations_ticket_fetcher(
         ticket["messages"] = comments_by_ticket.get(str(ticket["id"]), [])
     # Record emission optimistically
     # TODO: Revisit if signal loss on transient pipeline failure becomes a concern
-    now = timezone.now()
     SignalEmissionRecord.objects.bulk_create(
         [
             SignalEmissionRecord(
