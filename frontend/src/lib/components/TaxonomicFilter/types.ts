@@ -100,6 +100,8 @@ export interface TaxonomicFilterProps {
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /** Override the group-level minSearchQueryLength for all groups in this instance. */
     minSearchQueryLength?: number
+    /** Override the "Suggested filters" tab label for specific contexts. */
+    suggestedFiltersLabel?: string
 }
 
 export interface DataWarehousePopoverField {

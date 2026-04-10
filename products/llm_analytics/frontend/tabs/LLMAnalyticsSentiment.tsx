@@ -326,7 +326,7 @@ export function LLMAnalyticsSentiment(): JSX.Element {
 
             {generationsLoading && generations.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
-                    <Spinner className="text-4xl" />
+                    <Spinner className="text-4xl" captureTime />
                 </div>
             ) : generations.length === 0 ? (
                 <div className="text-center py-20 text-muted">
