@@ -185,12 +185,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Analytics'],
     },
     {
-        name: 'Google Analytics 4',
-        id: 'coming-soon-google-analytics-4',
-        icon_url: '/static/coming-soon-destinations/Google_Analytics_4.svg',
-        category: ['Analytics'],
-    },
-    {
         name: 'Hotjar',
         id: 'coming-soon-hotjar',
         icon_url: '/static/coming-soon-destinations/Hotjar.svg',
