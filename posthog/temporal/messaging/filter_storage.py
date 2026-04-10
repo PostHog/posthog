@@ -9,7 +9,7 @@ TTL Considerations:
 - Coordinator workflows spawn multiple child workflows with batch delays
 - Total workflow execution time in worst case: 3 retries × 12h + batch delays ≈ 40-48h
 - TTL set to 168h (7 days) provides generous safety margin for retries and delays
-- If workflows consistently exceed 48h, consider TTL refresh logic in get_filters()
+- If workflows consistently approach TTL (7d), consider TTL refresh logic in get_filters()
 """
 
 import json
@@ -123,7 +123,7 @@ def get_filters_and_properties(storage_key: str) -> tuple[list[PersonPropertyFil
         Tuple of (filters, person_properties, combined_bytecode), or None if not found
 
     Note:
-        If workflows consistently exceed 48h and TTL becomes an issue,
+        If workflows consistently approach TTL (7d) and expiration becomes an issue,
         consider adding TTL refresh logic here using Redis EXPIRE command.
     """
     data = get_client().get(storage_key)
