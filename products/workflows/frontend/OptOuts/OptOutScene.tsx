@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDownload, IconExternal } from '@posthog/icons'
+import { IconDownload, IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportModal } from './CustomerIOImportModal'
+import { customerIOSyncLogic } from './customerIOSyncLogic'
+import { CustomerIOSyncModal } from './CustomerIOSyncModal'
 import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
 import { optOutSceneLogic } from './optOutSceneLogic'
@@ -17,6 +19,7 @@ export function OptOutScene(): JSX.Element {
     const { preferencesUrlLoading } = useValues(optOutSceneLogic)
     const { openPreferencesPage } = useActions(optOutSceneLogic)
     const { openImportModal } = useActions(customerIOImportLogic)
+    const { openSyncModal } = useActions(customerIOSyncLogic)
 
     return (
         <div className="space-y-8" data-attr="opt-out-scene">
@@ -32,6 +35,15 @@ export function OptOutScene(): JSX.Element {
                             tooltip="Import subscription topics and preferences from Customer.io"
                         >
                             Import from Customer.io
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => openSyncModal()}
+                            icon={<IconRefresh />}
+                            tooltip="Configure bi-directional unsubscribe sync with Customer.io (webhook + Track API)"
+                        >
+                            Sync unsubscribed users
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -60,6 +72,7 @@ export function OptOutScene(): JSX.Element {
             </div>
 
             <CustomerIOImportModal />
+            <CustomerIOSyncModal />
         </div>
     )
 }
