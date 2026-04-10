@@ -9,6 +9,7 @@ from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
 
+from products.error_tracking.backend.facade import get_weekly_digest_projects_for_organization
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.weekly_digest import (
     auto_select_project_for_user,
@@ -369,6 +370,22 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         result = get_daily_exception_counts(self.team)
 
         assert sum(d["count"] for d in result) == 1
+
+    def test_get_weekly_digest_projects_for_organization(self):
+        issue = self._create_issue()
+        self._create_exception_event(issue_id=issue.id)
+        flush_persons_and_events()
+
+        projects = get_weekly_digest_projects_for_organization(self.organization.id)
+
+        assert len(projects) == 1
+        project = projects[0]
+        assert project.team_id == self.team.pk
+        assert project.team_name == self.team.name
+        assert project.exception_count == 1
+        assert project.error_tracking_url.endswith(
+            f"/project/{self.team.pk}/error_tracking?utm_source=error_tracking_weekly_digest"
+        )
 
     def test_get_top_issues_filters_internal_users(self):
         self._set_internal_user_filter()

@@ -1,12 +1,8 @@
 import json
 
-from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
-
-from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.sync import database_sync_to_async
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade import ErrorTrackingIssueContract, aget_issue, aget_issue_first_event
 
 from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
 
@@ -30,43 +26,13 @@ class ErrorTrackingIssueContext:
         self._issue_id = issue_id
         self._issue_name = issue_name
 
-    async def aget_issue(self) -> ErrorTrackingIssue | None:
-        """Fetch the issue from the database using async."""
-        try:
-            return await ErrorTrackingIssue.objects.aget(id=self._issue_id, team=self._team)
-        except ErrorTrackingIssue.DoesNotExist:
-            return None
+    async def aget_issue(self) -> ErrorTrackingIssueContract | None:
+        """Fetch the issue through the Error tracking facade using async."""
+        return await aget_issue(self._issue_id, self._team)
 
     async def aget_first_event(self) -> dict | None:
         """Fetch the first event for the issue to get stack trace data."""
-        return await database_sync_to_async(self._get_first_event_sync)()
-
-    def _get_first_event_sync(self) -> dict | None:
-        """Synchronous implementation of get_first_event."""
-        query = ErrorTrackingQuery(
-            kind="ErrorTrackingQuery",
-            issueId=self._issue_id,
-            dateRange=DateRange(date_from="all"),
-            orderBy=ErrorTrackingOrderBy.FIRST_SEEN,
-            limit=1,
-            volumeResolution=1,
-            withAggregations=False,
-            withFirstEvent=True,
-            withLastEvent=False,
-        )
-
-        runner = get_query_runner(query, self._team)
-        result = runner.calculate()
-
-        if result.results and len(result.results) > 0:
-            first_result = result.results[0]
-            if hasattr(first_result, "model_dump"):
-                first_result = first_result.model_dump()
-            if isinstance(first_result, dict):
-                return first_result.get("first_event")
-            return None
-
-        return None
+        return await aget_issue_first_event(self._team, self._issue_id)
 
     def format_stacktrace(self, event: dict | None) -> str | None:
         """Format the exception list into a readable stack trace string."""

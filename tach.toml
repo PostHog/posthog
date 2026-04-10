@@ -1,7 +1,7 @@
 interfaces = []
 layers = [
-    "products",
     "non_isolated",
+    "products",
 ]
 exclude = [
     ".*__pycache__",
@@ -206,14 +206,31 @@ depends_on = [
     "ee",
     "posthog",
 ]
-layer = "non_isolated"
+layer = "products"
+interfaces = [
+    # Business facade.
+    "products.error_tracking.backend.facade",
+    # Presentation HTTP surface.
+    "products.error_tracking.backend.presentation.views",
+    # Infra / framework interfaces (canonical public paths).
+    "products.error_tracking.backend.apps",
+    "products.error_tracking.backend.infra",
+    "products.error_tracking.dags",
+    # Legacy shim paths kept public for FROZEN ClickHouse migrations only.
+    # New code must import from `backend.infra.*`. Do not add new consumers here.
+    "products.error_tracking.backend.embedding",
+    "products.error_tracking.backend.indexed_embedding",
+    "products.error_tracking.backend.sql",
+    # Test-only sanctioned helper for external tests.
+    "products.error_tracking.backend.test.factories",
+]
 
 [[modules]]
 path = "products.event_definitions"
 depends_on = [
     "posthog",
 ]
-layer = "non_isolated"
+layer = "products"
 
 [[modules]]
 path = "products.experiments"

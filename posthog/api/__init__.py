@@ -42,7 +42,7 @@ from products.data_warehouse.backend.api import (
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
-from products.error_tracking.backend.api import (
+from products.error_tracking.backend.presentation.views import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
