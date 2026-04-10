@@ -7,7 +7,7 @@ use axum::{
 };
 use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
-use health::{readiness_handler, HealthRegistry};
+use health::readiness_handler;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -28,7 +28,6 @@ pub struct State {
 pub fn router(
     surveys_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
-    liveness: HealthRegistry,
     config: Config,
 ) -> Router {
     let state = State {
@@ -43,10 +42,12 @@ pub fn router(
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
+    // Liveness: always healthy — this service has no background loops to monitor.
+    // If axum is serving requests, the process is alive.
     let status_router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+        .route("/_liveness", get(|| ready("OK")));
 
     let app_router = Router::new()
         // Surveys endpoints
