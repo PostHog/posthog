@@ -79,6 +79,19 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVA
 # LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
+### Optional: Local repository mounts
+
+If you already have repositories checked out locally, you can skip cloning by bind-mounting them into the Docker sandbox:
+
+```bash
+# Format: org/repo:/local/path,org2/repo2:~/other/path
+SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog
+```
+
+When set, configured repositories are mounted read-write from your host into the container, making `clone_repository` a no-op for those repos. This dramatically speeds up sandbox runs — large repos like `PostHog/posthog` that normally take minutes to clone will start in seconds.
+
+> **Note:** This only works with `SANDBOX_PROVIDER=docker`. Modal sandboxes ignore this setting.
+
 ## 4. Feature flag
 
 Create a `tasks` feature flag at 100% rollout:
