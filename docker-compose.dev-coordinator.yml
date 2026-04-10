@@ -96,14 +96,14 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/logs_node.xml:/etc/clickhouse-server/config.d/logs_node.xml
-            - ./docker/clickhouse/config.d/keeper_logs.xml:/etc/clickhouse-server/config.d/keeper_logs.xml
+            - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         ports:
             - '9002:9000'
         depends_on:
-            - keeper-logs
+            - keeper
 
     keeper:
         extends:
@@ -111,13 +111,6 @@ services:
             service: keeper
         ports:
             - '9181:9181'
-
-    keeper-logs:
-        extends:
-            file: docker-compose.base.yml
-            service: keeper-logs
-        ports:
-            - '9182:9181'
 
     kafka:
         extends:

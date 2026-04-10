@@ -224,18 +224,11 @@ services:
         depends_on:
             - kafka
             - keeper
-            - keeper-logs
 
     keeper:
         extends:
             file: docker-compose.base.yml
             service: keeper
-        # No host ports — avoid conflicts between sandboxes
-
-    keeper-logs:
-        extends:
-            file: docker-compose.base.yml
-            service: keeper-logs
         # No host ports — avoid conflicts between sandboxes
 
     kafka:

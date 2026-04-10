@@ -45,7 +45,6 @@ services:
         depends_on:
             - kafka
             - keeper
-            - keeper-logs
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -61,11 +60,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: keeper
-
-    keeper-logs:
-        extends:
-            file: docker-compose.base.yml
-            service: keeper-logs
 
     kafka:
         extends:

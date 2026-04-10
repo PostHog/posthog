@@ -1,18 +1,22 @@
 """End-to-end infrastructure tests for multi-node ClickHouse dev stack.
 
-Validates that the 3-node dev stack (clickhouse, clickhouse-coordinator,
-clickhouse-logs) correctly mirrors production topology:
-- Two CH Keeper ensembles (keeper-main, keeper-logs)
-- Per-node keeper routing via config.d overlays
-- Sharded Distributed queries across posthog_migrations cluster
+Validates the 3-node dev stack (`clickhouse`, `clickhouse-coordinator`,
+`clickhouse-logs`) against a single shared `keeper`:
+- Per-node macros (shard, replica, hostClusterRole) via config.d overlays
+- Sharded Distributed queries across the `posthog_migrations` cluster
 - ON CLUSTER DDL propagation
+- ReplicatedMergeTree with resolved macros in the znode path
+- Shared Keeper with per-cluster path conventions (not per-cluster ensembles)
 
-Requires:
-    docker compose -f docker-compose.dev.yml \\
-        -f docker-compose.dev-coordinator.yml up -d
+Prod runs independent Keeper ensembles per satellite cluster; dev collapses
+to one Keeper for simplicity. If you need true Keeper-isolation tests, use
+a dedicated compose overlay.
 
-Run via:
-    make ch-test-multinode
+Start the stack:
+    ./bin/ch-stack-up
+
+Run the tests:
+    ./bin/ch-test-multinode
 
 Or directly:
     pytest posthog/clickhouse/test/test_e2e_multinode.py -v -m multinode
@@ -75,7 +79,7 @@ def ch_coordinator():
 
 @pytest.fixture(scope="module")
 def ch_logs():
-    """Logs node (keeper-logs, shard 01, logs role)."""
+    """Logs node (shares `keeper` with main/coordinator, shard 01, logs role)."""
     client = _try_connect("CLICKHOUSE_LOGS_HOST", "localhost", "CLICKHOUSE_LOGS_PORT", 9002)
     if client is None:
         pytest.skip("clickhouse-logs not reachable on localhost:9002")
@@ -127,32 +131,39 @@ class TestClusterTopology:
         assert macros.get("hostClusterRole") == "logs"
 
 
-# ── Keeper Isolation Tests ──
+# ── Keeper Connectivity Tests ──
 
 
-class TestKeeperIsolation:
-    """Verify each node connects to the correct CH Keeper ensemble."""
+class TestKeeperConnectivity:
+    """All three nodes share a single Keeper in the dev stack.
 
-    def test_main_node_uses_keeper_main(self, ch_main):
+    Production runs independent Keeper ensembles per satellite cluster
+    (see `PostHog ClickHouse Physical Cluster Layout` in the vault). Dev
+    collapses to one Keeper for simplicity — per-cluster isolation is
+    achieved via znode path conventions in CREATE TABLE statements
+    (`/clickhouse/{cluster}/tables/...`), not separate ensembles.
+    """
+
+    def test_main_node_connects_to_keeper(self, ch_main):
         rows = ch_main.execute("SELECT host FROM system.zookeeper_connection")
         assert len(rows) > 0, "No zookeeper connection on main node"
-        host = rows[0][0]
-        assert host == "keeper", f"Main node connected to '{host}', expected 'keeper'"
+        assert rows[0][0] == "keeper", f"Main connected to '{rows[0][0]}', expected 'keeper'"
 
-    def test_coordinator_uses_keeper_main(self, ch_coordinator):
+    def test_coordinator_connects_to_keeper(self, ch_coordinator):
         rows = ch_coordinator.execute("SELECT host FROM system.zookeeper_connection")
         assert len(rows) > 0
-        host = rows[0][0]
-        assert host == "keeper", f"Coordinator connected to '{host}', expected 'keeper'"
+        assert rows[0][0] == "keeper", f"Coordinator connected to '{rows[0][0]}', expected 'keeper'"
 
-    def test_logs_node_uses_keeper_logs(self, ch_logs):
+    def test_logs_node_connects_to_keeper(self, ch_logs):
         rows = ch_logs.execute("SELECT host FROM system.zookeeper_connection")
         assert len(rows) > 0, "No zookeeper connection on logs node"
-        host = rows[0][0]
-        assert host == "keeper-logs", f"Logs node connected to '{host}', expected 'keeper-logs'"
+        assert rows[0][0] == "keeper", f"Logs connected to '{rows[0][0]}', expected 'keeper'"
 
-    def test_keeper_isolation_zk_paths(self, ch_main, ch_logs, test_db):
-        """A ZK path created on main keeper is NOT visible to logs keeper."""
+    def test_znode_path_visibility(self, ch_main, ch_logs, test_db):
+        """A ReplicatedMergeTree path created on main IS visible from logs —
+        same Keeper, same namespace. Per-cluster isolation is achieved in
+        table DDL via the `/clickhouse/{cluster}/...` path convention, not
+        at the Keeper level."""
         tbl = f"{test_db}.isolation_probe"
         ch_main.execute(
             f"CREATE TABLE {tbl} (id UInt64) "
@@ -160,17 +171,16 @@ class TestKeeperIsolation:
             f"ORDER BY id"
         )
         try:
-            # Main keeper should see the ZK path
+            # Both nodes query the same keeper, so both see the znode.
             main_zk = ch_main.execute(
                 f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
             )
-            assert main_zk[0][0] > 0, "ZK path not visible on main keeper"
+            assert main_zk[0][0] > 0, "znode not visible on main node"
 
-            # Logs keeper should NOT see it (different keeper ensemble)
             logs_zk = ch_logs.execute(
                 f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
             )
-            assert logs_zk[0][0] == 0, "ZK path leaked to logs keeper"
+            assert logs_zk[0][0] > 0, "znode not visible on logs node — keeper sharing broken"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} SYNC")
 

@@ -383,7 +383,6 @@ services:
         depends_on:
             - kafka
             - keeper
-            - keeper-logs
 
     keeper:
         extends:
@@ -391,13 +390,6 @@ services:
             service: keeper
         ports:
             - '9181:9181'
-
-    keeper-logs:
-        extends:
-            file: docker-compose.base.yml
-            service: keeper-logs
-        ports:
-            - '9182:9181'
 
     kafka:
         extends:

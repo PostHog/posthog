@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# Bring up the multi-node ClickHouse dev stack:
+# - clickhouse (main, shard 01)
+# - clickhouse-coordinator (shard 02, port 9001)
+# - clickhouse-logs (logs role)
+# - keeper (single Keeper ensemble)
+# - kafka
+#
+# For single-node use `./bin/start` or the main docker-compose.dev.yml directly.
+# See: https://posthog.com/handbook/engineering/developing-locally
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+docker compose \
+    -f docker-compose.dev.yml \
+    -f docker-compose.dev-coordinator.yml \
+    up -d \
+    clickhouse clickhouse-coordinator clickhouse-logs keeper kafka
