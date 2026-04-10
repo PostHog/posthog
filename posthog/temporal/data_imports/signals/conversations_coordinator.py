@@ -48,22 +48,16 @@ class EmitConversationsSignalsInputs:
 @activity.defn
 async def get_conversations_signals_enabled_teams_activity() -> list[int]:
     """Get team IDs with conversations signals enabled and AI consent."""
-    enabled_team_ids: list[int] = []
-    # Tiny bit paranoid, as signals enabled should require AI consent by design
-    async for config in (
-        SignalSourceConfig.objects.filter(
+    return [
+        team_id
+        async for team_id in SignalSourceConfig.objects.filter(
             source_product=SignalSourceConfig.SourceProduct.CONVERSATIONS,
             source_type=SignalSourceConfig.SourceType.TICKET,
             enabled=True,
-        )
-        .select_related("team__organization")
-        .only("team_id", "team__organization__is_ai_data_processing_approved")
-    ):
-        team = await database_sync_to_async(lambda c: c.team)(config)
-        org = await database_sync_to_async(lambda t: t.organization)(team)
-        if org.is_ai_data_processing_approved:
-            enabled_team_ids.append(config.team_id)
-    return enabled_team_ids
+            # Tiny bit paranoid, as signals enabled should require AI consent by design
+            team__organization__is_ai_data_processing_approved=True,
+        ).values_list("team_id", flat=True)
+    ]
 
 
 @activity.defn
