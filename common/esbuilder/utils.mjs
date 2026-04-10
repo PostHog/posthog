@@ -82,7 +82,7 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
-    const jsFileFallback = `${entry}.js`
+    const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
@@ -124,7 +124,7 @@ export function copyIndexHtml(
     const cssFileFallback = `${entry}.css?t=${buildId}`
     const needsCssFallback = cssFile !== cssFileFallback
     const cssLoader = `
-        var link = document.createElement("link");
+        const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
