@@ -1080,3 +1080,123 @@ class TestDetectDrift(unittest.TestCase):
 
         source = inspect.getsource(schema_introspect.detect_drift)
         assert "host_cluster_role" in source, "detect_drift must group hosts by role"
+
+
+class TestCircularInheritance(unittest.TestCase):
+    """F13: _parse_columns must detect circular inheritance and raise ValueError."""
+
+    def test_circular_inheritance_raises_value_error(self) -> None:
+        """A -> B -> A should raise ValueError, not RecursionError."""
+        p = _write_yaml("""\
+            ecosystem: test
+            cluster: main
+            tables:
+              table_a:
+                engine: ReplicatedMergeTree
+                on_nodes: DATA
+                order_by: [id]
+                columns: inherit table_b
+              table_b:
+                engine: ReplicatedMergeTree
+                on_nodes: DATA
+                order_by: [id]
+                columns: inherit table_a
+        """)
+        with self.assertRaises(ValueError) as ctx:
+            parse_desired_state(p)
+        self.assertIn("Circular", str(ctx.exception))
+
+    def test_non_circular_chain_works(self) -> None:
+        """A -> B (no cycle) should resolve columns normally."""
+        p = _write_yaml("""\
+            ecosystem: test
+            cluster: main
+            tables:
+              base:
+                engine: ReplicatedMergeTree
+                on_nodes: DATA
+                order_by: [id]
+                columns:
+                  - name: id
+                    type: UUID
+              derived:
+                engine: Distributed
+                source: base
+                on_nodes: ALL
+                columns: inherit base
+        """)
+        state = parse_desired_state(p)
+        self.assertEqual(len(state.tables["derived"].columns), 1)
+        self.assertEqual(state.tables["derived"].columns[0].name, "id")
+
+
+class TestKafkaFallbackWarning(unittest.TestCase):
+    """F5: _resolve_setting must log a warning when Django setting is unset."""
+
+    def test_warning_when_kafka_setting_unset(self) -> None:
+        from unittest.mock import patch
+
+        from posthog.clickhouse.migration_tools.state_diff import _resolve_setting
+
+        with patch("posthog.clickhouse.migration_tools.state_diff.django_settings") as mock_settings:
+            # Simulate missing KAFKA_HOSTS_FOR_CLICKHOUSE
+            del mock_settings.KAFKA_HOSTS_FOR_CLICKHOUSE
+            mock_settings.configure_mock(**{})
+            with self.assertLogs("migrations", level="WARNING") as cm:
+                result = _resolve_setting("kafka_broker_list")
+        self.assertEqual(result, "kafka:9092")
+        self.assertTrue(any("unset" in msg for msg in cm.output))
+
+    def test_no_warning_when_setting_configured(self) -> None:
+        from unittest.mock import patch
+
+        from posthog.clickhouse.migration_tools.state_diff import _resolve_setting
+
+        with patch("posthog.clickhouse.migration_tools.state_diff.django_settings") as mock_settings:
+            mock_settings.KAFKA_HOSTS_FOR_CLICKHOUSE = ["broker1:9092", "broker2:9092"]
+            result = _resolve_setting("kafka_broker_list")
+        self.assertEqual(result, "broker1:9092,broker2:9092")
+
+
+class TestMergetreeOrderByLint(unittest.TestCase):
+    """F7: MergeTree tables without ORDER BY must produce a lint error."""
+
+    def test_mergetree_without_order_by_errors(self) -> None:
+        from posthog.clickhouse.migration_tools.validator import validate_desired_states
+
+        state = DesiredState(
+            ecosystem="test",
+            cluster="main",
+            tables={
+                "bad_table": DesiredTable(
+                    name="bad_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["DATA"],
+                    order_by=None,
+                ),
+            },
+        )
+        errors = validate_desired_states([state])
+        order_by_errors = [e for e in errors if "ORDER BY" in e]
+        self.assertTrue(len(order_by_errors) > 0, f"Expected ORDER BY error, got: {errors}")
+
+    def test_mergetree_with_order_by_passes(self) -> None:
+        from posthog.clickhouse.migration_tools.validator import validate_desired_states
+
+        state = DesiredState(
+            ecosystem="test",
+            cluster="main",
+            tables={
+                "good_table": DesiredTable(
+                    name="good_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["DATA"],
+                    order_by=["id"],
+                ),
+            },
+        )
+        errors = validate_desired_states([state])
+        order_by_errors = [e for e in errors if "ORDER BY" in e]
+        self.assertEqual(len(order_by_errors), 0, f"Unexpected ORDER BY error: {errors}")

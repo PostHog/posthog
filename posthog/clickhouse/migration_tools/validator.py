@@ -95,6 +95,7 @@ def validate_desired_states(desired_states: list[DesiredState]) -> list[str]:
     for state in desired_states:
         errors.extend(_check_ecosystem_completeness(state, dynamic_lookup))
         errors.extend(_check_cross_cluster_targeting(state))
+        errors.extend(_check_mergetree_order_by(state))
 
     return errors
 
@@ -156,4 +157,20 @@ def _check_cross_cluster_targeting(state: DesiredState) -> list[str]:
                 f"targets {table.on_nodes} but expected one of {sorted(expected)}"
             )
 
+    return errors
+
+
+def _check_mergetree_order_by(state: DesiredState) -> list[str]:
+    """MergeTree-family tables must have an ORDER BY clause.
+
+    ClickHouse rejects CREATE TABLE for MergeTree engines without ORDER BY.
+    Catching this at lint time prevents silent failures at apply time.
+    """
+    errors: list[str] = []
+    for table_name, table in state.tables.items():
+        if _is_mergetree_engine(table.engine) and not table.order_by:
+            errors.append(
+                f"[{state.ecosystem}] Table '{table_name}' (engine={table.engine}) "
+                f"is missing ORDER BY \u2014 ClickHouse will reject this CREATE"
+            )
     return errors

@@ -13,12 +13,15 @@ The diff respects ClickHouse ecosystem rules:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings as django_settings
 
 from posthog.clickhouse.migration_tools.desired_state import ColumnDef, DesiredState, DesiredTable
 from posthog.clickhouse.migration_tools.schema_introspect import TableSchema
+
+logger = logging.getLogger("migrations")
 
 # Sentinel value used in schema YAML to indicate the value should come from Django settings
 _FROM_SETTINGS_SENTINEL = "__from_settings__"
@@ -36,7 +39,8 @@ def _resolve_setting(key: str) -> str:
         val = getattr(django_settings, attr, None)
         if val:
             return ",".join(val) if isinstance(val, list) else str(val)
-    # Fallback for local dev
+    # Fallback for local dev — warn so misconfigured prod envs are visible
+    logger.warning("Setting %s (Django attr %s) is unset, falling back to kafka:9092", key, attr or key)
     return "kafka:9092"
 
 
