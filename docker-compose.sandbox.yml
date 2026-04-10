@@ -193,6 +193,17 @@ services:
             # same port as Django via the @vite matcher in the proxy service
             # above. cloud-init can override with an HTTPS FQDN for HTTP/2.
             JS_URL: '${SANDBOX_JS_URL}'
+            # Tell Django the public origin so Origin-header CSRF checks pass
+            # on POSTs. posthog/settings/access.py derives CSRF_TRUSTED_ORIGINS
+            # from SITE_URL — without this, any POST (HogQL queries, creating
+            # insights, etc.) fails with "Origin checking failed" because the
+            # default trusted list is localhost:8000/8010.
+            SITE_URL: '${SANDBOX_JS_URL}'
+            # Trust Tailscale Serve's X-Forwarded-Proto header so Django knows
+            # the original request was HTTPS even though the proxy chain
+            # terminates TLS before reaching the container.
+            IS_BEHIND_PROXY: 'True'
+            TRUST_ALL_PROXIES: 'True'
         depends_on:
             db:
                 condition: service_healthy
