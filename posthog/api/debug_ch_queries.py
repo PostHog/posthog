@@ -35,15 +35,25 @@ class DebugCHQueries(viewsets.ViewSet):
         except:
             return None
 
-    def hourly_stats(self, insight_id: str):
+    _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
+
+    def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
+        """Build a WHERE clause filtering on a log_comment JSON field."""
+        if filter_key not in self._ALLOWED_FILTER_KEYS:
+            raise ValueError(f"Invalid filter_key: {filter_key!r}")
+        return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+
+    def hourly_stats(self, filter_key: str, filter_value: str):
         params = {
-            "insight_id": insight_id,
+            "filter_value": filter_value,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
 
-        sql_query = """
+        # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
+        filter_clause = self._log_comment_filter(filter_key, filter_value)
+        sql_query = f"""
             SELECT
                 hour,
                 sum(successful_queries) AS successful_queries,
@@ -61,7 +71,7 @@ class DebugCHQueries(viewsets.ViewSet):
                         ProfileEvents, log_comment
                     FROM clusterAllReplicas(%(cluster)s, system, query_log)
                     WHERE
-                        JSONExtractString(log_comment, 'insight_id') = %(insight_id)s AND
+                        {filter_clause} AND
                         event_time > %(start_time)s AND
                         query NOT LIKE %(not_query)s AND
                         is_initial_query
@@ -87,14 +97,16 @@ class DebugCHQueries(viewsets.ViewSet):
             for resp in response
         ]
 
-    def stats(self, insight_id: str):
+    def stats(self, filter_key: str, filter_value: str):
         params = {
-            "insight_id": insight_id,
+            "filter_value": filter_value,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
             "cluster": CLICKHOUSE_CLUSTER,
         }
 
-        sql_query = """
+        # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
+        filter_clause = self._log_comment_filter(filter_key, filter_value)
+        sql_query = f"""
             SELECT
                 count(*) AS total_queries,
                 countIf(exception != '') AS total_exceptions,
@@ -103,11 +115,10 @@ class DebugCHQueries(viewsets.ViewSet):
                 (countIf(exception != '') / count(*)) * 100 AS exception_percentage
             FROM (
                 SELECT
-                    query_id, query, query_start_time, exception, query_duration_ms,
-                    JSONExtractString(log_comment, 'insight_id') AS extracted_insight_id
+                    query_id, query, query_start_time, exception, query_duration_ms
                 FROM clusterAllReplicas(%(cluster)s, system, query_log)
                 WHERE
-                    JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s AND
+                    {filter_clause} AND
                     event_time > %(start_time)s AND
                     is_initial_query
 
@@ -124,16 +135,17 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, insight_id: Optional[str] = None):
+    def queries(self, request: Request, filter_key: Optional[str] = None, filter_value: Optional[str] = None):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
         limit_clause = ""
 
-        if insight_id:
-            where_clause = "JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s"
-            params["insight_id"] = insight_id
+        if filter_key and filter_value:
+            # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
+            where_clause = self._log_comment_filter(filter_key, filter_value)
+            params["filter_value"] = filter_value
             limit_clause = "LIMIT 10"
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
@@ -192,11 +204,20 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         insight_id = request.query_params.get("insight_id")
-        queries = self.queries(request, insight_id)
-        response = {"queries": queries}
+        experiment_id = request.query_params.get("experiment_id")
+
+        filter_key = None
+        filter_value = None
         if insight_id:
-            response["stats"] = self.stats(insight_id)
-            response["hourly_stats"] = self.hourly_stats(insight_id)
+            filter_key, filter_value = "insight_id", insight_id
+        elif experiment_id:
+            filter_key, filter_value = "experiment_id", experiment_id
+
+        queries = self.queries(request, filter_key, filter_value)
+        response = {"queries": queries}
+        if filter_key and filter_value:
+            response["stats"] = self.stats(filter_key, filter_value)
+            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
 
     @action(detail=False, methods=["POST"])

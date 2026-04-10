@@ -119,6 +119,20 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
         })
 
+        it.each([
+            { label: 'Suggested series', description: 'series context' },
+            { label: 'Suggested step', description: 'step context' },
+        ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
+            renderFilter({
+                suggestedFiltersLabel: label,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent(label)
+            })
+        })
+
         it('applies custom width and height via style', async () => {
             const { container } = renderFilter({ width: 500, height: 300 })
 

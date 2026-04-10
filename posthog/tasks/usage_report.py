@@ -1760,7 +1760,11 @@ def capture_report(
                 name="organization usage report per person",
                 organization_id=organization_id,
                 distinct_id=distinct_id,
-                properties=per_person_properties,
+                properties={
+                    **per_person_properties,
+                    "org_membership_level": membership.get_level_display(),
+                    "role_at_organization": membership.user.role_at_organization or "",
+                },
                 timestamp=at_date,
             )
         except Exception as err:
