@@ -202,12 +202,13 @@ describe('insightSceneLogic', () => {
 
         router.actions.push(urls.insightEdit(Insight12))
         await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(logic).delay(150)
+        await expectLogic(logic).toDispatchActions(['setInsightLogicRef']).toFinishAllListeners()
 
         const refAfter = logic.values.insightLogicRef
-        expect(refAfter?.logic.props.dashboardItemId).toBe(Insight12)
-        expect(refAfter?.logic.values.insight.short_id).toBe(Insight12)
         expect(refAfter).not.toBe(refBefore)
+        expect(refAfter?.logic.props.dashboardItemId).toBe(Insight12)
+        await expectLogic(refAfter!.logic).toFinishAllListeners()
+        expect(refAfter?.logic.values.insight.short_id).toBe(Insight12)
     })
 
     it('reloads insight when navigating back to the same insight via PUSH', async () => {
