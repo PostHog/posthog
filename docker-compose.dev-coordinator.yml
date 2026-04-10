@@ -65,6 +65,7 @@ services:
             - ./docker/clickhouse/config.d/data_node.xml:/etc/clickhouse-server/config.d/data_node.xml
             - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -84,6 +85,7 @@ services:
             - ./docker/clickhouse/config.d/coordinator.xml:/etc/clickhouse-server/config.d/coordinator.xml
             - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -100,6 +102,7 @@ services:
             - ./docker/clickhouse/config.d/logs_node.xml:/etc/clickhouse-server/config.d/logs_node.xml
             - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
