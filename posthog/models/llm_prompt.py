@@ -14,7 +14,10 @@ from posthog.models.utils import UUIDModel
 def normalize_prompt_to_string(value: Any) -> str:
     if isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False)
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 class LLMPrompt(UUIDModel):
