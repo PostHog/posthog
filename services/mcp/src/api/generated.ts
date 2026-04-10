@@ -15680,6 +15680,7 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
     * `azure_openai` - Azure OpenAI
+    * `together_ai` - Together AI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15691,6 +15692,7 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
     } as const;
 
     /**
