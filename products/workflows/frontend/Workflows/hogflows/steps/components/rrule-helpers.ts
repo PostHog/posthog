@@ -272,3 +272,32 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
 
     return summary + '.'
 }
+
+/** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
+export function parseNaturalLanguage(text: string): ScheduleState | null {
+    const trimmed = text.trim().toLowerCase()
+    if (!trimmed || !trimmed.includes('every')) {
+        return null
+    }
+    try {
+        const rule = RRule.fromText(text)
+        if (!rule || rule.options.freq == null) {
+            return null
+        }
+        const rruleStr = rule.toString().replace('RRULE:', '')
+        return parseRRuleToState(rruleStr)
+    } catch {
+        return null
+    }
+}
+
+/** Convert a ScheduleState to a human-readable text like "every week on Monday, Wednesday". */
+export function scheduleToText(state: ScheduleState, startsAt: string | null): string {
+    try {
+        const options = buildRRuleOptions(state, startsAt)
+        const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
+        return rule.toText()
+    } catch {
+        return ''
+    }
+}

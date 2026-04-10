@@ -65,22 +65,34 @@ function openExperimentPersonsModalForSeries({
     })
 
     // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0
-    // But the backend funnel query doesn't include this - it only has the actual metric events
-    // Frontend: Step 0=Exposure, Step 1=$pageview, Step 2=uploaded_file
-    // Backend:                  Step 1=$pageview, Step 2=uploaded_file
-    // So we subtract 1 to map frontend -> backend step numbers
-    const backendStepNo = stepNo - 1
+    // But the backend actors query funnel doesn't include this - it only has the actual metric events
+    // Frontend: Step 0=Exposure, Step 1=$pageview, Step 2=click
+    // Backend:                  Step 1=$pageview, Step 2=click
+    // So we map frontend step indices to backend step numbers directly (stepIndex = backendStepNo)
+    const backendStepNo = stepIndex
 
-    // Skip if trying to query the "Experiment exposure" step (doesn't exist in backend funnel)
+    // Skip if trying to query the "Experiment exposure" step (stepIndex 0, doesn't exist in backend)
     if (backendStepNo < 1) {
         return
     }
+
+    // Skip drop-off queries for the first metric step (stepIndex 1)
+    // Drop-offs at step 1 would mean "exposed but never entered the funnel",
+    // which can't be queried via the actors funnel (it starts at the first metric event)
+    if (!converted && backendStepNo === 1) {
+        return
+    }
+
+    // For drop-offs, the mapping is straightforward
+    // Frontend step 2 drop-off = "completed step 1 ($pageview) but not step 2 (click)" = backend -2 = -stepIndex
+    // Frontend step 3 drop-off = "completed step 2 (click) but not step 3 (next event)" = backend -3 = -stepIndex
+    const funnelStep = converted ? backendStepNo : -backendStepNo
 
     // Create ExperimentActorsQuery (same pattern as FunnelsActorsQuery)
     const query: ExperimentActorsQuery = {
         kind: NodeKind.ExperimentActorsQuery,
         source: experimentQuery,
-        funnelStep: converted ? backendStepNo : -backendStepNo, // Positive = converted, Negative = dropped off
+        funnelStep,
         funnelStepBreakdown: variantKey, // Filter by variant
         includeRecordings: true,
     }
@@ -176,9 +188,9 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                         const rect = ref.current.getBoundingClientRect()
                         // Only show "Click to inspect actors" hint when clicking will actually work:
                         // - Step 0 (exposure) with new feature enabled: can't use actors query (returns early), so don't show hint
-                        // - Step 0 with legacy: can use sampled sessions, show hint if sessionData exists
-                        // - Step > 0 with new feature: can use actors query, show hint
-                        // - Step > 0 with legacy: can use sampled sessions, show hint if sessionData exists
+                        // - Step 1 (first metric) drop-offs with new feature: can't query (no exposure in backend funnel), conversions work
+                        // - Step 2+ with new feature: both conversions and drop-offs work
+                        // - Legacy mode: show hint if sessionData exists
                         const hasClickableData = hasActorsQueryFeature ? stepIndex > 0 : !!sessionData
                         showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
                     }
@@ -190,7 +202,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                     onClick={handleDropoffClick}
                     style={{
                         cursor: hasActorsQueryFeature
-                            ? stepIndex > 0
+                            ? stepIndex > 1
                                 ? 'pointer'
                                 : 'default'
                             : sessionData

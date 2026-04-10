@@ -1,4 +1,3 @@
-import Fuse, { IFuseOptions } from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -12,6 +11,7 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -99,19 +99,18 @@ const getSavedQuerySchemaTable = (
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
     keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
 }
 
-const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
-const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
-const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
-const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
-const savedQueryFoldersFuse = new Fuse<DataWarehouseSavedQueryFolder>([], FUSE_OPTIONS)
-const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
-const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
-const endpointsFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
+const posthogTablesFuse = createFuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
+const systemTablesFuse = createFuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
+const dataWarehouseTablesFuse = createFuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
+const savedQueriesFuse = createFuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
+const savedQueryFoldersFuse = createFuse<DataWarehouseSavedQueryFolder>([], FUSE_OPTIONS)
+const managedViewsFuse = createFuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
+const draftsFuse = createFuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
+const endpointsFuse = createFuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 type TableLookupEntry = {
     name: string

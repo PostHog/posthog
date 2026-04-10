@@ -1,7 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
@@ -33,6 +32,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils'
 import { selectFiles } from 'lib/utils/file-utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { ValueOf } from 'lib/utils/types'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -512,9 +512,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const allCommmands = [...TEXT_CONTROLS, ...allFlatCommands]
 
     const fuse = useMemo(() => {
-        return new Fuse(allCommmands, {
+        return createFuse(allCommmands, {
             keys: ['title', 'search'],
-            threshold: 0.3,
         })
         // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])

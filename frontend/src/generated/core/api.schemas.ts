@@ -763,8 +763,7 @@ export interface DashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -800,8 +799,7 @@ export interface PatchedDashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at?: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by?: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -1126,6 +1124,10 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    /** @nullable */
+    readonly insight_short_id: string | null
+    /** @nullable */
+    readonly resource_name: string | null
     dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
@@ -1187,6 +1189,10 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    /** @nullable */
+    readonly insight_short_id?: string | null
+    /** @nullable */
+    readonly resource_name?: string | null
     dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
@@ -1740,6 +1746,10 @@ export const PropertyDefinitionsListType = {
 
 export type SubscriptionsListParams = {
     /**
+     * Filter by creator user UUID.
+     */
+    created_by?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1747,7 +1757,39 @@ export type SubscriptionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * Filter by subscription resource: insight vs dashboard export.
+     */
+    resource_type?: SubscriptionsListResourceType
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Filter by delivery channel (email, Slack, or webhook).
+     */
+    target_type?: SubscriptionsListTargetType
 }
+
+export type SubscriptionsListResourceType =
+    (typeof SubscriptionsListResourceType)[keyof typeof SubscriptionsListResourceType]
+
+export const SubscriptionsListResourceType = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+} as const
+
+export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[keyof typeof SubscriptionsListTargetType]
+
+export const SubscriptionsListTargetType = {
+    Email: 'email',
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
 
 export type UsersListParams = {
     email?: string
