@@ -76,6 +76,41 @@ tailscale up \
     --ssh
 log "Tailscale joined as $SANDBOX_HOSTNAME"
 
+# Kick off the Tailscale HTTPS cert request in the background RIGHT NOW. The
+# ACME roundtrip takes ~30s, and we need the cert before `bin/sandbox create`
+# can start (SANDBOX_JS_URL is baked into the JS bundles during container
+# build). If we run it inline later, those 30s sit on the critical path. By
+# backgrounding it alongside docker install + archive extract + git clone,
+# the cost disappears behind work we're doing anyway.
+CERT_PID=""
+CERT_STATUS_FILE=/tmp/sandbox-cert-status
+CERT_LOG=/tmp/sandbox-cert.log
+FQDN=""
+TAILNET_SUFFIX=$(
+    tailscale status --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('MagicDNSSuffix',''))" \
+        2>/dev/null || true
+)
+if [ -n "$TAILNET_SUFFIX" ]; then
+    FQDN="${SANDBOX_HOSTNAME}.${TAILNET_SUFFIX}"
+    log "Requesting Tailscale HTTPS cert for $FQDN in background..."
+    rm -f "$CERT_STATUS_FILE"
+    (
+        # Run from /tmp so the cert files don't litter a random cwd. The cert
+        # is also cached inside tailscaled, which is what `tailscale serve`
+        # actually reads from — the files here are just a side effect.
+        cd /tmp
+        if tailscale cert "$FQDN" >"$CERT_LOG" 2>&1; then
+            echo "ok" > "$CERT_STATUS_FILE"
+        else
+            echo "fail" > "$CERT_STATUS_FILE"
+        fi
+    ) &
+    CERT_PID=$!
+else
+    log "WARNING: could not read tailnet MagicDNSSuffix. Falling back to HTTP."
+fi
+
 log "Writing SSH authorized keys..."
 UBUNTU_SSH_DIR="/home/ubuntu/.ssh"
 mkdir -p "$UBUNTU_SSH_DIR"
@@ -282,35 +317,31 @@ else
     sudo -u ubuntu HOME=/home/ubuntu git checkout -b "$SANDBOX_BRANCH" origin/master
 fi
 
-# Provision a Tailscale HTTPS cert *before* starting the containers so the
-# sandbox boots with the correct JS_URL baked into JS bundles / HMR client.
-# HTTP/2 requires TLS in browsers, and Tailscale's ACME integration gives us
-# a real Let's Encrypt cert for the node's .ts.net FQDN — no self-signed
-# cert warnings. The win: the browser can multiplex ~2000 Vite asset
-# requests over one connection instead of hitting HTTP/1.1's 6-per-origin
-# cap on a ~70ms tailnet RTT (which is the difference between a 40s and a
-# 5s page load).
-log "Determining Tailscale DNS suffix..."
-TAILNET_SUFFIX=$(
-    tailscale status --json 2>/dev/null \
-        | python3 -c "import json,sys; print(json.load(sys.stdin).get('MagicDNSSuffix',''))" \
-        2>/dev/null || true
-)
-
+# Wait for the background Tailscale HTTPS cert task (kicked off right after
+# `tailscale up`). By now it's almost certainly done — docker install, archive
+# extract, and git clone have been running in parallel for 60+s. If it isn't,
+# we block here for the remainder.
+#
+# We need the cert before `bin/sandbox create` so the SANDBOX_JS_URL gets
+# baked into JS bundles / HMR client. HTTP/2 requires TLS in browsers, and
+# Tailscale's ACME integration gives us a real Let's Encrypt cert for the
+# node's .ts.net FQDN — no self-signed cert warnings. The win: the browser
+# can multiplex ~2000 Vite asset requests over one connection instead of
+# hitting HTTP/1.1's 6-per-origin cap on a ~70ms tailnet RTT (the difference
+# between a 40s and a 5s page load).
 SANDBOX_JS_URL=""
 USER_URL="http://$SANDBOX_HOSTNAME:48001"
-if [ -n "$TAILNET_SUFFIX" ]; then
-    FQDN="${SANDBOX_HOSTNAME}.${TAILNET_SUFFIX}"
-    log "Requesting Tailscale HTTPS cert for $FQDN..."
-    if tailscale cert "$FQDN" 2>&1; then
+if [ -n "$CERT_PID" ]; then
+    log "Waiting for Tailscale HTTPS cert..."
+    wait "$CERT_PID" || true
+    if [ "$(cat "$CERT_STATUS_FILE" 2>/dev/null)" = "ok" ]; then
         SANDBOX_JS_URL="https://$FQDN"
         USER_URL="https://$FQDN"
-        log "Cert obtained."
+        log "Cert ready."
     else
         log "WARNING: tailscale cert failed. Enable HTTPS in https://login.tailscale.com/admin/dns to get HTTP/2. Falling back to HTTP."
+        cat "$CERT_LOG" 2>/dev/null || true
     fi
-else
-    log "WARNING: could not read tailnet MagicDNSSuffix. Falling back to HTTP."
 fi
 
 log "Creating sandbox via bin/sandbox create..."
