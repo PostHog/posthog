@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Any
 
+from django.db.models import CharField, Exists, OuterRef
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import structlog
@@ -10,6 +12,7 @@ from posthog.models.comment import Comment
 from posthog.temporal.data_imports.signals.registry import SignalSourceTableConfig
 
 from products.conversations.backend.models import Ticket
+from products.signals.backend.models import SignalEmissionRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -23,14 +26,19 @@ def conversations_ticket_fetcher(
     config: SignalSourceTableConfig,
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Fetch conversation tickets from Postgres and mark them as emitted optimistically."""
+    """Fetch conversation tickets from Postgres and record emission in SignalEmissionRecord."""
     cutoff = timezone.now() - timedelta(hours=TICKET_COOLDOWN_HOURS)
-    # Pick tickets we haven't emitted signals for yet
+    # Pick tickets we haven't emitted signals for yet (NOT EXISTS subquery)
+    already_emitted = SignalEmissionRecord.objects.filter(
+        team=team,
+        source_product=config.source_product,
+        source_type=config.source_type,
+        source_id=Cast(OuterRef("id"), output_field=CharField()),
+    )
     tickets_qs = Ticket.objects.filter(
         team=team,
-        signal_emitted_at__isnull=True,
         created_at__lte=cutoff,
-    )
+    ).filter(~Exists(already_emitted))
     if config.where_clause:
         tickets_qs = tickets_qs.extra(where=[config.where_clause])
     tickets_qs = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
@@ -64,7 +72,20 @@ def conversations_ticket_fetcher(
     # Attach messages to each ticket record
     for ticket in tickets:
         ticket["messages"] = comments_by_ticket.get(str(ticket["id"]), [])
-    # Mark tickets as emitted optimistically
+    # Record emission optimistically
     # TODO: Revisit if signal loss on transient pipeline failure becomes a concern
-    Ticket.objects.filter(id__in=ticket_ids).update(signal_emitted_at=timezone.now())
+    now = timezone.now()
+    SignalEmissionRecord.objects.bulk_create(
+        [
+            SignalEmissionRecord(
+                team=team,
+                source_product=config.source_product,
+                source_type=config.source_type,
+                source_id=str(tid),
+                emitted_at=now,
+            )
+            for tid in ticket_ids
+        ],
+        ignore_conflicts=True,
+    )
     return tickets

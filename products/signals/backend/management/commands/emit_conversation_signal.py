@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.signals.pipeline import (
 
 from products.conversations.backend.models import Ticket
 from products.signals.backend.api import emit_signal
+from products.signals.backend.models import SignalEmissionRecord
 
 
 class Command(BaseCommand):
@@ -57,7 +58,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--no-mark",
             action="store_true",
-            help="Don't set signal_emitted_at on the ticket (allows re-running)",
+            help="Don't record emission in SignalEmissionRecord (allows re-running)",
         )
 
     def handle(self, *args, **options):
@@ -83,7 +84,13 @@ class Command(BaseCommand):
         self.stdout.write(f"  Channel: {ticket.channel_source}")
         self.stdout.write(f"  Status: {ticket.status}")
         self.stdout.write(f"  Created: {ticket.created_at}")
-        self.stdout.write(f"  Signal emitted: {ticket.signal_emitted_at or 'never'}")
+        emission = SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product="conversations",
+            source_type="ticket",
+            source_id=str(ticket.id),
+        ).first()
+        self.stdout.write(f"  Signal emitted: {emission.emitted_at if emission else 'never'}")
         self.stdout.write("")
 
         record = self._build_record(team, ticket)
@@ -153,10 +160,16 @@ class Command(BaseCommand):
         if not no_mark:
             from django.utils import timezone
 
-            Ticket.objects.filter(id=ticket.id).update(signal_emitted_at=timezone.now())
-            self.stdout.write(f"Marked ticket signal_emitted_at = now()")
+            SignalEmissionRecord.objects.update_or_create(
+                team=team,
+                source_product=output.source_product,
+                source_type=output.source_type,
+                source_id=output.source_id,
+                defaults={"emitted_at": timezone.now()},
+            )
+            self.stdout.write("Recorded emission in SignalEmissionRecord")
         else:
-            self.stdout.write("Skipped marking signal_emitted_at (--no-mark)")
+            self.stdout.write("Skipped recording emission (--no-mark)")
 
     def _build_record(self, team: Team, ticket: Ticket) -> dict[str, Any]:
         config = CONVERSATIONS_TICKETS_CONFIG

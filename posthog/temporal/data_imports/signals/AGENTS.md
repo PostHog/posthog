@@ -39,7 +39,7 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
   Receives `table_name` and `last_synced_at` via the runtime context dict.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
-  Marks tickets as emitted (`signal_emitted_at`) optimistically at fetch time.
+  Records emission in `SignalEmissionRecord` optimistically at fetch time.
 
 ### Data import sources (Zendesk, GitHub, Linear)
 

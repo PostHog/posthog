@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.signals.conversations_tickets import CONVERSA
 from posthog.temporal.data_imports.signals.fetchers.conversations import conversations_ticket_fetcher
 
 from products.conversations.backend.models import Ticket
+from products.signals.backend.models import SignalEmissionRecord
 
 
 def _make_ticket(team, **kwargs):
@@ -178,25 +179,31 @@ class TestConversationsTicketFetcherAuthorType(BaseTest):
 
 @pytest.mark.django_db
 class TestConversationsTicketFetcherMarkEmitted(BaseTest):
-    def test_marks_tickets_as_emitted_after_fetch(self):
+    def _has_emission(self, ticket):
+        return SignalEmissionRecord.objects.filter(
+            team=self.team,
+            source_product="conversations",
+            source_type="ticket",
+            source_id=str(ticket.id),
+        ).exists()
+
+    def test_creates_emission_record_after_fetch(self):
         ticket = _make_ticket(self.team)
         _backdate_ticket(ticket, hours=2)
 
         conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
 
-        ticket.refresh_from_db()
-        assert ticket.signal_emitted_at is not None
+        assert self._has_emission(ticket)
 
-    def test_does_not_update_any_ticket_when_result_empty(self):
+    def test_does_not_create_emission_record_when_result_empty(self):
         ticket = _make_ticket(self.team)
         # ticket is too recent — no eligible tickets
 
         conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
 
-        ticket.refresh_from_db()
-        assert ticket.signal_emitted_at is None
+        assert not self._has_emission(ticket)
 
-    def test_only_marks_fetched_tickets_as_emitted(self):
+    def test_only_records_emission_for_fetched_tickets(self):
         eligible = _make_ticket(self.team, status="open")
         _backdate_ticket(eligible, hours=2)
 
@@ -205,7 +212,5 @@ class TestConversationsTicketFetcherMarkEmitted(BaseTest):
 
         conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
 
-        eligible.refresh_from_db()
-        too_recent.refresh_from_db()
-        assert eligible.signal_emitted_at is not None
-        assert too_recent.signal_emitted_at is None
+        assert self._has_emission(eligible)
+        assert not self._has_emission(too_recent)
