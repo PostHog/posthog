@@ -245,7 +245,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                 </div>
 
                 {/* Right Panel - Analysis and Properties */}
-                <div className="flex-1 bg-bg-light p-6 rounded-lg border">
+                <div className={`flex-1 bg-bg-light p-6 rounded-lg border ${!result ? 'content-center' : ''}`}>
                     {result ? (
                         <div className="space-y-6">
                             {/* Evaluation Result */}
@@ -444,7 +444,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             </div>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-64 rounded border-2 border-dashed border-border">
+                        <div className="flex-grow flex items-center justify-center h-64">
                             <div className="text-center text-muted">
                                 <p className="text-lg font-medium mb-2">No evaluation analysis yet</p>
                                 <p className="text-sm">
