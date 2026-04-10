@@ -15,6 +15,7 @@ from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from .config import Config
 
@@ -293,7 +294,18 @@ class PostHogClient:
                     )
                 try:
                     result = fetch_fn()
-                except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
+                except (
+                    InternalCHQueryError,
+                    # wrap_clickhouse_query_error() converts TOO_MANY_SIMULTANEOUS_QUERIES,
+                    # TIMEOUT_EXCEEDED, and MEMORY_LIMIT_EXCEEDED into APIException subclasses
+                    # (not InternalCHQueryError), so we must catch them explicitly.
+                    ClickHouseAtCapacity,
+                    ClickHouseQueryTimeOut,
+                    ClickHouseQueryMemoryLimitExceeded,
+                    EOFError,
+                    ConnectionError,
+                    OSError,
+                ) as e:
                     is_retryable = not isinstance(e, InternalCHQueryError) or e.code in RETRYABLE_CH_ERROR_CODES
                     if is_retryable:
                         logger.warning(

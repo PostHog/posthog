@@ -727,6 +727,12 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
         spt_token = payment_credentials.get("stripe_payment_token")
         if spt_token:
             return _activate_billing_with_spt(team, user, spt_token)
+    logger.info(
+        "stripe_app.spt_not_received",
+        team_id=team.id,
+        has_payment_credentials=payment_credentials is not None,
+        payment_credentials_type=payment_credentials.get("type") if isinstance(payment_credentials, dict) else None,
+    )
     return None
 
 
