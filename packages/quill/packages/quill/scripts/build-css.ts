@@ -16,7 +16,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -46,4 +46,14 @@ if (result.status !== 0) {
 // Tailwind has no idea `--color-fill-active` exists.
 const themeSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
 const themeOutput = resolve(packageRoot, 'dist/theme.css')
+
+if (!existsSync(themeSource)) {
+    throw new Error(
+        `Cannot build @posthog/quill/theme.css: ${themeSource} does not exist. ` +
+            `Make sure @posthog/quill-tokens has built first (run pnpm --filter ` +
+            `'@posthog/quill...' build from the monorepo root to build workspace ` +
+            `dependencies in topological order).`,
+    )
+}
+
 copyFileSync(themeSource, themeOutput)

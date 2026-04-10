@@ -51,6 +51,8 @@ The pre-compiled `styles.css` is enough to render every Quill component out of t
 
 `theme.css` is **not** precompiled. It's a raw `@theme inline { … }` block that your Tailwind v4 instance reads at compile time, registering every Quill semantic colour (`--color-fill-active`, `--color-muted-foreground`, …), font size, line height, radius, and shadow as theme values. From that point on, your own `bg-fill-active` and friends compile correctly.
 
+> ⚠️ **Always import `theme.css` alongside `styles.css`, never instead of it.** The raw CSS variable values (`--background`, `--primary`, `--fill-active`, …) live at `:root` and `.dark` inside the pre-compiled `styles.css`. `theme.css` only registers their **names** with your Tailwind compiler. If you import `theme.css` on its own, your Tailwind will produce rules like `.bg-fill-active { background-color: var(--color-fill-active); }` — pointing at a `--color-fill-active` alias that in turn points at a `--fill-active` variable that is never defined anywhere, so every utility silently resolves to an unset value.
+
 Skip this import if you don't use Tailwind in your own app — the components still work via `styles.css` alone, but classes you write yourself against Quill tokens will be silently dropped because your toolchain has no idea those tokens exist.
 
 ### 4. Set up dark mode
