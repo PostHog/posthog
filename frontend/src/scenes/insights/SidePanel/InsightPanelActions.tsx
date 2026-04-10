@@ -177,7 +177,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
             {canEditInSqlEditor && (
                 <Link
-                    to={urls.sqlEditor({ query: hogQL })}
+                    to={urls.sqlEditor({ query: hogQL ?? undefined })}
                     buttonProps={{
                         'data-attr': `${RESOURCE_TYPE}-edit-sql`,
                         menuItem: true,
