@@ -309,6 +309,28 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
+        "shallow,expected_in_command,not_expected_in_command",
+        [
+            (True, "--depth 1", None),
+            (False, "--single-branch", "--depth"),
+        ],
+    )
+    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                command = mock_execute.call_args[0][0]
+
+                assert expected_in_command in command
+                if not_expected_in_command:
+                    assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
         [
             ("PostHog/posthog", "task-123", "run-456", "background"),

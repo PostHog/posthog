@@ -8,6 +8,7 @@ from posthog.dags import (
     create_materialized_column,
     data_deletion_requests,
     deletes,
+    drop_materialized_column,
     export_query_logs_to_s3,
     fix_missing_person_overrides,
     fix_person_id_overrides,
@@ -32,6 +33,7 @@ defs = dagster.Definitions(
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,
         create_materialized_column.create_materialized_column,
+        drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
         backfill_materialized_column.backfill_materialized_column,

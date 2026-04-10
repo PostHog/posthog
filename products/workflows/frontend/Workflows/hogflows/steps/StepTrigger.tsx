@@ -1,5 +1,4 @@
 import { Node } from '@xyflow/react'
-import Fuse from 'fuse.js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
@@ -40,6 +39,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
@@ -99,7 +99,7 @@ function TriggerTypeDropdown({
         if (!search) {
             return items
         }
-        const fuse = new Fuse(items, { keys: ['label', 'description'], threshold: 0.3 })
+        const fuse = createFuse(items, { keys: ['label', 'description'], threshold: 0.3 })
         return fuse.search(search).map((result) => result.item)
     }, [items, search])
 

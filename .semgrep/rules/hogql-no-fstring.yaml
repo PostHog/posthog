@@ -103,6 +103,8 @@ rules:
           - pattern-not-regex: "\\{limit\\}|\\{offset\\}|\\{count\\}"
           # Computed expression names (safe: internally built SQL fragments)
           - pattern-not-regex: "\\{timestamp_expr\\}|\\{array_merge_operation\\}"
+          # Experiment query builder (safe: internally-computed CTE strings and hardcoded aliases)
+          - pattern-not-regex: "\\{common_ctes\\}|\\{ctes_sql\\}|\\{events_alias\\}|\\{column_ref\\}"
           # Date filter patterns (safe: computed from internal date range)
           - pattern-not-regex: "\\{date_to_filter\\}|\\{date_from_filter\\}"
           # Inline ternary conditions (safe: boolean conditions creating constant strings)

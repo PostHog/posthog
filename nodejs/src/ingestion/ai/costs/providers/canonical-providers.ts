@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-02 20:08:39 UTC
+// Generated at: 2026-04-07 20:09:32 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -12,6 +12,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'anthropic-2'
     | 'arcee-ai'
     | 'arcee-ai-bf16'
     | 'arcee-ai-prime'
@@ -65,6 +66,7 @@ export type CanonicalProvider =
     | 'liquid'
     | 'mancer-fp8'
     | 'mancer-int4'
+    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
     | 'minimax-highspeed'
@@ -120,6 +122,7 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-bf16'
     | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'

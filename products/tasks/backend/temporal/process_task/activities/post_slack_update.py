@@ -37,7 +37,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
         if input.sandbox_cleaned:
             if pr_url:
-                handler.update_reaction("white_check_mark")
+                handler.update_reaction("hedgehog")
                 if _is_pr_opened_notified(task_run, pr_url):
                     handler.delete_progress()
                     return
@@ -45,7 +45,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
                 _mark_pr_opened_notified(task_run, pr_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
-                handler.update_reaction("white_check_mark")
+                handler.update_reaction("hedgehog")
                 handler.post_cancelled(task_url)
             elif task_run.status == TaskRun.Status.FAILED:
                 error = task_run.error_message or "Unknown error"
@@ -54,13 +54,13 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            handler.update_reaction("white_check_mark")
+            handler.update_reaction("hedgehog")
             if task_run.error_message and "timed out" in task_run.error_message:
                 handler.delete_progress()
                 return
             handler.post_completion(pr_url, task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            handler.update_reaction("white_check_mark")
+            handler.update_reaction("hedgehog")
             handler.post_cancelled(task_url)
         elif task_run.status == TaskRun.Status.FAILED:
             error = task_run.error_message or "Unknown error"
@@ -69,7 +69,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
-                handler.update_reaction("white_check_mark")
+                handler.update_reaction("hedgehog")
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)

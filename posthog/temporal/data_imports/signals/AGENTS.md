@@ -1,7 +1,8 @@
-# Data import signals
+# Signal emission pipeline
 
-Emits Signals from newly imported external data source records (Zendesk tickets, GitHub issues, etc.)
+Emits Signals from external data import sources (Zendesk tickets, GitHub issues, Linear issues)
 to surface actionable product feedback.
+The pipeline is designed to be source-agnostic so that internal PostHog products can plug in their own record fetchers later.
 
 ## How emitted signals are used
 
@@ -15,43 +16,86 @@ so that semantically similar signals group well regardless of origin.
 
 ## Architecture
 
-The pipeline is a Temporal child workflow, fire-and-forget from the main import job:
+### Shared pipeline
+
+The core signal pipeline (`posthog/temporal/data_imports/signals/pipeline.py`) is source-agnostic:
+
+1. **Record fetcher** — each source defines a `record_fetcher` callable on its config
+2. **Emitter** — transforms each record dict into a `SignalEmitterOutput` (or `None` to skip)
+3. **Summarization** — optionally summarizes long descriptions via LLM
+4. **Actionability filter** — optionally filters non-actionable records via LLM
+5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
+
+### Registry
+
+`posthog/temporal/data_imports/signals/registry.py` maps `(source_type, schema_name)` pairs to their config.
+All emitters are auto-registered at module load time.
+The registry key is a plain string pair — external sources use `ExternalDataSourceType` values (e.g., `"Zendesk"`).
+
+### Record fetchers
+
+Each source defines how to fetch records via its `record_fetcher` on the config:
+
+- **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
+  Receives `table_name` and `last_synced_at` via the runtime context dict.
+
+### Data import sources (Zendesk, GitHub, Linear)
+
+Triggered by the data import workflow:
 
 1. **Parent workflow** (`posthog/temporal/data_imports/external_data_job.py`) finishes importing data,
    then spawns the emit-signals child workflow if emission is enabled for the source.
-2. **Child workflow** (`posthog/temporal/data_imports/workflow_activities/emit_signals.py`) runs a single activity that:
-   - Looks up the config from the registry for the given source type and schema
-   - Queries new records via HogQL (filtered by partition field since last sync)
-   - Runs each record through the source's **emitter function** to produce signal outputs
-   - Optionally **summarizes long descriptions** via LLM if the config defines a `summarization_prompt` and `description_summarization_threshold_chars`.
-     Descriptions exceeding the threshold are summarized; if the summary is still too long, retries once with error context; truncates as last resort.
-   - Optionally filters through an **LLM actionability check** if the config defines a prompt (runs after summarization)
-   - Emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
-3. **Registry** (`posthog/temporal/data_imports/signals/registry.py`) maps (source type, schema name) pairs to their config.
-   All emitters are auto-registered at module load time.
+2. **Child workflow** (`posthog/temporal/data_imports/workflow_activities/emit_signals.py`) runs the activity that
+   calls `config.record_fetcher` then the shared pipeline.
 
-Gated behind AI consent (`organization.is_ai_data_processing_approved`) and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type` — both checked at the parent workflow level before spawning the child. Users enable sources via the Inbox Sources modal.
+### Gating
+
+All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`)
+and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type`.
+Users enable sources via the Inbox Sources modal.
 
 ## Adding a new source
 
 1. **Create the emitter module** — add a file in this directory (e.g., `jira_issues.py`).
-   Follow existing emitters (`posthog/temporal/data_imports/signals/zendesk_tickets.py`,
-   `posthog/temporal/data_imports/signals/github_issues.py`) for the pattern:
+   Follow existing emitters (`zendesk_tickets.py`, `github_issues.py`, `linear_issues.py`) for the pattern:
    define which fields to query,
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient),
+   define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources),
    optionally define an LLM actionability prompt and/or a summarization prompt with threshold,
    and export the final config as a module-level constant.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.)
    unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
-2. **Register in `posthog/temporal/data_imports/signals/registry.py`** — import the config and add it inside `_register_all_emitters()`.
-   The source type must match an `ExternalDataSourceType` enum value,
-   and the schema name must match the table name as it appears in the data warehouse.
-3. **Write tests in `posthog/temporal/data_imports/signals/tests/`** — emitter tests (`test_<source>.py`) covering valid records,
+2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`,
+   using the matching `ExternalDataSourceType` value as the source type.
+3. **Write tests in `tests/`** — emitter tests (`test_<source>.py`) covering valid records,
    missing/empty required fields (parameterized), and extra field extraction.
-   Add a realistic mock record and pytest fixture in `posthog/temporal/data_imports/signals/tests/conftest.py`.
+   Add a realistic mock record and pytest fixture in `tests/conftest.py`.
 
 Run tests: `pytest posthog/temporal/data_imports/signals/tests/`
+
+## Local testing with fixtures
+
+To exercise the full pipeline (emitter → summarization → actionability → `emit_signal`)
+without running a real data import or populating a warehouse table,
+use the `emit_signals_from_fixture` management command.
+It loads sanitized fixture records from `products/signals/eval/fixtures/`
+and feeds them straight into `run_signal_pipeline`,
+bypassing `data_warehouse_record_fetcher` entirely.
+
+```bash
+# Smoke test with 1-2 records (cheap, ~1-2 LLM calls per record)
+DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --limit 1
+DEBUG=1 ./manage.py emit_signals_from_fixture --type github --team-id 1 --limit 2
+DEBUG=1 ./manage.py emit_signals_from_fixture --type linear --team-id 1
+
+# Override the fixture path
+DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixture path/to/custom.json
+```
+
+`--type` accepts `zendesk`, `github`, or `linear`
+and maps to the matching auto-registered config in `registry.py`.
+The command requires `DEBUG=True` and is intended for local iteration only.
 
 ## Maintaining this file
 

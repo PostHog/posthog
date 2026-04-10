@@ -14,7 +14,7 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =
+    const { filters, availableFilters, availableFiltersLoading, showMoreFilters, activeAdvancedFiltersCount } =
         useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
 
@@ -49,6 +49,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 label: u.label,
                             })) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All users"
                         allowCustomValues={false}
                         data-attr="audit-logs-user-filter"
@@ -73,6 +74,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All scopes"
                         allowCustomValues={false}
                         data-attr="audit-logs-scope-filter"
@@ -97,6 +99,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All activities"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
