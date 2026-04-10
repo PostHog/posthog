@@ -871,7 +871,6 @@ class ConversationsTicketSignalExtra(BaseModel):
     channel_detail: str | None = None
     channel_source: str
     created_at: str
-    email_from: str | None = None
     email_subject: str | None = None
     priority: str | None = None
     status: str

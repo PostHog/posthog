@@ -151,7 +151,6 @@ export interface ConversationsTicketSignalExtra {
     priority: string | null
     created_at: string
     email_subject: string | null
-    email_from: string | null
 }
 
 export interface ConversationsTicketSignalInput {

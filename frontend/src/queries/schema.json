@@ -9731,9 +9731,6 @@
                 "created_at": {
                     "type": "string"
                 },
-                "email_from": {
-                    "type": ["string", "null"]
-                },
                 "email_subject": {
                     "type": ["string", "null"]
                 },
@@ -9754,8 +9751,7 @@
                 "status",
                 "priority",
                 "created_at",
-                "email_subject",
-                "email_from"
+                "email_subject"
             ],
             "type": "object"
         },
