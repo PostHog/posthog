@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange
 
-from posthog.hogql_queries.utils.time_sliced_query import TimeSliceableRunner, time_sliced_results
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 
 @dataclass
@@ -49,10 +49,10 @@ class FakeRunner:
         self._results = results or []
 
     @property
-    def query_date_range(self):
+    def query_date_range(self) -> Any:
         return self._query_date_range
 
-    def run(self, execution_mode, analytics_props=None):
+    def run(self, execution_mode: Any, **kwargs: Any) -> FakeResponse:
         return FakeResponse(results=self._results)
 
 
@@ -62,7 +62,7 @@ class TestTimeSlicedResults(TestCase):
         call_index = [0]
         created_ranges: list[DateRange] = []
 
-        def make_runner(date_range: DateRange) -> TimeSliceableRunner:
+        def make_runner(date_range: DateRange) -> FakeRunner:
             idx = call_index[0]
             call_index[0] += 1
             created_ranges.append(date_range)
