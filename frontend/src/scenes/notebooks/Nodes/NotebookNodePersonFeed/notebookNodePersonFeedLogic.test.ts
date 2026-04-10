@@ -145,7 +145,7 @@ describe('notebookNodePersonFeedLogic', () => {
         initKeaTests()
         useMocks({
             post: {
-                [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                     results: mockSessionsWithRecording,
                 },
                 [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async (
@@ -182,7 +182,10 @@ describe('notebookNodePersonFeedLogic', () => {
         it('handles sessions loading failure', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: () => [500, { detail: 'Internal badaras error' }],
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: () => [
+                        500,
+                        { detail: 'Internal badaras error' },
+                    ],
                 },
             })
 
@@ -213,7 +216,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('returns empty array when no sessions have recordings', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockSessionsWithoutRecording,
                     },
                 },
@@ -230,7 +233,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('filters mixed sessions correctly', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockMixedSessions,
                     },
                 },
@@ -331,7 +334,7 @@ describe('notebookNodePersonFeedLogic', () => {
             logic.unmount()
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockSessionsWithoutRecording,
                     },
                 },
@@ -424,7 +427,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('sets state to completed when all sessions fail', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockFailingSessions,
                     },
                 },
@@ -448,7 +451,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('sets state to completed when mix of successes and failures', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: [...mockFailingSessions, ...mockSessionsWithRecording],
                     },
                 },
@@ -469,7 +472,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('includes failed sessions in numProcessedSessions', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockSessionsWithRecording,
                     },
                 },
@@ -488,7 +491,7 @@ describe('notebookNodePersonFeedLogic', () => {
         it('generates correct progress text with failures', async () => {
             useMocks({
                 post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                         results: mockSessionsWithRecording,
                     },
                 },

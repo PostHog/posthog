@@ -64,10 +64,10 @@ Key files:
 
 ### Running the app locally
 
-You can configure mprocs to include the stripe app in your configuration when running `hogli dev:setup`. If you don't wanna change your mprocs setup, however, you can run it manually
+You can configure phrocs to include the stripe app in your configuration when running `hogli dev:setup`. If you don't wanna change your phrocs setup, however, you can run it manually
 
 ```bash
-# Via hogli (recommended — also starts via mprocs)
+# Via hogli (recommended — also starts via phrocs)
 hogli start:stripe:app
 
 # Or directly
@@ -100,7 +100,7 @@ and write its `client_id` to your `.env`.
 
 To connect the app:
 
-1. Look for the token output in the dev server logs (or mprocs `stripe-app` pane).
+1. Look for the token output in the dev server logs (or phrocs `stripe-app` pane).
 2. In the Stripe Dashboard, navigate to the PostHog app
    (it runs in test mode when started via `stripe apps start`).
    The "Not connected" screen shows a **Dev mode** section at the bottom

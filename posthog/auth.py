@@ -29,13 +29,14 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
+    LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
-    hash_key_value,
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
@@ -55,6 +56,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
+
+_SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
+
+SECRET_API_KEY_BODY_COUNTER = Counter(
+    "api_auth_secret_api_key_body",
+    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -232,7 +240,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         mode_used = None
 
         for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(personal_api_key, mode=mode, iterations=iterations)
+            secure_value = hash_key_value(
+                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
+            )
             try:
                 personal_api_key_object = (
                     PersonalAPIKey.objects.select_related("user")
@@ -319,9 +329,11 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
+            authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                if _SECRET_API_KEY_RE.match(token):
+                    return token
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -330,7 +342,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"]
+            secret_api_key = data["secret_api_key"]
+            if isinstance(secret_api_key, str) and _SECRET_API_KEY_RE.match(secret_api_key):
+                SECRET_API_KEY_BODY_COUNTER.inc()
+                return secret_api_key
 
         return None
 

@@ -11,9 +11,8 @@ use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::PartitionedCache;
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest,
-};
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
+use personhog_proto::personhog::types::v1::UpdatePersonPropertiesRequest;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;

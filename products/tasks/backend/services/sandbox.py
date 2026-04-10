@@ -11,11 +11,13 @@ This module exports:
 
 from __future__ import annotations
 
+import shlex
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, Self
 
 from django.conf import settings
 
@@ -57,7 +59,7 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 30  # 30 minutes
+SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
 
 
 class SandboxConfig(BaseModel):
@@ -74,42 +76,79 @@ class SandboxConfig(BaseModel):
     disk_size_gb: float = 64
 
 
-class SandboxProtocol(Protocol):
+WORKING_DIR = "/tmp/workspace"
+
+
+class SandboxBase(ABC):
     id: str
     config: SandboxConfig
 
     @property
+    @abstractmethod
     def sandbox_url(self) -> str | None:
         """Return the URL for connecting to the agent server, or None if not available."""
         ...
 
     @staticmethod
-    def create(config: SandboxConfig) -> SandboxProtocol: ...
+    @abstractmethod
+    def create(config: SandboxConfig) -> SandboxBase: ...
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> SandboxProtocol: ...
+    @abstractmethod
+    def get_by_id(sandbox_id: str) -> SandboxBase: ...
 
     @staticmethod
+    @abstractmethod
     def delete_snapshot(external_id: str) -> None: ...
 
+    @abstractmethod
     def get_status(self) -> SandboxStatus: ...
 
+    @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
+    @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
+    @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
-    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
 
+        org, repo = repository.lower().split("/")
+        repo_url = (
+            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            if github_token
+            else f"https://github.com/{org}/{repo}.git"
+        )
+
+        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        org_path = f"{WORKING_DIR}/repos/{org}"
+
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        clone_command = (
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+        )
+        _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
+        return self.execute(clone_command, timeout_seconds=5 * 60)
+
+    @abstractmethod
     def setup_repository(self, repository: str) -> ExecutionResult: ...
 
+    @abstractmethod
     def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
+    @abstractmethod
     def execute_task(
         self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
     ) -> ExecutionResult: ...
 
+    @abstractmethod
     def get_connect_credentials(self) -> AgentServerResult:
         """Get connect credentials (URL and token) for this sandbox.
 
@@ -118,6 +157,7 @@ class SandboxProtocol(Protocol):
         """
         ...
 
+    @abstractmethod
     def start_agent_server(
         self,
         repository: str | None,
@@ -127,6 +167,7 @@ class SandboxProtocol(Protocol):
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -135,20 +176,25 @@ class SandboxProtocol(Protocol):
         """
         ...
 
+    @abstractmethod
     def create_snapshot(self) -> str: ...
 
+    @abstractmethod
     def destroy(self) -> None: ...
 
+    @abstractmethod
     def is_running(self) -> bool: ...
 
-    def __enter__(self) -> SandboxProtocol: ...
+    def __enter__(self) -> Self:
+        return self
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None: ...
+    ) -> None:
+        self.destroy()
 
 
 _ExecuteFn = Callable[..., ExecutionResult]
@@ -160,8 +206,8 @@ def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
     port: int,
-    max_attempts: int = 20,
-    poll_interval: float = 0.3,
+    max_attempts: int = 60,
+    poll_interval: float = 0.5,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
@@ -183,7 +229,7 @@ def wait_for_health_check(
     return False
 
 
-SandboxClass = type[SandboxProtocol]
+SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
@@ -197,12 +243,32 @@ def _get_docker_sandbox_class() -> SandboxClass:
     return DockerSandbox
 
 
+def _get_modal_docker_sandbox_class() -> SandboxClass:
+    """Modal sandbox with a separate app name for local development.
+
+    Uses a dedicated Modal app (posthog-sandbox-modal-docker-*) so that
+    local image builds with LOCAL_POSTHOG_CODE_MONOREPO_ROOT don't
+    pollute the production app's image cache.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("MODAL_DOCKER sandbox is for local development only (DEBUG=True).")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalDockerSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+
+    return ModalDockerSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
-    # Docker is opt-in only, requires DEBUG mode
     if provider == "docker":
         return _get_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_DOCKER":
+        return _get_modal_docker_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -215,6 +281,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         from .modal_sandbox import ModalSandbox
 
         return ModalSandbox
+    if backend in ("modal_docker", "MODAL_DOCKER"):
+        return _get_modal_docker_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
@@ -231,7 +299,8 @@ __all__ = [
     "ExecutionResult",
     "ExecutionStream",
     "SANDBOX_TTL_SECONDS",
-    "SandboxProtocol",
+    "SandboxBase",
+    "WORKING_DIR",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

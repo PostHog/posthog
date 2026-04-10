@@ -18,6 +18,6 @@ class DashboardVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from posthog.models import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         return Dashboard

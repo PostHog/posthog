@@ -12,7 +12,7 @@ export interface SentimentScores {
     negative: number
 }
 
-interface SentimentTagProps {
+export interface SentimentTagProps {
     label: string
     score: number
     scores?: SentimentScores
@@ -123,7 +123,11 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
     )
 }
 
-export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {
+export interface MessageSentimentBarProps {
+    sentiment: MessageSentiment
+}
+
+export function MessageSentimentBar({ sentiment }: MessageSentimentBarProps): JSX.Element | null {
     const sentimentLabel = sentiment.label as SentimentLabel
     if (!SENTIMENT_BAR_COLOR[sentimentLabel]) {
         return null

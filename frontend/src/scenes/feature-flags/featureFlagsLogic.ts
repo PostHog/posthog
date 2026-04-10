@@ -104,6 +104,7 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+    NOTIFICATIONS = 'notifications',
     EXPOSURE = 'exposure',
     Analysis = 'analysis',
     USAGE = 'usage',
@@ -379,6 +380,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 replace = true
             }
             searchParams['tab'] = values.activeTab
+
+            // Preserve the activity deep-link param only when on the history tab
+            const currentActivity = router.values.searchParams['activity']
+            if (currentActivity && values.activeTab === FeatureFlagsTab.HISTORY) {
+                searchParams['activity'] = currentActivity
+            }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         }

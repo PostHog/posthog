@@ -20,7 +20,7 @@
  * - **Resources**: More concurrent connections/requests (unbounded)
  */
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 import { consumeAll } from './helpers'
@@ -53,7 +53,7 @@ describe('Concurrent Processing', () => {
             .concurrently((builder) => builder.pipe(createSlowStep()))
             .build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         const allValues = await consumeAll(pipeline, 100)
@@ -78,7 +78,7 @@ describe('Concurrent Processing', () => {
             .concurrently((builder) => builder.pipe(createSlowStep()))
             .build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         // Collect batches as they arrive
@@ -122,7 +122,7 @@ describe('Concurrent Processing', () => {
             .concurrently((builder) => builder.pipe(createVariableDelayStep()))
             .build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         const allValues = await consumeAll(pipeline, 30)

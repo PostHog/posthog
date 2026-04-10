@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -167,8 +168,31 @@ export const VariantsPanelCreateFeatureFlag = ({
         <div className="flex flex-col gap-4">
             <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
+                    <LemonField.Pure label="Rollout">
+                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
+                            <RolloutPercentageControl
+                                rolloutPercentage={rolloutPercentage}
+                                disabled={disabled}
+                                onChange={updateRolloutPercentage}
+                            />
+                            <TrafficPreview
+                                variants={variants}
+                                rolloutPercentage={rolloutPercentage}
+                                areVariantRolloutsValid={areVariantRolloutsValid}
+                            />
+                        </div>
+                    </LemonField.Pure>
+                </div>
+
+                <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
+                            {!disabled && !isEvenlyDistributed(variants) && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    In most cases, experiments work best with an equal split. If you want to limit
+                                    exposure to the test variant, adjust the rollout percentage instead.
+                                </LemonBanner>
+                            )}
                             <table className="w-full">
                                 <thead>
                                     <tr className="text-sm font-bold">
@@ -296,23 +320,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     Add variant
                                 </LemonButton>
                             )}
-                        </div>
-                    </LemonField.Pure>
-                </div>
-
-                <div className="flex-1">
-                    <LemonField.Pure label="Rollout">
-                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
-                            <RolloutPercentageControl
-                                rolloutPercentage={rolloutPercentage}
-                                disabled={disabled}
-                                onChange={updateRolloutPercentage}
-                            />
-                            <TrafficPreview
-                                variants={variants}
-                                rolloutPercentage={rolloutPercentage}
-                                areVariantRolloutsValid={areVariantRolloutsValid}
-                            />
                         </div>
                     </LemonField.Pure>
                 </div>

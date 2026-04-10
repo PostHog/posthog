@@ -208,13 +208,16 @@ class FakePersonHogClient:
     ) -> person_pb2.PersonsByDistinctIdsInTeamResponse:
         self.calls.append(_Call("get_persons_by_distinct_ids_in_team", request))
         results = []
-        seen_person_ids: set[int] = set()
         for did in request.distinct_ids:
             person = self._persons_by_distinct_id.get((request.team_id, did))
-            if person and person.id not in seen_person_ids:
-                seen_person_ids.add(person.id)
+            if person:
                 results.append(person_pb2.PersonWithDistinctIds(distinct_id=did, person=person))
         return person_pb2.PersonsByDistinctIdsInTeamResponse(results=results)
+
+    # NOTE: the real RPC returns one result per requested distinct_id (no
+    # deduplication by person).  Callers that need unique persons (e.g.
+    # _fetch_persons_by_distinct_ids_via_personhog) must deduplicate
+    # themselves.
 
     def get_distinct_ids_for_person(
         self, request: person_pb2.GetDistinctIdsForPersonRequest
@@ -308,6 +311,46 @@ class FakePersonHogClient:
             mappings = self._group_type_mappings_by_project.get(pid, [])
             results.append(group_pb2.GroupTypeMappingsByKey(key=pid, mappings=mappings))
         return group_pb2.GroupTypeMappingsBatchResponse(results=results)
+
+    # ── Person deletes ────────────────────────────────────────────────
+
+    def delete_persons(
+        self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonsResponse:
+        self.calls.append(_Call("delete_persons", request))
+        deleted_count = 0
+        for uuid in request.person_uuids:
+            person = self._persons_by_uuid.pop((request.team_id, uuid), None)
+            if person is None:
+                continue
+            deleted_count += 1
+            self._persons_by_id.pop((request.team_id, person.id), None)
+            # Remove distinct_id mappings
+            dids = self._distinct_ids.pop((request.team_id, person.id), [])
+            for did in dids:
+                self._persons_by_distinct_id.pop((request.team_id, did.distinct_id), None)
+        return person_pb2.DeletePersonsResponse(deleted_count=deleted_count)
+
+    def delete_persons_batch_for_team(
+        self, request: person_pb2.DeletePersonsBatchForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonsBatchForTeamResponse:
+        self.calls.append(_Call("delete_persons_batch_for_team", request))
+        deleted_count = 0
+        # Find up to batch_size persons for this team
+        to_delete = []
+        for (team_id, uuid), person in list(self._persons_by_uuid.items()):
+            if team_id == request.team_id:
+                to_delete.append((team_id, uuid, person))
+                if len(to_delete) >= request.batch_size:
+                    break
+        for team_id, uuid, person in to_delete:
+            self._persons_by_uuid.pop((team_id, uuid), None)
+            self._persons_by_id.pop((team_id, person.id), None)
+            dids = self._distinct_ids.pop((team_id, person.id), [])
+            for did in dids:
+                self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
+            deleted_count += 1
+        return person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
 
     # ── Assertion helpers ────────────────────────────────────────────
 

@@ -115,7 +115,7 @@ def TRACE_SPANS_DISTRIBUTED_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {database}.trace_spans_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
-            data_table=f"{TABLE_NAME}",
+            data_table=TABLE_NAME,
             cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
         ),
         database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,

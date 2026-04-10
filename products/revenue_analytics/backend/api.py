@@ -7,13 +7,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import DatabaseSchemaManagedViewTableKind, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
@@ -61,6 +62,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
 
     values = []
     try:
+        tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
         result = execute_hogql_query(query, team=team)
         values = [row[0] for row in result.results]
     except Exception as e:

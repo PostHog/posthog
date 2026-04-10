@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.workos_radar import (
     WORKOS_RADAR_API_URL,
     WORKOS_RADAR_BYPASS_REDIS_KEY,
+    ChallengeRequired,
     RadarAction,
     RadarAuthMethod,
     RadarVerdict,
@@ -304,17 +305,14 @@ class TestEvaluateAuthAttempt(TestCase):
 
     @parameterized.expand(
         [
-            ("allow_not_blocked", RadarVerdict.ALLOW, False, False),
-            ("challenge_not_blocked", RadarVerdict.CHALLENGE, False, False),
-            ("error_not_blocked", RadarVerdict.ERROR, False, False),
+            ("allow_not_blocked", RadarVerdict.ALLOW),
+            ("error_not_blocked", RadarVerdict.ERROR),
         ]
     )
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_non_block_verdicts_do_not_raise_when_bypass_false(
-        self, _name, verdict_value, expected_blocked, expected_bypassed, mock_call_api, mock_log_event
-    ):
+    def test_non_block_verdicts_do_not_raise(self, _name, verdict_value, mock_call_api, mock_log_event):
         mock_call_api.return_value = verdict_value
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -324,18 +322,17 @@ class TestEvaluateAuthAttempt(TestCase):
             email="test@example.com",
             action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
-            bypass=False,
         )
 
         assert result == verdict_value
         log_kwargs = mock_log_event.call_args[1]
-        assert log_kwargs["was_blocked"] == expected_blocked
-        assert log_kwargs["was_bypassed"] == expected_bypassed
+        assert log_kwargs["was_blocked"] is False
+        assert log_kwargs["was_bypassed"] is False
 
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_block_verdict_raises_when_bypass_false(self, mock_call_api, mock_log_event):
+    def test_block_verdict_raises(self, mock_call_api, mock_log_event):
         mock_call_api.return_value = RadarVerdict.BLOCK
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -346,32 +343,10 @@ class TestEvaluateAuthAttempt(TestCase):
                 email="blocked@example.com",
                 action=RadarAction.SIGNUP,
                 auth_method=RadarAuthMethod.PASSWORD,
-                bypass=False,
             )
 
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is True
-        assert log_kwargs["was_bypassed"] is False
-
-    @patch("posthog.workos_radar._log_radar_event")
-    @patch("posthog.workos_radar._call_radar_api")
-    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_block_verdict_does_not_raise_when_bypass_true(self, mock_call_api, mock_log_event):
-        mock_call_api.return_value = RadarVerdict.BLOCK
-        factory = RequestFactory()
-        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
-
-        verdict = evaluate_auth_attempt(
-            request=request,
-            email="test@example.com",
-            action=RadarAction.SIGNUP,
-            auth_method=RadarAuthMethod.PASSWORD,
-            bypass=True,
-        )
-
-        assert verdict == RadarVerdict.BLOCK
-        log_kwargs = mock_log_event.call_args[1]
-        assert log_kwargs["was_blocked"] is False
         assert log_kwargs["was_bypassed"] is False
 
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
@@ -402,7 +377,6 @@ class TestEvaluateAuthAttempt(TestCase):
             email="bypassed@example.com",
             action=RadarAction.SIGNUP,
             auth_method=RadarAuthMethod.PASSWORD,
-            bypass=False,
         )
 
         assert verdict == RadarVerdict.BLOCK
@@ -464,21 +438,21 @@ class TestRadarBypassViewSet(TestCase):
 
     def test_non_staff_user_gets_403(self):
         self.client.force_login(self.non_staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 403
 
     def test_list_bypass_emails(self):
         add_radar_bypass_email("a@example.com")
         add_radar_bypass_email("b@example.com")
         self.client.force_login(self.staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 200
         assert sorted(response.json()) == ["a@example.com", "b@example.com"]
 
     def test_add_bypass_email(self):
         self.client.force_login(self.staff_user)
         response = self.client.post(
-            "/api/admin/radar-bypass/",
+            "/admin/api/radar-bypass/",
             {"email": "bypass@example.com"},
             content_type="application/json",
         )
@@ -489,7 +463,7 @@ class TestRadarBypassViewSet(TestCase):
     def test_add_invalid_email_returns_400(self):
         self.client.force_login(self.staff_user)
         response = self.client.post(
-            "/api/admin/radar-bypass/",
+            "/admin/api/radar-bypass/",
             {"email": "not-an-email"},
             content_type="application/json",
         )
@@ -499,12 +473,194 @@ class TestRadarBypassViewSet(TestCase):
     def test_remove_bypass_email(self):
         add_radar_bypass_email("remove-me@example.com")
         self.client.force_login(self.staff_user)
-        response = self.client.delete("/api/admin/radar-bypass/remove-me@example.com/")
+        response = self.client.delete("/admin/api/radar-bypass/remove-me@example.com/")
         assert response.status_code == 204
         assert is_radar_bypass_email("remove-me@example.com") is False
 
     def test_list_empty(self):
         self.client.force_login(self.staff_user)
-        response = self.client.get("/api/admin/radar-bypass/")
+        response = self.client.get("/admin/api/radar-bypass/")
         assert response.status_code == 200
         assert response.json() == []
+
+
+class TestChallengeFlow(TestCase):
+    @patch("posthog.workos_radar.create_challenge_nonce", return_value="challenge:abc123:uuid")
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(
+        WORKOS_RADAR_ENABLED=True,
+        WORKOS_RADAR_API_KEY="test_key",
+        CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123",
+    )
+    def test_challenge_verdict_raises_challenge_required_without_token(
+        self, mock_call_api, mock_log_event, mock_create_nonce
+    ):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        with pytest.raises(ChallengeRequired) as exc_info:
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+            )
+
+        assert exc_info.value.status_code == 428
+        assert exc_info.value.extra["challenge_nonce"] == "challenge:abc123:uuid"
+        assert exc_info.value.extra["turnstile_site_key"] == "site_key_123"
+
+        log_kwargs = mock_log_event.call_args[1]
+        assert log_kwargs["was_challenged"] is True
+        assert log_kwargs["was_challenge_completed"] is False
+
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_challenge_verdict_allows_with_valid_turnstile_token(
+        self, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        result = evaluate_auth_attempt(
+            request=request,
+            email="test@example.com",
+            action=RadarAction.SIGNUP,
+            auth_method=RadarAuthMethod.PASSWORD,
+            turnstile_token="valid_token",
+            challenge_nonce="challenge:abc123:uuid",
+        )
+
+        assert result == RadarVerdict.CHALLENGE
+        mock_call_api.assert_not_called()
+        log_kwargs = mock_log_event.call_args[1]
+        assert log_kwargs["was_challenged"] is False
+        assert log_kwargs["was_challenge_completed"] is True
+
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=False)
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_challenge_verdict_blocks_with_invalid_turnstile_token(
+        self, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        with pytest.raises(SuspiciousAttemptBlocked):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+                turnstile_token="bad_token",
+                challenge_nonce="challenge:abc123:uuid",
+            )
+
+        mock_call_api.assert_not_called()
+        log_kwargs = mock_log_event.call_args[1]
+        assert log_kwargs["was_blocked"] is True
+
+    @patch("posthog.workos_radar.verify_turnstile_token")
+    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=False)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_challenge_verdict_blocks_with_invalid_nonce(
+        self, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+    ):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        with pytest.raises(SuspiciousAttemptBlocked):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+                turnstile_token="valid_token",
+                challenge_nonce="challenge:bad:nonce",
+            )
+
+        mock_call_api.assert_not_called()
+        mock_verify_token.assert_not_called()
+
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_challenge_verdict_blocks_with_expired_nonce_despite_valid_token(
+        self, mock_call_api, mock_log_event, mock_verify_token
+    ):
+        from posthog.turnstile import create_challenge_nonce
+
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
+
+        from posthog.redis import get_client
+
+        get_client().delete(f"turnstile_nonce:{nonce}")
+
+        with pytest.raises(SuspiciousAttemptBlocked):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+                turnstile_token="valid_token",
+                challenge_nonce=nonce,
+            )
+
+        mock_call_api.assert_not_called()
+        mock_verify_token.assert_not_called()
+        log_kwargs = mock_log_event.call_args[1]
+        assert log_kwargs["was_blocked"] is True
+
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", CLOUDFLARE_TURNSTILE_SITE_KEY="")
+    def test_challenge_verdict_blocks_when_turnstile_not_configured(self, mock_call_api, mock_log_event):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        with pytest.raises(SuspiciousAttemptBlocked):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+            )
+
+    @patch("posthog.workos_radar.is_radar_bypass_email", return_value=True)
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_challenge_verdict_bypassed_for_whitelisted_email(self, mock_call_api, mock_log_event, mock_is_bypass):
+        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        factory = RequestFactory()
+        request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+
+        result = evaluate_auth_attempt(
+            request=request,
+            email="bypassed@example.com",
+            action=RadarAction.SIGNUP,
+            auth_method=RadarAuthMethod.PASSWORD,
+        )
+
+        assert result == RadarVerdict.CHALLENGE
+        log_kwargs = mock_log_event.call_args[1]
+        assert log_kwargs["was_bypassed"] is True
+        assert log_kwargs["was_challenged"] is False

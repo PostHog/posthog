@@ -40,3 +40,24 @@ class SloCompletedProperties:
 
     def to_dict(self) -> dict:
         return {k: v for k, v in dataclasses.asdict(self).items() if v is not None}
+
+
+@dataclasses.dataclass
+class SloConfig:
+    """SLO tracking configuration, composed into workflow inputs.
+
+    Workflows opt into SLO tracking by adding ``slo: SloConfig | None = None``
+    to their input dataclass. The SLO interceptor reads this at workflow start.
+
+    ``start_properties`` and ``completion_properties`` must be JSON-serializable
+    (they cross the Temporal serialization boundary as part of the workflow input).
+    """
+
+    operation: SloOperation
+    area: SloArea
+    team_id: int
+    resource_id: str
+    distinct_id: str
+    start_properties: dict = dataclasses.field(default_factory=dict)
+    completion_properties: dict = dataclasses.field(default_factory=dict)
+    outcome: Optional[SloOutcome] = None

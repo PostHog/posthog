@@ -1,21 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
+import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
+const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
 const STATS_POLL_INTERVAL_MS = 1000
 
 const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
@@ -34,10 +39,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         browserBreakdown,
         countryBreakdown,
         topPaths,
+        topReferrers,
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
         isLoading,
+        recentEvents,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
@@ -61,6 +68,14 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     return (
         <div className="LivePageviews mt-4">
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                dismissKey="live-web-analytics-alpha-banner"
+                action={{ children: 'Send feedback', id: 'live-web-analytics-feedback-button' }}
+            >
+                The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
+            </LemonBanner>
             <div className="flex flex-wrap items-center gap-4 md:gap-6 mb-6">
                 <LiveStatCard label="Users online" value={liveUserCount} />
                 <LiveStatDivider />
@@ -84,6 +99,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_REFERRERS] && (
+                    <LiveTopReferrersTable
+                        referrers={topReferrers}
+                        isLoading={isLoading}
+                        totalPageviews={totalPageviews}
+                    />
+                )}
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}
@@ -93,6 +115,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     statLabel="unique devices"
                     isLoading={isLoading}
                 />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
                     data={browserBreakdown}
@@ -114,6 +139,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     />
                 </LiveChartCard>
             )}
+
+            <div className="mb-6">
+                <LiveChartCard title="Live events" isLoading={false} contentClassName="max-h-80 overflow-y-auto">
+                    <LiveEventsFeed events={recentEvents} columns={LIVE_FEED_COLUMNS} />
+                </LiveChartCard>
+            </div>
         </div>
     )
 }

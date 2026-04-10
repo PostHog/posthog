@@ -7151,6 +7151,35 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
                 assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"
 
+    def test_hide_weekends_with_formula(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,  # 2020-01-09 (Thu)
+            self.default_date_to,  # 2020-01-19 (Sun)
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            trends_filters=TrendsFilter(
+                hideWeekends=True,
+                formulaNodes=[TrendsFormulaNode(formula="A+B")],
+            ),
+        )
+
+        # Formula queries return only the formula result
+        assert len(response.results) == 1
+
+        formula_result = response.results[0]
+        for day_str in formula_result["days"]:
+            parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
+            assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"
+
+        # 11 days Thu-Sun, weekend days removed leaves 7 weekdays
+        assert len(formula_result["days"]) == 7
+        # Formula result has action=None and should not crash
+        assert formula_result["action"] is None
+        assert len(formula_result["data"]) == len(formula_result["days"])
+        assert formula_result["count"] == sum(formula_result["data"])
+
     @parameterized.expand(
         [
             (

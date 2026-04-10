@@ -144,6 +144,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_constant(self, node: ast.Constant):
         self.visit(node.type)
 
+    def visit_keyword(self, node: ast.Keyword):
+        self.visit(node.type)
+
     def visit_field(self, node: ast.Field):
         self.visit(node.type)
 
@@ -281,6 +284,9 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.table_type)
 
     def visit_table_alias_type(self, node: ast.TableAliasType):
+        self.visit(node.table_type)
+
+    def visit_column_aliased_table_type(self, node: ast.ColumnAliasedTableType):
         self.visit(node.table_type)
 
     def visit_select_query_alias_type(self, node: ast.SelectQueryAliasType):
@@ -708,6 +714,14 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+        )
+
+    def visit_keyword(self, node: ast.Keyword):
+        return ast.Keyword(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
         )
 
     def visit_field(self, node: ast.Field):

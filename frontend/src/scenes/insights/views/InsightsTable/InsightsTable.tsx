@@ -79,7 +79,7 @@ export function InsightsTable({
     isMainInsightView = false,
     editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -159,7 +159,9 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
-                        disabledReason={editingDisabledReason}
+                        disabledReason={
+                            !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                        }
                     />
                 )}
                 {isSingleSeriesWithBreakdown ? (
@@ -202,7 +204,9 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
+                    disabledReason={
+                        !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                    }
                 />
             ) : (
                 label
@@ -510,9 +514,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
-            // Allow vertical scrolling within the card so long tables
-            // inside dashboards remain scrollable without resizing tiles.
-            allowContentScroll={isInDashboardContext}
+            // Allow vertical scrolling so long tables inside constrained
+            // containers (dashboards, embedded views) remain scrollable.
+            allowContentScroll={isInDashboardContext || embedded}
         />
     )
 }

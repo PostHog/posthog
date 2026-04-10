@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestAllTasksRegistered.test_all_posthog_tasks_registered_snapshot
   list([
+    'posthog.api.oauth.cimd.refresh_cimd_metadata_task',
     'posthog.approvals.tasks.expire_old_change_requests',
     'posthog.approvals.tasks.validate_pending_change_requests',
     'posthog.caching.warming.schedule_warming_for_teams_task',
@@ -15,6 +16,7 @@
     'posthog.tasks.alerts.checks.checks_cleanup_task',
     'posthog.tasks.alerts.checks.reset_stuck_alerts_task',
     'posthog.tasks.async_migrations.run_async_migration',
+    'posthog.tasks.auth_token_cache_verification.verify_and_fix_auth_token_cache_task',
     'posthog.tasks.calculate_cohort.calculate_cohort_ch',
     'posthog.tasks.calculate_cohort.calculate_cohort_from_list',
     'posthog.tasks.calculate_cohort.collect_cohort_query_stats',
@@ -74,6 +76,7 @@
     'posthog.tasks.integrations.push_vercel_secrets',
     'posthog.tasks.integrations.refresh_integration',
     'posthog.tasks.integrations.refresh_integrations',
+    'posthog.tasks.js_snippet_versioning.sync_js_snippet_manifest',
     'posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report',
     'posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports',
     'posthog.tasks.llm_prompt_cache.invalidate_archived_prompt_versions_cache_task',

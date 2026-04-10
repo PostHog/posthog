@@ -109,6 +109,22 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                     </div>
                 </div>
             )
+        case 'thinking':
+            return (
+                <div className="py-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        {entry.timestamp && (
+                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        )}
+                        <span className="text-xs font-medium text-muted">Thinking</span>
+                    </div>
+                    <div className="border-l-2 border-muted pl-3 max-w-[90%]">
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap text-muted">{entry.message}</div>
+                        </CollapsibleContent>
+                    </div>
+                </div>
+            )
         case 'system':
             return (
                 <div className="flex items-center gap-2 py-1">

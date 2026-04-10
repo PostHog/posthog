@@ -685,6 +685,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
             },
         ],
+        shortcutDataHasLoaded: [
+            false,
+            {
+                loadShortcutsSuccess: () => true,
+                loadShortcutsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -884,7 +891,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'group',
+                          iconType: `group_${groupType.group_type_index}` as FileSystemIconType,
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -1094,8 +1101,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             searchTerm,
                         })
 
+                    const isAIFirst = !!featureFlags[FEATURE_FLAGS.AI_FIRST]
                     const shortcutPosition = (user?.shortcut_position ?? 'above') as UserShortcutPosition
                     const generateShortcutItemsCategory = (): TreeDataItem[] => {
+                        if (isAIFirst) {
+                            return []
+                        }
                         const shortcutItems = getShortcutTreeItems(searchTerm, false)
                         if (shortcutItems.length === 0) {
                             return []

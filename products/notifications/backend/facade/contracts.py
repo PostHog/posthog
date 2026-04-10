@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from products.notifications.backend.facade.enums import NotificationResourceType, NotificationType, Priority, TargetType
+from products.notifications.backend.facade.enums import (
+    NotificationResourceType,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+)
 
 if TYPE_CHECKING:
     from products.notifications.backend.resolvers import RecipientsResolver
@@ -20,5 +26,7 @@ class NotificationData:
     resource_type: NotificationResourceType | None = None
     resource_id: str = ""
     source_url: str = ""
+    source_type: SourceType | None = None
+    source_id: str | None = None
     priority: Priority = Priority.NORMAL
     resolver: RecipientsResolver | None = field(default=None, compare=False)

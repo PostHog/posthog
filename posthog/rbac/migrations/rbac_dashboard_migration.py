@@ -3,8 +3,9 @@ from django.db import transaction
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 

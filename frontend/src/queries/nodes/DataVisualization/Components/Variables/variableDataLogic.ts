@@ -1,5 +1,5 @@
-import { kea, path } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { afterMount, kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -10,11 +10,11 @@ import type { variableDataLogicType } from './variableDataLogicType'
 
 export const variableDataLogic = kea<variableDataLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableDataLogic']),
-    lazyLoaders(({ values }) => ({
+    loaders(({ values }) => ({
         variables: [
             [] as Variable[],
             {
-                getVariables: async () => {
+                loadVariables: async () => {
                     const insights = await api.insightVariables.list()
                     return insights.results
                 },
@@ -30,4 +30,7 @@ export const variableDataLogic = kea<variableDataLogicType>([
             },
         ],
     })),
+    afterMount(({ actions }) => {
+        actions.loadVariables()
+    }),
 ])

@@ -14,7 +14,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import (
@@ -100,7 +100,7 @@ def fetch_item_embeddings_for_clustering(
         placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
         placeholders["rendering_legacy"] = ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY)
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
         result = execute_hogql_query(
             query_type="ItemEmbeddingsForClustering",
             query=query,
@@ -203,7 +203,7 @@ def fetch_item_summaries(
     # Build item_ids tuple for IN clause
     item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
         result = execute_hogql_query(
             query_type="ItemSummariesForClustering",
             query=query,

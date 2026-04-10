@@ -1,39 +1,30 @@
-//! Error tracking dual-write sampler.
+//! Error tracking pipeline routing sampler.
 //!
-//! This module provides static configuration for error tracking dual-write rollout,
-//! initialized once at startup from environment variables.
+//! Controls the gradual rollout of exception event traffic from the Cymbal pipeline to the Node
+//! pipeline. Each event is routed to exactly one pipeline based on the configured rollout rate.
 
 use std::sync::OnceLock;
 
 use rand::Rng;
 
-/// Configuration for error tracking dual-write rollout.
-struct DualWriteConfig {
+struct Config {
     enabled: bool,
-    sample_rate: f64, // 0.0 to 100.0
+    rollout_rate: f64, // 0.0 to 100.0
 }
 
-static DUAL_WRITE_CONFIG: OnceLock<DualWriteConfig> = OnceLock::new();
+static CONFIG: OnceLock<Config> = OnceLock::new();
 
-/// Initialize dual-write configuration at startup.
-///
-/// Call this once from main() with values from environment config.
-pub fn init_dual_write(enabled: bool, sample_rate: f64) {
-    let _ = DUAL_WRITE_CONFIG.set(DualWriteConfig {
+/// Initialize the rollout configuration at startup. Call once from main().
+pub fn init(enabled: bool, rollout_rate: f64) {
+    let _ = CONFIG.set(Config {
         enabled,
-        sample_rate: sample_rate.clamp(0.0, 100.0),
+        rollout_rate: rollout_rate.clamp(0.0, 100.0),
     });
 }
 
-/// Check if error tracking dual-write should happen for this event.
-///
-/// Returns true if:
-/// - Dual-write is enabled AND
-/// - Random sample passes the configured rate
-///
-/// Returns false if not initialized or disabled.
-pub fn should_dual_write_error_tracking() -> bool {
-    let Some(config) = DUAL_WRITE_CONFIG.get() else {
+/// Whether this event should be routed to the Node pipeline instead of Cymbal.
+pub fn should_route_to_node() -> bool {
+    let Some(config) = CONFIG.get() else {
         return false;
     };
 
@@ -41,15 +32,15 @@ pub fn should_dual_write_error_tracking() -> bool {
         return false;
     }
 
-    if config.sample_rate >= 100.0 {
+    if config.rollout_rate >= 100.0 {
         return true;
     }
 
-    if config.sample_rate <= 0.0 {
+    if config.rollout_rate <= 0.0 {
         return false;
     }
 
-    rand::thread_rng().gen_range(0.0..100.0) < config.sample_rate
+    rand::thread_rng().gen_range(0.0..100.0) < config.rollout_rate
 }
 
 #[cfg(test)]
@@ -57,17 +48,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sample_rate_clamping() {
-        let config = DualWriteConfig {
-            enabled: true,
-            sample_rate: 150.0_f64.clamp(0.0, 100.0),
+    fn test_config_boundary_behavior() {
+        // Disabled with full rate should not route
+        let config = Config {
+            enabled: false,
+            rollout_rate: 100.0,
         };
-        assert_eq!(config.sample_rate, 100.0);
+        assert!(!config.enabled);
 
-        let config = DualWriteConfig {
+        // Over 100 gets clamped to 100
+        let config = Config {
             enabled: true,
-            sample_rate: (-10.0_f64).clamp(0.0, 100.0),
+            rollout_rate: 150.0_f64.clamp(0.0, 100.0),
         };
-        assert_eq!(config.sample_rate, 0.0);
+        assert_eq!(config.rollout_rate, 100.0);
+
+        // Negative gets clamped to 0
+        let config = Config {
+            enabled: true,
+            rollout_rate: (-10.0_f64).clamp(0.0, 100.0),
+        };
+        assert_eq!(config.rollout_rate, 0.0);
     }
 }

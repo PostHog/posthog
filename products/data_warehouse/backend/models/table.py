@@ -26,7 +26,7 @@ from posthog.hogql.database.s3_table import (
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -183,6 +183,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             execute_hogql_query(
                 query,
                 self.team,
@@ -243,6 +244,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 warehouse_query=True,
                 name="get_columns",
                 product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
             )
 
             # The cluster is a little broken right now, and so this can intermittently fail.
@@ -304,6 +306,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 warehouse_query=True,
                 name="get_max_value_for_column",
                 product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
             )
             result = sync_execute(
                 f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
@@ -348,6 +351,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     warehouse_query=True,
                     name="get_count",
                     product=Product.WAREHOUSE,
+                    feature=Feature.QUERY,
                 )
 
                 result = sync_execute(
@@ -546,6 +550,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             warehouse_query=True,
             name="validate_csv_double_quotes",
             product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
         )
         try:
             ctx = HogQLContext(team_id=self.team.pk)

@@ -234,6 +234,15 @@ def send_invite(invite_id: str) -> None:
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
+    # Don't send this email to the new member themselves; respect per-user org notification prefs
+    members_to_email = [
+        user
+        for user in organization.members.exclude(email=invitee.email)
+        if user.should_send_organization_member_join_email(organization_id)
+    ]
+    if len(members_to_email) == 0:
+        return
+
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         use_http=True,
@@ -247,12 +256,9 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization_name": organization.name,
         },
     )
-    # Don't send this email to the new member themselves
-    members_to_email = organization.members.exclude(email=invitee.email)
-    if members_to_email:
-        for user in members_to_email:
-            message.add_user_recipient(user)
-        message.send()
+    for user in members_to_email:
+        message.add_user_recipient(user)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -945,6 +951,7 @@ def send_hog_functions_daily_digest() -> None:
     Queries ClickHouse first to find failures, then fans out to team-specific tasks.
     """
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
     logger.info("Starting HogFunctions daily digest task")
 
@@ -960,7 +967,8 @@ def send_hog_functions_daily_digest() -> None:
     AND metric_kind = 'failure'
     """
 
-    failed_teams_data = sync_execute(failures_query, {})
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        failed_teams_data = sync_execute(failures_query, {})
 
     if not failed_teams_data:
         logger.info("No HogFunctions with failures found")
@@ -1009,6 +1017,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         hog_function_ids: Optional list of specific hog function IDs to process
     """
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
@@ -1041,10 +1050,11 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     final_query = metrics_query.format(hog_function_filter=hog_function_filter)
 
-    metrics_data = sync_execute(
-        final_query,
-        query_params,
-    )
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        metrics_data = sync_execute(
+            final_query,
+            query_params,
+        )
 
     if not metrics_data:
         logger.info(f"No functions with metrics found for team {team_id}")

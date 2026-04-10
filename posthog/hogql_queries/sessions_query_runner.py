@@ -11,11 +11,11 @@ from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
-from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
+from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.utils import relative_date_parse
 
 COLUMN_COMMENT_SEPARATOR = " -- "
@@ -291,9 +291,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         )
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
-                        ).first()
+                        person: Optional[Person] = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
                         distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]

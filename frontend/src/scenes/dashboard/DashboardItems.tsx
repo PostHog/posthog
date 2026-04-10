@@ -8,7 +8,6 @@ import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -136,11 +135,9 @@ export function DashboardItems(): JSX.Element {
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
 
-    const showDashboardGrid = useFeatureFlag('DASHBOARD_GRID')
-    const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
-    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && showLayoutZoom && layoutZoom !== 1
+    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && layoutZoom !== 1
 
-    const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
+    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
@@ -155,7 +152,7 @@ export function DashboardItems(): JSX.Element {
             )}
             {mounted && (
                 <div className="relative">
-                    {dashboardMode === DashboardMode.Edit && !isMobileView && showDashboardGrid && (
+                    {dashboardMode === DashboardMode.Edit && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}

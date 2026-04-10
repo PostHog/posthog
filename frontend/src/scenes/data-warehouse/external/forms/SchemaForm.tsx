@@ -127,11 +127,7 @@ export default function SchemaForm(): JSX.Element {
                                         )
                                     }
 
-                                    if (
-                                        schema.sync_type === 'incremental' &&
-                                        schema.sync_type !== null &&
-                                        schema.supports_webhooks
-                                    ) {
+                                    if (schema.sync_type === 'webhook') {
                                         return <LemonTag type="success">Webhook</LemonTag>
                                     }
 
@@ -247,7 +243,7 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 isNewSource
-                onSave={(syncType, incrementalField, incrementalFieldType) => {
+                onSave={(syncType, incrementalField, incrementalFieldType, cdcTableMode) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
@@ -255,6 +251,8 @@ const SyncMethodModal = (): JSX.Element => {
                             incrementalField,
                             incrementalFieldType
                         )
+                    } else if (syncType === 'cdc') {
+                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, cdcTableMode)
                     } else {
                         updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null)
                     }

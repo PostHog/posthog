@@ -8,7 +8,7 @@ from django.http import HttpResponse
 
 from rest_framework import request, response, serializers, status, viewsets
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -257,6 +258,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
         if is_scrolldepth_query:
@@ -408,6 +410,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             {"predicates": ast.And(exprs=exprs)},
         )
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         count_result = execute_hogql_query(
             query=count_stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
         )

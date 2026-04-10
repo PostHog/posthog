@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "active": {
+            "enum": ["STALE", "false", "true"],
+            "type": "string"
+        },
+        "created_by_id": {
+            "description": "The User ID which initially created the feature flag.",
+            "type": "string"
+        },
+        "evaluation_runtime": {
+            "description": "Filter feature flags by their evaluation runtime.",
+            "enum": ["both", "client", "server"],
+            "type": "string"
+        },
+        "excluded_properties": {
+            "description": "JSON-encoded list of feature flag keys to exclude from the results.",
+            "type": "string"
+        },
+        "has_evaluation_contexts": {
+            "description": "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
+            "enum": ["false", "true"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Search by feature flag key or name. Case insensitive.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names to filter feature flags by.",
+            "type": "string"
+        },
+        "type": {
+            "enum": ["boolean", "experiment", "multivariant", "remote_config"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

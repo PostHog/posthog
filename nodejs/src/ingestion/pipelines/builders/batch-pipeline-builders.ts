@@ -29,18 +29,25 @@ export interface TeamIdContext {
 /**
  * Builder for configuring how items within a group are processed.
  */
-export class GroupProcessingBuilder<TInput, TOutput, CInput = Record<string, never>, COutput = CInput, TKey = string> {
+export class GroupProcessingBuilder<
+    TInput,
+    TOutput,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    TKey = string,
+    R extends string = never,
+> {
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
         private groupingFn: GroupingFunction<TOutput, TKey>
     ) {}
 
     /**
      * Process items within each group sequentially through the provided pipeline.
      */
-    sequentially<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    sequentially<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(
             new ConcurrentlyGroupingBatchPipeline(this.groupingFn, processor, this.previousPipeline)
@@ -51,9 +58,9 @@ export class GroupProcessingBuilder<TInput, TOutput, CInput = Record<string, nev
 /**
  * Builder for grouped batch pipelines that allows configuring how groups are processed.
  */
-export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey> {
+export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey, R extends string = never> {
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
         private groupingFn: GroupingFunction<TOutput, TKey>
     ) {}
 
@@ -61,19 +68,21 @@ export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey
      * Process groups concurrently. Returns a builder to configure how items within each group are processed.
      * Results are returned unordered as each group completes.
      */
-    concurrently<U>(
+    concurrently<U, ROut extends string = never>(
         callback: (
-            builder: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey>
-        ) => BatchPipelineBuilder<TInput, U, CInput, COutput>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+            builder: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey, R>
+        ) => BatchPipelineBuilder<TInput, U, CInput, COutput, ROut>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
         return callback(new GroupProcessingBuilder(this.previousPipeline, this.groupingFn))
     }
 }
 
-export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
+export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never> {
+    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
-    pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    pipeBatch<U, R2 extends string = never>(
+        step: BatchProcessingStep<TOutput, U, R2>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         return new BatchPipelineBuilder(new BaseBatchPipeline(step, this.pipeline))
     }
 
@@ -84,32 +93,34 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
      * it will be retried with exponential backoff. Non-retriable errors
      * are converted to DLQ results for all inputs in the batch.
      */
-    pipeBatchWithRetry<U>(
-        step: BatchProcessingStep<TOutput, U>,
+    pipeBatchWithRetry<U, R2 extends string = never>(
+        step: BatchProcessingStep<TOutput, U, R2>,
         options?: BatchRetryOptions
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         return this.pipeBatch(withBatchRetry(step, options))
     }
 
-    concurrently<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    concurrently<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new ConcurrentBatchProcessingPipeline(processor, this.pipeline))
     }
 
-    pipeConcurrently<U>(processor: Pipeline<TOutput, U, COutput>): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    pipeConcurrently<U, R2 extends string = never>(
+        processor: Pipeline<TOutput, U, COutput, R2>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         return new BatchPipelineBuilder(new ConcurrentBatchProcessingPipeline(processor, this.pipeline))
     }
 
-    sequentially<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+    sequentially<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new SequentialBatchPipeline(processor, this.pipeline))
     }
 
-    gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+    gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new BatchPipelineBuilder(new GatheringBatchPipeline(this.pipeline))
     }
 
@@ -120,67 +131,80 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
      * @param mappingFn - Function to map OK results (transforms both value and context)
      * @param subpipelineCallback - Callback that receives a builder and returns the subpipeline
      */
-    filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped>(
+    filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped, ROut extends string = never>(
         mappingFn: FilterMapMappingFunction<TOutput, TMapped, COutput, CMapped>,
         subpipelineCallback: (
             builder: BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>
-        ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput>
-    ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput> {
-        // Create a start builder for the subpipeline with the mapped types
-        const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TMapped, CMapped>())
-
-        // Let the callback build the subpipeline
+        ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput, ROut>
+    ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput, R | ROut> {
+        const startBuilder = new BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>(
+            new BufferingBatchPipeline<TMapped, CMapped>()
+        )
         const subpipelineBuilder = subpipelineCallback(startBuilder)
         const subPipeline = subpipelineBuilder.build()
 
         return new BatchPipelineBuilder(
-            new FilterMapBatchPipeline<TInput, TOutput, TMapped, TSubOutput, CInput, COutput, CMapped, CSubOutput>(
-                this.pipeline,
-                mappingFn,
-                subPipeline
-            )
+            new FilterMapBatchPipeline<
+                TInput,
+                TOutput,
+                TMapped,
+                TSubOutput,
+                CInput,
+                COutput,
+                CMapped,
+                CSubOutput,
+                R,
+                ROut
+            >(this.pipeline, mappingFn, subPipeline)
         )
     }
 
     groupBy<TKey>(
         groupingFn: GroupingFunction<TOutput, TKey>
-    ): GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey> {
+    ): GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey, R> {
         return new GroupingBatchPipelineBuilder(this.pipeline, groupingFn)
     }
 
     handleSideEffects(
         promiseScheduler: PromiseScheduler,
         options: { await: boolean }
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new BatchPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
     }
 
-    messageAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { message: Message }, COutput & { message: Message }>,
+    messageAware<TOut, COut = COutput, ROut extends string = never>(
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & { message: Message }, COutput & { message: Message }, R>,
         callback: (
             builder: BatchPipelineBuilder<
                 TInput,
                 TOutput,
                 CInput & { message: Message },
-                COutput & { message: Message }
+                COutput & { message: Message },
+                R
             >
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }>
-    ): MessageAwareBatchPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }> {
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }, ROut>
+    ): MessageAwareBatchPipelineBuilder<
+        TInput,
+        TOut,
+        CInput & { message: Message },
+        COut & { message: Message },
+        ROut
+    > {
         const builtPipeline = callback(this)
         return new MessageAwareBatchPipelineBuilder(builtPipeline.build())
     }
 
-    teamAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>,
+    teamAware<TOut, COut = COutput, ROut extends string = never>(
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext> {
+            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R>
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut>
+    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut> {
         const builtPipeline = callback(this)
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
 
-    build(): BatchPipeline<TInput, TOutput, CInput, COutput> {
+    build(): BatchPipeline<TInput, TOutput, CInput, COutput, R> {
         return this.pipeline
     }
 }
@@ -190,10 +214,13 @@ export class MessageAwareBatchPipelineBuilder<
     TOutput,
     CInput extends { message: Message },
     COutput extends { message: Message } = CInput,
+    R extends string = never,
 > {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
+    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
-    handleResults(config: PipelineConfig): ResultHandledBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+    handleResults<RConfig extends string = never>(
+        config: PipelineConfig<R | RConfig>
+    ): ResultHandledBatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new ResultHandledBatchPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
     }
 }
@@ -207,13 +234,14 @@ export class ResultHandledBatchPipelineBuilder<
     TOutput,
     CInput extends { message: Message },
     COutput extends { message: Message } = CInput,
+    R extends string = never,
 > {
-    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
+    constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     handleSideEffects(
         promiseScheduler: PromiseScheduler,
         options: { await: boolean }
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new BatchPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
     }
 }
@@ -223,14 +251,15 @@ export class TeamAwareBatchPipelineBuilder<
     TOutput,
     CInput extends TeamIdContext,
     COutput extends TeamIdContext,
-> extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-    constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {
+    R extends string = never,
+> extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+    constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {
         super(pipeline)
     }
 
     handleIngestionWarnings(
         outputs: IngestionOutputs<IngestionWarningsOutput>
-    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
+    ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(outputs, this.pipeline))
     }
 }

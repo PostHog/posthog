@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconGear, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -14,6 +14,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -49,9 +50,25 @@ export function QueryWindow({
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
-    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
+    const {
+        queryInput,
+        sourceQuery,
+        originalQueryInput,
+        suggestedQueryInput,
+        editingView,
+        selectedConnectionId,
+        sendRawQueryEnabled,
+    } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        setSendRawQuery,
+        openMaterializationModal,
+    } = useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
@@ -60,6 +77,60 @@ export function QueryWindow({
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const canSendRawQuery = isDirectQueryEnabled && !!selectedConnectionId
+    const sendRawQueryLabel = (
+        <span className="inline-flex items-center gap-1">
+            <span>Send raw query</span>
+            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+                <span
+                    className="inline-flex cursor-help"
+                    onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                >
+                    <IconInfo className="size-3.5 text-muted-alt" />
+                </span>
+            </Tooltip>
+        </span>
+    )
+
+    const editorSettingsItems = [
+        ...(vimModeFeatureEnabled
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={editorVimModeEnabled}
+                              onChange={setEditorVimModeEnabled}
+                              label="Vim mode"
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-vim-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+        ...(canSendRawQuery
+            ? [
+                  {
+                      custom: true,
+                      label: () => (
+                          <LemonSwitch
+                              checked={sendRawQueryEnabled}
+                              onChange={setSendRawQuery}
+                              label={sendRawQueryLabel}
+                              size="small"
+                              fullWidth
+                              data-attr="sql-editor-send-raw-query-toggle"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -80,32 +151,23 @@ export function QueryWindow({
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    {editingView ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDatabase />}
+                            onClick={() => openMaterializationModal(editingView)}
+                            data-attr="sql-editor-materialization-button"
+                        >
+                            Materialization
+                        </LemonButton>
+                    ) : null}
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
                     <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled ? (
-                        <LemonMenu
-                            items={[
-                                {
-                                    custom: true,
-                                    label: () => (
-                                        <div className="">
-                                            <LemonSwitch
-                                                checked={editorVimModeEnabled}
-                                                onChange={setEditorVimModeEnabled}
-                                                label="Vim mode"
-                                                size="small"
-                                                fullWidth
-                                                data-attr="sql-editor-vim-toggle"
-                                            />
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                            closeOnClickInside={false}
-                            placement="bottom-end"
-                        >
+                    {editorSettingsItems.length > 0 ? (
+                        <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
                             <LemonButton
                                 icon={<IconGear />}
                                 type="secondary"
@@ -178,7 +240,7 @@ export function QueryWindow({
                 }}
             />
 
-            <InternalQueryWindow tabId={tabId} />
+            <InternalQueryWindow />
         </div>
     )
 }
@@ -266,14 +328,14 @@ function RunButton(): JSX.Element {
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane />
 })
 
 function CollapsedConnectionSelector({

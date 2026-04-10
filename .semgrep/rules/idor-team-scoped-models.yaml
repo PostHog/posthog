@@ -61,6 +61,7 @@ rules:
                               |AlertConfiguration
                               |Annotation
                               |ApprovalPolicy
+                              |Artifact
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
@@ -88,6 +89,7 @@ rules:
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryDraft
+                              |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
@@ -97,6 +99,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventFilterConfig
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
@@ -117,11 +120,16 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |FileSystem
+                              |GitHubSyncConfig
+                              |GitHubSyncPlan
+                              |GitHubSyncedModel
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
                               |Hook
@@ -140,6 +148,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |MCPAnalyticsSubmission
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -152,6 +161,8 @@ rules:
                               |QuickFilterContext
                               |Repo
                               |RepoRoutingRule
+                              |Run
+                              |RunSnapshot
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -171,7 +182,7 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
-                              |TeamConversationsEmailConfig
+                              |EmailChannel
                               |Text
                               |Threshold
                               |Ticket
@@ -241,6 +252,7 @@ rules:
                         |AlertConfiguration
                         |Annotation
                         |ApprovalPolicy
+                        |Artifact
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
@@ -268,6 +280,7 @@ rules:
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
@@ -277,6 +290,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventFilterConfig
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
@@ -297,11 +311,16 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |FileSystem
+                        |GitHubSyncConfig
+                        |GitHubSyncPlan
+                        |GitHubSyncedModel
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
                         |Hook
@@ -330,6 +349,8 @@ rules:
                         |QuickFilterContext
                         |Repo
                         |RepoRoutingRule
+                        |Run
+                        |RunSnapshot
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
@@ -349,7 +370,7 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
-                        |TeamConversationsEmailConfig
+                        |EmailChannel
                         |Text
                         |Threshold
                         |Ticket

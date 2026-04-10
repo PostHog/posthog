@@ -3,10 +3,10 @@ use std::sync::{Arc, Mutex};
 use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
+use personhog_proto::personhog::types::v1::{
+    GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
-use personhog_proto::personhog::types::v1::{GetPersonResponse, Person};
 use tonic::{Request, Response, Status};
 
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};

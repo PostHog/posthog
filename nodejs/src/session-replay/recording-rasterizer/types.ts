@@ -3,7 +3,7 @@ import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-h
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
-    capture_timeout?: number // max virtual-time seconds before aborting capture (default: unlimited)
+    max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_timestamp?: number // ms since epoch
     end_timestamp?: number // ms since epoch
@@ -15,6 +15,8 @@ export interface RasterizeRecordingInput {
     trim?: number // optional max output duration in seconds (only trims if video is longer)
     viewport_width?: number // override capture width (default: 1280)
     viewport_height?: number // override capture height (default: 720)
+    screenshot_format?: 'jpeg' | 'png' // capture format for each frame (default: jpeg)
+    screenshot_quality?: number // JPEG quality 0-100 (default: 80, ignored for png)
     s3_bucket: string
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
@@ -41,10 +43,23 @@ export interface RasterizeRecordingOutput {
     video_duration_s: number // actual playback duration of the output video
     playback_speed: number
     show_metadata_footer: boolean
-    truncated: boolean // true when capture_timeout stopped the recording early
+    truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
     timings: ActivityTimings
+}
+
+export interface CaptureConfig {
+    captureFps: number // recordingFps * playbackSpeed — internal capture rate
+    outputFps: number // recordingFps — what the viewer sees after setpts
+    playbackSpeed: number
+    trim?: number // max output seconds
+    trimFrameLimit: number // trim * outputFps — for early loop stop
+    maxVirtualTimeMs: number // max virtual time before stopping capture (default: unlimited)
+    ffmpegOutputOpts: string[]
+    ffmpegVideoFilters: string[]
+    screenshotFormat: 'jpeg' | 'png'
+    screenshotQuality?: number
 }
 
 /** Internal result from the recorder before S3 upload */
@@ -53,7 +68,7 @@ export interface RecordingResult {
     playback_speed: number
     capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
     frame_count: number // total frames captured
-    truncated: boolean // true when capture_timeout stopped the recording early
+    truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     custom_fps: number
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>

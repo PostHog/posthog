@@ -66,7 +66,7 @@ def _create_schemas(team: Team, source: ExternalDataSource, names: list[str]) ->
             name=name,
             source=source,
             should_sync=True,
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         )
         for name in names
     ]

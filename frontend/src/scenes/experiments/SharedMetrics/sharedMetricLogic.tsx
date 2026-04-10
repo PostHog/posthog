@@ -203,7 +203,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
 
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new') {
+                if (parsedId === 'new' && !values.sharedMetric?.query) {
                     actions.setSharedMetric({ ...values.newSharedMetric, query: getDefaultFunnelMetric() })
                 }
 

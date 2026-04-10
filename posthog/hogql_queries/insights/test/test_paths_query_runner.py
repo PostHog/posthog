@@ -991,3 +991,74 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0].source, "1_/")
         self.assertEqual(response[0].target, "2_/about")
         self.assertEqual(response[0].value, 2)
+
+    @freeze_time("2012-01-15T03:21:34.000Z")
+    def test_path_replacements_none_does_not_apply_team_cleaning(self):
+        """pathReplacements=None (omitted) should not apply team cleaning — the frontend sets True explicitly."""
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/merchant/123/dashboard"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:21:34",
+        )
+        _create_event(
+            properties={"$current_url": "/merchant/456/dashboard"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:22:34",
+        )
+
+        self.team.path_cleaning_filters = [{"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}]
+        self.team.save()
+
+        # pathReplacements omitted (None) — team cleaning should NOT apply
+        result = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {},
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(result, CachedPathsQueryResponse)
+        sources_and_targets = [r.source + r.target for r in result.results]
+        combined = " ".join(sources_and_targets)
+        assert "123" in combined or "456" in combined
+
+    @freeze_time("2012-01-15T03:21:34.000Z")
+    def test_path_replacements_false_skips_team_cleaning(self):
+        """pathReplacements=False should not apply team path cleaning filters."""
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/merchant/123/dashboard"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:21:34",
+        )
+        _create_event(
+            properties={"$current_url": "/merchant/456/dashboard"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-14 03:22:34",
+        )
+
+        self.team.path_cleaning_filters = [{"alias": "/merchant/:id/dashboard", "regex": "/merchant/\\d+/dashboard"}]
+        self.team.save()
+
+        # pathReplacements explicitly False — team cleaning should NOT apply
+        result = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {"pathReplacements": False},
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(result, CachedPathsQueryResponse)
+        # URLs should remain uncleaned — distinct merchant IDs visible
+        sources_and_targets = [r.source + r.target for r in result.results]
+        combined = " ".join(sources_and_targets)
+        assert "123" in combined or "456" in combined

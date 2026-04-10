@@ -144,6 +144,9 @@ class ExternalTicketView(APIView):
                 "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
                 "assignee": assignee,
                 "url": session_context.get("current_url"),
+                "slack_channel_id": ticket.slack_channel_id,
+                "slack_thread_ts": ticket.slack_thread_ts,
+                "slack_team_id": ticket.slack_team_id,
                 "tags": tags,
             }
         )
@@ -263,7 +266,7 @@ class ExternalTicketView(APIView):
                     ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
                 for tagged_item in ticket.tagged_items.exclude(tag__name__in=new_tags):
                     tagged_item.delete()
-                Tag.objects.filter(team_id=team.id, tagged_items__isnull=True, team_defaults__isnull=True).delete()
+                Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)

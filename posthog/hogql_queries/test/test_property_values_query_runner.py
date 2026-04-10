@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -197,3 +198,27 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(second, CachedPropertyValuesQueryResponse)
         assert second.is_cached is True
         assert [r.name for r in second.results] == [r.name for r in first.results]
+
+    @parameterized.expand(
+        [
+            ("normal", ExecutionMode.CALCULATE_BLOCKING_ALWAYS, "force_blocking"),
+            ("poll", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, "force_cache"),
+        ]
+    )
+    def test_execution_mode_recorded_in_query_executed_event(self, _name, execution_mode, expected_value):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        runner = PropertyValuesQueryRunner(
+            team=self.team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"),
+        )
+        # Prime the cache so CACHE_ONLY_NEVER_CALCULATE has something to return
+        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        with patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as mock_capture:
+            runner.run(execution_mode)
+
+        mock_capture.assert_called_once()
+        captured_props = mock_capture.call_args.kwargs["properties"]
+        assert captured_props["execution_mode"] == expected_value

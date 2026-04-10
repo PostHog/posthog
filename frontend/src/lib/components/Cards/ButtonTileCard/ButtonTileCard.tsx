@@ -76,7 +76,7 @@ function ButtonTileCardInternal(
     return (
         <div
             className={clsx(
-                'ButtonTileCard rounded flex flex-col relative',
+                'ButtonTileCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
                 isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
@@ -93,7 +93,7 @@ function ButtonTileCardInternal(
 
             <div
                 className={clsx(
-                    'flex flex-1 items-start w-full p-4',
+                    'ButtonTileCard__body flex w-full flex-1 p-4 items-center',
                     !shouldHideMoreButton && 'pr-14',
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start',
                     onDragHandleMouseDown && 'cursor-grab'

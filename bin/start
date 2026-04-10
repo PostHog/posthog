@@ -19,13 +19,13 @@ fi
 
 trap cleanup_lock EXIT INT TERM
 
-export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://seaweedfs:8333}
 
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
 # Limit Rust parallel compilation jobs to reduce CPU contention when multiple
-# services start simultaneously via mprocs (they share a build lock anyway)
+# services start simultaneously via phrocs (they share a build lock anyway)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
@@ -76,7 +76,7 @@ if [ -f .env ]; then
 fi
 
 # Ducklake
-export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-localhost}
+export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
 export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
 export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
@@ -85,6 +85,21 @@ export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
 export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+export POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=${POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET:-1}
+
+# These default to localhost/127.0.0.1 in Node.js/Rust configs
+export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
+export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
+export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
+export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+# Persons DB — Node.js and Rust use different env var names for the same connection
+export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
+export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
+export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
 
 # Duckgres
 export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
@@ -92,35 +107,34 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 # Geo files
 ./bin/download-mmdb
 
-PROCESS_MANAGER="mprocs"
+PROCESS_MANAGER="phrocs"
 
-# Only use phrocs when --phrocs is explicitly passed
-if [[ " $* " == *" --phrocs "* ]]; then
-    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
-
-    # Build phrocs on first run if binary doesn't exist
-    if [[ ! -x "$PROCESS_MANAGER" ]]; then
-        echo "🔨 Building phrocs from source (first run)..."
-        if ! hogli phrocs:build 2>&1; then
-            echo "⚠️ phrocs build failed; falling back to mprocs"
-            PROCESS_MANAGER="mprocs"
-        else
-            echo "✅ phrocs built successfully"
-        fi
-    fi
-fi
-
-if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then
+# Only use mprocs when --mprocs is explicitly passed
+if [[ " $* " == *" --mprocs "* ]]; then
     # Ensure mprocs is available
     if ! command -v mprocs &>/dev/null; then
         if command -v brew &>/dev/null; then
             echo "🔁 Installing mprocs via Homebrew..."
             brew install mprocs
         else
-            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+            echo "👉 To use --mprocs, install mprocs: https://github.com/pvolok/mprocs#installation"
             exit 1
         fi
     fi
+    PROCESS_MANAGER="mprocs"
+fi
+
+if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
+    if ! command -v phrocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing phrocs via Homebrew..."
+            brew tap posthog/tap && brew install phrocs
+        else
+            echo "👉 To run bin/start, install phrocs: brew tap posthog/tap && brew install phrocs"
+            exit 1
+        fi
+    fi
+    PROCESS_MANAGER="phrocs"
 fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)

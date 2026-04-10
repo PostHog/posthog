@@ -109,7 +109,7 @@ def create_external_data_job_model_activity(
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
-            incremental_or_append=schema.is_incremental or schema.is_append,
+            incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
             source_type=source.source_type,
             schema_name=schema.name,
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,

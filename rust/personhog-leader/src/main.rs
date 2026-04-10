@@ -126,6 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
         Arc::new(handler),
+        None,
     );
 
     tokio::spawn(async move {

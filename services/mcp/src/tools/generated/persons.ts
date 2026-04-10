@@ -13,11 +13,12 @@ import {
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveQueryParams,
 } from '@/generated/persons/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true })
 
-const personsList = (): ToolBase<typeof PersonsListSchema, Schemas.PaginatedPersonList & { _posthogUrl: string }> => ({
+const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonList>> => ({
     name: 'persons-list',
     schema: PersonsListSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsListSchema>) => {
@@ -33,16 +34,13 @@ const personsList = (): ToolBase<typeof PersonsListSchema, Schemas.PaginatedPers
                 search: params.search,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/persons`,
-        }
+        return await withPostHogUrl(context, result, '/persons')
     },
 })
 
 const PersonsRetrieveSchema = PersonsRetrieveParams.omit({ project_id: true })
 
-const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, Schemas.Person & { _posthogUrl: string }> => ({
+const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.Person>> => ({
     name: 'persons-retrieve',
     schema: PersonsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof PersonsRetrieveSchema>) => {
@@ -51,10 +49,7 @@ const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, Schemas.Perso
             method: 'GET',
             path: `/api/projects/${projectId}/persons/${params.id}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/persons/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/persons/${result.id}`)
     },
 })
 

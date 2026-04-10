@@ -497,6 +497,7 @@ def mssql_source(
 
                 primary_keys = _get_primary_keys(cursor, schema, table_name)
                 table = _get_table(cursor, schema, table_name)
+                logger.debug(f"Source schema: {table.to_arrow_schema()}")
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = _get_table_chunk_size(
                     cursor,

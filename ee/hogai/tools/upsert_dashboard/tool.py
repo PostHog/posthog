@@ -8,9 +8,12 @@ from pydantic import BaseModel, Field
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.event_usage import EventSource, report_user_action
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext

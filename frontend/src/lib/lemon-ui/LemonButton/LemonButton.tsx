@@ -74,6 +74,11 @@ export interface LemonButtonPropsBase
     noPadding?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
+    /**
+     * Optional stable id for autocapture / action matching when the project includes `data-attr-id` in
+     * **Project settings → Data attributes**. Defaults to the same value as `data-attr` when omitted.
+     */
+    'data-attr-id'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
@@ -103,6 +108,7 @@ export type SideAction = Pick<
     | 'tooltip'
     | 'tooltipPlacement'
     | 'data-attr'
+    | 'data-attr-id'
     | 'aria-label'
     | 'status'
     | 'targetBlank'
@@ -267,6 +273,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     aria-disabled={!!disabled}
                     {...linkDependentProps}
                     {...buttonProps}
+                    data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
                 >
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}

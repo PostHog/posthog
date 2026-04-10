@@ -89,6 +89,7 @@ class Command(BaseCommand):
         for batch in Paginator(queryset, BATCH_SIZE):
             for saved_query in batch.object_list:
                 try:
+                    saved_query.setup_model_paths()
                     sync_saved_query_workflow(saved_query, create=False)
                     updated += 1
                 except temporalio.service.RPCError as e:

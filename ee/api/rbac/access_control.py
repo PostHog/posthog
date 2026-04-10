@@ -133,6 +133,11 @@ class AccessControlSerializer(serializers.ModelSerializer):
         the_object = context["view"].get_object()
 
         if resource_id:
+            if str(the_object.pk) != str(resource_id):
+                raise exceptions.PermissionDenied(
+                    "Cannot modify access controls for a resource different from the URL target."
+                )
+
             # Check that they have the right access level for this specific resource object
             if not access_control.check_can_modify_access_levels_for_object(the_object):
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
@@ -321,7 +326,17 @@ class AccessControlViewSetMixin(_GenericViewSet):
         )
 
     def _update_access_controls(self, request: Request, is_resource_level=False):
-        resource = getattr(self, "scope_object", None)
+        resource = cast(APIScopeObjectOrNotSupported, getattr(self, "scope_object", None))
+
+        if not resource:
+            raise exceptions.NotFound("Access controls are not available for this resource type.")
+
+        if resource == "INTERNAL":
+            raise exceptions.NotFound("Access controls are not available for internal resources.")
+
+        if is_resource_level and resource != "project":
+            raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
+
         obj = self.get_object()
         resource_id = str(obj.id)
         team = cast(Team, self.team)  # type: ignore

@@ -59,4 +59,10 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return self._scope_by_project(queryset)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return self._scope_by_project_and_environment(queryset).filter(user=self.request.user).order_by(Lower("path"))
+        queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
+        ordering_param = self.request.GET.get("ordering", "")
+        if ordering_param == "-created_at":
+            return queryset.order_by("-created_at")
+        if ordering_param == "created_at":
+            return queryset.order_by("created_at")
+        return queryset.order_by(Lower("path"))

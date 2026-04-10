@@ -28,3 +28,24 @@ posthog/temporal/data_imports/sources/generated_configs.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts linguist-generated
+
+posthog/hogql/grammar/HogQLLexer.py linguist-generated
+posthog/hogql/grammar/HogQLParser.py linguist-generated
+posthog/hogql/grammar/HogQLParserVisitor.py linguist-generated
+posthog/hogql/grammar/HogQLLexer.interp linguist-generated
+posthog/hogql/grammar/HogQLParser.interp linguist-generated
+posthog/hogql/grammar/HogQLLexer.tokens linguist-generated
+posthog/hogql/grammar/HogQLParser.tokens linguist-generated
+
+common/hogql_parser/HogQLLexer.cpp linguist-generated
+common/hogql_parser/HogQLParser.cpp linguist-generated
+common/hogql_parser/HogQLLexer.interp linguist-generated
+common/hogql_parser/HogQLParser.interp linguist-generated
+common/hogql_parser/HogQLLexer.tokens linguist-generated
+common/hogql_parser/HogQLParser.tokens linguist-generated
+common/hogql_parser/HogQLLexer.h linguist-generated
+common/hogql_parser/HogQLParser.h linguist-generated
+common/hogql_parser/HogQLParserVisitor.cpp linguist-generated
+common/hogql_parser/HogQLParserVisitor.h linguist-generated
+common/hogql_parser/HogQLParserBaseVisitor.cpp linguist-generated
+common/hogql_parser/HogQLParserBaseVisitor.h linguist-generated

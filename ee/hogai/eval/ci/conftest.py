@@ -12,8 +12,11 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import FailureMessage, HumanMessage
 
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Insight, Organization, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content

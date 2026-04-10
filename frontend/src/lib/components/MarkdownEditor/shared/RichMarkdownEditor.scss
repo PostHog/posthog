@@ -27,6 +27,18 @@
             margin-bottom: 0.5rem;
         }
 
+        // Used to prevent extra spaces at the end from appearing when its just one element
+        // Readonly (e.g. TextCard body): no caret — hide the placeholder paragraph entirely.
+        &[contenteditable='false'] > p:last-child:has(> br.ProseMirror-trailingBreak:only-child) {
+            display: none;
+        }
+
+        // Drop bottom margin when a heading is the last block, or only followed by the trailing caret paragraph.
+        > :is(h1, h2, h3, h4, h5, h6):last-child,
+        > :is(h1, h2, h3, h4, h5, h6):has(+ p:last-child > br.ProseMirror-trailingBreak:only-child) {
+            margin-bottom: 0;
+        }
+
         ul,
         ol {
             padding-left: 1.5rem;

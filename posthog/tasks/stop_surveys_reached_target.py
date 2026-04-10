@@ -4,8 +4,11 @@ from itertools import groupby
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.utils import UUIDT
 
 from products.surveys.backend.models import Survey
@@ -14,6 +17,7 @@ from products.surveys.backend.models import Survey
 def _get_surveys_response_counts(
     surveys_ids: list[UUIDT], team_id: int, earliest_survey_creation_date: datetime
 ) -> dict[str, int]:
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
     data = sync_execute(
         """
         SELECT

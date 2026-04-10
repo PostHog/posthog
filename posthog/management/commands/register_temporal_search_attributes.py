@@ -1,3 +1,4 @@
+import gc
 import asyncio
 import logging
 
@@ -54,36 +55,44 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         temporal = await async_connect()
 
-        # List existing attributes
-        resp = await temporal.operator_service.list_search_attributes(
-            ops.ListSearchAttributesRequest(namespace=namespace)
-        )
-        existing = set(resp.custom_attributes.keys())
-
-        # Find which ones need registering
-        to_register = {}
-        for key in POSTHOG_SEARCH_ATTRIBUTES:
-            if key.name in existing:
-                logger.info("Already registered", attribute=key.name)
-            else:
-                to_register[key.name] = _resolve_type(key)
-
-        if not to_register:
-            logger.info("All search attributes already registered")
-            return
-
-        if dry_run:
-            for name, typ in to_register.items():
-                logger.info("Would register", attribute=name, type=enums.IndexedValueType.Name(typ))
-            return
-
-        logger.info(f"Registering {len(to_register)} search attribute(s)", attributes=list(to_register.keys()))
-
-        await temporal.operator_service.add_search_attributes(
-            ops.AddSearchAttributesRequest(
-                namespace=namespace,
-                search_attributes=to_register,
+        try:
+            # List existing attributes
+            resp = await temporal.operator_service.list_search_attributes(
+                ops.ListSearchAttributesRequest(namespace=namespace)
             )
-        )
+            existing = set(resp.custom_attributes.keys())
 
-        logger.info("Done")
+            # Find which ones need registering
+            to_register = {}
+            for key in POSTHOG_SEARCH_ATTRIBUTES:
+                if key.name in existing:
+                    logger.info("Already registered", attribute=key.name)
+                else:
+                    to_register[key.name] = _resolve_type(key)
+
+            if not to_register:
+                logger.info("All search attributes already registered")
+                return
+
+            if dry_run:
+                for name, typ in to_register.items():
+                    logger.info("Would register", attribute=name, type=enums.IndexedValueType.Name(typ))
+                return
+
+            logger.info(f"Registering {len(to_register)} search attribute(s)", attributes=list(to_register.keys()))
+
+            await temporal.operator_service.add_search_attributes(
+                ops.AddSearchAttributesRequest(
+                    namespace=namespace,
+                    search_attributes=to_register,
+                )
+            )
+
+            logger.info("Done")
+        finally:
+            # Drop the Temporal client reference and force GC before the event
+            # loop tears down.  The Rust/gRPC bridge spawns background threads
+            # that crash during CPython finalization ("PyGILState_Release: thread
+            # state … must be current") if the bridge destructor hasn't run yet.
+            del temporal
+            gc.collect()

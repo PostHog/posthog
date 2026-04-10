@@ -187,4 +187,4 @@ class TestRunViewSet(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["approved"])
+        self.assertTrue(response.json()["run"]["approved"])

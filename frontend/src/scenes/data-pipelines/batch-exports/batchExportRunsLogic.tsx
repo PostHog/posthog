@@ -12,10 +12,12 @@ import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/typ
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
+import { BatchExportContext } from './types'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
@@ -23,7 +25,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
-        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig', 'batchExportConfigLoading']],
         actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
     actions({
@@ -78,6 +80,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         ],
     }),
     selectors({
+        recordLabel: [
+            () => [(_, props) => props],
+            (props: BatchExportRunsLogicProps): string => (props.context === 'hog_function' ? 'events' : 'rows'),
+        ],
         hasMoreRunsToLoad: [(s) => [s.runsPaginatedResponse], (runsPaginatedResponse) => !!runsPaginatedResponse?.next],
         loading: [
             (s) => [s.runsPaginatedResponseLoading],

@@ -15,7 +15,7 @@ export type HealthIssueKind =
     | 'materialized_view_failure'
     | 'external_data_failure'
 
-interface CategoryConfig {
+export interface CategoryConfig {
     label: string
     description: string
     healthyDescription?: string
@@ -106,6 +106,12 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
     return KIND_TO_CATEGORY[kind as HealthIssueKind] ?? 'other'
+}
+
+export const kindsForCategory = (category: HealthIssueCategory): HealthIssueKind[] => {
+    return Object.entries(KIND_TO_CATEGORY)
+        .filter(([, cat]) => cat === category)
+        .map(([kind]) => kind as HealthIssueKind)
 }
 
 export const CATEGORY_ORDER: HealthIssueCategory[] = [

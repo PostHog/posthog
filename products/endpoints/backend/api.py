@@ -13,9 +13,10 @@ import structlog
 import posthoganalytics
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -42,14 +43,14 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.api.documentation import extend_schema
-from posthog.api.mixins import PydanticModelMixin
+from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
@@ -101,11 +102,19 @@ from products.endpoints.backend.rate_limit import (
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
 )
+from products.endpoints.backend.serializers import (
+    EndpointMaterializationSerializer,
+    EndpointRequestSerializer,
+    EndpointResponseSerializer,
+    EndpointRunResponseSerializer,
+    EndpointVersionResponseSerializer,
+)
 
 from common.hogvm.python.utils import HogVMException
 
 MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
+MIN_SYNC_FREQUENCY_INTERVAL = timedelta(minutes=30)
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
@@ -260,6 +269,23 @@ def _validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
         raise ValidationError(f"Invalid bucket override values: {invalid}. Valid options: {valid_options}")
 
 
+class MaterializationPreviewRequestSerializer(serializers.Serializer):
+    version = serializers.IntegerField(required=False)
+    bucket_overrides = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text='Per-column bucket function overrides, e.g. {"timestamp": "hour"}',
+    )
+
+
+@extend_schema_view(
+    partial_update=extend_schema(
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
+        description="Update an existing endpoint.",
+    ),
+)
 @extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
@@ -272,6 +298,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "versions",
         "openapi_spec",
         "materialization_preview",
+        "materialization_status",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -315,10 +342,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None
 
-    def _build_materialization_info(self, version: EndpointVersion) -> dict:
+    def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
         if version.saved_query:
-            return {
+            result = {
                 "status": version.saved_query.status or "Unknown",
                 "can_materialize": True,
                 "last_materialized_at": (
@@ -331,12 +358,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     version.saved_query.sync_frequency_interval
                 ),
             }
+        else:
+            can_mat, reason = version.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
 
-        can_mat, reason = version.can_materialize()
-        return {
-            "can_materialize": can_mat,
-            "reason": reason if not can_mat else None,
-        }
+        if endpoint_name is not None:
+            result["name"] = endpoint_name
+        return result
 
     def _serialize(
         self,
@@ -378,6 +409,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
+            "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
@@ -388,16 +420,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
             result["version_created_at"] = version.created_at.isoformat()
+            result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
 
+    @extend_schema(
+        responses={200: EndpointResponseSerializer(many=True)},
+        description="List all endpoints for the team.",
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            results = [self._serialize(endpoint, request) for endpoint in page]
+            return self.get_paginated_response(results)
         results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
+    @extend_schema(
+        responses={200: EndpointVersionResponseSerializer},
+        description="Retrieve an endpoint, or a specific version via ?version=N.",
+    )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
         endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
@@ -427,6 +472,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     {
                         "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
                     }
+                )
+
+    def _validate_sync_frequency(self, sync_frequency: DataWarehouseSyncInterval | None) -> None:
+        """Validate sync_frequency is not too frequent for endpoints."""
+        if sync_frequency is not None:
+            interval = sync_frequency_to_sync_frequency_interval(sync_frequency.value)
+            if interval is not None and interval < MIN_SYNC_FREQUENCY_INTERVAL:
+                raise ValidationError(
+                    {"sync_frequency": f"Sync frequency must be at least 30 minutes. Got: {sync_frequency.value}."}
                 )
 
     def _validate_hogql_query(self, query: HogQLQuery) -> None:
@@ -583,10 +637,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
+        self._validate_sync_frequency(data.sync_frequency)
 
     @extend_schema(
-        request=EndpointRequest,
-        description="Create a new endpoint",
+        request=EndpointRequestSerializer,
+        responses={201: EndpointResponseSerializer},
+        description="Create a new endpoint.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create a new endpoint."""
@@ -614,6 +670,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns = None
             EndpointVersion.objects.create(
                 endpoint=endpoint,
+                team=self.team,
                 version=1,
                 query=query_dict,
                 description=data.description or "",
@@ -654,7 +711,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_name": data.name,
                 },
@@ -668,6 +725,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         strict: bool = True,
     ) -> None:
         self._validate_cache_age_seconds(data.cache_age_seconds)
+        self._validate_sync_frequency(data.sync_frequency)
 
         # Determine final states after this request (for validation)
         will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)
@@ -686,7 +744,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._validate_hogql_query(data.query)
 
     @extend_schema(
-        request=EndpointRequest,
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
         description="Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.",
     )
     def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
@@ -701,6 +760,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Soft-delete via PATCH {deleted: true} — reuses destroy() logic, returns 200 with body for MCP
+        if data.deleted is True:
+            self.destroy(request, name=name)
+            return Response({"success": True}, status=status.HTTP_200_OK)
 
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 
@@ -774,6 +838,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     target_version.is_active = data.is_active
                     update_fields.append("is_active")
                 if update_fields:
+                    update_fields.append("updated_at")
                     target_version.save(update_fields=update_fields)
 
             # Step 4: Handle materialization state (only if endpoint should be active)
@@ -917,7 +982,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(
                 e,
                 {
-                    "product_key": Product.ENDPOINTS,
+                    "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
                     "endpoint_id": endpoint.id,
                     "saved_query_id": current_version.saved_query.id if current_version.saved_query else None,
@@ -1017,7 +1082,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
         version.saved_query = saved_query
         version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides"])
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
         """Disable materialization for an endpoint version.
@@ -1151,12 +1216,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _get_materialized_variables(self, version: EndpointVersion) -> builtins.list:
         """Return the materializable variable infos for an endpoint query."""
-        if not version.query or not version.query.get("variables"):
+        query = version.query
+        if not query or not query.get("variables"):
             return []
 
         try:
             can_materialize, _, variable_infos = analyze_variables_for_materialization(
-                version.query, bucket_overrides=version.bucket_overrides
+                query, bucket_overrides=version.bucket_overrides
             )
             return variable_infos if can_materialize else []
         except Exception:
@@ -1187,7 +1253,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return None, None, False
 
-    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+    # Query types that support user-configurable breakdown filtering
+    BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
     def _get_allowed_variables(self, query: dict, is_materialized: bool) -> set[str]:
         """Get the set of allowed variable names for this endpoint."""
@@ -1207,7 +1274,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             allowed.update(_get_breakdown_properties(breakdown_filter))
 
         if not is_materialized:
-            # Non-materialized also allows date_from/date_to via filters_override
+            # Non-materialized insight endpoints expose date_from/date_to as magic variables
             allowed.update({"date_from", "date_to"})
 
         return allowed
@@ -1262,23 +1329,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> ast.Expr | None:
         """Build the appropriate WHERE condition for breakdown filtering based on query type.
 
+        Different insight types store breakdowns in different columns:
+        - TrendsQuery, RetentionQuery: `breakdown_value` Array column
+        - LifecycleQuery: No breakdown support
+
         array_index controls how to access the breakdown column:
         - 0: single breakdown — use has() on the full array
         - 1+: multiple breakdowns — use equality on breakdown_value[N]
         """
-        if query_kind in ("LifecycleQuery", "StickinessQuery", "PathsQuery"):
+        if query_kind not in ("TrendsQuery", "RetentionQuery"):
             logger.warning(
                 "Query type does not support breakdown filtering",
                 query_kind=query_kind,
             )
             return None
 
-        column_name = "final_prop" if query_kind == "FunnelsQuery" else "breakdown_value"
-
         if array_index > 0:
             return ast.CompareOperation(
                 left=ast.ArrayAccess(
-                    array=ast.Field(chain=[column_name]),
+                    array=ast.Field(chain=["breakdown_value"]),
                     property=ast.Constant(value=array_index),
                 ),
                 op=ast.CompareOperationOp.Eq,
@@ -1287,7 +1356,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return ast.Call(
             name="has",
-            args=[ast.Field(chain=[column_name]), ast.Constant(value=value)],
+            args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value=value)],
         )
 
     def _execute_query_and_respond(
@@ -1475,25 +1544,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
                 pagination.apply_to(select_query)
 
-            deprecation_headers: dict[str, str] | None = None
-
-            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
-            if query_kind != "HogQLQuery" and data.filters_override is not None:
-                deprecation_headers = {
-                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
-                }
-                # Extract breakdown filter from properties
-                if data.filters_override.properties:
-                    for prop in data.filters_override.properties:
-                        if hasattr(prop, "key") and hasattr(prop, "value") and prop.value is not None:
-                            # Convert value to string for breakdown filter
-                            value = prop.value[0] if isinstance(prop.value, list) else prop.value
-                            condition = self._build_breakdown_filter_condition(query_kind, str(value))
-                            if condition:
-                                _add_where_condition(select_query, condition)
-                            # filters_override is deprecated — only the first property is used
-                            break
-            elif data.variables:
+            if data.variables:
                 if query_kind == "HogQLQuery":
                     # HogQL: filter by all materialized variable columns
                     materialized_vars = self._get_materialized_variables(version)
@@ -1539,7 +1590,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
             }
-            tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
+            tag_queries(
+                workload=Workload.ENDPOINTS,
+                warehouse_query=True,
+                endpoint_version=version.version if version else None,
+            )
 
             result = self._execute_query_and_respond(
                 query_request_data,
@@ -1547,7 +1602,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 request,
                 extra_result_fields=extra_fields,
                 debug=debug,
-                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1559,7 +1613,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     request,
                     extra_result_fields=extra_fields,
                     debug=debug,
-                    headers=deprecation_headers,
                     pagination=pagination,
                 )
 
@@ -1678,12 +1731,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         properties: list[dict] = []
         for prop_name, prop_type in breakdown_infos or []:
-            if prop_name in variables:
-                value = variables[prop_name]
-                # Empty string means "null/unset" — match events where the property is missing.
-                # This keeps inline execution consistent with the materialized path,
-                # where null breakdown values are stored as '' in S3.
+            if prop_name not in variables:
+                continue
+            value = variables[prop_name]
+            # Any failure to build a filter for a breakdown variable must error the
+            # request — silently skipping would return unfiltered data, which is a
+            # data-leak (same principle that gates materialized endpoints on having
+            # all variables present).
+            try:
+                if prop_type == "hogql":
+                    # HogQLPropertyFilter.key is a full HogQL predicate and doesn't accept
+                    # `operator` (HogQLPropertyFilter has extra="forbid"), so build a
+                    # `<expr> = <value>` (or `isNull(<expr>)`) predicate to filter with.
+                    key_expr = parse_expr(prop_name)
+                    predicate_expr: ast.Expr
+                    if value == "":
+                        predicate_expr = ast.Call(name="isNull", args=[key_expr])
+                    else:
+                        predicate_expr = ast.CompareOperation(
+                            left=key_expr,
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value=value),
+                        )
+                    properties.append({"key": predicate_expr.to_hogql(), "type": "hogql"})
+                    continue
                 if value == "":
+                    # Empty string means "null/unset" — match events where the property is missing.
+                    # This keeps inline execution consistent with the materialized path,
+                    # where null breakdown values are stored as '' in S3.
                     properties.append(
                         {
                             "key": prop_name,
@@ -1700,6 +1775,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             "operator": PropertyOperator.EXACT,
                         }
                     )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": self.kwargs.get("name"),
+                        "prop_name": prop_name,
+                        "prop_type": prop_type,
+                    },
+                )
+                raise ValidationError(
+                    {"variables": f"Could not apply filter for breakdown variable '{prop_name}'"}
+                ) from e
 
         if not date_from and not date_to and not properties:
             return None
@@ -1795,15 +1884,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             variables_override = None
             filters_override = None
-            deprecation_headers: dict[str, str] | None = None
 
-            # For insight endpoints: filters_override takes precedence over variables (backwards compat)
-            if query_kind != "HogQLQuery" and data.filters_override is not None:
-                filters_override = data.filters_override
-                deprecation_headers = {
-                    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
-                }
-            elif data.variables:
+            if data.variables:
                 if query_kind == "HogQLQuery":
                     variables_override = self._parse_variables(query, data.variables)
                 else:
@@ -1820,6 +1902,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
 
             cache_age = version.cache_age_seconds if version else None
+            tag_queries(endpoint_version=version.version if version else None)
 
             return self._execute_query_and_respond(
                 query_request_data,
@@ -1828,7 +1911,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 variables_override=variables_override,
                 cache_age_seconds=cache_age,
                 debug=debug,
-                headers=deprecation_headers,
                 pagination=pagination,
             )
 
@@ -1851,12 +1933,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRunRequest,
+        responses={200: EndpointRunResponseSerializer},
         description="Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.",
     )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
+
+        # Reject the removed filters_override parameter with a clear migration message.
+        # The field is no longer on EndpointRunRequest, so pydantic would otherwise return a
+        # generic "Extra inputs are not permitted" error that doesn't point users to variables.
+        if isinstance(request.data, dict) and "filters_override" in request.data:
+            raise ValidationError(
+                {
+                    "filters_override": "filters_override is no longer supported. Use variables instead: https://posthog.com/docs/api/endpoints"
+                }
+            )
+
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -1866,7 +1960,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             properties={
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
-                "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
                 "has_offset": data.offset is not None,
@@ -1993,9 +2086,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
 
-        if version_obj and isinstance(result.data, dict):
-            result.data["endpoint_version"] = version_obj.version
-            result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
+        if isinstance(result.data, dict):
+            result.data["name"] = endpoint.name
+            if version_obj:
+                result.data["endpoint_version"] = version_obj.version
+                result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
         return result
 
@@ -2012,17 +2107,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if version and not version.is_active:
             raise ValidationError(f"Version {version.version} is inactive and cannot be executed.")
 
-        query_kind = query.get("kind")
-
         # Reject query_override (always)
         if hasattr(data, "query_override") and data.query_override is not None:
             raise ValidationError({"query_override": "Not allowed. Use variables instead."})
-
-        # Allow filters_override for insight endpoints (deprecated but backwards compatible)
-        # Reject for HogQL endpoints
-        if data.filters_override is not None:
-            if query_kind == "HogQLQuery":
-                raise ValidationError({"filters_override": "Not allowed for HogQL endpoints. Use variables instead."})
 
         # Validate refresh mode
         if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
@@ -2042,8 +2129,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # SECURITY: For materialized endpoints with required variables, ALL must be provided.
         # Without this check, omitting variables would return ALL data instead of filtered data.
-        # Exception: filters_override is the deprecated way to provide filters for insight endpoints
-        if is_materialized and not (data.filters_override and data.filters_override.properties):
+        if is_materialized:
             required_vars = self._get_required_variables_for_materialized(query, version)
             if required_vars:
                 provided = set(data.variables.keys()) if data.variables else set()
@@ -2117,6 +2203,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         tag_queries(client_query_id=query_id)
 
     @extend_schema(
+        responses={200: EndpointVersionResponseSerializer(many=True)},
         description="List all versions for an endpoint.",
     )
     @action(methods=["GET"], detail=True)
@@ -2126,12 +2213,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns versions in descending order (latest first).
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
-        versions = endpoint.versions.all()
-
-        results = [self._serialize(v) for v in versions]
-        return Response(results)
+        versions_qs = endpoint.versions.all()
+        page = self.paginate_queryset(versions_qs)
+        if page is not None:
+            results = [self._serialize(v) for v in page]
+            return self.get_paginated_response(results)
+        results = [self._serialize(v) for v in versions_qs]
+        return Response({"results": results})
 
     @extend_schema(
+        responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
     @action(methods=["GET"], detail=True, url_path="materialization_status")
@@ -2151,21 +2242,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             version = endpoint.get_version()
 
-        return Response(self._build_materialization_info(version))
+        return Response(self._build_materialization_info(version, endpoint_name=endpoint.name))
 
-    @extend_schema(
+    @validated_request(
+        MaterializationPreviewRequestSerializer,
         description="Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
     )
-    @action(methods=["GET"], detail=True, url_path="materialization_preview")
-    def materialization_preview(self, request: Request, name=None, *args, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, url_path="materialization_preview")
+    def materialization_preview(self, request: ValidatedRequest, name=None, *args, **kwargs) -> Response:
         """Preview the materialization transform without enabling it.
 
         Returns the transformed query, range pair info, and aggregate re-aggregation info.
-        Supports ?version=N and ?bucket_overrides[column]=fn query params.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
 
-        version_number = self._parse_version_param(request)
+        version_number = request.validated_data.get("version")
         if version_number is not None:
             try:
                 version = endpoint.get_version(version_number)
@@ -2178,14 +2269,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not can_mat:
             return _cant_materialize_response(reason)
 
-        bucket_overrides: dict[str, str] | None = None
-        raw_overrides: dict[str, str] = {
-            k.removeprefix("bucket_overrides[").removesuffix("]"): str(v)
-            for k, v in request.query_params.items()
-            if k.startswith("bucket_overrides[")
-        }
-        if raw_overrides:
-            bucket_overrides = raw_overrides
+        bucket_overrides = request.validated_data.get("bucket_overrides")
+        if bucket_overrides:
             _validate_bucket_overrides(bucket_overrides)
 
         hogql_query = convert_insight_query_to_hogql(version.query, self.team)
@@ -2301,6 +2386,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Specific endpoint version to generate the spec for. Defaults to latest.",
+            ),
+        ],
     )
     @action(methods=["GET"], detail=True, url_path="openapi.json")
     def openapi_spec(self, request: Request, name=None, *args, **kwargs) -> Response:

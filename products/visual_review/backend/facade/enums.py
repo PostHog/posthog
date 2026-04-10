@@ -30,6 +30,23 @@ class SnapshotResult(StrEnum):
     REMOVED = "removed"  # Baseline exists but snapshot missing
 
 
+class RunPurpose(StrEnum):
+    """Why this run was submitted."""
+
+    REVIEW = "review"  # Expects approval (human or auto) before merge
+    OBSERVE = "observe"  # Tracking only — not approvable
+
+
+class ReviewDecision(StrEnum):
+    """Run-level review outcome."""
+
+    PENDING = "pending"
+    HUMAN_APPROVED = "human_approved"
+    AUTO_APPROVED = "auto_approved"
+    AGENT_APPROVED = "agent_approved"
+    REJECTED = "rejected"  # Passive annotation — no system effect in MVP
+
+
 class ReviewState(StrEnum):
     """
     Human review state for a snapshot.

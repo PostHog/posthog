@@ -1,13 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { IngestionWarningsOutput } from '../common/outputs'
+import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
-import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
+import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { EventOutput, HeatmapsOutput } from './outputs'
@@ -23,13 +22,11 @@ import {
 import { createTestingPreTeamPreprocessingSubpipeline } from './testing-pre-team-preprocessing-subpipeline'
 
 export interface TestingJoinedIngestionPipelineConfig {
-    dlqTopic: string
     groupId: string
-    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput | DlqOutput>
 }
 
 export interface TestingJoinedIngestionPipelineDeps {
-    kafkaProducer: KafkaProducerWrapper
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
 }
@@ -85,13 +82,12 @@ export function createTestingJoinedIngestionPipeline<
     config: TestingJoinedIngestionPipelineConfig,
     deps: TestingJoinedIngestionPipelineDeps
 ) {
-    const { dlqTopic, groupId, outputs } = config
+    const { groupId, outputs } = config
 
-    const { kafkaProducer, promiseScheduler } = deps
+    const { promiseScheduler } = deps
 
     const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+        outputs,
         promiseScheduler,
     }
 

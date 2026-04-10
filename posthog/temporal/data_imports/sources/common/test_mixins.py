@@ -58,6 +58,19 @@ class TestIsHostSafe(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("localhost", "localhost"),
+            ("loopback", "127.0.0.1"),
+            ("private_ip", "10.0.0.1"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="E2E", E2E_TESTING=True)
+    def test_allows_internal_hosts_in_e2e(self, _name: str, host: str):
+        valid, error = _is_host_safe(host, team_id=999)
+        assert valid
+        assert error is None
+
+    @parameterized.expand(
+        [
             ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
             ("postwh_eu", "my-db.eu.postwh.com"),
             ("postwh_bare", "something.postwh.com"),

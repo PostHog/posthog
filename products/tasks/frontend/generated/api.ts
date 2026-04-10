@@ -11,11 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    PaginatedSandboxEnvironmentListListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
+    SandboxEnvironmentApi,
+    SandboxListParams,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -83,6 +86,56 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_environments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxList = async (
+    projectId: string,
+    params?: SandboxListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxEnvironmentListListApi> => {
+    return apiMutator<PaginatedSandboxEnvironmentListListApi>(getSandboxListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxCreate = async (
+    projectId: string,
+    sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxEnvironmentApi),
     })
 }
 

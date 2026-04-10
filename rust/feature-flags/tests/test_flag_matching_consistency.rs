@@ -137,7 +137,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 None,
             )
         }
-        .get_match(&flags[0], None, None, &None)
+        .get_match(&flags[0], None, None, None, &None)
         .unwrap();
 
         if *result {
@@ -1244,7 +1244,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 None,
             )
         }
-        .get_match(&flags[0], None, None, &None)
+        .get_match(&flags[0], None, None, None, &None)
         .unwrap();
 
         if let Some(variant) = &result {

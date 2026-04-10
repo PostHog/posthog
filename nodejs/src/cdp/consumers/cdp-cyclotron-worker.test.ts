@@ -187,6 +187,8 @@ describe('CdpCyclotronWorker', () => {
             } as any)
 
             const invocationId = invocation.id
+            // Capture reference time BEFORE execution to avoid timing race in lower-bound assertion
+            const beforeExecution = DateTime.now()
             const results = await processor.processInvocations([invocation])
             const result = results[0]
 
@@ -196,8 +198,8 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.id).toEqual(invocationId)
             expect(result.invocation.queue).toEqual('hog')
             // NOTE: Check the queue scheduled at is within the bounds of the backoff
-            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(
-                DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThanOrEqual(
+                beforeExecution.plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             )
             expect(result.invocation.queueScheduledAt?.toMillis()).toBeLessThan(
                 DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_MAX_MS }).toMillis()

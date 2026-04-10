@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -7,6 +10,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
 
+from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -37,7 +41,8 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    def test_create(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
         assert data["threshold_count"] == 10
@@ -45,6 +50,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["enabled"] is True
         assert data["created_by"]["id"] == self.user.pk
         assert data["filters"] == {"severityLevels": ["error"]}
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert created"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args[0][2]["threshold_count"] == 10
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -75,8 +85,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    def test_partial_update(self):
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_partial_update(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.patch(
             f"{self.base_url}{created['id']}/",
@@ -86,12 +98,22 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Patched"
 
-    def test_delete(self):
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert updated"
+        assert mock_report.call_args[0][2]["name"] == "Patched"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_delete(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs alert deleted"
+        assert mock_report.call_args[0][2]["name"] == "High error rate"
 
     # --- Team isolation ---
 
@@ -317,3 +339,338 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["state"] == "not_firing"
         assert response.json()["enabled"] is False
+
+    # --- Edit behavior: recheck and state reset ---
+
+    def test_threshold_change_resets_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 50},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_filter_change_resets_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": {"severityLevels": ["warn"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+
+    def test_window_change_preserves_state_and_clears_next_check(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"window_minutes": 10},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is None
+
+    def test_name_change_preserves_state_and_next_check(self):
+        next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="firing",
+            next_check_at=next_check,
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "firing"
+        assert response.json()["next_check_at"] is not None
+
+    # --- Snooze ---
+
+    def test_snooze_sets_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "snoozed"
+        assert response.json()["snooze_until"] is not None
+
+    def test_unsnooze_sets_not_firing_state(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state="snoozed",
+            snooze_until=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "not_firing"
+        assert response.json()["snooze_until"] is None
+
+    def test_snooze_rejects_past_datetime(self):
+        created = self._create_via_api()
+        past_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": past_time},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_with_threshold_change_preserves_snoozed_state(self):
+        created = self._create_via_api()
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time, "threshold_count": 100},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 100
+
+    def test_already_snoozed_threshold_change_preserves_snooze(self):
+        created = self._create_via_api()
+        snooze_time = datetime.now(UTC) + timedelta(hours=1)
+
+        # First snooze the alert
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"snooze_until": snooze_time.isoformat()},
+            format="json",
+        )
+        assert response.json()["state"] == "snoozed"
+
+        # Now change threshold without touching snooze_until
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"threshold_count": 200},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] is not None
+        assert data["threshold_count"] == 200
+
+    # --- Simulate ---
+
+    def _simulate_url(self) -> str:
+        return f"{self.base_url}simulate/"
+
+    def _simulate_payload(self, **overrides) -> dict:
+        defaults = {
+            "filters": {"severityLevels": ["error"]},
+            "threshold_count": 100,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "date_from": "-24h",
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def _mock_minute_buckets(self, minute_counts: list[tuple[int, int]]) -> list[BucketedCount]:
+        """Create 1-minute buckets. minute_counts is [(offset_minutes, count), ...]."""
+        base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
+        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in minute_counts]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_returns_response_shape(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (1, 20)])
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "buckets" in data
+        assert "fire_count" in data
+        assert "resolve_count" in data
+        assert "total_buckets" in data
+        assert data["total_buckets"] > 0
+        bucket = data["buckets"][0]
+        assert "threshold_breached" in bucket
+        assert "state" in bucket
+        assert "notification" in bucket
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_fills_empty_minutes(self, mock_query_cls):
+        # Two data points 10 minutes apart — should fill 1-min gaps between them
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (10, 200)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=5),
+            format="json",
+        )
+        data = response.json()
+        # Should have many more buckets than 2 (filled 1-min gaps for the full range)
+        assert data["total_buckets"] > 10
+
+    @parameterized.expand(
+        [
+            (
+                "fires",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1},
+            ),
+            (
+                "fires_and_resolves",
+                [(0, 40), (1, 40), (2, 40)],
+                {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
+                {"min_fire_count": 1, "min_resolve_count": 1},
+            ),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(buckets)
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(**payload_overrides),
+            format="json",
+        )
+        data = response.json()
+        if "min_fire_count" in expected:
+            assert data["fire_count"] >= expected["min_fire_count"]
+        if "min_resolve_count" in expected:
+            assert data["resolve_count"] >= expected["min_resolve_count"]
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
+        # window=1 (so rolling sum = per-minute count), 2-of-3 N-of-M
+        # Minutes: 150, 50, 150 — at minute 2, breach_count in window of 3 = 2 >= 2 -> fires
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
+            [(0, 150), (1, 50), (2, 150)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                evaluation_periods=3,
+                datapoints_to_alarm=2,
+                window_minutes=1,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 0: 150 breached, but only 1-of-1 so far -> not_firing
+        assert data_buckets[0]["state"] == "not_firing"
+        # Minute 2: 150 breached, now 2-of-3 -> firing
+        assert data_buckets[2]["state"] == "firing"
+        assert data_buckets[2]["notification"] == "fire"
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
+        # window=1, cooldown=5 min. Fires at minute 1, should suppress re-fire at minute 3.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
+            [(0, 50), (1, 150), (2, 50), (3, 150), (4, 50)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(
+                threshold_count=100,
+                threshold_operator="above",
+                cooldown_minutes=5,
+                window_minutes=1,
+            ),
+            format="json",
+        )
+        data = response.json()
+        data_buckets = [b for b in data["buckets"] if b["count"] > 0]
+        # Minute 1: fires
+        assert data_buckets[1]["notification"] == "fire"
+        # Minute 3: would fire again, cooldown suppresses
+        assert data_buckets[3]["state"] == "firing"
+        assert data_buckets[3]["notification"] == "none"
+        assert data["fire_count"] == 1
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_empty_results(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = []
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+        data = response.json()
+        assert data["fire_count"] == 0
+        assert data["resolve_count"] == 0
+        for b in data["buckets"]:
+            assert b["count"] == 0
+
+    def test_simulate_rejects_empty_filters(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(filters={}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_invalid_window(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=7),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_n_greater_than_m(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(evaluation_periods=2, datapoints_to_alarm=3),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_echoes_threshold_config(self, mock_query_cls):
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 10)])
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(threshold_count=42, threshold_operator="below"),
+            format="json",
+        )
+        data = response.json()
+        assert data["threshold_count"] == 42
+        assert data["threshold_operator"] == "below"

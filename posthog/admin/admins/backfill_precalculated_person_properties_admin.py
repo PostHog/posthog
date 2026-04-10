@@ -1,5 +1,3 @@
-import math
-
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
@@ -18,33 +16,23 @@ class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
         help_text="Optional: Specific cohort ID to backfill. If not provided, backfills all realtime cohorts for the team",
         label="Cohort ID",
     )
-    parallelism = forms.IntegerField(
-        initial=5,
-        min_value=1,
-        max_value=50,
-        help_text="Number of parallel child workflows to spawn",
-        label="Parallelism",
-    )
     batch_size = forms.IntegerField(
         initial=1000,
         min_value=100,
-        max_value=10000,
-        help_text="Number of persons to process per batch within each worker",
+        help_text="Number of persons to process per batch using ID-range based batching",
         label="Batch size",
     )
-    workflows_per_batch = forms.IntegerField(
-        initial=10,
+    concurrent_workflows = forms.IntegerField(
+        initial=5,
         min_value=1,
-        max_value=20,
-        help_text="Number of workflows to start per batch for jittered scheduling",
-        label="Workflows per batch",
+        max_value=100,
+        help_text="Number of concurrent child workflows to run (1-100, default: 5)",
+        label="Concurrent workflows",
     )
-    batch_delay_minutes = forms.IntegerField(
-        initial=1,
-        min_value=1,
-        max_value=60,
-        help_text="Delay between batches in minutes",
-        label="Batch delay (minutes)",
+    person_id = forms.UUIDField(
+        required=False,
+        help_text="Optional: Specific person ID (UUID) to filter the backfill for. If provided, only processes properties for this person",
+        label="Person ID",
     )
 
 
@@ -66,30 +54,32 @@ def backfill_precalculated_person_properties_view(request):
             if form.cleaned_data.get("cohort_id"):
                 command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
 
-            command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
             command_args.extend(["--batch-size", str(form.cleaned_data["batch_size"])])
-            command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
-            command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])
+            command_args.extend(["--concurrent-workflows", str(form.cleaned_data["concurrent_workflows"])])
+
+            # Only add person_id if provided
+            if form.cleaned_data.get("person_id"):
+                command_args.extend(["--person-id", str(form.cleaned_data["person_id"])])
 
             try:
                 call_command("backfill_precalculated_person_properties", *command_args)
-
-                total_batches = math.ceil(form.cleaned_data["parallelism"] / form.cleaned_data["workflows_per_batch"])
-                total_time_minutes = (total_batches - 1) * form.cleaned_data["batch_delay_minutes"]
 
                 cohort_info = (
                     f"cohort {form.cleaned_data['cohort_id']}"
                     if form.cleaned_data.get("cohort_id")
                     else "all realtime cohorts"
                 )
+                person_info = (
+                    f" (filtered to person {form.cleaned_data['person_id']})"
+                    if form.cleaned_data.get("person_id")
+                    else ""
+                )
                 messages.success(
                     request,
-                    f"Backfill started successfully for {cohort_info} "
+                    f"Backfill started successfully for {cohort_info}{person_info} "
                     f"(team {form.cleaned_data['team_id']}) "
-                    f"with {form.cleaned_data['parallelism']} workflows "
-                    f"in {total_batches} batches ({form.cleaned_data['workflows_per_batch']} per batch, "
-                    f"{form.cleaned_data['batch_delay_minutes']}min delays). "
-                    f"All workflows will be scheduled over ~{total_time_minutes} minutes. "
+                    f"using ID-range based batching with {form.cleaned_data['batch_size']} persons per batch "
+                    f"and {form.cleaned_data['concurrent_workflows']} concurrent workflows. "
                     f"Check Temporal UI for progress.",
                 )
             except Exception as e:

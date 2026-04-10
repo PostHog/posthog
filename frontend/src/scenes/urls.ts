@@ -65,6 +65,7 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        dashboard,
     }: {
         query?: string
         view_id?: string
@@ -74,6 +75,7 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        dashboard?: number
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -97,6 +99,10 @@ export const urls = {
 
         if (source) {
             params.set('source', source)
+        }
+
+        if (dashboard) {
+            params.set('dashboard', String(dashboard))
         }
 
         const queryString = params.toString()
@@ -190,6 +196,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    queryPerformance: (): string => '/instance/query_performance',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
@@ -238,7 +245,12 @@ export const urls = {
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (kind?: string, returnUrl?: string, returnLabel?: string): string => {
+    dataWarehouseSourceNew: (
+        kind?: string,
+        returnUrl?: string,
+        returnLabel?: string,
+        accessMethod?: 'warehouse' | 'direct'
+    ): string => {
         const params = new URLSearchParams()
         if (kind) {
             params.set('kind', kind)
@@ -248,6 +260,9 @@ export const urls = {
         }
         if (returnLabel) {
             params.set('returnLabel', returnLabel)
+        }
+        if (accessMethod) {
+            params.set('access_method', accessMethod)
         }
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
@@ -264,10 +279,13 @@ export const urls = {
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
+    healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',
+    subscriptions: (): string => '/subscriptions',
 }
 
 export interface UrlMatcher {

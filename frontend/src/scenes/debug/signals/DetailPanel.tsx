@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState } from 'react'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconExternal } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
+import { urls } from 'scenes/urls'
 
 import { ResizeGripDots, sourceProductColor } from './helpers'
 import { SignalNode, isMatchedMetadata } from './types'
@@ -207,9 +211,7 @@ export function DetailPanel({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ backgroundColor: sourceProductColor(signal.source_product) }}
                         />
-                        <span>
-                            {signal.source_product} / {signal.source_type}
-                        </span>
+                        <span>{signalCardSourceLine(signal)}</span>
                     </div>
                 </Section>
                 <div className="flex gap-6">
@@ -228,7 +230,20 @@ export function DetailPanel({
                 </Section>
                 {signal.source_id && (
                     <Section label="Source ID">
-                        <code className="text-xs select-all">{signal.source_id}</code>
+                        <div className="flex flex-col gap-2">
+                            <code className="text-xs select-all">{signal.source_id}</code>
+                            {signal.source_product === 'error_tracking' &&
+                                typeof signal.extra?.fingerprint === 'string' && (
+                                    <Link
+                                        to={urls.errorTrackingIssue(signal.source_id, {
+                                            fingerprint: signal.extra.fingerprint as string,
+                                        })}
+                                        className="inline-flex items-center gap-1 text-xs font-medium"
+                                    >
+                                        Open in Error tracking <IconExternal className="size-3" />
+                                    </Link>
+                                )}
+                        </div>
                     </Section>
                 )}
                 {signal.extra && Object.keys(signal.extra).length > 0 && (

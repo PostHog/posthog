@@ -1,5 +1,5 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
+[ -f "$(dirname "$0")/_/husky.sh" ] && . "$(dirname "$0")/_/husky.sh"
 
 # Args: $1=prev_ref, $2=new_ref, $3=1 if branch checkout, 0 if file checkout
 [ "$3" = "1" ] || exit 0

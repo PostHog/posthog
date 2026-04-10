@@ -105,6 +105,7 @@ class Command(BaseCommand):
 
         for num, sq in enumerate(missing):
             try:
+                sq.setup_model_paths()
                 sync_saved_query_workflow(sq, create=True)
                 created += 1
                 logger.info("Created schedule", saved_query_id=str(sq.id), team_id=sq.team_id)

@@ -11,9 +11,10 @@ from posthog.test.base import APIBaseTest
 from django.conf import settings
 from django.utils import timezone
 
-from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):

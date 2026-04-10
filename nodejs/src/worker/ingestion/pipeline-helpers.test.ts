@@ -1,40 +1,38 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
+import { emitIngestionWarning } from '../../ingestion/common/ingestion-warnings'
+import { DLQ_OUTPUT } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './pipeline-helpers'
-import { captureIngestionWarning } from './utils'
+import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from './pipeline-helpers'
 
 // Mock all dependencies
 jest.mock('../../utils/logger')
 jest.mock('../../utils/posthog')
 
-// Mock only specific functions from utils, not the whole module
-jest.mock('./utils', () => {
-    const actual = jest.requireActual('./utils')
+jest.mock('../../ingestion/common/ingestion-warnings', () => {
+    const actual = jest.requireActual('../../ingestion/common/ingestion-warnings')
     return {
         ...actual,
-        captureIngestionWarning: jest.fn(),
+        emitIngestionWarning: jest.fn(),
     }
 })
 
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-const mockCaptureIngestionWarning = captureIngestionWarning as jest.MockedFunction<typeof captureIngestionWarning>
+const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typeof emitIngestionWarning>
 
-describe('sendMessageToDLQ', () => {
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+describe('produceMessageToDLQ', () => {
+    let mockOutputs: jest.Mocked<IngestionOutputs<'dlq' | 'ingestion_warnings'>>
     let mockMessage: Message
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
-            queueMessages: jest.fn() as any,
-            produce: jest.fn() as any,
-        } as any
+        mockOutputs = createMockIngestionOutputs<'dlq' | 'ingestion_warnings'>()
 
         mockMessage = {
             value: Buffer.from('test message'),
@@ -51,15 +49,14 @@ describe('sendMessageToDLQ', () => {
             ],
         } as Message
 
-        mockCaptureIngestionWarning.mockResolvedValue(true)
+        mockEmitIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -70,8 +67,8 @@ describe('sendMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockKafkaProducer,
+        expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
+            mockOutputs,
             42,
             'pipeline_step_dlq',
             {
@@ -84,8 +81,7 @@ describe('sendMessageToDLQ', () => {
             { alwaysSend: true }
         )
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: dlqTopic,
+        expect(mockOutputs.produce).toHaveBeenCalledWith(DLQ_OUTPUT, {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
@@ -106,9 +102,8 @@ describe('sendMessageToDLQ', () => {
         const messageWithoutHeaders = { ...mockMessage, headers: undefined } as Message
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, messageWithoutHeaders, error, stepName, dlqTopic)
+        await produceMessageToDLQ(mockOutputs, messageWithoutHeaders, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -118,7 +113,7 @@ describe('sendMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+        expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should handle different header value types', async () => {
@@ -135,12 +130,10 @@ describe('sendMessageToDLQ', () => {
 
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, messageWithMixedHeaders, error, stepName, dlqTopic)
+        await produceMessageToDLQ(mockOutputs, messageWithMixedHeaders, error, stepName)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: dlqTopic,
+        expect(mockOutputs.produce).toHaveBeenCalledWith(DLQ_OUTPUT, {
             value: messageWithMixedHeaders.value,
             key: messageWithMixedHeaders.key,
             headers: expect.objectContaining({
@@ -156,11 +149,11 @@ describe('sendMessageToDLQ', () => {
     it('should handle non-Error objects', async () => {
         const error = 'String error'
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            DLQ_OUTPUT,
             expect.objectContaining({
                 headers: expect.objectContaining({
                     dlq_reason: 'String error',
@@ -172,12 +165,11 @@ describe('sendMessageToDLQ', () => {
     it('should handle DLQ failures gracefully', async () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
-        const dlqTopic = 'test-dlq'
         const dlqError = new Error('DLQ failed')
 
-        mockKafkaProducer.produce = jest.fn().mockRejectedValue(dlqError)
+        mockOutputs.produce.mockRejectedValue(dlqError)
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        await produceMessageToDLQ(mockOutputs, mockMessage, error, stepName)
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
@@ -195,17 +187,19 @@ describe('sendMessageToDLQ', () => {
     })
 })
 
-describe('redirectMessageToTopic', () => {
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+describe('redirectMessageToOutput', () => {
+    const TEST_REDIRECT = 'test_redirect' as const
+
+    let mockOutputs: jest.Mocked<IngestionOutputs<typeof TEST_REDIRECT>>
     let mockPromiseScheduler: PromiseScheduler
     let mockMessage: Message
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = {
-            queueMessages: jest.fn() as any,
-            produce: jest.fn() as any,
+        mockOutputs = {
+            produce: jest.fn().mockResolvedValue(undefined),
+            queueMessages: jest.fn().mockResolvedValue(undefined),
         } as any
 
         mockPromiseScheduler = {
@@ -223,14 +217,12 @@ describe('redirectMessageToTopic', () => {
         } as Message
     })
 
-    it('should redirect message to topic with default parameters', async () => {
-        const topic = 'overflow-topic'
+    it('should redirect message to output with default parameters', async () => {
         const stepName = 'test-step'
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
+        await redirectMessageToOutput(mockOutputs, TEST_REDIRECT, mockPromiseScheduler, mockMessage, stepName)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: topic,
+        expect(mockOutputs.produce).toHaveBeenCalledWith(TEST_REDIRECT, {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
@@ -246,13 +238,11 @@ describe('redirectMessageToTopic', () => {
     })
 
     it('should handle preserveKey = false', async () => {
-        const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName, false)
+        await redirectMessageToOutput(mockOutputs, TEST_REDIRECT, mockPromiseScheduler, mockMessage, stepName, false)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: topic,
+        expect(mockOutputs.produce).toHaveBeenCalledWith(TEST_REDIRECT, {
             value: mockMessage.value,
             key: null,
             headers: expect.any(Object),
@@ -260,43 +250,35 @@ describe('redirectMessageToTopic', () => {
     })
 
     it('should handle awaitAck = false', async () => {
-        const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        // Create a promise that never resolves to ensure we're not awaiting it
         const neverResolvingPromise = new Promise(() => {})
-        let produceCalled = false
-        let scheduleCalled = false
+        mockOutputs.produce = jest.fn().mockReturnValue(neverResolvingPromise)
 
-        mockKafkaProducer.produce = jest.fn().mockImplementation(() => {
-            produceCalled = true
-            return neverResolvingPromise
-        })
+        mockPromiseScheduler.schedule = jest.fn().mockImplementation((promise) => promise)
 
-        mockPromiseScheduler.schedule = jest.fn().mockImplementation((promise) => {
-            scheduleCalled = true
-            return promise // Return the never-resolving promise
-        })
+        await redirectMessageToOutput(
+            mockOutputs,
+            TEST_REDIRECT,
+            mockPromiseScheduler,
+            mockMessage,
+            stepName,
+            true,
+            false
+        )
 
-        // This should return quickly without waiting for the promise
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName, true, false)
-
-        // Verify produce and schedule were called but we didn't wait for them
-        expect(produceCalled).toBe(true)
-        expect(scheduleCalled).toBe(true)
-        expect(mockKafkaProducer.produce).toHaveBeenCalled()
+        expect(mockOutputs.produce).toHaveBeenCalled()
         expect(mockPromiseScheduler.schedule).toHaveBeenCalled()
     })
 
     it('should handle redirect failures', async () => {
-        const topic = 'overflow-topic'
         const stepName = 'test-step'
         const redirectError = new Error('Redirect failed')
 
-        mockKafkaProducer.produce = jest.fn().mockRejectedValue(redirectError)
+        mockOutputs.produce = jest.fn().mockRejectedValue(redirectError)
 
         await expect(
-            redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
+            redirectMessageToOutput(mockOutputs, TEST_REDIRECT, mockPromiseScheduler, mockMessage, stepName)
         ).rejects.toThrow('Redirect failed')
 
         expect(mockCaptureException).toHaveBeenCalledWith(redirectError, {
@@ -305,7 +287,7 @@ describe('redirectMessageToTopic', () => {
                 pipeline_step: stepName,
             },
             extra: {
-                topic,
+                output: TEST_REDIRECT,
                 distinct_id: 'test-user',
                 event: 'pageview',
                 error: redirectError,
@@ -314,9 +296,7 @@ describe('redirectMessageToTopic', () => {
     })
 
     it('should use default step name when not provided', async () => {
-        const topic = 'overflow-topic'
-
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic)
+        await redirectMessageToOutput(mockOutputs, TEST_REDIRECT, mockPromiseScheduler, mockMessage)
     })
 })
 
@@ -403,14 +383,13 @@ describe('Header processing utilities', () => {
         } as Message
     })
 
-    it('should correctly process different header types in sendMessageToDLQ', async () => {
-        const mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-        } as unknown as KafkaProducerWrapper
+    it('should correctly process different header types in produceMessageToDLQ', async () => {
+        const headerMockOutputs = createMockIngestionOutputs<'dlq' | 'ingestion_warnings'>()
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, new Error('test'), 'test-step', 'dlq-topic')
+        await produceMessageToDLQ(headerMockOutputs, mockMessage, new Error('test'), 'test-step')
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(headerMockOutputs.produce).toHaveBeenCalledWith(
+            DLQ_OUTPUT,
             expect.objectContaining({
                 headers: expect.objectContaining({
                     stringHeader: 'string-value',
@@ -423,18 +402,26 @@ describe('Header processing utilities', () => {
         )
     })
 
-    it('should correctly process different header types in redirectMessageToTopic', async () => {
-        const mockKafkaProducer = {
+    it('should correctly process different header types in redirectMessageToOutput', async () => {
+        const TEST_REDIRECT = 'test_redirect' as const
+        const mockRedirectOutputs = {
             produce: jest.fn().mockResolvedValue(undefined),
-        } as unknown as KafkaProducerWrapper
+        } as unknown as IngestionOutputs<typeof TEST_REDIRECT>
 
         const mockPromiseScheduler = {
             schedule: jest.fn().mockImplementation((promise) => promise),
         } as unknown as PromiseScheduler
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, 'test-topic', 'test-step')
+        await redirectMessageToOutput(
+            mockRedirectOutputs,
+            TEST_REDIRECT,
+            mockPromiseScheduler,
+            mockMessage,
+            'test-step'
+        )
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(mockRedirectOutputs.produce).toHaveBeenCalledWith(
+            TEST_REDIRECT,
             expect.objectContaining({
                 headers: expect.objectContaining({
                     stringHeader: 'string-value',

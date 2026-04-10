@@ -27,9 +27,11 @@ import { urls } from 'scenes/urls'
 
 import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const SNIPPETS = {
+    ...JS_WEB_SNIPPETS,
     SessionReplayFinalSteps,
 }
 
@@ -78,6 +80,7 @@ const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,

@@ -2,8 +2,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import (
     SalesforceUsageEnrichmentWorkflow,
     aggregate_usage_signals_activity,
     cache_org_mappings_activity,
-    fetch_salesforce_org_ids_activity,
-    update_salesforce_usage_activity,
+    enrich_org_page_activity,
 )
 from posthog.temporal.salesforce_enrichment.workflow import (
     SalesforceEnrichmentAsyncWorkflow,
@@ -21,6 +20,5 @@ ACTIVITIES = [
     cache_all_accounts_activity,
     aggregate_usage_signals_activity,
     cache_org_mappings_activity,
-    fetch_salesforce_org_ids_activity,
-    update_salesforce_usage_activity,
+    enrich_org_page_activity,
 ]

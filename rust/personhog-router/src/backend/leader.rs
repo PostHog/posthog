@@ -5,13 +5,16 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
-use personhog_proto::personhog::leader::v1::{
-    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
+use personhog_proto::personhog::types::v1::{
+    GetPersonRequest, GetPersonResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
-use personhog_proto::personhog::types::v1::{GetPersonRequest, GetPersonResponse};
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
+
+use personhog_common::grpc::current_client_name;
 
 use super::retry::with_retry;
 use super::LeaderOps;
@@ -32,6 +35,8 @@ pub struct LeaderBackend {
     num_partitions: u32,
     retry_config: RetryConfig,
     timeout: Duration,
+    max_send_message_size: usize,
+    max_recv_message_size: usize,
 }
 
 impl LeaderBackend {
@@ -41,6 +46,8 @@ impl LeaderBackend {
         num_partitions: u32,
         timeout: Duration,
         retry_config: RetryConfig,
+        max_send_message_size: usize,
+        max_recv_message_size: usize,
     ) -> Self {
         assert!(
             num_partitions > 0,
@@ -53,6 +60,8 @@ impl LeaderBackend {
             num_partitions,
             retry_config,
             timeout,
+            max_send_message_size,
+            max_recv_message_size,
         }
     }
 
@@ -107,8 +116,11 @@ impl LeaderBackend {
         let channel = Channel::from_shared(address.clone())
             .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
             .timeout(self.timeout)
+            .tcp_nodelay(true)
             .connect_lazy();
-        let client = PersonHogLeaderClient::new(channel);
+        let client = PersonHogLeaderClient::new(channel)
+            .max_encoding_message_size(self.max_send_message_size)
+            .max_decoding_message_size(self.max_recv_message_size);
         self.clients.insert(address, client.clone());
         Ok(client)
     }
@@ -180,12 +192,14 @@ impl LeaderOps for LeaderBackend {
         with_retry(&self.retry_config, "get_person", || {
             let client_fut = self.resolve_leader(partition);
             let req = leader_req;
+            let client_name = current_client_name();
             async move {
                 let mut client = client_fut.await?;
-                client
-                    .get_person(Request::new(req))
-                    .await
-                    .map(|r| r.into_inner())
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
+                client.get_person(request).await.map(|r| r.into_inner())
             }
         })
         .await
@@ -201,10 +215,15 @@ impl LeaderOps for LeaderBackend {
         with_retry(&self.retry_config, "update_person_properties", || {
             let client_fut = self.resolve_leader(partition);
             let req = req_with_partition.clone();
+            let client_name = current_client_name();
             async move {
                 let mut client = client_fut.await?;
+                let mut request = Request::new(req);
+                if let Ok(val) = client_name.parse() {
+                    request.metadata_mut().insert("x-client-name", val);
+                }
                 client
-                    .update_person_properties(Request::new(req))
+                    .update_person_properties(request)
                     .await
                     .map(|r| r.into_inner())
             }
@@ -269,6 +288,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let p1 = backend.partition_for_person(1, 42);
@@ -295,6 +316,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let mut counts = [0u32; 8];
@@ -326,6 +349,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -347,6 +372,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -375,6 +402,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -402,6 +431,8 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
         );
 
         let partition = backend.partition_for_person(1, 42);

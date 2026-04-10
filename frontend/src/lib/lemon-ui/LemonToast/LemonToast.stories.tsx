@@ -10,7 +10,7 @@ import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_sta
 
 import { ToastCloseButton, ToastContent, ToastContentProps, lemonToast } from './LemonToast'
 
-const meta: Meta<typeof ToastContent> = {
+const meta: Meta<ToastContentProps> = {
     title: 'Lemon UI/Lemon Toast',
     component: ToastContent,
     parameters: {

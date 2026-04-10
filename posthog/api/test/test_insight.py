@@ -53,8 +53,6 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
-    Dashboard,
-    DashboardTile,
     Filter,
     Insight,
     InsightViewed,
@@ -62,13 +60,15 @@ from posthog.models import (
     Person,
     SharingConfiguration,
     Team,
-    Text,
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -92,8 +92,43 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
-        mock_feature_enabled.assert_called_once()
-        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+        legacy_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-endpoints-disabled"
+        ]
+        self.assertEqual(len(legacy_calls), 1)
+
+    def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "Creating or updating insights with legacy filters is not available for this user.",
+        )
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 1)
+
+    def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {
+                    "name": "Query insight",
+                    "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        legacy_filter_calls = [
+            c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
+        ]
+        self.assertEqual(len(legacy_filter_calls), 0)
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -2674,6 +2709,49 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # insight 3 is not included in response
         self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
+    def test_get_recent_insights_with_feature_flag_query_based(self) -> None:
+        """Query-based insights store breakdown config in the query JSON field, not filters."""
+        query_with_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "$feature/my-test-flag",
+                },
+            },
+        }
+        query_without_flag = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                "breakdownFilter": {
+                    "breakdown_type": "event",
+                    "breakdown": "email",
+                },
+            },
+        }
+
+        insight_with_flag = Insight.objects.create(
+            query=query_with_flag,
+            team=self.team,
+            short_id="query_flag1",
+        )
+        Insight.objects.create(
+            query=query_without_flag,
+            team=self.team,
+            short_id="query_noflag",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=my-test-flag")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids_in_response = [r["id"] for r in response_data["results"]]
+        self.assertCountEqual(ids_in_response, [insight_with_flag.id])
+
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
     ) -> None:
@@ -2821,26 +2899,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-    @patch("posthog.decorators.get_safe_cache")
-    def test_including_query_id_does_not_affect_cache_key(self, patched_get_safe_cache) -> None:
+    def test_including_query_id_does_not_affect_cache_key(self) -> None:
         """
         regression test, by introducing a query_id we were changing the cache key
         so, if you made the same query twice, the second one would not be cached, only because the query id had changed
         """
         self._get_insight_with_client_query_id("b3ef3987-b8e7-4339-b9b8-fa2b65606692")
-        self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
+        response = self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
 
-        assert patched_get_safe_cache.call_count == 2
-        assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
+        # Second call should hit cache since client_query_id is not part of the cache key
+        assert response.get("is_cached") is True
 
-    def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
+    def _get_insight_with_client_query_id(self, client_query_id: str) -> dict:
         query_params = f"?events={json.dumps([{'id': '$pageview'}])}&client_query_id={client_query_id}"
-        self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
+        return self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected
@@ -3576,6 +3655,76 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "override value!"
 
+    def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Organization", code_name="organization", default_value="default", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.organization}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        base_query_params: dict[str, str] = {
+            "from_dashboard": str(dashboard.pk),
+            "refresh": "blocking",
+            "tile_filters_override": json.dumps({"date_from": "all", "explicitDate": False}),
+        }
+
+        some_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Some org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        another_org_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                **base_query_params,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "Another org",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert some_org_response["filters_hash"] != another_org_response["filters_hash"]
+
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""
 
@@ -4064,10 +4213,9 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
-    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    @patch("posthog.api.insight.process_query_dict")
     def test_trend_returns_400_for_exposed_errors(
-        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+        self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -4080,7 +4228,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             "ExposedHogQLError": ExposedHogQLError,
             "HogVMException": HogVMException,
         }
-        mock_calculate.side_effect = error_classes[error_type](error_message)
+        mock_process.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/trend/",
@@ -4097,10 +4245,9 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
-    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    @patch("posthog.api.insight.process_query_dict")
     def test_funnel_returns_400_for_exposed_errors(
-        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+        self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
@@ -4113,7 +4260,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             "ExposedHogQLError": ExposedHogQLError,
             "HogVMException": HogVMException,
         }
-        mock_calculate.side_effect = error_classes[error_type](error_message)
+        mock_process.side_effect = error_classes[error_type](error_message)
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/funnel/",

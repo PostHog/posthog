@@ -3,11 +3,11 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -101,7 +101,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     SourceFieldInputConfig(
                         name="secret_token",
                         label="Secret token",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
                     ),
@@ -111,8 +111,8 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         required=True,
                         defaultValue="EU",
                         options=[
-                            Option(label="EU", value="EU"),
-                            Option(
+                            SourceFieldSelectConfigOption(label="EU", value="EU"),
+                            SourceFieldSelectConfigOption(
                                 label="US",
                                 value="US",
                                 fields=cast(

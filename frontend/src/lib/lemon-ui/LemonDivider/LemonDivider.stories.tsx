@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -7,15 +7,15 @@ import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { ProfileBubbles } from '../ProfilePicture'
 import { LemonDivider, LemonDividerProps } from './LemonDivider'
 
-type Story = StoryObj<typeof LemonDivider>
-const meta: Meta<typeof LemonDivider> = {
+type Story = StoryObj<LemonDividerProps>
+const meta: Meta<LemonDividerProps> = {
     title: 'Lemon UI/Lemon Divider',
     component: LemonDivider,
     tags: ['autodocs'],
 }
 export default meta
 
-const HorizontalTemplate: StoryFn<typeof LemonDivider> = (props: LemonDividerProps) => {
+const HorizontalRender = (props: LemonDividerProps): JSX.Element => {
     return (
         <>
             <LemonRow icon={<Lettermark name={1} color={LettermarkColor.Gray} />}>
@@ -29,7 +29,7 @@ const HorizontalTemplate: StoryFn<typeof LemonDivider> = (props: LemonDividerPro
     )
 }
 
-const VerticalTemplate: StoryFn<typeof LemonDivider> = (props: LemonDividerProps) => {
+const VerticalRender = (props: LemonDividerProps): JSX.Element => {
     return (
         <div className="flex items-center">
             <ProfileBubbles
@@ -47,19 +47,28 @@ const VerticalTemplate: StoryFn<typeof LemonDivider> = (props: LemonDividerProps
         </div>
     )
 }
-VerticalTemplate.args = { vertical: true }
 
-export const Default: Story = HorizontalTemplate.bind({})
-Default.args = {}
+export const Default: Story = {
+    args: {},
+    render: (props) => <HorizontalRender {...props} />,
+}
 
-export const Large: Story = HorizontalTemplate.bind({})
-Large.args = { className: 'my-6' }
+export const Large: Story = {
+    args: { className: 'my-6' },
+    render: (props) => <HorizontalRender {...props} />,
+}
 
-export const ThickDashed: Story = HorizontalTemplate.bind({})
-ThickDashed.args = { thick: true, dashed: true }
+export const ThickDashed: Story = {
+    args: { thick: true, dashed: true },
+    render: (props) => <HorizontalRender {...props} />,
+}
 
-export const Vertical: Story = VerticalTemplate.bind({})
-Vertical.args = { ...VerticalTemplate.args }
+export const Vertical: Story = {
+    args: { vertical: true },
+    render: (props) => <VerticalRender {...props} />,
+}
 
-export const VerticalDashed: Story = VerticalTemplate.bind({})
-VerticalDashed.args = { ...VerticalTemplate.args, dashed: true }
+export const VerticalDashed: Story = {
+    args: { vertical: true, dashed: true },
+    render: (props) => <VerticalRender {...props} />,
+}

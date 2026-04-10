@@ -19,3 +19,28 @@ DAGSTER_UI_PORT: int = int(os.getenv("DAGSTER_UI_PORT", 3030))
 DAGSTER_AI_EVALS_S3_BUCKET: str = os.getenv("DAGSTER_AI_EVALS_S3_BUCKET", "ai-evals")
 
 DAGSTER_FAVICONS_S3_BUCKET: str = os.getenv("DAGSTER_FAVICONS_S3_BUCKET", "posthog")
+
+# Part breaker settings
+PART_BREAKER_COUNT_TOLERANCE: float = float(os.getenv("PART_BREAKER_COUNT_TOLERANCE", "0.05"))
+PART_BREAKER_ELIGIBLE_TABLES: list[str] = [
+    t.strip() for t in os.getenv("PART_BREAKER_ELIGIBLE_TABLES", "").split(",") if t.strip()
+]
+PART_BREAKER_MAX_CONCURRENT: int = int(os.getenv("PART_BREAKER_MAX_CONCURRENT", "1"))
+PART_BREAKER_MAX_PART_SIZE_GIB: int = int(os.getenv("PART_BREAKER_MAX_PART_SIZE_GIB", "300"))
+PART_BREAKER_MAX_PARTS_PER_RUN: int = int(os.getenv("PART_BREAKER_MAX_PARTS_PER_RUN", "1"))
+PART_BREAKER_MAX_REPLICATION_WAIT_TIME: int = int(os.getenv("PART_BREAKER_MAX_REPLICATION_WAIT_TIME", "7200"))  # 2h
+PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER: float = float(os.getenv("PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER", "2.0"))
+PART_BREAKER_MAX_EXECUTION_TIME: int = int(
+    os.getenv("PART_BREAKER_MAX_EXECUTION_TIME", str(24 * 60 * 60))
+)  # 24h — INSERT SELECT on large parts can take many hours
+PART_BREAKER_MAX_MEMORY_USAGE: int = int(
+    os.getenv("PART_BREAKER_MAX_MEMORY_USAGE", str(128 * 1024 * 1024 * 1024))
+)  # 128 GiB
+PART_BREAKER_RECEIVE_TIMEOUT: int = int(
+    os.getenv("PART_BREAKER_RECEIVE_TIMEOUT", str(48 * 60 * 60))
+)  # 48h — must exceed INSERT SELECT duration
+PART_BREAKER_SCHEDULE: str = os.getenv("PART_BREAKER_SCHEDULE", "0 2 * * 6")  # Saturdays at 2am UTC
+PART_BREAKER_SSH_KEY: str | None = os.getenv("CLICKHOUSE_SSH_PRIVATE_KEY")
+PART_BREAKER_SSH_KEY_PATH: str | None = os.getenv("PART_BREAKER_SSH_KEY_PATH")  # Path to SSH key file (alternative)
+PART_BREAKER_SSH_USER: str = os.getenv("PART_BREAKER_SSH_USER", "ubuntu")
+PART_BREAKER_WORKLOAD: str = os.getenv("PART_BREAKER_WORKLOAD", "OFFLINE")

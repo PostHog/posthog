@@ -1602,6 +1602,12 @@
             animation-iteration-count: 1 !important;
         }
 
+        // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
+        // makes it inherently non-deterministic, CSS animation overrides don't help
+        .Hogfetti {
+            display: none !important;
+        }
+
         // Hide some parts of the UI that were causing flakiness
         ::-webkit-scrollbar,
         *> ::-webkit-scrollbar,

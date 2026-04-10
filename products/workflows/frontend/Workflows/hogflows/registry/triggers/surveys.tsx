@@ -361,6 +361,7 @@ registerTriggerType({
     label: 'Survey response',
     icon: <IconMessage />,
     description: 'Trigger when a user submits a survey response',
+    group: 'Surveys',
     matchConfig: (config) => isSurveyTriggerConfig(config),
     buildConfig: () => ({
         type: 'event',

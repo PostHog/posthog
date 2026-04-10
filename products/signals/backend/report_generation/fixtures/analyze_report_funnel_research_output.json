@@ -1,0 +1,71 @@
+{
+  "name": "funnel_research_output",
+  "report_id": "test-funnel-report-001",
+  "generated_at": "2026-03-17T20:22:37Z",
+  "repository": "posthog/posthog",
+  "signal_ids": [
+    "test-funnel-compare-42606",
+    "test-funnel-binwidth-42995",
+    "test-funnel-percentiles-42996",
+    "test-funnel-drop-off-43201"
+  ],
+  "result": {
+    "title": "Funnel insights lack time-based comparison and statistical options",
+    "summary": "The signals point to missing funnel analysis capabilities rather than a broken funnel engine. The consistent gaps are native time-period comparison, fixed Time to Convert histogram buckets, and percentile-based conversion-time summaries, while the onboarding drop-off report could not be verified without customer data.",
+    "findings": [
+      {
+        "signal_id": "test-funnel-compare-42606",
+        "relevant_code_paths": [
+          "posthog/schema.py (line 18093-18142: FunnelsQuery model - no compareFilter field)",
+          "posthog/schema.py (line 750-762: CompareFilter model definition)",
+          "posthog/hogql_queries/insights/funnels/funnels_query_runner.py (no compare logic)",
+          "posthog/hogql_queries/insights/funnels/funnel_query_context.py (no compare logic)",
+          "posthog/hogql_queries/insights/trends/trends_query_runner.py (lines 247, 427, 517, 600, 751, 866, 896, 1174 - reference implementation of compareFilter for trends)"
+        ],
+        "data_queried": "No PostHog MCP data queries were needed. The signal is about a missing feature (compare filter for funnels), and the code evidence is definitive: the FunnelsQuery schema model at posthog/schema.py:18093 does not include a compareFilter field, unlike TrendsQuery which does. The funnel query runner (funnels_query_runner.py) and funnel query context (funnel_query_context.py) contain zero references to compareFilter or compare_filter. The trends query runner at posthog/hogql_queries/insights/trends/trends_query_runner.py has extensive compare logic (10+ references) that serves as a reference implementation. The workaround mentioned in the issue (HogQL breakdown with toISOWeek) is valid - the breakdown mechanism exists in the funnel code, but native comparison support does not.",
+        "verified": true
+      },
+      {
+        "signal_id": "test-funnel-binwidth-42995",
+        "relevant_code_paths": [
+          "posthog/hogql_queries/insights/funnels/funnel_time_to_convert.py (entire file - core histogram logic, lines 39-70 show dynamic bin_width calculation)",
+          "posthog/schema.py (line 4658-4663: FunnelsFilter.binCount - only bin count is configurable, no binWidth field)",
+          "posthog/hogql_queries/insights/funnels/funnels_query_runner.py (line 23: imports FunnelTimeToConvertUDF)",
+          "posthog/hogql_queries/insights/funnels/test/test_funnel_time_to_convert.py (test cases confirming auto and custom bin count, no fixed-width tests)"
+        ],
+        "data_queried": "No PostHog MCP data queries were needed. The code evidence is definitive. In funnel_time_to_convert.py, the bin width is always computed dynamically: ceil((max_timing - min_timing) / bin_count) (line 66). The only user-configurable parameter is binCount (FunnelsFilter.binCount in schema.py:4658), which controls the number of bins but not their width. There is no binWidth or fixed-width option anywhere in the schema or query builder. When binCount is not set, it auto-calculates via cube root of sample count (line 50). When set by the user, it is clamped to 1-90 (lines 43-46). In either case, the actual pixel width of each bin shifts with the data distribution (min/max conversion times), confirming the signal's claim that bin boundaries are unstable across date ranges.",
+        "verified": true
+      },
+      {
+        "signal_id": "test-funnel-percentiles-42996",
+        "relevant_code_paths": [
+          "posthog/hogql_queries/insights/funnels/funnel_time_to_convert.py (line 84: only arrayAvg(timings) as averageConversionTime - no median/percentile in Time to Convert histogram view)",
+          "posthog/hogql_queries/insights/funnels/funnel.py (lines 269-271, 447: regular funnel steps do include median_conversion_time via medianArray, but no percentiles like P90/P99)",
+          "posthog/hogql_queries/insights/funnels/base.py (lines 488-503: computes both avg and median for step conversion times in regular funnel view, but not percentiles)",
+          "posthog/schema.py (line 4658-4663: FunnelsFilter has no aggregation type selector for Time to Convert stats)"
+        ],
+        "data_queried": "No PostHog MCP queries needed - code evidence is sufficient. Searched for feature flags gating funnel stats improvements (funnel.*flag in funnels directory) and for any percentile/quantile usage (percentile|quantile in funnels directory) - both returned no matches, confirming no work-in-progress on this feature. The situation is nuanced: the regular funnel steps view (funnel.py, base.py) already computes both average_conversion_time and median_conversion_time per step. However, the Time to Convert histogram view (funnel_time_to_convert.py) only returns arrayAvg(timings) as averageConversionTime as a summary stat - no median, no percentiles. Neither view offers P90/P99 percentile options. There are no feature flags gating any funnel stats improvements.",
+        "verified": true
+      },
+      {
+        "signal_id": "test-funnel-drop-off-43201",
+        "relevant_code_paths": [
+          "posthog/hogql_queries/insights/funnels/funnels_query_runner.py (funnel query execution - no recent changes)",
+          "posthog/hogql_queries/insights/funnels/funnel.py (funnel step calculation - no recent changes)",
+          "posthog/hogql_queries/insights/funnels/base.py (base funnel logic - no recent changes)"
+        ],
+        "data_queried": "1. Ran execute-sql to check for user_signed_up and onboarding_completed events in PostHog's own project data over the last 4 weeks. Neither event exists - only $pageview was returned. This is expected: these are the customer's custom events in their own PostHog project, not in PostHog's internal instance. The MCP tools only query the active PostHog project (PostHog's own), so we cannot verify the customer's claim about event volume drops. 2. Checked git history for recent changes to funnel query code (posthog/hogql_queries/insights/funnels/) - found no funnel logic changes in the relevant timeframe. The only recent commit touching this directory is error-tracking related (4412bf7e), not funnel calculation logic. 3. Searched for onboarding_completed and user_signed_up in the codebase - found only test fixtures and documentation examples, not production code. There is no evidence of a codebase-level regression that would cause funnel conversion drops. The issue is customer-specific and would require access to their project data to investigate (checking event volumes, SDK configuration, ingestion warnings in their project).",
+        "verified": false
+      }
+    ],
+    "actionability": {
+      "explanation": "All three feature requests (signals 1-3) are verified as genuine gaps in the codebase, but each involves significant architectural decisions that require human input. Signal 1 (compare filter) needs a new compareFilter field added to FunnelsQuery in the schema plus implementation mirroring trends_query_runner.py - but the design of how comparison results are returned and displayed needs product input. Signal 2 (fixed bin width) requires adding a binWidth option to FunnelsFilter and reworking the histogram calculation in funnel_time_to_convert.py - but the UX for how users specify fixed widths vs auto-binning needs design decisions. Signal 3 (percentiles) is the most straightforward - the regular funnel view already computes median, but the Time to Convert histogram only uses arrayAvg; adding percentile aggregation options requires schema and UI choices. Signal 4 (customer conversion drop) is unverifiable without access to the customer's project data and showed no code-level regression.",
+      "actionability": "requires_human_input",
+      "already_addressed": false
+    },
+    "priority": {
+      "explanation": "All three verified signals (1-3) are feature enhancement requests with workarounds available (HogQL breakdown for comparison, adjusting bin count manually, using the existing median_conversion_time from the regular funnel steps view). None represent broken functionality - funnels work correctly, they just lack advanced statistical options. The unverified bug report (signal 4) could not be corroborated by any code regression in git history, and no funnel logic changes were found in the relevant timeframe. The signals carry 0.5 weight each (low confidence) except signal 4 at 0.8 which could not be verified. These are clear improvement opportunities with existing workarounds, fitting P2.",
+      "priority": "P2"
+    }
+  }
+}

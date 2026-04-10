@@ -22,6 +22,7 @@ from pydantic import (
     BaseModel,
     Field as PydanticField,
     RootModel,
+    ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
@@ -40,12 +41,14 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import generate_insight_metadata, get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_metadata import SUPPORTED_ACTOR_SOURCES, generate_insight_metadata
+from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
@@ -53,8 +56,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
-from posthog.decorators import cached_by_filters
+from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
@@ -66,13 +68,13 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method, hogql_insights_replace_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
+    BLOCKING_EXECUTION_MODES,
     ExecutionMode,
     execution_mode_from_refresh,
-    get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import Cohort, DashboardTile, Filter, Insight, User
+from posthog.models import Cohort, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -83,19 +85,12 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration
-from posthog.models.dashboard import Dashboard
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
-from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.stickiness import Stickiness
-from posthog.queries.trends.trends import Trends
-from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -118,11 +113,15 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
+LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -192,6 +191,26 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return posthoganalytics.feature_enabled(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
+        str(distinct_id),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -465,6 +484,15 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "is_cached",
         )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        query = attrs.get("query") if "query" in attrs else None
+        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
+        if using_legacy_filters and is_legacy_insight_filters_blocked(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -997,6 +1025,47 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
+class MCPInsightSerializer(InsightSerializer):
+    """Serializer for MCP insight create/update requests.
+
+    Accepts raw product analytics queries and normalizes them into the correct saved-insight
+    wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    """
+
+    query = QueryFieldSerializer(required=False, allow_null=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if self.context["view"].action == "create" and "query" not in attrs:
+            raise serializers.ValidationError({"query": "This field is required."})
+        return super().validate(attrs)
+
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
+        # Raw HogQL → DataVisualizationNode
+        try:
+            return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError:
+            pass
+
+        # Already-wrapped node → use as-is
+        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+            try:
+                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+            except PydanticValidationError:
+                pass
+
+        # Raw product analytics query → InsightVizNode
+        try:
+            return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError as exc:
+            details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
+            raise serializers.ValidationError(f"This query can't be saved: {details}")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1024,6 +1093,7 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
+    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1042,7 +1112,6 @@ class InsightViewSet(
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
-    stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
@@ -1059,13 +1128,18 @@ class InsightViewSet(
         """Validate that AI data processing is approved by the organization."""
         if not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied("AI data processing must be approved by your organization")
-            raise PermissionDenied("AI data processing must be approved by your organization")
+
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
+        if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
+            return MCPInsightSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -1242,9 +1316,16 @@ class InsightViewSet(
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
+                feature_flag_breakdown = f"$feature/{feature_flag}"
+                # Legacy insights store breakdown in `filters.breakdown` and reference
+                # the flag name in `filters.properties`. Query-based insights store
+                # breakdown config in the `query` JSON field (e.g. inside
+                # `breakdownFilter.breakdown`). The properties search uses the raw flag
+                # name because legacy filters reference it without the `$feature/` prefix.
                 queryset = queryset.filter(
-                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    Q(filters__breakdown__icontains=feature_flag_breakdown)
                     | Q(filters__properties__icontains=feature_flag)
+                    | Q(query__icontains=feature_flag_breakdown)
                 )
             elif key == "events":
                 events_filter = request.GET["events"]
@@ -1515,8 +1596,20 @@ When set, the specified dashboard's filters and date range override will be appl
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        kind = query_data.get("kind")
+
         try:
-            query = schema.InsightVizNode.model_validate(query_data)
+            if kind == "ActorsQuery":
+                validated_query: schema.InsightVizNode | schema.ActorsQuery = schema.ActorsQuery.model_validate(
+                    query_data
+                )
+                if not isinstance(validated_query.source, SUPPORTED_ACTOR_SOURCES):
+                    return Response(
+                        {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
             return Response(
                 {"error": "Invalid query format"},
@@ -1524,13 +1617,61 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         try:
-            metadata = generate_insight_metadata(query, self.team)
+            metadata = generate_insight_metadata(validated_query, self.team)
         except Exception:
             return Response(
                 {"error": "Failed to generate insight metadata. Please try again."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response({"name": metadata.name, "description": metadata.description})
+
+    def _run_legacy_query(
+        self,
+        request: request.Request,
+        filter_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Convert Filter-style params to a query and run via process_query_dict.
+
+        Uses the unified QueryRunner cache instead of the legacy @cached_by_filters system.
+        """
+        team = self.team
+        filter = Filter(request=request, team=team)
+        if filter_overrides:
+            filter = filter.shallow_clone(overrides=filter_overrides)
+
+        query_dict = filter_to_query(filter.to_dict()).model_dump()
+
+        refresh = refresh_requested_by_client(request)
+        if refresh:
+            execution_mode = execution_mode_from_refresh(refresh)
+        else:
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+        # Legacy endpoints never supported async — restrict to blocking modes
+        if execution_mode not in BLOCKING_EXECUTION_MODES:
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+        query_response = process_query_dict(
+            team,
+            query_dict,
+            execution_mode=execution_mode,
+            user=request.user if isinstance(request.user, User) else None,
+            analytics_props=get_request_analytics_properties(request),
+        )
+
+        if isinstance(query_response, BaseModel):
+            return {
+                "result": getattr(query_response, "results", []),
+                "timezone": getattr(query_response, "timezone", team.timezone),
+                "is_cached": getattr(query_response, "is_cached", False),
+                "last_refresh": getattr(query_response, "last_refresh", None),
+            }
+        return {
+            "result": query_response.get("results", query_response.get("result", [])),
+            "timezone": query_response.get("timezone", team.timezone),
+            "is_cached": query_response.get("is_cached", False),
+            "last_refresh": query_response.get("last_refresh", None),
+        }
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
@@ -1540,17 +1681,14 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                query_method = get_query_method(request=request, team=self.team)
-                if query_method == "hogql":
-                    result = self.calculate_trends_hogql(request)
-                else:
-                    result = self.calculate_trends(request)
+                result = self._run_legacy_query(request)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
             raise ValidationError(str(e))
+
         filter = Filter(request=request, team=self.team)
 
         params_breakdown_limit = request.GET.get("breakdown_limit")
@@ -1591,45 +1729,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response({**result, "next": next})
 
-    @cached_by_filters
-    def calculate_trends(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, team=self.team)
-
-        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            stickiness_filter = StickinessFilter(
-                request=request,
-                team=team,
-                get_earliest_timestamp=get_earliest_timestamp,
-            )
-            result = self.stickiness_query_class().run(stickiness_filter, team)
-        else:
-            trends_query = Trends()
-            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
-
-        return {"result": result, "timezone": team.timezone}
-
-    @cached_by_filters
-    def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, team=team)
-        query = filter_to_query(filter.to_dict()).model_dump()
-        query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
-
-        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert (
-            isinstance(result, schema.CachedTrendsQueryResponse)
-            or isinstance(result, schema.CachedStickinessQueryResponse)
-            or isinstance(result, schema.CachedLifecycleQueryResponse)
-        )
-
-        return {"result": result.results, "timezone": team.timezone}
-
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -1638,12 +1737,7 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                query_method = get_query_method(request=request, team=self.team)
-                if query_method == "hogql":
-                    funnel = self.calculate_funnel_hogql(request)
-                else:
-                    funnel = self.calculate_funnel(request)
-
+                funnel = self._run_legacy_query(request, filter_overrides={"insight": "FUNNELS"})
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
@@ -1653,46 +1747,6 @@ When set, the specified dashboard's filters and date range override will be appl
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
         return Response(funnel)
-
-    @cached_by_filters
-    def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {
-                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {
-                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
-        else:
-            funnel_order_class = get_funnel_order_class(filter)
-            return {
-                "result": funnel_order_class(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
-
-    @cached_by_filters
-    def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, team=team)
-        filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
-        query = filter_to_query(filter.to_dict()).model_dump()
-        query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
-
-        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert isinstance(result, schema.CachedFunnelsQueryResponse)
-
-        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/viewed

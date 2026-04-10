@@ -14,14 +14,13 @@ from dateutil.parser import isoparse
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.dashboards.dashboard import DashboardSerializer
+from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models import Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
@@ -31,6 +30,10 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -894,7 +897,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard_json["tiles"][0]["show_description"] is False
 
-    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
@@ -1360,25 +1363,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["quick_filter_ids"], [str(qf1.id), str(qf2.id)])
 
     def test_return_cached_results_dashboard_has_filters(self):
-        # create a dashboard with no filters
+        # create a dashboard with two 7-day insights
+        query_7d = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator=PropertyOperator.EXACT)],
+            dateRange=DateRange(date_from="-7d"),
+        ).model_dump()
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        self.dashboard_api.create_insight({"query": query_7d, "dashboards": [dashboard.pk]})
+        self.dashboard_api.create_insight({"query": query_7d, "dashboards": [dashboard.pk]})
 
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "date_from": "-7d",
-            "insight": "TRENDS",
-        }
-
-        # create two insights with a -7d date from filter
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-
-        query = filter_to_query(filter_dict).model_dump()
-
-        # cache insight results for trends with a -7d date from
-        response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query})
+        # warms the query cache for these 7-day insights
+        response = self.client.post(f"/api/projects/{self.team.pk}/query/", data={"query": query_7d})
         self.assertEqual(response.status_code, 200)
+
+        # confirm that the dashboard returns the cached result (8 days)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
 
@@ -1388,20 +1387,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"filters": {"date_from": "-24h"}},
         )
 
+        # check that the immediate dashboard response clears the old cached result (result is None),
+        # confirming stale 7-day data is not reused
         self.assertEqual(patch_response_json["tiles"][0]["insight"]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
 
-        # cache results
-        filter_dict["date_from"] = "-24h"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            data={"query": filter_to_query(filter_dict).model_dump()},
-        )
-
+        # warms the query cache for these 24-hour insights
+        query_24h = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator=PropertyOperator.EXACT)],
+            dateRange=DateRange(date_from="-24h"),
+        ).model_dump()
+        response = self.client.post(f"/api/projects/{self.team.pk}/query/", data={"query": query_24h})
         self.assertEqual(response.status_code, 200)
 
-        # Expecting this to only have one day as per the dashboard filter
+        # confirm that the dashboard returns the cached result (2 days)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
 
@@ -1764,6 +1765,80 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         other_tile.refresh_from_db()
         assert other_tile.dashboard_id == other_dashboard.id
 
+    def test_cannot_inject_insight_id_into_tile_update(self) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_insight = Insight.objects.create(team=other_team, name="secret insight")
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "my dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}]}, "dashboards": [dashboard_id]}
+        )
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile_id, "color": "blue", "insight_id": other_insight.id}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        tile = DashboardTile.objects.get(id=tile_id)
+        assert tile.insight_id == insight_id
+        assert tile.color == "blue", "allowlisted field should still update"
+
+    def test_cannot_modify_text_tile_from_another_dashboard(self) -> None:
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard A"})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard B"})
+
+        self.dashboard_api.create_text_tile(dashboard_b_id, text="original text on B")
+        dashboard_b_json = self.dashboard_api.get_dashboard(dashboard_b_id)
+        text_tile_on_b = dashboard_b_json["tiles"][0]["text"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}",
+            {"tiles": [{"text": {"id": text_tile_on_b["id"], "body": "hijacked via dashboard A"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "text"
+        assert "not found" in response.json()["detail"].lower()
+
+        text_obj = Text.objects.get(id=text_tile_on_b["id"])
+        assert text_obj.body == "original text on B"
+
+    def test_cannot_modify_button_tile_from_another_dashboard(self) -> None:
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard A"})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard B"})
+
+        self.dashboard_api.create_button_tile(dashboard_b_id, url="https://example.com", text="original")
+        dashboard_b_json = self.dashboard_api.get_dashboard(dashboard_b_id)
+        button_tile_on_b = dashboard_b_json["tiles"][0]["button_tile"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}",
+            {
+                "tiles": [
+                    {
+                        "button_tile": {
+                            "id": button_tile_on_b["id"],
+                            "url": "https://evil.com",
+                            "text": "hijacked",
+                            "placement": "left",
+                            "style": "primary",
+                        }
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "button_tile"
+        assert "not found" in response.json()["detail"].lower()
+
+        btn = ButtonTile.objects.get(id=button_tile_on_b["id"])
+        assert btn.text == "original"
+
     def test_relations_on_insights_when_dashboards_were_deleted(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -1786,7 +1861,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
-    @patch("posthog.api.dashboards.dashboard.report_user_action")
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -1822,10 +1897,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "pinned": False,
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
+                "template_scope": None,
             },
             team=ANY,
             request=ANY,
         )
+
+    @parameterized.expand(
+        [
+            (None, None),
+            ("team", "team"),
+            ("global", "global"),
+            ("feature_flag", "feature_flag"),
+        ]
+    )
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_create_from_template_json_analytics_template_scope(
+        self, scope_in_body: str | None, expected_template_scope: str | None, mock_report_user_action: MagicMock
+    ) -> None:
+        template = valid_template if scope_in_body is None else {**valid_template, "scope": scope_in_body}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.content
+        props = mock_report_user_action.call_args[0][2]
+        assert props["template_scope"] == expected_template_scope
+
+    def test_create_from_template_json_accepts_api_shaped_created_by_nested_object(self) -> None:
+        """Regression: frontend may POST the template list payload including read-only nested created_by."""
+        template = {
+            **valid_template,
+            "created_by": {
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "first_name": "ad",
+                "last_name": "",
+                "email": "test1@posthog.com",
+                "is_email_verified": True,
+                "hedgehog_config": None,
+                "role_at_organization": "engineering",
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.content
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
         template: dict = {**valid_template, "tiles": []}

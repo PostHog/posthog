@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -34,9 +35,9 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1782,7 +1783,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()
@@ -1907,6 +1908,25 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("non_prefixed_token", "some_random_token_without_prefix"),
+            ("empty_string", ""),
+            ("integer_value", 12345),
+        ]
+    )
+    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
+        data = json.dumps({"secret_api_key": token_value})
+        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 @override_settings(

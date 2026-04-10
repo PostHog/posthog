@@ -110,6 +110,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if settings.anthropic_api_key:
         os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if settings.bedrock_region_name:
+        os.environ["AWS_REGION"] = settings.bedrock_region_name
     if settings.openai_api_key:
         os.environ["OPENAI_API_KEY"] = settings.openai_api_key
     if settings.openai_api_base_url:

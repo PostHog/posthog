@@ -10,6 +10,7 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
+    metrics::consts::FLAG_QUEUE_TIME_MS,
     router,
     utils::user_agent::UserAgentInfo,
 };
@@ -261,6 +262,17 @@ pub async fn flags(
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // Contour sets X-Request-Start, so the timestamp is from trusted infrastructure.
+    // We only filter out negative deltas (minor clock skew).
+    let queue_time_ms: Option<i64> = headers
+        .get("X-Request-Start")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_request_start_ms)
+        .map(|start_ms| now_ms - start_ms)
+        .filter(|&delta| delta >= 0);
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -271,6 +283,7 @@ pub async fn flags(
         // Browser SDK sends ver= query param, server SDKs send version in User-Agent
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
+        queue_time_ms,
         ..Default::default()
     };
 
@@ -368,6 +381,11 @@ pub async fn flags(
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();
 
+    // Emit queue time histogram for proxy-to-app latency dashboards
+    if let Some(delta) = log.queue_time_ms {
+        common_metrics::histogram(FLAG_QUEUE_TIME_MS, &[], delta as f64);
+    }
+
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version
@@ -432,9 +450,62 @@ fn create_request_span(
     )
 }
 
+/// Parse the `X-Request-Start` header value into epoch milliseconds.
+/// Contour sets this as `t=<epoch_seconds>.<fractional>` (e.g., `t=1774859827.782`).
+/// Also accepts the bare numeric form without the `t=` prefix.
+///
+/// Parsing is intentionally strict: no whitespace trimming, no comma-splitting for
+/// multi-value headers. This header is set exclusively by Contour in our infrastructure
+/// with a well-defined format, and malformed values are silently dropped (returns `None`)
+/// since this is metrics-only — strict rejection is the right tradeoff over accepting
+/// ambiguous input.
+///
+/// Uses integer arithmetic to avoid f64 precision loss when converting seconds to ms.
+fn parse_request_start_ms(value: &str) -> Option<i64> {
+    let stripped = value.strip_prefix("t=").unwrap_or(value);
+    if stripped.is_empty() {
+        return None;
+    }
+
+    let (secs_str, frac_str) = match stripped.split_once('.') {
+        Some((s, f)) => (s, Some(f)),
+        None => (stripped, None),
+    };
+
+    let secs: i64 = secs_str.parse().ok()?;
+    if secs < 0 {
+        return None;
+    }
+
+    // Convert whole seconds to ms, guarding against overflow from extreme values.
+    let mut ms = secs.checked_mul(1_000)?;
+
+    // Parse up to 3 fractional digits as milliseconds, zero-padding on the right.
+    // Reject if the fractional part is empty (trailing dot), contains non-digit characters,
+    // or contains trailing garbage / multi-value separators.
+    if let Some(frac) = frac_str {
+        if frac.is_empty() || !frac.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let bytes = frac.as_bytes();
+        // Compute ms from up to 3 fractional digits using integer arithmetic,
+        // equivalent to right-padding with zeros and parsing as a 3-digit integer.
+        let mut frac_ms: i64 = 0;
+        let mut scale: i64 = 100; // hundreds, tens, ones
+        for &b in bytes.iter().take(3) {
+            frac_ms += (b - b'0') as i64 * scale;
+            scale /= 10;
+        }
+        ms = ms.checked_add(frac_ms)?;
+    }
+
+    Some(ms)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::types::Compression;
+    use rstest::rstest;
 
     use super::*;
     use axum::{
@@ -670,5 +741,28 @@ mod tests {
         // Two calls without header should generate different UUIDs
         let extracted_id_empty2 = extract_request_id(&empty_headers);
         assert_ne!(extracted_id_empty, extracted_id_empty2);
+    }
+
+    #[rstest]
+    #[case("t=1774859827.782", Some(1774859827782))]
+    #[case("1774859827.782", Some(1774859827782))]
+    #[case("t=1774859827", Some(1774859827000))]
+    #[case("t=", None)]
+    #[case("t=abc", None)]
+    #[case("", None)]
+    #[case("not-a-number", None)]
+    #[case("t=-1.0", None)]
+    #[case("-100", None)]
+    #[case("NaN", None)]
+    #[case("inf", None)]
+    #[case("t=Infinity", None)]
+    #[case("t=-inf", None)]
+    #[case(" t=1774859827.782", None)]
+    #[case("t=1774859827.782 ", None)]
+    #[case("t=1774859827.782, t=1774859828.000", None)]
+    #[case("t=1774859827.", None)] // trailing dot with empty fractional part
+    #[case("1774859827.7821", Some(1774859827782))] // extra digits beyond ms are truncated
+    fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
+        assert_eq!(parse_request_start_ms(input), expected);
     }
 }

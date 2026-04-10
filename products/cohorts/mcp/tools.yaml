@@ -7,6 +7,13 @@
 category: Cohorts
 feature: cohorts
 url_prefix: /cohorts
+ui_apps:
+    cohort:
+        type: detail
+        view_prop: cohort
+    cohort-list:
+        type: list
+        detail_tool: cohorts-retrieve
 tools:
     cohorts-list:
         operation: cohorts_list
@@ -21,10 +28,21 @@ tools:
         list: true
         title: List all cohorts
         description: >
-            List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic
-            cohorts (automatically updated based on property filters).
-        mcp_version: 1
-        ui_resource_uri: ui://posthog/cohort-list.html
+
+            List all cohorts in the project. Returns a summary of each cohort including 
+            id, name, description, count (person count), is_static (cohort type), and created_at timestamp.
+            Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,
+
+            and query definition.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - count
+                - is_static
+                - created_at
+        ui_app: cohort-list
     cohorts-create:
         operation: cohorts_create
         enabled: true
@@ -53,8 +71,7 @@ tools:
             - last_error_message
             - count
             - experiment_set
-        mcp_version: 1
-        ui_resource_uri: ui://posthog/cohort.html
+        ui_app: cohort
     cohorts-retrieve:
         operation: cohorts_retrieve
         enabled: true
@@ -69,8 +86,7 @@ tools:
         description: >
             Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
             matching users, and calculation status.
-        mcp_version: 1
-        ui_resource_uri: ui://posthog/cohort.html
+        ui_app: cohort
     cohorts-update:
         operation: cohorts_update
         enabled: false
@@ -100,8 +116,7 @@ tools:
             - last_error_message
             - count
             - experiment_set
-        mcp_version: 1
-        ui_resource_uri: ui://posthog/cohort.html
+        ui_app: cohort
     cohorts-destroy:
         operation: cohorts_destroy
         enabled: false
@@ -117,11 +132,9 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
         title: Add persons to static cohort
         description: |
             Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
-        mcp_version: 1
     cohorts-calculation-history-retrieve:
         operation: cohorts_calculation_history_retrieve
         enabled: false
@@ -137,13 +150,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         title: Remove person from static cohort
         description: >
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
-        mcp_version: 1
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
         enabled: false
