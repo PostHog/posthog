@@ -4,12 +4,19 @@
  * stylesheet at dist/quill.css. Consumers import the compiled output via
  * `@posthog/quill/styles.css` and need zero Tailwind setup of their own.
  *
+ * Also copies the `@theme inline` block from `@posthog/quill-tokens` to
+ * `dist/theme.css` and re-exposes it as `@posthog/quill/theme.css`. This
+ * is the *opt-in* path for consumers who want their own Tailwind to
+ * generate utility classes against quill's design tokens (e.g.
+ * `bg-fill-active`, `text-muted-foreground`) — see README §"Authoring
+ * against quill tokens".
+ *
  * Runs `@tailwindcss/cli` as a child process so we don't have to pin
  * against its programmatic API (which is unstable across minor versions).
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,3 +37,13 @@ const result = spawnSync('pnpm', ['exec', 'tailwindcss', '--input', input, '--ou
 if (result.status !== 0) {
     process.exit(result.status ?? 1)
 }
+
+// Copy the raw `@theme inline` block from quill-tokens into dist/theme.css.
+// This file is intentionally NOT precompiled — consumers run it through
+// their own Tailwind v4 instance so the `@theme` declarations register
+// quill's design tokens with their compiler. Without this, consumer code
+// like `bg-fill-active` is silently dropped because the consumer's
+// Tailwind has no idea `--color-fill-active` exists.
+const themeSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
+const themeOutput = resolve(packageRoot, 'dist/theme.css')
+copyFileSync(themeSource, themeOutput)

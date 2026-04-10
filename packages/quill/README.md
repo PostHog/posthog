@@ -39,7 +39,21 @@ If you don't use a bundler that handles CSS imports from JS, you can `@import` i
 @import '@posthog/quill/styles.css';
 ```
 
-### 3. Set up dark mode
+### 3. Authoring against Quill tokens (optional)
+
+The pre-compiled `styles.css` is enough to render every Quill component out of the box. But if **you** are also using Tailwind v4 in your own app code and want to author utility classes against Quill's design tokens — `bg-fill-active`, `text-muted-foreground`, `data-active:bg-secondary`, etc. — you also need to import `@posthog/quill/theme.css`:
+
+```css
+@import 'tailwindcss';
+@import '@posthog/quill/styles.css'; /* prebuilt: Quill component styles, zero config */
+@import '@posthog/quill/theme.css'; /* opt-in: register Quill tokens with your Tailwind */
+```
+
+`theme.css` is **not** precompiled. It's a raw `@theme inline { … }` block that your Tailwind v4 instance reads at compile time, registering every Quill semantic colour (`--color-fill-active`, `--color-muted-foreground`, …), font size, line height, radius, and shadow as theme values. From that point on, your own `bg-fill-active` and friends compile correctly.
+
+Skip this import if you don't use Tailwind in your own app — the components still work via `styles.css` alone, but classes you write yourself against Quill tokens will be silently dropped because your toolchain has no idea those tokens exist.
+
+### 4. Set up dark mode
 
 Quill uses class-based dark mode: add a `.dark` class to any ancestor element (usually `<html>`) and every token flips automatically.
 
@@ -65,7 +79,7 @@ function App() {
 
 `ThemeProvider` exposes a `useTheme()` hook for reading and setting the theme programmatically.
 
-### 4. Use components
+### 5. Use components
 
 ```tsx
 import { Button, Card, CardHeader, CardTitle, CardContent } from '@posthog/quill'
@@ -116,6 +130,17 @@ Your app                 →  Imports the compiled stylesheet and renders compon
 At library build time, `@tailwindcss/cli` scans the primitives / components / blocks source trees, expands every `@custom-variant`, `shadcn/tailwind.css`, and `tw-animate-css` macro, and writes a single minified `dist/quill.css` (~120 kB). Consumers import that static file and their own bundler never runs Tailwind over quill's source.
 
 The key property this gives you: **quill's primitive sizing cannot be overridden by the consumer's Tailwind theme**. Every `.p-4`, `.rounded-md`, `.text-sm`, `.shadow-sm` quill writes is already resolved against quill's own scales in the shipped CSS. You can still recolour the library by overriding the CSS variables (`--primary`, `--background`, etc.) at `:root` or under a custom class.
+
+### Two CSS entry points, two purposes
+
+The aggregate ships **two** stylesheets, exposed as separate package exports, because they answer two different questions:
+
+| Export                      | Built how                                                                                           | What it gives you                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@posthog/quill/styles.css` | Pre-compiled by `@tailwindcss/cli` at lib build time. Closed set.                                   | Every utility class quill's own primitives, components, and blocks reference. The colour-system `:root` / `.dark` blocks. Resets. Animations. Variant macros expanded. **Renders quill components out of the box with no consumer Tailwind required.**                                                                                     |
+| `@posthog/quill/theme.css`  | Raw `@theme inline` block, copied verbatim from `@posthog/quill-tokens/tailwind-lib.css`. Open set. | Registers every quill design token (`--color-*`, `--text-*`, `--leading-*`, `--radius-*`, `--shadow-*`, `--spacing-*`) with the **consumer's** Tailwind v4 instance, so consumer code authoring `bg-fill-active`, `text-muted-foreground`, etc. compiles correctly. **Opt-in. Only meaningful if the consumer is also using Tailwind v4.** |
+
+The reason these have to be two files: a pre-compiled stylesheet is opaque to a downstream Tailwind compiler — it sees CSS, not theme metadata, so consumer-authored utilities can't resolve quill tokens. Shipping the raw `@theme` block as a separate export lets consumers opt back into the open-set ergonomics without giving up the closed-set guarantee on quill's own primitive sizing.
 
 ## Development
 

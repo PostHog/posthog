@@ -26,6 +26,7 @@
             "default": "./dist/index.js"
         },
         "./styles.css": "./dist/quill.css",
+        "./theme.css": "./dist/theme.css",
         "./package.json": "./package.json"
     },
     "publishConfig": {
