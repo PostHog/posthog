@@ -351,7 +351,13 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             # funnelStep=1 (first metric) requires step_reached >= 1 (exposure + first metric)
             # funnelStep=2 (second metric) requires step_reached >= 2 (exposure + first + second metric)
             # Formula: step_reached >= funnel_step
-            conditions.append(parse_expr(f"step_reached >= {self.funnel_step}"))
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["step_reached"]),
+                    right=ast.Constant(value=self.funnel_step),
+                )
+            )
         else:
             # Drop-off: user reached prior step but NOT this step
             # funnelStep=-2 means dropped at step 2: completed step 1 (first metric) but NOT step 2 (second metric)
@@ -359,8 +365,20 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             # Formula for funnelStep=-N: step_reached >= (N-1) AND step_reached < N
             target_step = abs(self.funnel_step)
 
-            conditions.append(parse_expr(f"step_reached >= {target_step - 1}"))
-            conditions.append(parse_expr(f"step_reached < {target_step}"))
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["step_reached"]),
+                    right=ast.Constant(value=target_step - 1),
+                )
+            )
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["step_reached"]),
+                    right=ast.Constant(value=target_step),
+                )
+            )
 
         # Filter by variant
         if self.funnel_step_breakdown is not None:
