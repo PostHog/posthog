@@ -98,12 +98,20 @@ class TestDeleteProjectPersonsEndToEnd(BaseTest):
                 project_name="Team to delete",
             )
 
-        self.assertFalse(Team.objects.filter(id=team.id).exists())
-        self.assertEqual(Person.objects.filter(team_id=team.id).count(), 0)
-        self.assertEqual(PersonDistinctId.objects.filter(team_id=team.id).count(), 0)
+            self.assertFalse(Team.objects.filter(id=team.id).exists())
 
-        self.assertTrue(Person.objects.filter(id=p_other.id).exists())
-        self.assertEqual(PersonDistinctId.objects.filter(team_id=other_team.id).count(), 1)
+            if personhog_enabled:
+                # Fake client doesn't touch Django DB — verify the RPC was called correctly
+                calls = fake.assert_called("delete_persons_batch_for_team")
+                team_ids_called = {c.request.team_id for c in calls}
+                self.assertIn(team.id, team_ids_called)
+                self.assertNotIn(other_team.id, team_ids_called)
+            else:
+                self.assertEqual(Person.objects.filter(team_id=team.id).count(), 0)
+                self.assertEqual(PersonDistinctId.objects.filter(team_id=team.id).count(), 0)
+
+                self.assertTrue(Person.objects.filter(id=p_other.id).exists())
+                self.assertEqual(PersonDistinctId.objects.filter(team_id=other_team.id).count(), 1)
 
 
 class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
