@@ -4338,6 +4338,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type PrecomputationMode = typeof PrecomputationMode[keyof typeof PrecomputationMode];
+
+
+    export const PrecomputationMode = {
+      Precomputed: 'precomputed',
+      Direct: 'direct',
+    } as const;
+
     export interface SessionData {
       event_uuid: string;
       person_id: string;
@@ -4543,6 +4551,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       name?: string | null;
+      precomputation_mode?: PrecomputationMode | null;
       response?: ExperimentQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
@@ -5757,6 +5766,33 @@ export namespace Schemas {
       kind: AutocompleteCompletionItemKind;
       /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
       label: string;
+    }
+
+    /**
+     * Discovered detail fields and their value distributions.
+     */
+    export type AvailableFiltersResponseDetailFields = {[key: string]: unknown};
+
+    export type StaticFiltersUsersItem = {[key: string]: unknown};
+
+    export type StaticFiltersScopesItem = {[key: string]: unknown};
+
+    export type StaticFiltersActivitiesItem = {[key: string]: unknown};
+
+    export interface StaticFilters {
+      /** Users who have logged activity. */
+      users: StaticFiltersUsersItem[];
+      /** Available activity scopes. */
+      scopes: StaticFiltersScopesItem[];
+      /** Available activity types. */
+      activities: StaticFiltersActivitiesItem[];
+    }
+
+    export interface AvailableFiltersResponse {
+      /** Pre-computed filter options for scopes, activities, and users. */
+      static_filters: StaticFilters;
+      /** Discovered detail fields and their value distributions. */
+      detail_fields: AvailableFiltersResponseDetailFields;
     }
 
     /**
@@ -34077,6 +34113,26 @@ export namespace Schemas {
       Ticket: 'Ticket',
     } as const;
 
+    export type AdvancedActivityLogsListParams = {
+    activities?: string[];
+    detail_filters?: string;
+    end_date?: string;
+    hogql_filter?: string;
+    /**
+     * @nullable
+     */
+    is_system?: boolean | null;
+    item_ids?: string[];
+    scopes?: string[];
+    search_text?: string;
+    start_date?: string;
+    users?: string[];
+    /**
+     * @nullable
+     */
+    was_impersonated?: boolean | null;
+    };
+
     export type AlertsListParams = {
     /**
      * Number of results to return per page.
@@ -34179,6 +34235,26 @@ export namespace Schemas {
      * The pagination cursor value.
      */
     cursor?: string;
+    /**
+     * Filter by the ID of the resource being commented on.
+     * @minLength 1
+     */
+    item_id?: string;
+    /**
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * @minLength 1
+     */
+    scope?: string;
+    /**
+     * Full-text search within comment content.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter replies to a specific parent comment.
+     * @minLength 1
+     */
+    source_comment?: string;
     };
 
     export type ConversationsTicketsListParams = {

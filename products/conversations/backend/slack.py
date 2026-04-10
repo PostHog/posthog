@@ -659,7 +659,18 @@ def _backfill_thread_replies(
         posthog_user = posthog_user_cache[reply_user]
         is_team_member = posthog_user is not None
 
-        cleaned_text, rich_content = slack_to_content_and_rich_content(reply_text, reply_blocks)
+        # Resolve in-message @mentions to display names
+        mentioned_ids = extract_slack_user_ids(reply_text, reply_blocks)
+        reply_user_names: dict[str, str] = {}
+        for uid in mentioned_ids:
+            if uid not in user_cache:
+                user_cache[uid] = resolve_slack_user(client, uid)
+            if user_cache[uid]["name"] != "Unknown":
+                reply_user_names[uid] = user_cache[uid]["name"]
+
+        cleaned_text, rich_content = slack_to_content_and_rich_content(
+            reply_text, reply_blocks, user_names=reply_user_names
+        )
         if not cleaned_text and not images:
             continue
 

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -47,6 +47,8 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
+
+ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -375,6 +377,7 @@ class ExperimentService:
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
+        creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         self.validate_variant_shapes(parameters)
@@ -488,6 +491,7 @@ class ExperimentService:
             serializer_context=serializer_context,
             event_source=event_source,
             allow_unknown_events=allow_unknown_events,
+            creation_mode=creation_mode,
         )
 
         return experiment
@@ -503,12 +507,14 @@ class ExperimentService:
         serializer_context: dict | None,
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
+        creation_mode: ExperimentCreationMode,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
             return
 
         analytics_metadata = experiment.get_analytics_metadata()
+        analytics_metadata["creation_mode"] = creation_mode
         if event_source is not None:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
@@ -1523,6 +1529,7 @@ class ExperimentService:
             ] or None
 
         service = ExperimentService(team=target, user=self.user) if is_cross_project else self
+        creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
             name=clone_name,
             feature_flag_key=feature_flag_key,
@@ -1543,6 +1550,7 @@ class ExperimentService:
             serializer_context=serializer_context,
             # For duplicate we set allow_unknown_events since the goal here is to actually duplicate:
             allow_unknown_events=True,
+            creation_mode=creation_mode,
         )
 
     def duplicate_experiment(

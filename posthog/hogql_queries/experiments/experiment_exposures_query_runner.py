@@ -32,6 +32,7 @@ from posthog.hogql_queries.experiments.experiment_query_runner import DEFAULT_EX
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -39,6 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -141,7 +143,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             entity_key=get_entity_key(self.group_type_index),
         )
 
-        if self.experiment.exposure_preaggregation_enabled:
+        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        if config.experiment_precomputation_enabled:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
