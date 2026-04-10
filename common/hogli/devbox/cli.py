@@ -34,6 +34,7 @@ from .coder import (
     open_in_browser,
     open_vscode,
     open_web_ide,
+    phrocs_replace,
     port_forward_replace,
     print_setup_summary,
     ssh_replace,
@@ -392,6 +393,15 @@ def devbox_ssh(workspace_label: str | None) -> None:
     ensure_runtime_ready()
     name = resolve_workspace_name(workspace_label)
     ssh_replace(name)
+
+
+@cli.command(name="devbox:phrocs", help="Attach to the phrocs session in your devbox")
+@workspace_name_option
+def devbox_phrocs(workspace_label: str | None) -> None:
+    """Attach to the running phrocs tmux session on the devbox."""
+    ensure_runtime_ready()
+    name = resolve_workspace_name(workspace_label)
+    phrocs_replace(name)
 
 
 @cli.command(name="devbox:open", help="Open devbox in browser or VS Code")

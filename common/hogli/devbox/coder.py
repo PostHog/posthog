@@ -501,6 +501,11 @@ def ssh_replace(name: str) -> None:
     _run_or_exit(["coder", "ssh", name])
 
 
+def phrocs_replace(name: str) -> None:
+    """Attach to the phrocs tmux session in a workspace."""
+    _run_or_exit(["coder", "ssh", name, "--", "tmux", "-L", "sandbox", "attach-session", "-t", "posthog"])
+
+
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     """Port-forward to a workspace and replace the current process."""
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
