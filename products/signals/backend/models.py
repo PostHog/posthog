@@ -218,7 +218,7 @@ class SignalReport(UUIDModel):
         return list(updated_fields)
 
 
-class SignalEmissionRecord(models.Model):
+class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 
     Owned by the signals app so source models (e.g. Ticket) stay decoupled.
