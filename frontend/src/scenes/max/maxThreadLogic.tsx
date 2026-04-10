@@ -1809,7 +1809,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // The await yields to the microtask queue — bail if the user navigated away.
-        if (!logic.isMounted()) {
+        if (!(logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
             return
         }
 
