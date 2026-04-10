@@ -3461,6 +3461,12 @@ export interface ExperimentActorsQuery extends InsightActorsQueryBase {
     funnelStep?: integer
     /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
     funnelStepBreakdown?: BreakdownKeyType
+    /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+    exposureConfig?: ExperimentExposureConfig
+    /** How to handle users with multiple variant exposures. */
+    multipleVariantHandling?: 'exclude' | 'first_seen'
+    /** Feature flag key for breakdown filtering. */
+    featureFlagKey?: string
 }
 
 export interface SessionData {

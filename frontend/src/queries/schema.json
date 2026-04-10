@@ -15535,6 +15535,14 @@
         "ExperimentActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "exposureConfig": {
+                    "$ref": "#/definitions/ExperimentExposureConfig",
+                    "description": "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+                },
+                "featureFlagKey": {
+                    "description": "Feature flag key for breakdown filtering.",
+                    "type": "string"
+                },
                 "funnelStep": {
                     "$ref": "#/definitions/integer",
                     "description": "Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons."
@@ -15553,6 +15561,11 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "multipleVariantHandling": {
+                    "description": "How to handle users with multiple variant exposures.",
+                    "enum": ["exclude", "first_seen"],
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"

@@ -20746,6 +20746,13 @@ class ExperimentActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exposureConfig: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+        ),
+    )
+    featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
     funnelStep: int | None = Field(
         default=None,
         description=(
@@ -20764,6 +20771,9 @@ class ExperimentActorsQuery(BaseModel):
     includeRecordings: bool | None = None
     kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    multipleVariantHandling: MultipleVariantHandling | None = Field(
+        default=None, description="How to handle users with multiple variant exposures."
+    )
     response: ActorsQueryResponse | None = None
     source: ExperimentQuery
     tags: QueryLogTags | None = None
