@@ -2194,6 +2194,27 @@ class GitHubIntegration:
 
         return []
 
+    def list_all_repositories(self, max_repos: int = 500) -> list[dict]:
+        """Fetch all accessible repositories, paginating through GitHub's API."""
+        all_repos: list[dict] = []
+        seen_ids: set[int] = set()
+        page = 1
+        per_page = 100
+
+        while True:
+            repo_entries = self.list_repositories(page=page)
+            for repo in repo_entries:
+                if repo["id"] not in seen_ids:
+                    seen_ids.add(repo["id"])
+                    all_repos.append(repo)
+                    if len(all_repos) >= max_repos:
+                        return all_repos
+            if len(repo_entries) < per_page:
+                break
+            page += 1
+
+        return all_repos
+
     def get_top_starred_repository(self) -> str | None:
         """Get the repository with the most stars from the GitHub integration.
 
