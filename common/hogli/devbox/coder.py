@@ -33,6 +33,15 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
+# Default values for all optional template parameters. Passing these explicitly
+# prevents the Coder CLI from prompting interactively for missing values.
+# Update this dict when new optional parameters are added to the template.
+_TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
+    DOTFILES_URI_PARAMETER: "",
+    DOTFILES_BRANCH_PARAMETER: "",
+    JETBRAINS_IDES_PARAMETER: "[]",
+}
+
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _WORKSPACE_PREFIX = "devbox"
@@ -474,6 +483,7 @@ def create_workspace(
 ) -> None:
     """Create a new Coder workspace."""
     parameters = {
+        **_TEMPLATE_PARAMETER_DEFAULTS,
         "disk_size": str(disk_size),
         "repo": repo,
         CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
@@ -482,9 +492,8 @@ def create_workspace(
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
         parameters[GIT_EMAIL_PARAMETER] = git_email
-    parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri or ""
-    parameters[DOTFILES_BRANCH_PARAMETER] = ""
-    parameters[JETBRAINS_IDES_PARAMETER] = "[]"
+    if dotfiles_uri:
+        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
     args = [
         "coder",
@@ -522,7 +531,10 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
 
 def update_workspace(name: str, *, verbose: bool = False) -> None:
     """Update a workspace to the latest template version."""
-    result = _run_build(["coder", "update", name], verbose=verbose)
+    args = ["coder", "update", name]
+    for key, value in _TEMPLATE_PARAMETER_DEFAULTS.items():
+        args.extend(["--parameter-default", f"{key}={value}"])
+    result = _run_build(args, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

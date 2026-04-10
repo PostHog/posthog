@@ -249,14 +249,12 @@ class TestWorkspaceCreation:
         assert captured == {
             "args": ["coder", "create", "devbox-test-user", "--template", "posthog-linux", "--yes"],
             "parameters": {
+                **coder._TEMPLATE_PARAMETER_DEFAULTS,
                 "disk_size": "50",
                 "repo": "https://github.com/PostHog/posthog",
                 "claude_oauth_token": "oauth-token",
                 "git_name": "PostHog Engineer",
                 "git_email": "test-user@example.com",
-                "dotfiles_uri": "",
-                "dotfiles_branch": "",
-                "jetbrains_ides": "[]",
             },
             "verbose": True,
         }
@@ -281,7 +279,7 @@ class TestWorkspaceCreation:
 
         assert captured["parameters"]["dotfiles_uri"] == "https://github.com/user/dotfiles"
 
-    def test_create_workspace_defaults_dotfiles_params_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_workspace_includes_template_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         def fake_run_with_rich_parameters(
@@ -294,9 +292,8 @@ class TestWorkspaceCreation:
 
         coder.create_workspace("devbox-test-user", 100, verbose=True)
 
-        assert captured["parameters"]["dotfiles_uri"] == ""
-        assert captured["parameters"]["dotfiles_branch"] == ""
-        assert captured["parameters"]["jetbrains_ides"] == "[]"
+        for key, value in coder._TEMPLATE_PARAMETER_DEFAULTS.items():
+            assert captured["parameters"][key] == value
 
 
 class TestResolveWorkspaceName:
