@@ -31,6 +31,7 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
+import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -89,6 +90,11 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
+        {
+            key: 'recommendations',
+            label: 'Recommendations',
+            content: <RecommendationsTab />,
+        },
         {
             key: 'configuration',
             label: 'Configuration',
