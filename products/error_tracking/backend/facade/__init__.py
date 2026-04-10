@@ -14,6 +14,7 @@ __all__ = [
     "TeamCountContract",
     "aget_issue",
     "aget_issue_first_event",
+    "aquery_issues",
     "auto_select_project_for_user",
     "build_ingestion_failures_url",
     "build_remote_config",
@@ -40,6 +41,7 @@ __all__ = [
     "get_weekly_digest_projects_for_organization",
     "has_resolved_issues",
     "publish_issue_fingerprint_override",
+    "query_issues",
     "update_issue_fingerprint_first_seen_and_version",
 ]
 
