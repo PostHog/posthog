@@ -1,8 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
@@ -456,7 +455,7 @@ export function BatchExportRunIcon({
     const latestRun = runs[0]
 
     const status = combineFailedStatuses(latestRun.status)
-    const color = colorForStatus(status, latestRun.records_failed)
+    const tagType = lemonTagTypeForRunStatus(status, latestRun.records_failed)
 
     return (
         <Tooltip
@@ -473,15 +472,13 @@ export function BatchExportRunIcon({
                 </>
             }
         >
-            <span
-                className={clsx(
-                    `BatchExportRunIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
-                    color === 'primary' && 'BatchExportRunIcon--pulse',
-                    showLabel ? '' : 'w-6'
-                )}
+            <LemonTag
+                type={tagType}
+                size="medium"
+                className={!showLabel ? 'justify-center min-w-[1.25rem] tabular-nums' : undefined}
             >
-                {showLabel ? <span className="text-center">{status}</span> : runs.length}
-            </span>
+                {showLabel ? status : runs.length}
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -510,10 +507,7 @@ function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | st
     return humanFriendlyNumber(run.records_completed)
 }
 
-const colorForStatus = (
-    status: BatchExportRun['status'],
-    records_failed?: number
-): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
+function lemonTagTypeForRunStatus(status: BatchExportRun['status'], records_failed?: number): LemonTagType {
     switch (status) {
         case 'Completed':
             return records_failed && records_failed > 0 ? 'warning' : 'success'

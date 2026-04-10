@@ -1,8 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -84,23 +83,10 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                         width: 0,
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
-                            const statusStyles = {
-                                success: 'border-success text-success-dark',
-                                'color-accent': 'border-accent text-accent',
-                                warning: 'border-warning text-warning-dark',
-                                danger: 'border-danger text-danger-dark',
-                                default: 'border-default text-default-dark',
-                            } as const
                             return (
-                                <span
-                                    className={clsx(
-                                        'flex justify-center items-center p-2 h-6 text-xs font-semibold rounded-full border-2 select-none',
-                                        statusStyles[color]
-                                    )}
-                                >
-                                    <span className="text-center">{status}</span>
-                                </span>
+                                <LemonTag type={backfillStatusToLemonTagType(status)} size="medium">
+                                    {status}
+                                </LemonTag>
                             )
                         },
                     },
@@ -109,7 +95,6 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                         key: 'progress',
                         render: (_, backfill) => {
                             const status = backfill.status
-                            const color = colorForStatus(status)
                             const progress = backfill.progress
                             if (progress && progress.progress != null) {
                                 let label = ''
@@ -126,7 +111,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
                                     <span className="flex gap-2 items-center">
                                         <LemonProgress
                                             percent={progress.progress * 100}
-                                            strokeColor={`var(--${color})`}
+                                            strokeColor={backfillStatusToProgressStrokeColor(status)}
                                             className="min-w-[80px]"
                                         />
                                         <span className="flex-shrink-0 whitespace-nowrap">{label}</span>
@@ -262,16 +247,14 @@ function BackfillCancelButton({
     )
 }
 
-const colorForStatus = (
-    status: BatchExportBackfill['status']
-): 'success' | 'color-accent' | 'warning' | 'danger' | 'default' => {
+function backfillStatusToLemonTagType(status: BatchExportBackfill['status']): LemonTagType {
     switch (status) {
         case 'Completed':
             return 'success'
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'color-accent'
+            return 'primary'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':
@@ -281,6 +264,26 @@ const colorForStatus = (
             return 'danger'
         default:
             return 'default'
+    }
+}
+
+function backfillStatusToProgressStrokeColor(status: BatchExportBackfill['status']): string {
+    switch (status) {
+        case 'Completed':
+            return 'var(--success)'
+        case 'ContinuedAsNew':
+        case 'Running':
+        case 'Starting':
+            return 'var(--color-accent)'
+        case 'Cancelled':
+        case 'Terminated':
+        case 'TimedOut':
+            return 'var(--warning)'
+        case 'Failed':
+        case 'FailedRetryable':
+            return 'var(--danger)'
+        default:
+            return 'var(--color-border-primary)'
     }
 }
 
