@@ -406,6 +406,14 @@ class ExperimentQueryBuilder:
         # Build the JOIN clause with conditional temporal filter
         temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
+        # DW steps join via events_join_key (e.g. properties.$user_id) → data_warehouse_join_key
+        # (e.g. userid). The exposure CTE uses person_id (UUID) as entity_id. To bridge
+        # these, we add an exposure_identifier column and join on that instead.
+        if has_dw_steps:
+            entity_id_join = "ON toString(exposures.exposure_identifier) = metric_events.entity_id"
+        else:
+            entity_id_join = "ON exposures.entity_id = metric_events.entity_id"
+
         if self.funnel_steps_data_disabled:
             # When steps data is disabled, we skip the expensive session/event maps and
             # the per-exposure columns that are only needed for steps_event_data.
@@ -439,13 +447,28 @@ class ExperimentQueryBuilder:
                     {{funnel_aggregation}} AS value{extra_select_columns}
                 FROM exposures
                 LEFT JOIN metric_events
-                    ON exposures.entity_id = metric_events.entity_id
+                    {entity_id_join}
                     {temporal_filter}  -- Only for unordered: filters out events before exposure
                 GROUP BY
                     exposures.entity_id,
                     exposures.variant{extra_group_by_columns}
             )
         """
+
+        # Build exposure query, adding exposure_identifier for DW funnels
+        exposure_query = self._get_exposure_query()
+        if has_dw_steps:
+            # All DW steps are validated to use the same events_join_key
+            first_dw_step = next(s for s in self.metric.series if isinstance(s, ExperimentDataWarehouseNode))
+            events_join_key_parts = cast(list[str | int], first_dw_step.events_join_key.split("."))
+            exposure_query.select.append(
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=events_join_key_parts),
+                )
+            )
+            if exposure_query.group_by:
+                exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
@@ -455,7 +478,7 @@ class ExperimentQueryBuilder:
             "funnel_steps_filter": self._build_funnel_steps_filter(),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-            "exposure_select_query": self._get_exposure_query(),
+            "exposure_select_query": exposure_query,
             "date_from": self.date_range_query.date_from_as_hogql(),
             "date_to": self.date_range_query.date_to_as_hogql(),
         }
@@ -1980,8 +2003,12 @@ class ExperimentQueryBuilder:
 
         step_builder = FunnelStepBuilder(self.metric.series, self.team)
 
+        # All DW steps are validated to use the same events_join_key
+        first_dw_step = next(s for s in self.metric.series if isinstance(s, ExperimentDataWarehouseNode))
+        events_join_key = first_dw_step.events_join_key
+
         # Build events subquery (always needed for exposure + event/action steps)
-        events_subquery = self._build_funnel_events_subquery_for_union(step_builder)
+        events_subquery = self._build_funnel_events_subquery_for_union(step_builder, events_join_key)
 
         # Build DW subqueries (one per DW step)
         dw_subqueries = []
@@ -1998,7 +2025,9 @@ class ExperimentQueryBuilder:
         assert isinstance(result, ast.SelectSetQuery)
         return result
 
-    def _build_funnel_events_subquery_for_union(self, step_builder: FunnelStepBuilder) -> ast.SelectQuery:
+    def _build_funnel_events_subquery_for_union(
+        self, step_builder: FunnelStepBuilder, events_join_key: str
+    ) -> ast.SelectQuery:
         """
         Build events subquery for UNION pattern.
 
@@ -2007,14 +2036,25 @@ class ExperimentQueryBuilder:
         - Event and action steps (step_N=1 when matches, 0 otherwise)
         - DW steps (always step_N=0 in this subquery)
 
+        Args:
+            step_builder: FunnelStepBuilder instance for step columns
+            events_join_key: The event property key used to join with DW tables
+                (e.g. "properties.$user_id"). Used as entity_id so it matches the
+                DW subquery's data_warehouse_join_key.
+
         Returns:
             SELECT query for events table
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
+        # Use events_join_key as entity_id so it matches the DW subquery's
+        # data_warehouse_join_key (both resolve to the same user identifier).
+        events_join_key_parts = cast(list[str | int], events_join_key.split("."))
+        entity_id_expr = ast.Call(name="toString", args=[ast.Field(chain=events_join_key_parts)])
+
         # Build base SELECT fields
         select_fields: list[ast.Expr] = [
-            ast.Alias(alias="entity_id", expr=ast.Call(name="toString", args=[parse_expr(self.entity_key)])),
+            ast.Alias(alias="entity_id", expr=entity_id_expr),
             ast.Alias(alias="variant", expr=self._build_variant_property()),
             ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
             ast.Alias(alias="uuid", expr=ast.Field(chain=["uuid"])),
