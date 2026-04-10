@@ -244,6 +244,18 @@ snapshots:
         hash: v1.k794b7964.32b24bae31f6eac19655d6e880fec124ed6615fb8853542b494f547d5de7d64c.073AKdbdUItMfB0p5BZ8oB2AKlO5Ot7qUJ_J95RdFlg
     components-currencydropdown--currency-dropdown-story--light:
         hash: v1.k794b7964.308820a64ca20fabbe59e144555db5958fa365bd12fb8dfabb04940d8085ec2d.yEtSxmQ7TRrC1qv2ve30E_AOodG23EDmmX-6KYESnYE
+    components-definition-icons--event-definition-icons--dark:
+        hash: v1.k794b7964.4eae8609ad5e14efa3f5f1ae99c1351f4cf6edc8c889024ccab39ddb3c00e5be.fLJn98Zc2iQQwVvvIlDnDXYGt-IRnAXYX4WRPs9mVf0
+    components-definition-icons--event-definition-icons--light:
+        hash: v1.k794b7964.9aff4619f0f8ffd852734f36ad1f7c35d6f34bbbb31e185b2e7f76a78f9ced5e.z9Zijpc3XUj2zAO0dTb6vZXErWsDdKwITBov8DJzwwA
+    components-definition-icons--event-metadata-definition-icons--dark:
+        hash: v1.k794b7964.34eb71f73673b657f4b9c7eeaded96eaa2e1bc16aa1176ace2828a3e10c58d19.ZL84tB8OM4vXNJeu9vcSH363Sank2_ovb167zmZ1u7w
+    components-definition-icons--event-metadata-definition-icons--light:
+        hash: v1.k794b7964.a7b5292e73656e360350ebdadfbacc02bda2f95c74e8b5e31529b9e0ddd20ff9.t3Nk-MWAbmu19o0ZmeXJHWbSyO0HTbwequJ4gNMGHAE
+    components-definition-icons--revenue-analytics-definition-icons--dark:
+        hash: v1.k794b7964.70175cd7a1322a370d03f63742fbf3ef43c9c3643a4bc6587286e92053427022.wtLxHR-wYtnhR4Ac4-AOW6v0lac9R4SjOhguE8qrGn0
+    components-definition-icons--revenue-analytics-definition-icons--light:
+        hash: v1.k794b7964.0f4d102389f46d53737d79984740bee83b3ceddb0546055aa6a413520821961f.g23P_Z05BQFiMREKlHrjmj5TgOm71D8tO0VXwkT77To
     components-definition-popover--action--dark:
         hash: v1.k794b7964.bba20fd9be09dfbdf15cf5d0defee05e01ec7f592c7e4263bb9a862689f7f405.KEE_9obRfUkXM5lwekd8w5Ev_KqKBQfdUSftso_690s
     components-definition-popover--action--light:
