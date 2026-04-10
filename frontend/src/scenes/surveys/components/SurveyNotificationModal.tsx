@@ -10,8 +10,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 import {
-    RESPONDENT_EMAIL_TOKEN,
-    RESPONDENT_NAME_TOKEN,
+    RESPONDENT_DETAILS_LINE,
     SURVEY_NAME_TOKEN,
     SurveyNotificationForm,
     SurveyQuestionForNotification,
@@ -71,8 +70,7 @@ type MessageFormattingActionProps = {
     questions: SurveyQuestionForNotification[]
     onReset: () => void
     onInsertSurveyName: () => void
-    onInsertRespondent: () => void
-    onInsertEmail: () => void
+    onInsertRespondentDetails: () => void
     onInsertQuestion: (question: SurveyQuestionForNotification, index: number) => void
 }
 
@@ -80,15 +78,15 @@ function MessageFormattingActions({
     questions,
     onReset,
     onInsertSurveyName,
-    onInsertRespondent,
-    onInsertEmail,
+    onInsertRespondentDetails,
     onInsertQuestion,
 }: MessageFormattingActionProps): JSX.Element {
     const applicableQuestions = questions.filter((question) => question.id && question.type !== SurveyQuestionType.Link)
 
     return (
-        <div className="border-t border-border pt-3">
-            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="space-y-3">
+            <div className="border-t border-border" />
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                 <div className="text-xs font-medium text-default">Quick inserts</div>
                 <div className="text-xs text-muted">Keep the default compact, then add context only where needed.</div>
             </div>
@@ -99,11 +97,8 @@ function MessageFormattingActions({
                 <LemonButton size="xsmall" type="tertiary" onClick={onInsertSurveyName}>
                     Insert survey name
                 </LemonButton>
-                <LemonButton size="xsmall" type="tertiary" onClick={onInsertRespondent}>
-                    Insert respondent
-                </LemonButton>
-                <LemonButton size="xsmall" type="tertiary" onClick={onInsertEmail}>
-                    Insert email
+                <LemonButton size="xsmall" type="tertiary" onClick={onInsertRespondentDetails}>
+                    Insert respondent details
                 </LemonButton>
                 {applicableQuestions.map((question, index) => (
                     <LemonButton
@@ -136,10 +131,8 @@ function getMessageFormattingActions({
         onReset: () => setNotificationFormValue(field, getDefaultSurveyMessage(questions)),
         onInsertSurveyName: () =>
             setNotificationFormValue(field, appendTemplateLine(value, `Survey: *${SURVEY_NAME_TOKEN}*`)),
-        onInsertRespondent: () =>
-            setNotificationFormValue(field, appendTemplateLine(value, `Respondent: ${RESPONDENT_NAME_TOKEN}`)),
-        onInsertEmail: () =>
-            setNotificationFormValue(field, appendTemplateLine(value, `Email: ${RESPONDENT_EMAIL_TOKEN}`)),
+        onInsertRespondentDetails: () =>
+            setNotificationFormValue(field, appendTemplateLine(value, RESPONDENT_DETAILS_LINE)),
         onInsertQuestion: (question, index) =>
             setNotificationFormValue(field, appendQuestionToken(value, question, index)),
     }
@@ -177,7 +170,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
             isOpen={isOpen}
             onClose={closeDialog}
             title="Add survey notification"
-            description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook without leaving this page."
+            description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook."
             width={720}
             footer={
                 <>
@@ -196,7 +189,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
                 {notificationSubmissionError ? (
                     <div className="text-sm text-danger">{notificationSubmissionError}</div>
                 ) : null}
@@ -208,51 +201,38 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                     id="survey-notification-form"
                     enableFormOnSubmit
                 >
-                    <div className="flex flex-col gap-4">
-                        <div className="rounded-xl bg-fill-secondary p-4 shadow-xs">
-                            <SectionEyebrow>Setup</SectionEyebrow>
-                            <div className="mt-3 grid gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(18rem,1fr)]">
-                                <div className="flex flex-col gap-2">
-                                    <Field name="destination" label="Destination">
-                                        {({ value, onChange }) => (
-                                            <LemonSelect
-                                                value={value}
-                                                onChange={onChange}
-                                                options={DESTINATION_OPTIONS.map((option) => ({
-                                                    value: option.value,
-                                                    label: option.label,
-                                                    icon: (
-                                                        <img
-                                                            src={option.iconUrl}
-                                                            alt=""
-                                                            className="h-5 w-5 object-contain"
-                                                        />
-                                                    ),
-                                                }))}
-                                                fullWidth
-                                            />
-                                        )}
-                                    </Field>
-                                    <div className="text-xs text-muted">
-                                        {destinationDeliveryDescription(notificationForm.destination)}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-surface-primary p-3 shadow-xs">
-                                    <Field name="onlyCompletedResponses">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                label="Only notify for full responses"
-                                                bordered
-                                            />
-                                        )}
-                                    </Field>
-                                    <div className="mt-2 text-xs text-muted">
-                                        Leave this on to avoid partial-response noise, or turn it off if early answers
-                                        matter for this survey.
-                                    </div>
-                                </div>
+                    <div className="flex flex-col gap-3">
+                        <div className="space-y-2">
+                            <Field name="destination" label="Destination">
+                                {({ value, onChange }) => (
+                                    <LemonSelect
+                                        value={value}
+                                        onChange={onChange}
+                                        options={DESTINATION_OPTIONS.map((option) => ({
+                                            value: option.value,
+                                            label: option.label,
+                                            icon: (
+                                                <img src={option.iconUrl} alt="" className="h-5 w-5 object-contain" />
+                                            ),
+                                        }))}
+                                        fullWidth
+                                    />
+                                )}
+                            </Field>
+                            <div className="text-xs text-muted">
+                                {destinationDeliveryDescription(notificationForm.destination)}
+                            </div>
+                            <Field name="onlyCompletedResponses">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={onChange}
+                                        label="Only notify for full responses"
+                                    />
+                                )}
+                            </Field>
+                            <div className="text-xs text-muted">
+                                Turn this off if partial responses matter for this survey.
                             </div>
                         </div>
 
@@ -289,13 +269,16 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 )}
                                 <Field name="slackMessage">
                                     {({ value, onChange }) => (
-                                        <div className="rounded-xl border bg-surface-primary p-4 shadow-xs">
-                                            <SectionEyebrow>Message</SectionEyebrow>
-                                            <div className="mt-1 text-sm font-medium text-default">
-                                                Slack message template
-                                            </div>
-                                            <div className="mb-3 mt-1 text-xs text-muted">
-                                                Built for scanning fast in busy channels, with optional details below.
+                                        <div className="space-y-3">
+                                            <div className="border-t border-border" />
+                                            <div className="space-y-1">
+                                                <div className="text-sm font-medium text-default">
+                                                    Slack message template
+                                                </div>
+                                                <div className="text-xs text-muted">
+                                                    Built for scanning fast in busy channels, with optional details
+                                                    below.
+                                                </div>
                                             </div>
                                             <TemplateEditor
                                                 value={value}
@@ -305,14 +288,14 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                             {messageFormattingActions ? (
                                                 <MessageFormattingActions {...messageFormattingActions} />
                                             ) : null}
-                                            <div className="mt-3 border-t border-border pt-3">
+                                            <div className="space-y-3">
+                                                <div className="border-t border-border" />
                                                 <Field name="includeSlackButtons">
                                                     {({ value: switchValue, onChange: switchOnChange }) => (
                                                         <LemonSwitch
                                                             checked={switchValue}
                                                             onChange={switchOnChange}
                                                             label="Include buttons to view the survey and person"
-                                                            bordered
                                                         />
                                                     )}
                                                 </Field>
@@ -337,14 +320,16 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 </Field>
                                 <Field name="discordMessage">
                                     {({ value, onChange }) => (
-                                        <div className="rounded-xl border bg-surface-primary p-4 shadow-xs">
-                                            <SectionEyebrow>Message</SectionEyebrow>
-                                            <div className="mt-1 text-sm font-medium text-default">
-                                                Discord message template
-                                            </div>
-                                            <div className="mb-3 mt-1 text-xs text-muted">
-                                                Keep it compact by default, then use quick inserts when you need more
-                                                context.
+                                        <div className="space-y-3">
+                                            <div className="border-t border-border" />
+                                            <div className="space-y-1">
+                                                <div className="text-sm font-medium text-default">
+                                                    Discord message template
+                                                </div>
+                                                <div className="text-xs text-muted">
+                                                    Keep it compact by default, then use quick inserts when you need
+                                                    more context.
+                                                </div>
                                             </div>
                                             <TemplateEditor
                                                 value={value}
@@ -374,14 +359,16 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 </Field>
                                 <Field name="teamsMessage">
                                     {({ value, onChange }) => (
-                                        <div className="rounded-xl border bg-surface-primary p-4 shadow-xs">
-                                            <SectionEyebrow>Message</SectionEyebrow>
-                                            <div className="mt-1 text-sm font-medium text-default">
-                                                Microsoft Teams message template
-                                            </div>
-                                            <div className="mb-3 mt-1 text-xs text-muted">
-                                                Default to a high-signal summary and add metadata only if the team needs
-                                                it.
+                                        <div className="space-y-3">
+                                            <div className="border-t border-border" />
+                                            <div className="space-y-1">
+                                                <div className="text-sm font-medium text-default">
+                                                    Microsoft Teams message template
+                                                </div>
+                                                <div className="text-xs text-muted">
+                                                    Default to a high-signal summary and add metadata only if the team
+                                                    needs it.
+                                                </div>
                                             </div>
                                             <TemplateEditor
                                                 value={value}
@@ -409,12 +396,14 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                         />
                                     )}
                                 </Field>
-                                <div className="rounded-xl border bg-surface-primary p-4 shadow-xs">
-                                    <SectionEyebrow>Payload</SectionEyebrow>
-                                    <div className="mt-1 text-sm font-medium text-default">Webhook request body</div>
-                                    <div className="mb-3 mt-1 text-xs text-muted">
-                                        Survey webhooks send the survey metadata, person context, and one answer field
-                                        per question.
+                                <div className="space-y-3">
+                                    <div className="border-t border-border" />
+                                    <div className="space-y-1">
+                                        <div className="text-sm font-medium text-default">Webhook request body</div>
+                                        <div className="text-xs text-muted">
+                                            Survey webhooks send the survey metadata, person context, and one answer
+                                            field per question.
+                                        </div>
                                     </div>
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
                                         <div className="flex min-w-48 flex-col gap-2">
@@ -429,7 +418,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                                 )}
                                             </Field>
                                         </div>
-                                        <div className="flex-1 rounded-lg bg-fill-secondary p-3 text-xs text-muted">
+                                        <div className="flex-1 text-xs text-muted">
                                             Tailor the JSON before saving it if your endpoint expects a specific shape.
                                         </div>
                                     </div>
@@ -455,12 +444,15 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                             </>
                         ) : null}
 
-                        <div className="rounded-xl bg-fill-secondary p-4 shadow-xs">
+                        <div className="space-y-3">
+                            <div className="border-t border-border" />
                             <SectionEyebrow>Reference</SectionEyebrow>
-                            <div className="mb-2 mt-1 text-sm font-medium">Available survey placeholders</div>
-                            <div className="mb-3 text-xs text-muted">
-                                Need deeper customization later? After you create a notification, open it from the
-                                survey notifications list to use the full Hog function editor.
+                            <div className="space-y-1">
+                                <div className="text-sm font-medium">Available survey placeholders</div>
+                                <div className="text-xs text-muted">
+                                    Need deeper customization later? After you create a notification, open it from the
+                                    survey notifications list to use the full Hog function editor.
+                                </div>
                             </div>
                             <SurveyResponseKeysReference questions={survey.questions} />
                         </div>

@@ -57,6 +57,7 @@ export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
 export const SURVEY_ID_TOKEN = "{event.properties['$survey_id']}"
 export const RESPONDENT_NAME_TOKEN = '{person.name}'
 export const RESPONDENT_EMAIL_TOKEN = '{person.properties.email}'
+export const RESPONDENT_DETAILS_LINE = `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`
 
 function getResponseToken(questionId: string): string {
     return `{event.properties['${getSurveyIdBasedResponseKey(questionId)}']}`
@@ -77,7 +78,7 @@ export function getDefaultSurveyMessage(questions: SurveyQuestionForNotification
 
     return [
         `*New response on ${SURVEY_NAME_TOKEN}*`,
-        `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`,
+        RESPONDENT_DETAILS_LINE,
         ...(exampleQuestions.length > 0
             ? ['', '*Responses*', ...exampleQuestions.map((question, index) => getQuestionLine(question, index))]
             : []),
