@@ -118,12 +118,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     props({} as MaxThreadLogicProps),
 
     propsChanged(({ actions, values, props }) => {
-        // Streaming is active, do not update the thread
         if (!props.conversation) {
             return
         }
 
-        // New messages have been added since we last updated the thread
+        // New messages have been added since we last updated the thread (e.g. via a list
+        // refresh that landed new content, or via prependOrReplaceConversation). Initial
+        // mount-time loading is handled in afterMount.
         if (
             !values.streamingActive &&
             props.conversation.messages &&
@@ -144,7 +145,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
+            [
+                'question',
+                'autoRun',
+                'threadLogicKey as activeThreadKey',
+                'activeStreamingThreads',
+                'conversationId as parentConversationId',
+            ],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -1218,15 +1225,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             // Sync conversation data and thread in the same dispatch so there's
             // no render frame where loading is done but the thread is still empty.
+            // Initial mount reconnect is handled in afterMount; this listener only
+            // propagates list-refresh updates that land mid-session.
             actions.setConversation(conversation)
             if (conversation.messages?.length && !values.threadRaw.length) {
                 actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
-            }
-
-            if (conversation.status === ConversationStatus.InProgress) {
-                setTimeout(() => {
-                    actions.reconnectToStream()
-                }, 0)
             }
         },
         selectCommand: ({ command }) => {
@@ -1727,7 +1730,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
     }),
 
-    afterMount((logic) => {
+    afterMount(async (logic) => {
         const { actions, values, props, cache } = logic
         cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
@@ -1796,26 +1799,56 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
-        } else {
-            if (props.conversation && !props.conversation.messages && logic.values.threadRaw.length === 0) {
-                actions.loadConversation(props.conversation.id)
-            }
+            return
+        }
 
-            if (
-                props.conversation?.status === ConversationStatus.InProgress &&
-                !values.streamingActive &&
-                !cache.generationController
-            ) {
-                // Don't auto-reconnect if there's a pending form - the user needs to fill it out first
-                // The form submission will properly resume the conversation with the answers
-                if (values.multiQuestionFormPending) {
-                    return
-                }
-                // If the conversation is in progress and we don't have an active stream, reconnect
-                setTimeout(() => {
-                    actions.reconnectToStream()
-                }, 0)
-            }
+        // Bail for new chats — there's nothing to fetch or reconnect to. We can't gate on
+        // `values.conversationId` here because that selector falls back to the frontend-
+        // generated UUID; the parent maxLogic reducer is only set for real backend chats.
+        const parentConversationId = values.parentConversationId
+        if (!parentConversationId) {
+            return
+        }
+
+        // For an existing conversation: load the thread first, then reconnect to any
+        // in-progress stream so streamed tokens render on top of the prior history.
+
+        // 1. Fetch the message history if we don't have it yet. Cross-tab sync above may
+        //    have already populated threadRaw, in which case we skip the network call.
+        if (values.threadRaw.length === 0) {
+            await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
+        }
+
+        // The await yields to the microtask queue — bail if the user navigated away.
+        if (!logic.isMounted()) {
+            return
+        }
+
+        // 2. Read the freshly-loaded conversation directly from the global cache. kea-loaders
+        //    swallows loader failures, so a missing/empty conversation here means the load
+        //    failed and we should not reconnect to anything.
+        const conversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
+        if (!conversation || conversation.messages === undefined) {
+            return
+        }
+
+        // 3. Hydrate threadRaw from the loaded messages BEFORE reconnecting. If we let
+        //    propsChanged populate threadRaw on the next React render, the reconnected
+        //    stream would have already pushed tokens onto an empty threadRaw and
+        //    propsChanged's setThread would clobber them.
+        if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
+            actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+        }
+
+        // 4. Reconnect to any in-progress stream. propsChanged's setThread is a no-op for
+        //    this load (its `length > threadMessageCount` guard is now equal-not-greater).
+        if (
+            conversation.status === ConversationStatus.InProgress &&
+            !values.streamingActive &&
+            !cache.generationController &&
+            !values.multiQuestionFormPending
+        ) {
+            actions.reconnectToStream()
         }
     }),
 
