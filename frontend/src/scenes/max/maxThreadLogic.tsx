@@ -122,9 +122,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             return
         }
 
-        // New messages have been added since we last updated the thread (e.g. via a list
-        // refresh that landed new content, or via prependOrReplaceConversation). Initial
-        // mount-time loading is handled in afterMount.
+        // Handle new messages post-mount; initial load in afterMount.
         if (
             !values.streamingActive &&
             props.conversation.messages &&
@@ -1223,10 +1221,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // Sync conversation data and thread in the same dispatch so there's
-            // no render frame where loading is done but the thread is still empty.
-            // Initial mount reconnect is handled in afterMount; this listener only
-            // propagates list-refresh updates that land mid-session.
+            // Keep conversation and thread in sync to avoid empty thread after history updates.
             actions.setConversation(conversation)
             if (conversation.messages?.length && !values.threadRaw.length) {
                 actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
@@ -1802,19 +1797,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             return
         }
 
-        // Bail for new chats — there's nothing to fetch or reconnect to. We can't gate on
-        // `values.conversationId` here because that selector falls back to the frontend-
-        // generated UUID; the parent maxLogic reducer is only set for real backend chats.
+        // Skip for new chats; only proceed for real backend conversations.
         const parentConversationId = values.parentConversationId
         if (!parentConversationId) {
             return
         }
 
-        // For an existing conversation: load the thread first, then reconnect to any
-        // in-progress stream so streamed tokens render on top of the prior history.
-
-        // 1. Fetch the message history if we don't have it yet. Cross-tab sync above may
-        //    have already populated threadRaw, in which case we skip the network call.
+        // Fetch message history if threadRaw is empty (may already be populated by cross-tab sync)
         if (values.threadRaw.length === 0) {
             await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
         }
@@ -1824,24 +1813,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             return
         }
 
-        // 2. Read the freshly-loaded conversation directly from the global cache. kea-loaders
-        //    swallows loader failures, so a missing/empty conversation here means the load
-        //    failed and we should not reconnect to anything.
+        // Grab freshly loaded conversation from cache; if missing, the load failed, so skip reconnect
         const conversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
         if (!conversation || conversation.messages === undefined) {
             return
         }
 
-        // 3. Hydrate threadRaw from the loaded messages BEFORE reconnecting. If we let
-        //    propsChanged populate threadRaw on the next React render, the reconnected
-        //    stream would have already pushed tokens onto an empty threadRaw and
-        //    propsChanged's setThread would clobber them.
+        // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
         if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
             actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
         }
 
-        // 4. Reconnect to any in-progress stream. propsChanged's setThread is a no-op for
-        //    this load (its `length > threadMessageCount` guard is now equal-not-greater).
+        // 4. Reconnect to in-progress stream if needed; setThread here is a no-op due to message count guard.
         if (
             conversation.status === ConversationStatus.InProgress &&
             !values.streamingActive &&
