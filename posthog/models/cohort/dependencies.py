@@ -330,6 +330,11 @@ def cohort_conditions_changed_backfill(sender, instance, **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return
 
+    # Skip if filters field is not being updated - matches pre_save logic
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "filters" not in update_fields:
+        return
+
     # Skip if cohort is not realtime
     if instance.cohort_type != CohortType.REALTIME:
         return
