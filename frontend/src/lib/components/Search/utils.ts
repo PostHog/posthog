@@ -1,7 +1,6 @@
-import FuseClass from 'fuse.js'
-
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 
 interface FuseSearchable {
     name: string
@@ -17,7 +16,6 @@ const FUSE_OPTIONS = {
         { name: 'category', weight: 0.5 },
         { name: 'searchKeywords', weight: 1.5 },
     ],
-    threshold: 0.3,
     ignoreLocation: true,
     useExtendedSearch: true,
 }
@@ -31,7 +29,7 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     if (!trimmed) {
         return items
     }
-    const fuse = new FuseClass<T>(items, FUSE_OPTIONS)
+    const fuse = createFuse<T>(items, FUSE_OPTIONS)
     return fuse.search(trimmed).map((r) => r.item)
 }
 

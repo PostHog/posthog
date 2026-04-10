@@ -34,6 +34,7 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -569,6 +570,7 @@ def property_to_expr(
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
         | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -759,6 +761,9 @@ def property_to_expr(
         elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         elif property.type == "log":
+            chain = [property.key]
+            property.key = ""
+        elif property.type == "span":
             chain = [property.key]
             property.key = ""
         elif scope == "log_resource":

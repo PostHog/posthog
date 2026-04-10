@@ -2,7 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
@@ -31,6 +31,15 @@ const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
     help: 'Total number of unsafe requests detected and blocked',
     labelNames: ['reason'],
+})
+
+// Gauge tracking the number of external HTTP requests currently in flight.
+// This is the primary scaling signal for the cdp-cyclotron-worker: it directly
+// measures I/O saturation rather than CPU (which stays low while waiting on responses)
+// or batch utilization (which measures demand, not capacity).
+const inflightExternalRequests = new Gauge({
+    name: 'cdp_http_inflight_requests',
+    help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -358,7 +367,12 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
-    return await _fetch(url, options, sharedSecureAgent)
+    inflightExternalRequests.inc()
+    try {
+        return await _fetch(url, options, sharedSecureAgent)
+    } finally {
+        inflightExternalRequests.dec()
+    }
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation

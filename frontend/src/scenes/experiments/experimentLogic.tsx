@@ -800,8 +800,15 @@ export const experimentLogic = kea<experimentLogicType>([
         dismissNotificationOffer: true,
         setShowNotificationOffer: (show: boolean) => ({ show }),
         setNotifyWhenResultsReady: (notify: boolean) => ({ notify }),
+        toggleDebugPanel: true,
     }),
     reducers({
+        showDebugPanel: [
+            false,
+            {
+                toggleDebugPanel: (state) => !state,
+            },
+        ],
         experiment: [
             { ...NEW_EXPERIMENT } as Experiment,
             {

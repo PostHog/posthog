@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../src/config/kafka-topics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../src/ingestion/analytics/outputs'
 import { IngestionOutputs } from '../../../src/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../../../src/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
@@ -24,10 +25,13 @@ jest.mock('../../../src/utils/logger')
 
 function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: kafkaProducer, producerName: 'test' }],
-        [PERSON_DISTINCT_IDS_OUTPUT]: [
-            { topic: KAFKA_PERSON_DISTINCT_ID, producer: kafkaProducer, producerName: 'test' },
-        ],
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, kafkaProducer, 'test'),
+        [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            KAFKA_PERSON_DISTINCT_ID,
+            kafkaProducer,
+            'test'
+        ),
     })
 }
 jest.setTimeout(45000) // 45s > delayUntilEventIngested budget (300 × 100ms = 30s) to let the helper throw its actionable error before Jest fires
