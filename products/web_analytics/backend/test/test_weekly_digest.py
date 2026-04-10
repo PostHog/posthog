@@ -222,7 +222,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
             result = get_top_sources(self.team)
 
         sources = [r["source"] for r in result]
-        assert "google.com" in sources
+        assert sources == ["google.com"]
         assert all(r["visitors"] > 0 for r in result)
 
     def test_filters_out_empty_sources(self):
