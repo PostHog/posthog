@@ -158,10 +158,6 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization],
             (currentOrganization): string | null => currentOrganization?.is_not_active_reason ?? null,
         ],
-        isPendingDeletion: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): boolean => currentOrganization?.is_pending_deletion ?? false,
-        ],
     }),
     listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
