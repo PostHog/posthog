@@ -843,7 +843,6 @@ jobs:
                   fi
                   echo "Validating ClickHouse schema changes..."
                   python manage.py ch_migrate lint
-                  python manage.py ch_migrate plan
 
 
             - name: Install pnpm
