@@ -1028,6 +1028,8 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
             ("private_ip_192", "http://192.168.1.1/internal"),
             ("internal_domain", "http://service.cluster.local/api"),
             ("file_scheme", "file:///etc/passwd"),
+            ("protocol_relative", "//evil.com/steal-data"),
+            ("relative_api_path", "/api/environments/1/heatmap_screenshots/42/content/?width=1400"),
         ]
     )
     def test_rejects_ssrf_heatmap_url(self, _name: str, url: str) -> None:
@@ -1054,6 +1056,25 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
                 "export_format": "image/png",
                 "export_context": {
                     "heatmap_url": "https://example.com/page",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("posthog.security.url_validation.resolve_host_ips")
+    def test_accepts_absolute_screenshot_api_url(self, mock_resolve, mock_exporter_task) -> None:
+        # Screenshot-type heatmaps send the screenshot API endpoint as an absolute URL
+        # (resolved from the browser origin) — verify it passes SSRF validation
+        import ipaddress
+
+        mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "heatmap_url": "https://us.posthog.com/api/environments/1/heatmap_screenshots/42/content/?width=1400",
                 },
             },
         )
