@@ -783,12 +783,14 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
 
-        # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
+        # Activity 5: Enqueue embedding requests for each segment via Kafka.
+        # The activity just produces Kafka messages and returns; actual embedding
+        # computation happens asynchronously in the embedding worker.
         _set_phase(progress, "generating_embeddings")
         await temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,
             args=(video_inputs, consolidated_analysis.segments),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=retry_policy,
         )
 
@@ -1055,6 +1057,11 @@ def execute_summarize_session_video_stream(
         )
     )
     if existing_summary is not None:
+        logger.info(
+            "video summary fast path: returning cached summary",
+            session_id=session_id,
+            signals_type="session-summaries",
+        )
         yield serialize_to_sse_event(
             event_label="session-summary-stream",
             event_data=json.dumps(existing_summary.summary),
@@ -1079,6 +1086,13 @@ def execute_summarize_session_video_stream(
         handle = client.get_workflow_handle(workflow_id)
 
     client = asyncio.run(async_connect())
+
+    logger.info(
+        "video summary polling loop starting",
+        workflow_id=workflow_id,
+        session_id=session_id,
+        signals_type="session-summaries",
+    )
 
     while True:
         try:
@@ -1131,10 +1145,11 @@ def execute_summarize_session_video_stream(
             try:
                 progress_payload = asyncio.run(handle.query("get_progress"))
             except Exception as e:
-                logger.debug(
+                logger.info(
                     "get_progress query failed (workflow may not be ready yet)",
                     workflow_id=workflow_id,
                     error=str(e),
+                    error_type=type(e).__name__,
                     signals_type="session-summaries",
                 )
                 time.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
@@ -1148,6 +1163,13 @@ def execute_summarize_session_video_stream(
             else:
                 progress_payload["rasterizer"] = None
 
+            logger.info(
+                "yielding session-summary-progress event",
+                workflow_id=workflow_id,
+                phase=progress_payload.get("phase"),
+                step=progress_payload.get("step"),
+                signals_type="session-summaries",
+            )
             yield serialize_to_sse_event(
                 event_label="session-summary-progress",
                 event_data=json.dumps(progress_payload),

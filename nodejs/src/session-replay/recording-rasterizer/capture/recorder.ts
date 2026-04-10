@@ -11,18 +11,12 @@ import { CapturePage } from './capture-page'
 import { buildCaptureConfig, buildPlayerConfig, validateInput } from './config'
 import { PlayerController } from './player'
 
-/**
- * Best-effort estimate of how many video frames the capture loop will emit,
- * computed once the player has signaled started and we know the real
- * inactivity periods. Used only for progress reporting — if we undercount
- * the loading bar stays below 100% until the 'ended' event, and if we
- * overcount it simply stops advancing.
- */
+// Matches the raw frameCaptured count from puppeteer-capture (pre-ffmpeg).
 function estimateTotalFrames(
     periods: InactivityPeriod[],
     input: RasterizeRecordingInput,
     playbackSpeed: number,
-    outputFps: number
+    captureFps: number
 ): number {
     const skipInactivity = input.skip_inactivity !== false
     let sessionS: number
@@ -34,7 +28,6 @@ function estimateTotalFrames(
         return 0
     }
 
-    // max_virtual_time caps virtual-time seconds before dividing by playback speed
     if (input.max_virtual_time != null) {
         sessionS = Math.min(sessionS, input.max_virtual_time)
     }
@@ -44,7 +37,7 @@ function estimateTotalFrames(
         videoS = Math.min(videoS, input.trim)
     }
 
-    return Math.max(0, Math.ceil(videoS * outputFps))
+    return Math.max(0, Math.ceil(videoS * captureFps))
 }
 
 export async function rasterizeRecording(
@@ -101,7 +94,7 @@ export async function rasterizeRecording(
                 player.getInactivityPeriods(),
                 input,
                 captureConfig.playbackSpeed,
-                captureConfig.outputFps
+                captureConfig.captureFps
             )
             progress.phase = 'capture'
             onProgress()

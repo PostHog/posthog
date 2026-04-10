@@ -6,7 +6,7 @@ import json
 import struct
 import asyncio
 import builtins
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
@@ -1398,21 +1398,34 @@ class SessionRecordingViewSet(
             or False
         )
 
-    def _generate_video_based_summary(self, session_id: str, user: User) -> Generator[str, None, None]:
+    async def _generate_video_based_summary(self, session_id: str, user: User) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's
         current phase, a step counter, and — while the rasterizer is running —
         fine-grained frame progress read from Temporal activity heartbeats.
+
+        This is implemented as an async generator so Django's ``StreamingHttpResponse``
+        under ASGI flushes each chunk as it is produced. A sync generator would
+        hit Django's ``list()``-materialize fallback path and buffer the entire
+        response server-side before any bytes reach the client.
         """
+        loop = asyncio.get_running_loop()
+        sync_gen = execute_summarize_session_video_stream(
+            session_id=session_id,
+            user=user,
+            team=self.team,
+        )
+        sentinel = object()
         try:
-            yield from execute_summarize_session_video_stream(
-                session_id=session_id,
-                user=user,
-                team=self.team,
-            )
+            while True:
+                # Each next() call may block (time.sleep, asyncio.run) — run it in a thread
+                # so the ASGI event loop can flush the previous chunk to the client.
+                chunk = await loop.run_in_executor(None, lambda: next(sync_gen, sentinel))
+                if chunk is sentinel:
+                    return
+                yield chunk
         except Exception as e:
-            # Capture detailed exception server-side while returning a generic error to the client
             capture_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
