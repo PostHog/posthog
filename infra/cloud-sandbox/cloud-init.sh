@@ -162,9 +162,16 @@ else
     log "Found NVMe instance store: $NVME_DEV"
     log "NVMe device size: $(lsblk -no SIZE "$NVME_DEV")"
 
-    mkfs.ext4 -F -L nvme-docker "$NVME_DEV"
+    # Tunings for an ephemeral store where crash consistency doesn't matter:
+    #   -O ^has_journal        skip the journal entirely
+    #   -E lazy_*_init=1       don't zero the inode table / journal up front
+    #   -m 0                   don't reserve 5% for root (reclaims ~20-30 GB)
+    # Mount with noatime,nodiratime,lazytime so atime/mtime/ctime updates
+    # stay in RAM instead of causing metadata writes on every file touch
+    # (cargo, pnpm, and tar extract all do millions of these).
+    mkfs.ext4 -F -m 0 -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
     mkdir -p /mnt/nvme
-    mount "$NVME_DEV" /mnt/nvme
+    mount -o noatime,nodiratime,lazytime "$NVME_DEV" /mnt/nvme
     chown ubuntu:ubuntu /mnt/nvme
     log "NVMe mounted at /mnt/nvme ($(df -h /mnt/nvme | tail -1 | awk '{print $2}') total)"
 
@@ -199,7 +206,22 @@ if [ -n "$NVME_DEV" ]; then
     echo 1        > /sys/module/zswap/parameters/enabled          || true
     log "zswap: enabled=$(cat /sys/module/zswap/parameters/enabled) compressor=$(cat /sys/module/zswap/parameters/compressor) max_pool_percent=$(cat /sys/module/zswap/parameters/max_pool_percent)"
 
-    echo "vm.swappiness=180" > /etc/sysctl.d/99-sandbox-swap.conf
+    # vm.dirty_ratio=40:          writers can accumulate up to 40% of RAM (~13GB
+    #                              on a 32GB box) before being throttled. Defaults
+    #                              are 20/10. Bursty writers — tar extract of the
+    #                              cache archive, cargo output, pnpm unpack —
+    #                              benefit from the larger buffer, and on an
+    #                              ephemeral store we don't care about the data
+    #                              loss window this opens up.
+    # vm.vfs_cache_pressure=50:    half the default. Keeps dentry/inode cache
+    #                              around longer, which matters for cargo
+    #                              rebuilds (walks millions of files) and for
+    #                              incremental TS type-checks.
+    cat > /etc/sysctl.d/99-sandbox.conf <<'SYSCTL'
+vm.swappiness=180
+vm.dirty_ratio=40
+vm.vfs_cache_pressure=50
+SYSCTL
     sysctl --system >/dev/null
 else
     log "WARNING: no NVMe device, skipping swap setup"

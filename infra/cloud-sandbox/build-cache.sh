@@ -53,11 +53,23 @@ done
 USE_NVME=false
 if [ -n "$NVME_DEV" ]; then
     log "Found NVMe instance store: $NVME_DEV ($(lsblk -no SIZE "$NVME_DEV"))"
-    mkfs.ext4 -F -L nvme-docker "$NVME_DEV"
+    # Tunings for an ephemeral store where crash consistency doesn't matter:
+    #   -O ^has_journal        skip the journal entirely
+    #   -E lazy_*_init=1       don't zero the inode table / journal up front
+    #   -m 0                   don't reserve 5% for root (reclaims ~20-30 GB)
+    # Mount with noatime,nodiratime,lazytime so atime/mtime/ctime updates
+    # stay in RAM instead of causing metadata writes on every file touch
+    # (cargo, pnpm, and tar extract all do millions of these).
+    mkfs.ext4 -F -m 0 -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
     mkdir -p /mnt/nvme
-    mount "$NVME_DEV" /mnt/nvme
+    mount -o noatime,nodiratime,lazytime "$NVME_DEV" /mnt/nvme
     chown ubuntu:ubuntu /mnt/nvme
     USE_NVME=true
+
+    # Let bursty writes (tar pack, cargo compile output) buffer longer in
+    # RAM before hitting the device, and keep the dentry/inode cache around
+    # so cargo's per-file metadata lookups stay warm.
+    sysctl -w vm.dirty_ratio=40 vm.vfs_cache_pressure=50 >/dev/null
 else
     log "No NVMe instance store found, building on EBS"
 fi
