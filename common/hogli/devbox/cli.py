@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import os
 import errno
+import shutil
 import socket
+import subprocess
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, NoReturn
 
 import click
@@ -272,6 +275,7 @@ def devbox_help() -> None:
     click.echo("  hogli devbox:status      show current workspace status")
     click.echo("  hogli devbox:stop        stop the workspace")
     click.echo("  hogli devbox:destroy     delete the workspace and its data")
+    click.echo("  hogli devbox:cleanup:disk  free disk space (caches, build artifacts)")
     click.echo()
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
@@ -498,3 +502,129 @@ def devbox_forward(workspace_label: str | None, port: int) -> None:
     click.echo("Ctrl+C to stop")
     click.echo()
     port_forward_replace(name, port, 8010)
+
+
+def _gib(nbytes: int) -> str:
+    return f"{nbytes / 1024**3:.1f}G"
+
+
+def _snapshot_free(paths: list[Path]) -> dict[int, int]:
+    """Return free bytes keyed by device ID, deduplicating paths on the same filesystem."""
+    seen: dict[int, int] = {}
+    for path in paths:
+        try:
+            dev = path.stat().st_dev
+            if dev not in seen:
+                seen[dev] = shutil.disk_usage(path).free
+        except OSError:
+            pass
+    return seen
+
+
+def _sum_freed(before: dict[int, int], after: dict[int, int]) -> int:
+    """Sum free-space gains across all watched devices."""
+    return sum(max(0, after[dev] - before[dev]) for dev in after if dev in before)
+
+
+def _run_cleanup_step(label: str, cmd: list[str]) -> None:
+    """Run a cleanup command and print its label."""
+    click.echo(f"  {label}...", nl=False)
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
+        click.echo(" done")
+    except FileNotFoundError:
+        click.echo(" skipped (command unavailable)")
+    except subprocess.CalledProcessError as e:
+        click.echo(f" warning: exited with code {e.returncode}")
+
+
+def _rm_dir(label: str, path: Path) -> None:
+    """Delete a directory and print its label."""
+    if not path.exists():
+        click.echo(f"  {label}... skipped (not found)")
+        return
+    click.echo(f"  {label}...", nl=False)
+    try:
+        shutil.rmtree(path)
+        click.echo(" done")
+    except OSError as e:
+        click.echo(f" warning: partial deletion ({e})")
+
+
+@cli.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
+@click.option(
+    "--cargo",
+    "prune_cargo",
+    is_flag=True,
+    help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
+)
+def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+    """Free disk space by removing caches and build artifacts that are safe to delete.
+
+    The default run is safe: it only removes orphaned packages, download caches,
+    and old Nix generations — none of which force a full rebuild on next use.
+    Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
+    Use --docker to also prune stopped containers.
+    """
+    home = Path.home()
+    # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
+    # (may be a separate volume); / covers Docker storage and anything else.
+    watch_paths = [p for p in [home, Path("/nix"), Path("/")] if p.exists()]
+    before = _snapshot_free(watch_paths)
+
+    click.echo("Cleaning caches and build artifacts...")
+    click.echo()
+
+    # uv wheel/sdist cache
+    _run_cleanup_step("uv cache (~/.cache/uv)", ["uv", "cache", "clean"])
+
+    # sccache compiler cache
+    _rm_dir("sccache (~/.cache/sccache)", home / ".cache" / "sccache")
+
+    # pnpm orphaned store entries
+    _run_cleanup_step("pnpm store (orphaned packages)", ["pnpm", "store", "prune"])
+
+    click.echo("  Nix garbage collection (old generations)...", nl=False)
+    try:
+        subprocess.run(["nix-collect-garbage", "-d"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
+        click.echo(" done")
+    except FileNotFoundError:
+        click.echo(" skipped (nix-collect-garbage unavailable)")
+    except subprocess.CalledProcessError as e:
+        click.echo(f" warning: exited with code {e.returncode}")
+
+    # Cargo build artifacts — opt-in because removing them forces a full Rust recompile
+    if prune_cargo:
+        _rm_dir("Cargo build artifacts (~/.cargo/target)", home / ".cargo" / "target")
+
+    if prune_docker:
+        click.echo("  Docker stopped containers...", nl=False)
+        try:
+            subprocess.run(
+                ["docker", "container", "prune", "-f"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )  # noqa: S603
+            click.echo(" done")
+        except FileNotFoundError:
+            click.echo(" skipped (docker unavailable)")
+        except subprocess.CalledProcessError as e:
+            click.echo(f" warning: exited with code {e.returncode}")
+
+    actually_freed = _sum_freed(before, _snapshot_free(watch_paths))
+
+    click.echo()
+    if actually_freed > 0:
+        click.echo(click.style(f"Freed {_gib(actually_freed)} of disk space.", fg="green"))
+    else:
+        click.echo("Nothing significant was freed (caches may already be empty).")
+
+    tips = []
+    if not prune_cargo:
+        tips.append("  hogli devbox:cleanup:disk --cargo  (rm ~/.cargo/target, forces recompile)")
+    if not prune_docker:
+        tips.append("  hogli devbox:cleanup:disk --docker  (prune stopped containers)")
+    if tips:
+        click.echo()
+        click.echo("Tips for more space:")
+        for tip in tips:
+            click.echo(tip)
