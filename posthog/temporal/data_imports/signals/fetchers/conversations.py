@@ -43,10 +43,8 @@ def conversations_ticket_fetcher(
         created_at__lte=cutoff,
     ).filter(~Exists(already_emitted))
     if config.where_clause:
-        # where_clause is a hardcoded config constant, not user input
-        tickets_qs = tickets_qs.extra(
-            where=[config.where_clause]
-        )  # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (where_clause is a hardcoded config constant, not user input)
+        tickets_qs = tickets_qs.extra(where=[config.where_clause])
     tickets_qs = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
     tickets = list(tickets_qs)
     if not tickets:
