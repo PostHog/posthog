@@ -101,7 +101,6 @@ devbox:
     devbox:start: null
     devbox:stop: null
     devbox:ssh: null
-    devbox:phrocs: null
     devbox:open: null
     devbox:logs: null
     devbox:destroy: null
