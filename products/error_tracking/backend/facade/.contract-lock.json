@@ -1,0 +1,491 @@
+{
+    "classes": {
+        "SearchErrorTrackingIssuesTool": {
+            "bases": ["MaxTool"],
+            "kind": "class",
+            "qualname": "SearchErrorTrackingIssuesTool"
+        }
+    },
+    "contracts": {
+        "ErrorTrackingIssueAssignmentContract": {
+            "fields": {
+                "created_at": "<class 'datetime.datetime'>",
+                "id": "<class 'str'>",
+                "issue": "<class 'products.error_tracking.backend.facade.contracts.ErrorTrackingIssueContract'>",
+                "role_id": "str | None",
+                "role_name": "str | None",
+                "user_email": "str | None",
+                "user_id": "int | None"
+            },
+            "frozen": true
+        },
+        "ErrorTrackingIssueContract": {
+            "fields": {
+                "description": "str | None",
+                "id": "<class 'str'>",
+                "name": "str | None",
+                "status": "<class 'str'>",
+                "team_id": "<class 'int'>"
+            },
+            "frozen": true
+        },
+        "ErrorTrackingIssueFingerprintContract": {
+            "fields": {
+                "created_at": "<class 'datetime.datetime'>",
+                "fingerprint": "<class 'str'>",
+                "first_seen": "datetime.datetime | None",
+                "id": "<class 'str'>",
+                "issue_id": "<class 'str'>",
+                "team_id": "<class 'int'>",
+                "version": "<class 'int'>"
+            },
+            "frozen": true
+        },
+        "ErrorTrackingRemoteConfigContract": {
+            "fields": {
+                "autocapture_exceptions": "<class 'bool'>",
+                "suppression_rules": "list[dict[str, typing.Any]]"
+            },
+            "frozen": true
+        },
+        "ErrorTrackingWeeklyDigestProjectContract": {
+            "fields": {
+                "crash_free": "<class 'dict'>",
+                "daily_counts": "list[dict]",
+                "error_tracking_url": "<class 'str'>",
+                "exception_change": "dict | None",
+                "exception_count": "<class 'int'>",
+                "ingestion_failure_count": "<class 'int'>",
+                "ingestion_failures_url": "<class 'str'>",
+                "new_issues": "list[dict]",
+                "team_id": "<class 'int'>",
+                "team_name": "<class 'str'>",
+                "top_issues": "list[dict]"
+            },
+            "frozen": true
+        },
+        "TeamCountContract": {
+            "fields": {
+                "team_id": "<class 'int'>",
+                "total": "<class 'int'>"
+            },
+            "frozen": true
+        }
+    },
+    "functions": {
+        "aget_issue": {
+            "parameters": {
+                "issue_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingIssueContract | None"
+        },
+        "aget_issue_first_event": {
+            "parameters": {
+                "issue_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict | None"
+        },
+        "aquery_issues": {
+            "parameters": {
+                "query": {
+                    "annotation": "ErrorTrackingQuery",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingQueryResponse"
+        },
+        "auto_select_project_for_user": {
+            "parameters": {
+                "org_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team_exception_counts": {
+                    "annotation": "dict[int, dict | ErrorTrackingWeeklyDigestProjectContract]",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "user": {
+                    "annotation": "User",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "None"
+        },
+        "build_ingestion_failures_url": {
+            "parameters": {
+                "team_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "str"
+        },
+        "build_remote_config": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingRemoteConfigContract"
+        },
+        "build_remote_config_payload": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict"
+        },
+        "compute_week_over_week_change": {
+            "parameters": {
+                "current": {
+                    "annotation": "float",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "higher_is_better": {
+                    "annotation": "bool",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "previous": {
+                    "annotation": "float | None",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict | None"
+        },
+        "count_issues_created_since": {
+            "parameters": {
+                "since": {
+                    "annotation": "datetime",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "int"
+        },
+        "count_issues_for_team": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "int"
+        },
+        "delete_issue_fingerprints": {
+            "parameters": {
+                "team_ids": {
+                    "annotation": "list[int]",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "int"
+        },
+        "get_client_safe_suppression_rules": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[dict]"
+        },
+        "get_crash_free_sessions": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict"
+        },
+        "get_daily_exception_counts": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[dict]"
+        },
+        "get_exception_counts": {
+            "parameters": {
+                "team_ids": {
+                    "annotation": "list[int] | None",
+                    "default": "<set>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list"
+        },
+        "get_exception_summary_for_team": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict"
+        },
+        "get_issue": {
+            "parameters": {
+                "issue_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingIssueContract | None"
+        },
+        "get_issue_assignment": {
+            "parameters": {
+                "assignment_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingIssueAssignmentContract"
+        },
+        "get_issue_by_fingerprint": {
+            "parameters": {
+                "fingerprint": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingIssueContract | None"
+        },
+        "get_issue_counts_by_team": {
+            "parameters": {},
+            "return": "list[TeamCountContract]"
+        },
+        "get_issue_fingerprint": {
+            "parameters": {
+                "fingerprint": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingIssueFingerprintContract | None"
+        },
+        "get_issue_first_event": {
+            "parameters": {
+                "issue_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "dict | None"
+        },
+        "get_new_issues_for_team": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[dict]"
+        },
+        "get_org_ids_with_exceptions": {
+            "parameters": {},
+            "return": "list[str]"
+        },
+        "get_symbol_set_counts_by_team": {
+            "parameters": {
+                "resolved_only": {
+                    "annotation": "bool",
+                    "default": "<set>",
+                    "kind": "KEYWORD_ONLY"
+                }
+            },
+            "return": "list[TeamCountContract]"
+        },
+        "get_top_issues_for_team": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[dict]"
+        },
+        "get_weekly_digest_projects_for_organization": {
+            "parameters": {
+                "org_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[ErrorTrackingWeeklyDigestProjectContract]"
+        },
+        "has_resolved_issues": {
+            "parameters": {
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "bool"
+        },
+        "iter_issue_fingerprints_created_between": {
+            "parameters": {
+                "end_date": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "start_date": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "list[ErrorTrackingIssueFingerprintContract]"
+        },
+        "publish_issue_fingerprint_override": {
+            "parameters": {
+                "fingerprint": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "issue_id": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "team_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "version": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                }
+            },
+            "return": "None"
+        },
+        "query_issues": {
+            "parameters": {
+                "query": {
+                    "annotation": "ErrorTrackingQuery",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                },
+                "team": {
+                    "annotation": "Team | int",
+                    "default": "<empty>",
+                    "kind": "POSITIONAL_OR_KEYWORD"
+                }
+            },
+            "return": "ErrorTrackingQueryResponse"
+        },
+        "update_issue_fingerprint_first_seen_and_version": {
+            "parameters": {
+                "fingerprint": {
+                    "annotation": "str",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "first_seen": {
+                    "annotation": "datetime",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "team_id": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                },
+                "version": {
+                    "annotation": "int",
+                    "default": "<empty>",
+                    "kind": "KEYWORD_ONLY"
+                }
+            },
+            "return": "ErrorTrackingIssueFingerprintContract | None"
+        }
+    },
+    "version": 1
+}
