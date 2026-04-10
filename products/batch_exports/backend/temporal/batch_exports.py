@@ -486,6 +486,7 @@ class FinishBatchExportRunInputs:
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
         bytes_exported: Total number of bytes exported.
             This is the size of the actual data exported, which takes into account the file type and compression.
+        records_failed: Number of records that failed downstream processing.
     """
 
     id: str
@@ -498,6 +499,7 @@ class FinishBatchExportRunInputs:
     failure_threshold: int = 10
     failure_check_window: int = 50
     bytes_exported: int | None = None
+    records_failed: int | None = None
 
 
 @activity.defn
