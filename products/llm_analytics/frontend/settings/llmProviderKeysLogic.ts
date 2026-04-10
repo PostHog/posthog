@@ -12,10 +12,10 @@ export type LLMProvider =
     | 'openai'
     | 'anthropic'
     | 'gemini'
-    | 'together_ai'
     | 'openrouter'
     | 'fireworks'
     | 'azure_openai'
+    | 'together_ai'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -24,10 +24,10 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Google Gemini',
-    together_ai: 'Together AI',
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
+    together_ai: 'Together AI',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
