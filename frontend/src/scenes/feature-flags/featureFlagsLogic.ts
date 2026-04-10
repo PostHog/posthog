@@ -238,6 +238,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
         filters: [
             DEFAULT_FILTERS,
+            { persist: true },
             {
                 setFeatureFlagsFilters: (state, { filters, replace }) => {
                     if (replace) {
