@@ -29,7 +29,7 @@ tables:
         engine: Distributed
         source: error_tracking_issue_fingerprint_overrides
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit error_tracking_issue_fingerprint_overrides
 
     kafka_error_tracking_issue_fingerprint_overrides:

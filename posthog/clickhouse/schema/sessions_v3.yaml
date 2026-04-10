@@ -57,7 +57,7 @@ tables:
         engine: Distributed
         source: sharded_raw_sessions_v3
         sharding_key: 'cityHash64(session_id_v7)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_raw_sessions_v3
 
     raw_sessions_v3:

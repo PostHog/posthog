@@ -9,7 +9,7 @@ tables:
         sharded: false
         on_nodes:
             - DATA
-            - COORDINATOR
+            - DATA
         order_by:
             - team_id
             - uuid

@@ -29,7 +29,7 @@ tables:
         engine: Distributed
         source: sharded_distinct_id_usage
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_distinct_id_usage
 
     distinct_id_usage:

@@ -28,7 +28,7 @@ tables:
         engine: Distributed
         source: groups
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit groups
 
     kafka_groups:

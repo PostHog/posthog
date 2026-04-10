@@ -10,7 +10,7 @@ tables:
         source: system.processes
         on_nodes:
             - DATA
-            - COORDINATOR
+            - DATA
         settings:
             skip_unavailable_shards: '1'
         columns: []
