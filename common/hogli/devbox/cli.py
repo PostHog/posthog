@@ -16,6 +16,7 @@ from hogli.core.cli import cli
 
 from . import keychain
 from .coder import (
+    DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     _fail,
@@ -46,7 +47,7 @@ from .coder import (
     update_workspace,
     update_workspace_parameters,
 )
-from .config import load_config, save_git_identity
+from .config import load_config, save_dotfiles_uri, save_git_identity
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
 
@@ -153,20 +154,23 @@ def _workspace_status_color(status: str) -> str:
     return WORKSPACE_STATUS_COLORS.get(status, "white")
 
 
-def _sync_git_identity_parameters(name: str) -> None:
-    """Push local git identity config to workspace parameters before start."""
+def _sync_workspace_parameters(name: str) -> None:
+    """Push local config (git identity, dotfiles) to workspace parameters before start."""
     config = load_config()
+    params: dict[str, str] = {}
+
     git_name = config.get("git_name")
     git_email = config.get("git_email")
-    if not git_name or not git_email:
-        return
-    update_workspace_parameters(
-        name,
-        {
-            GIT_NAME_PARAMETER: git_name,
-            GIT_EMAIL_PARAMETER: git_email,
-        },
-    )
+    if git_name and git_email:
+        params[GIT_NAME_PARAMETER] = git_name
+        params[GIT_EMAIL_PARAMETER] = git_email
+
+    dotfiles_uri = config.get("dotfiles_uri")
+    if dotfiles_uri:
+        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
+
+    if params:
+        update_workspace_parameters(name, params)
 
 
 def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
@@ -182,7 +186,7 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         click.echo("Wait for the current operation to complete.")
         return
 
-    _sync_git_identity_parameters(name)
+    _sync_workspace_parameters(name)
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -287,6 +291,43 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
+    """Optionally persist a dotfiles repo URL for new workspaces."""
+    config = load_config()
+    existing_uri = config.get("dotfiles_uri")
+
+    if configure_dotfiles is False:
+        if existing_uri:
+            click.echo(f"Using saved dotfiles: {existing_uri}")
+            click.echo("Run `hogli devbox:setup --configure-dotfiles` to change.")
+        else:
+            click.echo("Skipping dotfiles setup.")
+        return
+
+    if configure_dotfiles is None and existing_uri:
+        click.echo(f"Using saved dotfiles: {existing_uri}")
+        click.echo("Run `hogli devbox:setup --configure-dotfiles` to change.")
+        return
+
+    click.echo()
+    click.echo(click.style("Dotfiles (optional)", bold=True))
+    click.echo("  Personalize your workspace with a dotfiles repository.")
+    click.echo("  The repo will be cloned and applied on every workspace start.")
+    click.echo()
+
+    dotfiles_uri = click.prompt(
+        "Dotfiles repo URL",
+        default=existing_uri or "",
+        show_default=bool(existing_uri),
+    ).strip()
+
+    if dotfiles_uri:
+        save_dotfiles_uri(dotfiles_uri)
+        click.echo(f"Saved dotfiles repo for new workspaces: {dotfiles_uri}")
+    else:
+        click.echo("No dotfiles repo configured.")
+
+
 @cli.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
@@ -362,6 +403,11 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     help="Prompt for Git name/email defaults for new Coder workspaces",
 )
 @click.option(
+    "--configure-dotfiles/--skip-configure-dotfiles",
+    default=None,
+    help="Prompt for a dotfiles repo URL for new Coder workspaces",
+)
+@click.option(
     "--configure-claude/--skip-configure-claude",
     "configure_claude_setup",
     default=None,
@@ -370,6 +416,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
+    configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
@@ -378,6 +425,7 @@ def devbox_setup(
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh)
     maybe_configure_git_identity(configure_git_identity)
+    maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
     print_setup_summary()
 
@@ -404,9 +452,9 @@ def devbox_list() -> None:
 @workspace_name_option
 @click.option(
     "--disk",
-    type=click.Choice(["30", "50", "100"]),
-    default="50",
-    help="Disk size in GiB (default: 50)",
+    type=click.Choice(["60", "80", "100"]),
+    default="100",
+    help="Disk size in GiB (default: 100)",
 )
 @click.option(
     "--configure-claude/--skip-configure-claude",
@@ -445,6 +493,7 @@ def devbox_start(
         claude_oauth_token=token,
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
+        dotfiles_uri=config.get("dotfiles_uri"),
         verbose=verbose,
     )
     click.echo("Created.")

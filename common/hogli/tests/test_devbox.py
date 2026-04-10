@@ -45,6 +45,23 @@ class TestDevboxConfig:
             "git_email": "test-user@example.com",
         }
 
+    def test_save_dotfiles_uri_persists_trimmed_value(self, devbox_config_path: Path) -> None:
+        devbox_config.save_dotfiles_uri(" https://github.com/user/dotfiles ")
+
+        config = devbox_config.load_config()
+        assert config["dotfiles_uri"] == "https://github.com/user/dotfiles"
+
+    def test_save_dotfiles_uri_merges_with_existing_config(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+            "dotfiles_uri": "https://github.com/user/dotfiles",
+        }
+
 
 class TestResolveTailscale:
     """Test Tailscale CLI resolution with macOS app bundle fallback."""
@@ -241,6 +258,41 @@ class TestWorkspaceCreation:
             "verbose": True,
         }
 
+    def test_create_workspace_passes_dotfiles_uri_as_rich_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_with_rich_parameters(
+            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
+        ) -> subprocess.CompletedProcess[str]:
+            captured["parameters"] = parameters
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
+
+        coder.create_workspace(
+            "devbox-test-user",
+            100,
+            dotfiles_uri="https://github.com/user/dotfiles",
+            verbose=True,
+        )
+
+        assert captured["parameters"]["dotfiles_uri"] == "https://github.com/user/dotfiles"
+
+    def test_create_workspace_omits_dotfiles_uri_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_with_rich_parameters(
+            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
+        ) -> subprocess.CompletedProcess[str]:
+            captured["parameters"] = parameters
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
+
+        coder.create_workspace("devbox-test-user", 100, verbose=True)
+
+        assert "dotfiles_uri" not in captured["parameters"]
+
 
 class TestResolveWorkspaceName:
     """Test the CLI workspace resolution logic."""
@@ -334,6 +386,11 @@ class TestDevboxCommands:
         )
         monkeypatch.setattr(
             devbox_cli,
+            "maybe_configure_dotfiles",
+            lambda configure_dotfiles: calls.append(f"dotfiles:{configure_dotfiles}"),
+        )
+        monkeypatch.setattr(
+            devbox_cli,
             "maybe_configure_claude_token",
             lambda configure_claude: calls.append(f"claude:{configure_claude}"),
         )
@@ -341,11 +398,26 @@ class TestDevboxCommands:
 
         result = runner.invoke(
             cli,
-            ["devbox:setup", "--skip-configure-ssh", "--skip-configure-git-identity", "--skip-configure-claude"],
+            [
+                "devbox:setup",
+                "--skip-configure-ssh",
+                "--skip-configure-git-identity",
+                "--skip-configure-dotfiles",
+                "--skip-configure-claude",
+            ],
         )
 
         assert result.exit_code == 0
-        assert calls == ["tailscale", "install", "login", "ssh:False", "git:False", "claude:False", "summary"]
+        assert calls == [
+            "tailscale",
+            "install",
+            "login",
+            "ssh:False",
+            "git:False",
+            "dotfiles:False",
+            "claude:False",
+            "summary",
+        ]
 
     def test_devbox_setup_uses_coder_profile_as_prompt_defaults(
         self,
@@ -356,6 +428,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
@@ -385,6 +458,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
@@ -417,6 +491,7 @@ class TestDevboxCommands:
             claude_oauth_token=None,
             git_name=None,
             git_email=None,
+            dotfiles_uri=None,
             verbose=False: captured.update(
                 {
                     "name": name,
@@ -424,6 +499,7 @@ class TestDevboxCommands:
                     "claude_oauth_token": claude_oauth_token,
                     "git_name": git_name,
                     "git_email": git_email,
+                    "dotfiles_uri": dotfiles_uri,
                 }
             ),
         )
@@ -433,10 +509,11 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "50",
+            "disk_size": "100",
             "claude_oauth_token": "oauth-token",
             "git_name": None,
             "git_email": None,
+            "dotfiles_uri": None,
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -453,7 +530,11 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "load_config",
-            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+            lambda: {
+                "git_name": "PostHog Engineer",
+                "git_email": "test-user@example.com",
+                "dotfiles_uri": "https://github.com/user/dotfiles",
+            },
         )
         monkeypatch.setattr(
             devbox_cli,
@@ -468,11 +549,13 @@ class TestDevboxCommands:
             claude_oauth_token=None,
             git_name=None,
             git_email=None,
+            dotfiles_uri=None,
             verbose=False: captured.update(
                 {
                     "name": name,
                     "git_name": git_name,
                     "git_email": git_email,
+                    "dotfiles_uri": dotfiles_uri,
                 }
             ),
         )
@@ -483,6 +566,7 @@ class TestDevboxCommands:
         assert captured["name"] == "devbox-test-user-api"
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
+        assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
         assert "--name api" in result.output
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -613,9 +697,11 @@ class TestDevboxCommands:
 
 
 class TestStartExistingWorkspace:
-    """Test git identity sync when starting an existing workspace."""
+    """Test workspace parameter sync when starting an existing workspace."""
 
-    def test_syncs_git_identity_before_starting_stopped_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_syncs_workspace_parameters_before_starting_stopped_workspace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         calls: list[str] = []
         captured_params: dict[str, object] = {}
 
@@ -623,7 +709,11 @@ class TestStartExistingWorkspace:
         monkeypatch.setattr(
             devbox_cli,
             "load_config",
-            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+            lambda: {
+                "git_name": "PostHog Engineer",
+                "git_email": "test-user@example.com",
+                "dotfiles_uri": "https://github.com/user/dotfiles",
+            },
         )
 
         def fake_update(name: str, params: dict[str, str]) -> None:
@@ -643,7 +733,11 @@ class TestStartExistingWorkspace:
         assert calls == ["update_params", "start"]
         assert captured_params == {
             "name": "devbox-test-user",
-            "params": {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+            "params": {
+                "git_name": "PostHog Engineer",
+                "git_email": "test-user@example.com",
+                "dotfiles_uri": "https://github.com/user/dotfiles",
+            },
         }
 
     def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:

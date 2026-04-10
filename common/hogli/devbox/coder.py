@@ -29,6 +29,7 @@ RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
+DOTFILES_URI_PARAMETER = "dotfiles_uri"
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -459,6 +460,7 @@ def create_workspace(
     claude_oauth_token: str | None = None,
     git_name: str | None = None,
     git_email: str | None = None,
+    dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
     verbose: bool = False,
@@ -473,6 +475,8 @@ def create_workspace(
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
         parameters[GIT_EMAIL_PARAMETER] = git_email
+    if dotfiles_uri:
+        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
     args = [
         "coder",
