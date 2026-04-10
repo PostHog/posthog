@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1089_ducklake_backfill_populate"),
+        ("posthog", "1090_batchexportrun_records_failed"),
     ]
 
     operations = [
