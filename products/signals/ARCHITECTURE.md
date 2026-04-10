@@ -206,29 +206,31 @@ Defined in `backend/temporal/reingestion.py`. Workflow ID: `team-signal-reingest
 
 This workflow is intended for full-team regrouping after changes to matching / prompting / grouping behavior.
 
+It also supports a **delete-only** mode via `TeamSignalReingestionWorkflowInputs(delete_only=True)` / `reingest_team_signals --delete`, which soft-deletes all team signals and clears ORM report state without re-emitting anything.
+
 **Flow:**
 
 1. **Capture existing grouping pause state** → `get_grouping_paused_state_activity`
 2. **Pause grouping v2** for the team, extending the pause to at least `now + 10 minutes` → `pause_grouping_until_activity`
-3. **Fetch the next batch** of non-deleted signals from ClickHouse → `fetch_team_signals_batch_activity`
-   - Uses `ORDER BY timestamp DESC, document_id DESC`
-   - Uses `LIMIT 50`
-   - Re-fetches the current first 50 undeleted rows each iteration
-4. **Soft-delete + queue re-ingestion** for that batch → `delete_and_reingest_signals_activity`
-   - Emits a deleted replacement row for each existing signal using the original `document_id`, timestamp, and metadata plus `deleted=true`
-   - Calls `emit_signal()` for each signal while grouping is paused, so the new signals are buffered but not grouped yet
-5. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity`, ensuring the deleted rows land before the next batch is fetched
-6. **Refresh the pause window if needed** so grouping stays paused throughout long runs
-7. **Repeat** until no non-deleted signals remain
-8. **Delete all team reports + artefacts in Postgres** → `delete_team_reports_activity`
+3. **Process one batch** of non-deleted signals → `process_team_signals_batch_activity`
+   - Fetches the current first `50` non-deleted signals from ClickHouse using `ORDER BY timestamp DESC, document_id DESC`
+   - Soft-deletes each signal by emitting a replacement row with the original `document_id`, timestamp, and metadata plus `deleted=true`
+   - In normal mode, calls `emit_signal()` for each signal while grouping is paused, so the new signals are buffered but not grouped yet
+   - In delete-only mode, skips the `emit_signal()` step entirely
+   - Waits for the deleted rows from that batch to land in ClickHouse before returning
+4. **Refresh the pause window if needed** so grouping stays paused across long runs while keeping workflow history small
+5. **Repeat** until a batch processes `0` remaining non-deleted signals
+6. **Delete all team reports + artefacts in Postgres** → `delete_team_reports_activity`
    - Deletes all `SignalReportArtefact` rows for the team
    - Deletes all `SignalReport` rows for the team
-   - Runs after all signals have been re-queued, but while grouping is still paused, so the re-emitted signals regroup into a clean ORM state when processing resumes
-9. **Restore the prior grouping pause state** → `restore_grouping_pause_activity`
+   - Runs after all signal batches have been processed, but while grouping is still paused
+   - In normal mode, this gives the re-emitted signals a clean ORM state to regroup into once processing resumes
+   - In delete-only mode, it leaves both ClickHouse and ORM report state cleared
+7. **Restore the prior grouping pause state** → `restore_grouping_pause_activity`
 
 Important detail: the workflow intentionally does **not** paginate across iterations with offsets. Each batch mutates the underlying non-deleted result set by emitting delete rows, so once those rows land in ClickHouse the result set shrinks. Re-fetching the current first batch each time avoids skipping signals.
 
-This workflow is currently started via the Django management command `reingest_team_signals`, not via a REST endpoint.
+This workflow is currently started via the Django management command `reingest_team_signals`, not via a REST endpoint. Pass `--delete` to run the delete-only variant.
 
 ### `SignalReportDeletionWorkflow` (`signal-report-deletion`)
 

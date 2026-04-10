@@ -95,7 +95,7 @@ async def delete_report_activity(input: DeleteReportInput) -> None:
 @dataclass
 class ReingestSignalsInput:
     team_id: int
-    signals: list[SignalData]
+    signals: list["SignalData"]
 
 
 @temporalio.activity.defn
@@ -122,14 +122,15 @@ async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
 
 
 @dataclass
-class FetchTeamSignalsBatchInput:
+class ProcessTeamSignalsBatchInput:
     team_id: int
+    delete_only: bool
     limit: int = TEAM_SIGNAL_REINGESTION_BATCH_SIZE
 
 
 @dataclass
-class FetchTeamSignalsBatchOutput:
-    signals: list[SignalData]
+class ProcessTeamSignalsBatchOutput:
+    processed_count: int
 
 
 @dataclass
@@ -155,7 +156,7 @@ class DeleteTeamReportsInput:
 
 
 @temporalio.activity.defn
-async def fetch_team_signals_batch_activity(input: FetchTeamSignalsBatchInput) -> FetchTeamSignalsBatchOutput:
+async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
     team = await Team.objects.aget(pk=input.team_id)
 
     result = await execute_hogql_query_with_retry(
@@ -196,20 +197,15 @@ async def fetch_team_signals_batch_activity(input: FetchTeamSignalsBatchInput) -
             )
         )
 
-    logger.info(
-        "Fetched team signals batch for reingestion",
-        team_id=input.team_id,
-        limit=input.limit,
-        signal_count=len(signals),
-    )
-    return FetchTeamSignalsBatchOutput(signals=signals)
+    if not signals:
+        logger.info(
+            "No team signals left to process",
+            team_id=input.team_id,
+            delete_only=input.delete_only,
+        )
+        return ProcessTeamSignalsBatchOutput(processed_count=0)
 
-
-@temporalio.activity.defn
-async def delete_and_reingest_signals_activity(input: ReingestSignalsInput) -> None:
-    team = await Team.objects.aget(pk=input.team_id)
-
-    for signal in input.signals:
+    for signal in signals:
         metadata = dict(signal.metadata)
         metadata["deleted"] = True
 
@@ -225,21 +221,34 @@ async def delete_and_reingest_signals_activity(input: ReingestSignalsInput) -> N
             metadata=metadata,
         )
 
-        await emit_signal(
-            team=team,
-            source_product=signal.source_product,
-            source_type=signal.source_type,
-            source_id=signal.source_id,
-            description=signal.content,
-            weight=signal.weight,
-            extra=signal.extra,
+        if not input.delete_only:
+            await emit_signal(
+                team=team,
+                source_product=signal.source_product,
+                source_type=signal.source_type,
+                source_id=signal.source_id,
+                description=signal.content,
+                weight=signal.weight,
+                extra=signal.extra,
+            )
+
+    await wait_for_signal_in_clickhouse_activity(
+        WaitForClickHouseInput(
+            team_id=input.team_id,
+            signals=[
+                WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp) for signal in signals
+            ],
+            max_wait_time_seconds=3600,
         )
+    )
 
     logger.info(
-        "Deleted and queued signals for team reingestion",
+        "Processed team signals batch",
         team_id=input.team_id,
-        signal_count=len(input.signals),
+        delete_only=input.delete_only,
+        signal_count=len(signals),
     )
+    return ProcessTeamSignalsBatchOutput(processed_count=len(signals))
 
 
 @temporalio.activity.defn
@@ -380,7 +389,7 @@ class SignalReportReingestionWorkflow:
 
 @temporalio.workflow.defn(name="team-signal-reingestion")
 class TeamSignalReingestionWorkflow:
-    """Soft-delete every non-deleted signal for a team, queue it for re-ingestion, then restore grouping state."""
+    """Soft-delete every non-deleted signal for a team, optionally re-queue them, then restore grouping state."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> TeamSignalReingestionWorkflowInputs:
@@ -434,26 +443,27 @@ class TeamSignalReingestionWorkflow:
 
         await self._ensure_grouping_paused(inputs.team_id, original_paused_until)
 
-        wait_signals: list[WaitForClickHouseSignal] = []
-
         try:
             while True:
                 await self._refresh_grouping_pause_if_needed(inputs.team_id, original_paused_until)
 
-                fetch_result: FetchTeamSignalsBatchOutput = await workflow.execute_activity(
-                    fetch_team_signals_batch_activity,
-                    FetchTeamSignalsBatchInput(
+                batch_result: ProcessTeamSignalsBatchOutput = await workflow.execute_activity(
+                    process_team_signals_batch_activity,
+                    ProcessTeamSignalsBatchInput(
                         team_id=inputs.team_id,
+                        delete_only=inputs.delete_only,
                         limit=TEAM_SIGNAL_REINGESTION_BATCH_SIZE,
                     ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    start_to_close_timeout=timedelta(hours=1, minutes=15),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 
-                if not fetch_result.signals:
+                if batch_result.processed_count == 0:
                     workflow.logger.info(
                         "Team-wide signal reingestion complete",
                         team_id=inputs.team_id,
+                        delete_only=inputs.delete_only,
                     )
                     await workflow.execute_activity(
                         delete_team_reports_activity,
@@ -462,36 +472,6 @@ class TeamSignalReingestionWorkflow:
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     break
-
-                await workflow.execute_activity(
-                    delete_and_reingest_signals_activity,
-                    ReingestSignalsInput(team_id=inputs.team_id, signals=fetch_result.signals),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-
-                wait_signals = [
-                    WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp)
-                    for signal in fetch_result.signals
-                ]
-
-                # Always fetch from offset 0 on the next iteration. We intentionally do not
-                # paginate with offsets across iterations because each batch emits deletion
-                # rows, shrinking the non-deleted result set underneath us once those rows
-                # land in ClickHouse.
-                await self._refresh_grouping_pause_if_needed(inputs.team_id, original_paused_until)
-
-                await workflow.execute_activity(
-                    wait_for_signal_in_clickhouse_activity,
-                    WaitForClickHouseInput(
-                        team_id=inputs.team_id,
-                        signals=wait_signals,
-                        max_wait_time_seconds=3600,
-                    ),
-                    start_to_close_timeout=timedelta(hours=1, minutes=5),
-                    heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
         finally:
             await workflow.execute_activity(
                 restore_grouping_pause_activity,

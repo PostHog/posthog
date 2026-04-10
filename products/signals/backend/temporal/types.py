@@ -143,6 +143,7 @@ class TeamSignalReingestionWorkflowInputs:
     """Inputs for the team-wide signal reingestion workflow."""
 
     team_id: int
+    delete_only: bool = False
 
 
 @dataclass
