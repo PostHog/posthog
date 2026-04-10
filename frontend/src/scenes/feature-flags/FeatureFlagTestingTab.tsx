@@ -1,27 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import {
-    LemonButton,
-    LemonInput,
-    LemonBanner,
-    LemonLabel,
-    LemonSelect,
-    LemonCalendarSelectInput,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonTable } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import type { Dayjs } from 'lib/dayjs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-import type { FeatureFlagType } from '~/types'
+import type { FeatureFlagType, PersonType } from '~/types'
 
 import { featureFlagsLogic } from './featureFlagsLogic'
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const {
         testFormData: formData,
-        identifierType,
         testError: error,
         testResult: result,
         showAllProperties,
@@ -32,7 +25,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
     const {
         setTestFormData,
-        setIdentifierType,
         setTestError,
         setTestResult,
         setShowAllProperties,
@@ -42,12 +34,15 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         testFlagEvaluation,
     } = useActions(featureFlagsLogic)
 
+    const [selectedPerson, setSelectedPerson] = useState<PersonType | null>(null)
+
     // Clear testing state when feature flag changes
     useEffect(() => {
         clearTestForm()
         setTestError(null)
         setTestResult(null)
         setShowAllProperties(false)
+        setSelectedPerson(null)
     }, [featureFlag.id])
 
     const formatPropertyKey = (key: string): string => {
@@ -92,15 +87,15 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     }
 
     const handleSubmit = async (): Promise<void> => {
-        // Validate the active identifier field
-        const activeValue = identifierType === 'distinct_id' ? formData.distinct_id : formData.person_id
-        if (!activeValue?.trim()) {
-            setTestError(`Please provide a ${identifierType.replace('_', ' ')}`)
+        // Validate that a person is selected
+        if (!selectedPerson || !formData.person_id?.trim()) {
+            setTestError('Please select a person')
             return
         }
 
         try {
-            await testFlagEvaluation({ flagId: featureFlag.id, formData, identifierType })
+            // Always use person_id as the identifier since it's more stable than distinct_id
+            await testFlagEvaluation({ flagId: featureFlag.id, formData, identifierType: 'person_id' })
         } catch {
             // Error handling is done in the kea logic
         }
@@ -112,6 +107,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         setTestError(null)
         setTestResult(null)
         setShowAllProperties(false)
+        setSelectedPerson(null)
     }
 
     return (
@@ -129,41 +125,56 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                 <div className="flex-1 space-y-4 max-w-md bg-bg-light p-6 rounded-lg border">
                     <h4 className="font-semibold">Test Parameters</h4>
 
-                    {/* User Identifier */}
+                    {/* User Selection */}
                     <div className="space-y-3">
-                        <LemonLabel>User Identifier</LemonLabel>
-                        <LemonSelect
-                            placeholder="Select identifier type"
-                            value={identifierType}
-                            onChange={(value) => setIdentifierType(value as 'distinct_id' | 'person_id')}
-                            options={[
-                                { value: 'distinct_id', label: 'Distinct ID' },
-                                { value: 'person_id', label: 'Person ID' },
-                            ]}
+                        <LemonLabel>Select Person</LemonLabel>
+                        <TaxonomicPopover
+                            groupType={TaxonomicFilterGroupType.Persons}
+                            value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
+                            onChange={(_, __, person) => {
+                                if (person) {
+                                    setSelectedPerson(person as PersonType)
+                                    setTestFormData({
+                                        person_id: person.uuid || '',
+                                    })
+                                } else {
+                                    setSelectedPerson(null)
+                                    setTestFormData({
+                                        person_id: '',
+                                    })
+                                }
+                            }}
+                            groupTypes={[TaxonomicFilterGroupType.Persons]}
+                            placeholder="Search for a person by name, email, or ID..."
+                            allowClear
+                            fullWidth
+                            renderValue={() => {
+                                if (selectedPerson) {
+                                    return (
+                                        <span>
+                                            {selectedPerson.name || selectedPerson.distinct_ids[0] || 'Unknown person'}
+                                        </span>
+                                    )
+                                }
+                                return null
+                            }}
                         />
+                        <p className="text-xs text-muted">
+                            Search and select a person from your PostHog instance. You can search by name, email, or
+                            distinct ID.
+                        </p>
 
-                        {identifierType === 'distinct_id' ? (
-                            <div>
-                                <LemonInput
-                                    placeholder="Enter distinct_id (e.g., user@example.com)"
-                                    value={formData.distinct_id}
-                                    onChange={(value) => setTestFormData({ distinct_id: value })}
-                                />
-                                <p className="text-xs text-muted mt-1">
-                                    Use a distinct_id that exists in your PostHog instance. You can find these in the
-                                    Persons page.
-                                </p>
-                            </div>
-                        ) : (
-                            <div>
-                                <LemonInput
-                                    placeholder="Enter person_id (UUID format)"
-                                    value={formData.person_id}
-                                    onChange={(value) => setTestFormData({ person_id: value })}
-                                />
-                                <p className="text-xs text-muted mt-1">
-                                    Use a person UUID that exists in your PostHog instance.
-                                </p>
+                        {selectedPerson && (
+                            <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
+                                <div>
+                                    <strong>Person ID:</strong> {formData.person_id || 'Not available'}
+                                </div>
+                                <div>
+                                    <strong>Distinct IDs:</strong> {selectedPerson.distinct_ids?.slice(0, 3).join(', ')}
+                                    {selectedPerson.distinct_ids &&
+                                        selectedPerson.distinct_ids.length > 3 &&
+                                        ` (+${selectedPerson.distinct_ids.length - 3} more)`}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -234,13 +245,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             type="primary"
                             loading={isLoading}
                             onClick={handleSubmit}
-                            disabledReason={(() => {
-                                const activeValue =
-                                    identifierType === 'distinct_id' ? formData.distinct_id : formData.person_id
-                                return !activeValue?.trim()
-                                    ? `Please provide a ${identifierType.replace('_', ' ')}`
-                                    : undefined
-                            })()}
+                            disabledReason={
+                                !selectedPerson || !formData.person_id?.trim() ? 'Please select a person' : undefined
+                            }
                         >
                             Test evaluation
                         </LemonButton>

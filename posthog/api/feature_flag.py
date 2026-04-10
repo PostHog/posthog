@@ -3257,7 +3257,7 @@ class FeatureFlagViewSet(
         """
         feature_flag = self.get_object()
 
-        # Extract validated data
+        # Extract validated data - prioritize person_id over distinct_id
         distinct_id = request.validated_data.get("distinct_id")
         person_id = request.validated_data.get("person_id")
         timestamp = request.validated_data.get("timestamp")
@@ -3287,6 +3287,7 @@ class FeatureFlagViewSet(
 
         # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
         # since rollout/variant assignment can depend on the exact distinct_id used.
+        # If person_id was provided, use the first distinct_id associated with that person.
         evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else distinct_ids[0]
         person_properties: dict[str, Any] = {}
 
@@ -3351,7 +3352,14 @@ class FeatureFlagViewSet(
                     reason = reason_data.get("code", "unknown") if reason_data else "unknown"
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
-                    detailed_conditions = flag_result.get("conditions", [])
+                    # Try to find conditions in different possible locations
+                    detailed_conditions = (
+                        flag_result.get("conditions", [])
+                        or flag_result.get("analysis", {}).get("conditions", [])
+                        or rust_response.get("conditions", [])
+                        or rust_response.get("analysis", {}).get("conditions", [])
+                        or []
+                    )
 
                     # If there's a variant, use it as the result
                     if variant is not None:
