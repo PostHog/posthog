@@ -144,9 +144,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -372,9 +370,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -694,7 +690,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             self.team.test_account_filters = [filters]
         self.team.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
@@ -796,9 +792,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
@@ -1049,9 +1043,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1167,9 +1159,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1651,9 +1641,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1923,9 +1911,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2089,9 +2075,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [ordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         ordered_result = query_runner.calculate()
 
         # Test with unordered funnel (should succeed)
@@ -2107,9 +2091,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [unordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         unordered_result = query_runner.calculate()
 
         # With ordered funnel, the out-of-order events should not be counted as success
@@ -2313,9 +2295,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2441,9 +2421,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2656,7 +2634,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -2801,9 +2779,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Only mature users should be counted (1 control, 1 test)
