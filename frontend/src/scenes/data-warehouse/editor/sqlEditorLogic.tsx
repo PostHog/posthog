@@ -179,10 +179,10 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         q: values.queryInput ?? '',
         output_tab: values.outputActiveTab,
     }
-    const connectionId = values.sourceQuery?.source.connectionId
+    const connectionId = values.sourceQuery?.source?.connectionId
     if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
-        if (values.sourceQuery?.source.sendRawQuery) {
+        if (values.sourceQuery?.source?.sendRawQuery) {
             hash['raw'] = '1'
         }
     }
@@ -1453,21 +1453,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     subscriptions(({ actions, values, cache }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
-                if (typeof values.sourceQuery.source.filters !== 'object') {
+                if (typeof values.sourceQuery?.source?.filters !== 'object') {
                     actions.setSourceQuery({
                         ...values.sourceQuery,
                         source: {
-                            ...values.sourceQuery.source,
+                            ...values.sourceQuery?.source,
                             filters: {},
                         },
                     })
                 }
             } else {
-                if (values.sourceQuery.source.filters !== undefined) {
+                if (values.sourceQuery?.source?.filters !== undefined) {
                     actions.setSourceQuery({
                         ...values.sourceQuery,
                         source: {
-                            ...values.sourceQuery.source,
+                            ...values.sourceQuery?.source,
                             filters: undefined,
                         },
                     })
@@ -1581,7 +1581,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
                     return undefined
                 }
-                return sourceQuery.source && 'connectionId' in sourceQuery.source
+                return sourceQuery?.source && 'connectionId' in sourceQuery.source
                     ? sourceQuery.source.connectionId
                     : undefined
             },
@@ -1594,7 +1594,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
         sendRawQueryEnabled: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
-            (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+            (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery?.source?.sendRawQuery ?? false),
         ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
@@ -1605,7 +1605,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         isSourceQueryLastRun: [
             (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery],
             (queryInput, lastRunQuery, sourceQuery) => {
-                const lastRunQueryText = lastRunQuery?.source.query ?? sourceQuery.source.query
+                const lastRunQueryText = lastRunQuery?.source?.query ?? sourceQuery?.source?.query
                 return queryInput === lastRunQueryText
             },
         ],
@@ -1910,14 +1910,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 connectionIdFromHash !== undefined &&
                 values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
                 String(hashParams.raw) === '1'
-            const currentConnectionId = values.sourceQuery.source.connectionId || undefined
-            const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
+            const currentConnectionId = values.sourceQuery?.source?.connectionId || undefined
+            const currentSendRawQuery = values.sourceQuery?.source?.sendRawQuery ?? false
 
             if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: {
-                        ...values.sourceQuery.source,
+                        ...values.sourceQuery?.source,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
                     },
