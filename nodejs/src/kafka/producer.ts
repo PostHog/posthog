@@ -138,7 +138,12 @@ export class KafkaProducerWrapper {
                 })) ?? []
 
             const result = await instrumentFn(
-                { key: 'kafka_produce_callback', timeoutMs: 10_000, sendException: false },
+                {
+                    key: 'kafka_produce_callback',
+                    timeoutMs: 10_000,
+                    sendException: false,
+                    timeoutMessage: `Kafka produce callback timeout for topic "${topic}"`,
+                },
                 () =>
                     new Promise((resolve, reject) => {
                         this.producer.produce(
