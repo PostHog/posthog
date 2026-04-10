@@ -107,6 +107,10 @@ class EmitConversationsSignalsWorkflow(PostHogWorkflow):
 
 @workflow.defn(name="conversations-signals-coordinator")
 class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
+
     @workflow.run
     async def run(self) -> dict[str, Any]:
         # Pick teams to emit new conversations from
