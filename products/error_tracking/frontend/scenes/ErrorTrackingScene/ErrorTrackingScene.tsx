@@ -23,6 +23,8 @@ import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionI
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
+import { Releases } from '../ErrorTrackingConfigurationScene/releases/Releases'
+import { SymbolSets } from '../ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -89,6 +91,16 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
+        {
+            key: 'symbol-sets' as const,
+            label: 'Symbol sets',
+            content: <SymbolSets />,
+        },
+        {
+            key: 'releases' as const,
+            label: 'Releases',
+            content: <Releases />,
+        },
         {
             key: 'configuration',
             label: 'Configuration',

@@ -20,8 +20,6 @@ export type ConfigurationSceneTabType =
     | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
-    | 'error-tracking-symbol-sets'
-    | 'error-tracking-releases'
 
 export interface ErrorTrackingConfigurationSceneLogicProps {
     initialTab?: ConfigurationSceneTabType
