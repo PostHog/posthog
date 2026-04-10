@@ -334,6 +334,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TEXT_VIEW: 'llm-analytics-text-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-llm-analytics
     PROMPT_MANAGEMENT: 'prompt-management', // owner: #team-llm-analytics
+    LLM_ANALYTICS_SKILLS: 'llm-analytics-skills', // owner: #team-llm-analytics
     LLM_ANALYTICS_SENTIMENT: 'llm-analytics-sentiment', // owner: #team-llm-analytics
     LLM_ANALYTICS_SENTIMENT_TAB: 'llm-analytics-sentiment-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys

@@ -338,7 +338,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsSkills(),
-            flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
             tags: ['beta'],
             sceneKey: 'LLMAnalyticsSkills',
         },

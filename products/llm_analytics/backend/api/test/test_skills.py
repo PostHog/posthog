@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,6 +7,7 @@ from rest_framework import status
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
+@patch("products.llm_analytics.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
@@ -41,7 +43,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Create ---
 
-    def test_create_skill_succeeds(self):
+    def test_create_skill_succeeds(self, mock_feature_enabled):
         response = self.client.post(
             self._url(),
             data={
@@ -62,7 +64,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["latest_version"] == 1
         assert data["version_count"] == 1
 
-    def test_create_skill_with_all_fields(self):
+    def test_create_skill_with_all_fields(self, mock_feature_enabled):
         response = self.client.post(
             self._url(),
             data={
@@ -84,7 +86,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
 
-    def test_create_skill_with_duplicate_name_fails(self):
+    def test_create_skill_with_duplicate_name_fails(self, mock_feature_enabled):
         self.create_skill(name="existing-skill")
 
         response = self.client.post(
@@ -110,7 +112,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
         ]
     )
-    def test_create_skill_validates_name_format(self, _label, skill_name):
+    def test_create_skill_validates_name_format(self, mock_feature_enabled, _label, skill_name):
         response = self.client.post(
             self._url(),
             data={
@@ -123,7 +125,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_requires_description(self):
+    def test_create_skill_requires_description(self, mock_feature_enabled):
         response = self.client.post(
             self._url(),
             data={
@@ -137,7 +139,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- List ---
 
-    def test_list_skills_returns_name_and_description_without_body(self):
+    def test_list_skills_returns_name_and_description_without_body(self, mock_feature_enabled):
         self.create_skill(name="skill-a", description="Does A things.")
         self.create_skill(name="skill-b", description="Does B things.")
 
@@ -151,7 +153,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
 
-    def test_list_skills_search_by_name(self):
+    def test_list_skills_search_by_name(self, mock_feature_enabled):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
         self.create_skill(name="code-review", description="Reviews code.")
 
@@ -161,7 +163,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "pdf-processing"
 
-    def test_list_skills_search_by_description(self):
+    def test_list_skills_search_by_description(self, mock_feature_enabled):
         self.create_skill(name="skill-one", description="Handles PDF documents.")
         self.create_skill(name="skill-two", description="Reviews Python code.")
 
@@ -173,7 +175,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Get by name ---
 
-    def test_get_skill_by_name(self):
+    def test_get_skill_by_name(self, mock_feature_enabled):
         self.create_skill(name="fetch-me", description="Fetchable.", body="# Fetch me body")
 
         response = self.client.get(self._url("name/fetch-me"))
@@ -185,7 +187,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# Fetch me body"
         assert "files" in data
 
-    def test_get_skill_by_name_returns_file_manifest(self):
+    def test_get_skill_by_name_returns_file_manifest(self, mock_feature_enabled):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
@@ -199,14 +201,14 @@ class TestLLMSkillAPI(APIBaseTest):
         assert "scripts/setup.sh" in paths
         assert "references/guide.md" in paths
 
-    def test_get_skill_not_found(self):
+    def test_get_skill_not_found(self, mock_feature_enabled):
         response = self.client.get(self._url("name/nonexistent"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- Publish new version ---
 
-    def test_publish_new_version(self):
+    def test_publish_new_version(self, mock_feature_enabled):
         self.create_skill(name="evolving-skill", body="# V1")
 
         response = self.client.patch(
@@ -221,7 +223,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# V2 - improved"
         assert data["is_latest"] is True
 
-    def test_publish_carries_forward_unchanged_fields(self):
+    def test_publish_carries_forward_unchanged_fields(self, mock_feature_enabled):
         self.create_skill(
             name="carry-forward",
             description="Original desc.",
@@ -242,7 +244,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
 
-    def test_publish_can_update_description(self):
+    def test_publish_can_update_description(self, mock_feature_enabled):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
 
         response = self.client.patch(
@@ -254,7 +256,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "New desc."
 
-    def test_publish_with_version_conflict_fails(self):
+    def test_publish_with_version_conflict_fails(self, mock_feature_enabled):
         self.create_skill(name="conflict-skill", body="# V1")
         self.client.patch(
             self._url("name/conflict-skill"),
@@ -270,7 +272,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_publish_copies_files_forward(self):
+    def test_publish_copies_files_forward(self, mock_feature_enabled):
         skill = self.create_skill(name="files-carry", body="# V1")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -287,7 +289,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Archive ---
 
-    def test_archive_skill(self):
+    def test_archive_skill(self, mock_feature_enabled):
         self.create_skill(name="to-archive")
 
         response = self.client.post(self._url("name/to-archive/archive"))
@@ -297,7 +299,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Duplicate ---
 
-    def test_duplicate_skill(self):
+    def test_duplicate_skill(self, mock_feature_enabled):
         skill = self.create_skill(name="original", description="Original skill.", body="# Original")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -316,7 +318,7 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
-    def test_duplicate_to_existing_name_fails(self):
+    def test_duplicate_to_existing_name_fails(self, mock_feature_enabled):
         self.create_skill(name="source")
         self.create_skill(name="taken")
 
@@ -330,7 +332,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Get file ---
 
-    def test_get_file_by_path(self):
+    def test_get_file_by_path(self, mock_feature_enabled):
         skill = self.create_skill(name="file-skill")
         LLMSkillFile.objects.create(
             skill=skill,
@@ -347,7 +349,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["content"] == "#!/bin/bash\necho hello"
         assert data["content_type"] == "text/x-shellscript"
 
-    def test_get_nonexistent_file_returns_404(self):
+    def test_get_nonexistent_file_returns_404(self, mock_feature_enabled):
         self.create_skill(name="no-files")
 
         response = self.client.get(self._url("name/no-files/files/missing.txt"))
@@ -356,7 +358,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Resolve ---
 
-    def test_resolve_returns_skill_with_version_history(self):
+    def test_resolve_returns_skill_with_version_history(self, mock_feature_enabled):
         self.create_skill(name="versioned", body="# V1", version=1, is_latest=False)
         self.create_skill(name="versioned", body="# V2", version=2, is_latest=True)
 
@@ -368,3 +370,33 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
+
+    # --- Feature flag ---
+
+    @parameterized.expand(
+        [
+            ("skills_enabled", True, False, status.HTTP_200_OK),
+            ("early_adopters_enabled", False, True, status.HTTP_200_OK),
+            ("both_enabled", True, True, status.HTTP_200_OK),
+            ("both_disabled", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_skill_api_permission_accepts_skills_or_early_adopters_flag(
+        self,
+        mock_feature_enabled,
+        _label,
+        skills_enabled,
+        early_adopters_enabled,
+        expected_status,
+    ):
+        def feature_flag_side_effect(flag, *_args, **_kwargs):
+            return {
+                "llm-analytics-skills": skills_enabled,
+                "llm-analytics-early-adopters": early_adopters_enabled,
+            }.get(flag, False)
+
+        mock_feature_enabled.side_effect = feature_flag_side_effect
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == expected_status

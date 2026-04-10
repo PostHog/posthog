@@ -3,9 +3,11 @@ from typing import Any, cast
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -20,7 +22,7 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, get_organization_from_view
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -53,6 +55,29 @@ from .skill_services import (
     resolve_versions_page,
 )
 
+LLM_SKILL_FEATURE_FLAGS = ("llm-analytics-skills", "llm-analytics-early-adopters")
+
+
+class LLMSkillFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        org_id = str(organization.id)
+        distinct_id = user.distinct_id or str(user.uuid)
+
+        return any(
+            posthoganalytics.feature_enabled(
+                feature_flag,
+                distinct_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+            for feature_flag in LLM_SKILL_FEATURE_FLAGS
+        )
+
+
 ALLOWED_LIST_ORDERINGS = {
     "name": "name",
     "-name": "-name",
@@ -80,7 +105,7 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission]
+    permission_classes = [LLMSkillFeatureFlagPermission, AccessControlPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
