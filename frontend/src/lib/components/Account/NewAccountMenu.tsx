@@ -1,7 +1,15 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
+import {
+    IconDatabase,
+    IconGear,
+    IconLeave,
+    IconPlusSmall,
+    IconReceipt,
+    IconServer,
+    IconShieldLock,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -331,6 +339,61 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         </Link>
                                     )}
                                 />
+
+                                {user?.is_staff && (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            Staff
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to="/admin/"
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-django-admin"
+                                                    disableClientSideRouting
+                                                >
+                                                    <IconShieldLock />
+                                                    Django admin
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.instanceStatus()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-instance-panel"
+                                                >
+                                                    <IconServer />
+                                                    Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.queryPerformance()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-query-performance"
+                                                >
+                                                    <IconDatabase />
+                                                    Query performance
+                                                </Link>
+                                            )}
+                                        />
+                                    </>
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2">
                                     Account

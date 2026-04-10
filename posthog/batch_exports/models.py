@@ -137,6 +137,10 @@ class BatchExportRun(UUIDTModel):
     )
     status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
+    records_failed = models.IntegerField(
+        null=True,
+        help_text="The number of records that failed downstream processing (e.g. hog function execution errors).",
+    )
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
     data_interval_start = models.DateTimeField(help_text="The start of the data interval.", null=True)
     data_interval_end = models.DateTimeField(help_text="The end of the data interval.")

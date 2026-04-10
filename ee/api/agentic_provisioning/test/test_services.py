@@ -88,6 +88,13 @@ class TestProvisioningServices(StripeProvisioningTestBase):
 
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
+    def test_analytics_deployable_allows_service_ref_updates(self, mock_cache, mock_get):
+        res = self._get_signed("/api/agentic/provisioning/services")
+        analytics = res.json()["data"][2]
+        assert analytics["allowed_updates"] == ["service_ref"]
+
+    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
+    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
     def test_analytics_deployable_has_component_pricing(self, mock_cache, mock_get):
         res = self._get_signed("/api/agentic/provisioning/services")
         analytics = res.json()["data"][2]

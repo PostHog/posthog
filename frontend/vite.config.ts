@@ -4,9 +4,9 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
-import { htmlGenerationPlugin } from './vite-html-plugin'
-import { posthogJsPlugin } from './vite-posthog-js-plugin'
-import { publicAssetsPlugin } from './vite-public-assets-plugin'
+import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
+import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
+import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
