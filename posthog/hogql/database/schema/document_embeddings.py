@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
-from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.error_tracking.backend.infra.embedding import EMBEDDING_TABLES
 
 VECTOR_DISTANCE_FUNCTIONS = {"cosineDistance", "L2Distance"}
 DOCUMENT_EMBEDDINGS_VIEW = "posthog_document_embeddings_union_view"
