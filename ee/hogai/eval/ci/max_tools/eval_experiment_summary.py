@@ -208,6 +208,11 @@ def experiment_with_mock_data(demo_org_team_user):
 
     async def setup(mock_template: MaxExperimentSummaryContext):
         unique_suffix = uuid.uuid4().hex[:6]
+        # Distribute rollout percentages evenly across variants, putting any
+        # remainder on the first variant so the total is exactly 100.
+        num_variants = len(mock_template.variants)
+        base_pct = 100 // num_variants
+        remainder = 100 - (base_pct * num_variants)
         flag = await FeatureFlag.objects.acreate(
             team=team,
             created_by=user,
@@ -217,8 +222,12 @@ def experiment_with_mock_data(demo_org_team_user):
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": {
                     "variants": [
-                        {"key": variant, "name": variant.title(), "rollout_percentage": 50}
-                        for variant in mock_template.variants
+                        {
+                            "key": variant,
+                            "name": variant.title(),
+                            "rollout_percentage": base_pct + (remainder if i == 0 else 0),
+                        }
+                        for i, variant in enumerate(mock_template.variants)
                     ]
                 },
             },
