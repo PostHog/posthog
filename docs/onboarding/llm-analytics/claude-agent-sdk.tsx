@@ -134,6 +134,7 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CodeBlock
                         language="python"
                         code={dedent`
+                            import asyncio
                             from posthog import Posthog
                             from posthog.ai.claude_agent_sdk import instrument
                             from claude_agent_sdk import ClaudeAgentOptions
@@ -151,11 +152,14 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
 
                             options = ClaudeAgentOptions(max_turns=10)
 
-                            # All queries share the same PostHog config
-                            async for msg in ph.query(prompt="Question 1", options=options):
-                                ...
-                            async for msg in ph.query(prompt="Question 2", options=options):
-                                ...
+                            async def main():
+                                # All queries share the same PostHog config
+                                async for msg in ph.query(prompt="Question 1", options=options):
+                                    ...
+                                async for msg in ph.query(prompt="Question 2", options=options):
+                                    ...
+
+                            asyncio.run(main())
                         `}
                     />
 
@@ -190,7 +194,15 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CodeBlock
                         language="python"
                         code={dedent`
+                            import asyncio
+                            from posthog import Posthog
+                            from posthog.ai.claude_agent_sdk import query
                             from claude_agent_sdk import ClaudeAgentOptions, AssistantMessage, TextBlock, ToolUseBlock
+
+                            posthog = Posthog(
+                                "<ph_project_token>",
+                                host="<ph_client_api_host>"
+                            )
 
                             options = ClaudeAgentOptions(
                                 max_turns=10,
@@ -199,18 +211,22 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                                 cwd="/path/to/your/project",
                             )
 
-                            async for message in query(
-                                prompt="Read the README and summarize this project",
-                                options=options,
-                                posthog_client=posthog,
-                                posthog_distinct_id="user_123",
-                            ):
-                                if isinstance(message, AssistantMessage):
-                                    for block in message.content:
-                                        if isinstance(block, TextBlock):
-                                            print(block.text)
-                                        elif isinstance(block, ToolUseBlock):
-                                            print(f"Tool: {block.name}")
+                            async def main():
+                                async for message in query(
+                                    prompt="Read the README and summarize this project",
+                                    options=options,
+                                    posthog_client=posthog,
+                                    posthog_distinct_id="user_123",
+                                ):
+                                    if isinstance(message, AssistantMessage):
+                                        for block in message.content:
+                                            if isinstance(block, TextBlock):
+                                                print(block.text)
+                                            elif isinstance(block, ToolUseBlock):
+                                                print(f"Tool: {block.name}")
+
+                            asyncio.run(main())
+                            posthog.shutdown()
                         `}
                     />
 
