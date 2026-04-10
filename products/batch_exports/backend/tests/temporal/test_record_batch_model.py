@@ -42,11 +42,11 @@ class TestSessionsRecordBatchModel:
 
         # check that we have a date range set on the inner query using the session ID
         assert (
-            "lessOrEquals(toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))), plus("
+            "lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus("
             in printed_query
         )
         assert (
-            "greaterOrEquals(toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))), minus("
+            "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
 
@@ -115,11 +115,11 @@ class TestSessionsRecordBatchModel:
 
         # check that we have a date range set on the inner query using the session ID
         assert (
-            "lessOrEquals(toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))), plus("
+            "lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus("
             in printed_query
         )
         assert (
-            "greaterOrEquals(toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))), minus("
+            "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
 

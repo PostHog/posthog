@@ -16,7 +16,7 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const currentValue = experimentsConfig?.default_experiment_confidence_level ?? 0.95
+    const currentValue = Number(experimentsConfig?.default_experiment_confidence_level ?? 0.95)
 
     const handleChange = (value: number | null): void => {
         if (value === null) {

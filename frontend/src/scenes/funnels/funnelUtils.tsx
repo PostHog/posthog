@@ -12,7 +12,7 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
+import { AnyEntityNode, BreakdownFilter, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
     AnyPropertyFilter,
@@ -653,4 +653,27 @@ export function getTooltipTitleForDroppedOff(
             {funnelsFilter?.funnelStepReference === FunnelStepReference.previous ? 'previous' : 'first'} step
         </>
     )
+}
+
+// Returns the single visible breakdown series on a funnel step, when the step is rendered
+// with the non-breakdown layout but a breakdown filter is set. Lets callers route clicks
+// through `openPersonsModalForSeries` so the persons modal is scoped to that value.
+export function getStepBreakdownSeries(
+    step: Pick<FunnelStepWithConversionMetrics, 'nested_breakdown'>,
+    breakdownFilter: BreakdownFilter | null | undefined
+): FunnelStepWithConversionMetrics | null {
+    if (!breakdownFilter?.breakdown) {
+        return null
+    }
+
+    if (!Array.isArray(step.nested_breakdown) || step.nested_breakdown.length !== 1) {
+        return null
+    }
+
+    const single = step.nested_breakdown[0]
+    if (!single || single.breakdown_value == null) {
+        return null
+    }
+
+    return single
 }

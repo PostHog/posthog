@@ -27,6 +27,7 @@ import {
     CohortType,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -473,14 +474,18 @@ export function determineFilterType(
 export function resolveCohortFieldValue(
     criteria: AnyCohortCriteriaType,
     fieldKey: string
-): string | number | boolean | null | undefined | AnyPropertyFilter[] {
+): string | number | boolean | null | undefined | AnyPropertyFilter[] | PropertyFilterValue {
     // Resolve correct behavioral filter type
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
     }
     return (
-        (criteria as Record<string, string | number | boolean | null | undefined | AnyPropertyFilter[]>)[fieldKey] ??
-        null
+        (
+            criteria as Record<
+                string,
+                string | number | boolean | null | undefined | AnyPropertyFilter[] | PropertyFilterValue
+            >
+        )[fieldKey] ?? null
     )
 }
 
