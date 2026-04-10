@@ -5,8 +5,10 @@ import pytest
 
 from posthog.schema import SignalInput
 
+from posthog.temporal.data_imports.signals.conversations_tickets import conversations_ticket_emitter
 from posthog.temporal.data_imports.signals.github_issues import github_issue_emitter
 from posthog.temporal.data_imports.signals.linear_issues import linear_issue_emitter
+from posthog.temporal.data_imports.signals.tests.conftest import MOCK_CONVERSATIONS_TICKET_RECORD
 from posthog.temporal.data_imports.signals.zendesk_tickets import zendesk_ticket_emitter
 
 FIXTURES_DIR = Path(__file__).resolve().parents[5] / "products" / "signals" / "eval" / "fixtures"
@@ -69,3 +71,10 @@ class TestLinearFixtureSchemaValidation:
         output = linear_issue_emitter(team_id=1, record=record)
         if output is not None:
             _validate_output(output)
+
+
+class TestConversationsSchemaValidation:
+    def test_emitter_output_matches_schema(self):
+        output = conversations_ticket_emitter(team_id=1, record={**MOCK_CONVERSATIONS_TICKET_RECORD})
+        assert output is not None
+        _validate_output(output)
