@@ -10,25 +10,37 @@ from .config import AgentArtifacts, SandboxedEvalCase
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["run_eval_case"]
+
 
 async def run_eval_case(
     case: SandboxedEvalCase,
     context: CustomPromptSandboxContext,
 ) -> AgentArtifacts:
-    """Run an eval case using the full Task → temporal workflow → log polling pipeline.
-
-    Creates a real Task, triggers the temporal workflow (which provisions a sandbox,
-    starts agent-server, forwards the prompt, and cleans up), then parses the S3 logs
-    to extract artifacts for scoring.
-    """
+    """Run an eval case using the full Task -> temporal workflow -> log polling pipeline."""
+    logger.info("Starting eval case '%s' with prompt: %.100s...", case.name, case.prompt)
     start = time.monotonic()
     try:
-        last_message, full_log = await run_prompt(case.prompt, context)
+        last_message, full_log = await run_prompt(
+            case.prompt,
+            context,
+            step_name=case.name,
+            verbose=True,
+            output_fn=lambda msg: logger.info("agent: %s", msg),
+        )
+
         duration = time.monotonic() - start
-        return _parse_artifacts_from_log(full_log or "", duration, agent_finished=True)
+        logger.info(
+            "Eval case '%s' completed in %.1fs, log size=%d, last_message=%.200s",
+            case.name,
+            duration,
+            len(full_log),
+            last_message or "(none)",
+        )
+        return _parse_artifacts_from_log(full_log, duration, agent_finished=True)
     except Exception as e:
         duration = time.monotonic() - start
-        logger.exception(f"Eval case '{case.name}' failed: {e}")
+        logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
         return AgentArtifacts(
             exit_code=1,
             stderr=str(e),
