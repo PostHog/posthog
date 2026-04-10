@@ -63,7 +63,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
             """,
             placeholders={
                 "search": ast.Constant(value=f"%{self.query.search}%"),
-                "exact": ast.Constant(value=f"{self.query.search}"),
+                "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),
