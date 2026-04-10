@@ -76,6 +76,8 @@ jobs:
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'ee/clickhouse/materialized_columns/**'
                         - 'ee/hogai/eval/**'
+                        # Common modules imported by DAGs
+                        - 'common/hogvm/**'
                         # Product backend modules imported by DAGs
                         - 'products/data_warehouse/backend/**'
                         - 'products/error_tracking/backend/models/**'
