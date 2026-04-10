@@ -2,62 +2,47 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import openai
+from parameterized import parameterized
 
 from products.llm_analytics.backend.llm.providers.together import TOGETHER_BASE_URL, TogetherAdapter
 
 
 class TestTogetherValidateKey:
-    @patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI")
-    def test_validate_key_valid_returns_ok(self, mock_openai):
+    @parameterized.expand(
+        [
+            ("valid", None, "ok", None),
+            (
+                "auth_error",
+                lambda: openai.AuthenticationError(message="Invalid key", response=MagicMock(), body={}),
+                "invalid",
+                "Invalid API key",
+            ),
+            (
+                "connection_error",
+                lambda: openai.APIConnectionError(request=MagicMock()),
+                "error",
+                "Could not connect to Together AI",
+            ),
+            (
+                "rate_limit",
+                lambda: openai.RateLimitError(message="Rate limited", response=MagicMock(), body={}),
+                "error",
+                "Rate limited, please try again later",
+            ),
+        ]
+    )
+    def test_validate_key(self, _name, side_effect_factory, expected_state, expected_message):
         mock_client = MagicMock()
-        mock_client.models.list.return_value = []
-        mock_openai.return_value = mock_client
+        if side_effect_factory is None:
+            mock_client.models.list.return_value = []
+        else:
+            mock_client.models.list.side_effect = side_effect_factory()
 
-        state, message = TogetherAdapter.validate_key("together-test-key")
+        with patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI", return_value=mock_client):
+            state, message = TogetherAdapter.validate_key("together-test-key")
 
-        assert state == "ok"
-        assert message is None
-
-    @patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI")
-    def test_validate_key_auth_error_returns_invalid(self, mock_openai):
-        mock_client = MagicMock()
-        mock_client.models.list.side_effect = openai.AuthenticationError(
-            message="Invalid key",
-            response=MagicMock(),
-            body={},
-        )
-        mock_openai.return_value = mock_client
-
-        state, message = TogetherAdapter.validate_key("together-test-key")
-
-        assert state == "invalid"
-        assert message == "Invalid API key"
-
-    @patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI")
-    def test_validate_key_connection_error_returns_error(self, mock_openai):
-        mock_client = MagicMock()
-        mock_client.models.list.side_effect = openai.APIConnectionError(request=MagicMock())
-        mock_openai.return_value = mock_client
-
-        state, message = TogetherAdapter.validate_key("together-test-key")
-
-        assert state == "error"
-        assert message == "Could not connect to Together AI"
-
-    @patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI")
-    def test_validate_key_rate_limit_returns_error(self, mock_openai):
-        mock_client = MagicMock()
-        mock_client.models.list.side_effect = openai.RateLimitError(
-            message="Rate limited",
-            response=MagicMock(),
-            body={},
-        )
-        mock_openai.return_value = mock_client
-
-        state, message = TogetherAdapter.validate_key("together-test-key")
-
-        assert state == "error"
-        assert message == "Rate limited, please try again later"
+        assert state == expected_state
+        assert message == expected_message
 
 
 class TestTogetherListModels:
