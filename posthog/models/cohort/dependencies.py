@@ -359,7 +359,6 @@ def cohort_conditions_changed_backfill(sender, instance, **kwargs):
         "cohort-backfill-on-change",
         str(instance.team_id),
         groups={"team": str(instance.team_id)},
-        only_evaluate_locally=True,
         send_feature_flag_events=False,
     ):
         return
