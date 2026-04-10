@@ -6,6 +6,7 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
+from products.error_tracking.backend.facade import ErrorTrackingIssueContract
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 from ee.hogai.context.error_tracking.context import ErrorTrackingIssueContext
@@ -109,12 +110,13 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
             issue_name=issue_name,
         )
 
-    async def test_aget_issue_returns_issue(self):
+    async def test_aget_issue_returns_contract(self):
         context = self._create_context(self.issue_id_one)
         issue = await context.aget_issue()
 
         self.assertIsNotNone(issue)
         assert issue is not None
+        self.assertIsInstance(issue, ErrorTrackingIssueContract)
         self.assertEqual(str(issue.id), self.issue_id_one)
         self.assertEqual(issue.name, "TypeError: Cannot read property 'map' of undefined")
 

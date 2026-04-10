@@ -34,7 +34,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+    from products.error_tracking.backend.facade import delete_issue_fingerprints
 
     # Delete data modeling nodes and edges first to not block Team deletion.
     # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
@@ -44,7 +44,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
-    _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
+    delete_issue_fingerprints(team_ids)
 
     # Get cohort_ids from the default database first to avoid cross-database join
     # CohortPeople is in persons_db, Cohort is in default db
