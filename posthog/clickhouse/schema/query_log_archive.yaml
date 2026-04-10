@@ -209,7 +209,7 @@ tables:
         sharding_key: 'cityHash64(query_id)'
         on_nodes:
             - DATA
-            - DATA
+            - COORDINATOR
         columns: inherit sharded_query_log_archive
 
     writable_query_log_archive:
@@ -217,7 +217,7 @@ tables:
         source: sharded_query_log_archive
         sharding_key: 'cityHash64(query_id)'
         on_nodes:
-            - DATA
+            - COORDINATOR
             - ENDPOINTS
         columns: inherit sharded_query_log_archive
 
@@ -226,7 +226,7 @@ tables:
         source: sharded_query_log_archive
         sharding_key: 'cityHash64(query_id)'
         on_nodes:
-            - DATA
+            - COORDINATOR
             - ENDPOINTS
         columns: inherit sharded_query_log_archive
 
@@ -252,6 +252,6 @@ tables:
         target: writable_sharded_query_log_archive
         select: "SELECT hostname, user, query_id, ... FROM system.query_log WHERE type != 'QueryStart'"
         on_nodes:
-            - DATA
+            - COORDINATOR
             - ENDPOINTS
         columns: []

@@ -69,5 +69,5 @@ tables:
         engine: Distributed
         source: sharded_person_distinct_id
         sharding_key: 'cityHash64(distinct_id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit person_distinct_id

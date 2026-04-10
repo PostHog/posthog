@@ -115,7 +115,7 @@ tables:
         engine: Distributed
         source: sharded_performance_events
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: DATA
+        on_nodes: COORDINATOR
         columns: inherit sharded_performance_events
 
     performance_events:
