@@ -97,6 +97,34 @@ describe('saveAsActionUtils', () => {
                 false,
             ],
             [
+                'selector with regex operator (no matching field to store it)',
+                makeFilter({
+                    properties: [
+                        {
+                            key: 'selector',
+                            value: '.btn.*',
+                            operator: PropertyOperator.Regex,
+                            type: PropertyFilterType.Element,
+                        },
+                    ],
+                }),
+                false,
+            ],
+            [
+                'selector with icontains operator (no matching field to store it)',
+                makeFilter({
+                    properties: [
+                        {
+                            key: 'selector',
+                            value: 'btn',
+                            operator: PropertyOperator.IContains,
+                            type: PropertyFilterType.Element,
+                        },
+                    ],
+                }),
+                false,
+            ],
+            [
                 'non-autocapture event with element-like properties',
                 makeFilter({
                     id: '$pageview',

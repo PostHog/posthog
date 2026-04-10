@@ -63,11 +63,10 @@ function canMapToActionStep(prop: AnyPropertyFilter): boolean {
         return false
     }
     const operator = 'operator' in prop ? prop.operator : undefined
-    const matching = operatorToStringMatching(operator)
     if (mapping.matchingField !== null) {
-        return matching !== null
+        return operatorToStringMatching(operator) !== null
     }
-    return matching !== null || operator === undefined
+    return operator === undefined || operator === PropertyOperator.Exact
 }
 
 export function isAutocaptureFilterWithElements(filter: LocalFilter): boolean {
