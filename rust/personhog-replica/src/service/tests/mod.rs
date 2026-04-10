@@ -192,6 +192,7 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
 
 #[rstest]
 #[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
 #[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
 #[tokio::test]
 async fn test_delete_persons_batch_for_team_storage_error(

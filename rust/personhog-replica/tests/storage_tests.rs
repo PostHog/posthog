@@ -981,3 +981,80 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
         .ok();
     ctx.cleanup().await.ok();
 }
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("rollback_user_1", None).await.unwrap();
+    let p2 = ctx.insert_person("rollback_user_2", None).await.unwrap();
+
+    // Create a table with a RESTRICT FK to posthog_person. When
+    // delete_persons_batch_for_team reaches step 3 (DELETE FROM posthog_person),
+    // this FK will cause the delete to fail — after step 2 already deleted the
+    // distinct_ids within the same transaction.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _test_person_fk_block (
+            id SERIAL PRIMARY KEY,
+            team_id INTEGER NOT NULL,
+            person_id BIGINT NOT NULL,
+            FOREIGN KEY (team_id, person_id)
+                REFERENCES posthog_person(team_id, id) ON DELETE RESTRICT
+        )",
+    )
+    .execute(&ctx.pool)
+    .await
+    .expect("Failed to create blocking FK table");
+
+    // Block deletion of p1 — both p1 and p2 are selected in the same batch,
+    // so the entire transaction should fail and roll back
+    sqlx::query("INSERT INTO _test_person_fk_block (team_id, person_id) VALUES ($1, $2)")
+        .bind(ctx.team_id as i32)
+        .bind(p1.id)
+        .execute(&ctx.pool)
+        .await
+        .expect("Failed to insert blocking reference");
+
+    let result = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await;
+
+    assert!(result.is_err());
+
+    // Both persons should still exist — transaction rolled back
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p1.id)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p2.id)
+        .await
+        .unwrap()
+        .is_some());
+
+    // Distinct IDs should also still exist — proves the step 2 deletes were rolled back
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_1")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_2")
+        .await
+        .unwrap()
+        .is_some());
+
+    // Cleanup
+    sqlx::query("DELETE FROM _test_person_fk_block WHERE team_id = $1")
+        .bind(ctx.team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
