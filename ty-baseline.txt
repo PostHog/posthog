@@ -729,6 +729,8 @@ posthog/cdp/validation.py:0: error: Invalid override of method `validate`: Defin
 posthog/celery.py:0: error: Cannot subscript object of type `None` with no `__getitem__` method  [non-subscriptable]
 posthog/celery.py:0: warning: Attribute `connect` may be missing on object of type `Unknown | None | Signal`  [possibly-missing-attribute]
 posthog/clickhouse/client/connection.py:0: error: Cannot assign to a subscript on an object of type `None`  [invalid-assignment]
+posthog/clickhouse/migration_tools/state_diff.py:0: error: Non-overlapping equality check (left operand type: "dict[str, ColumnDef]", right operand type: "dict[str, ColumnSchema]")  [comparison-overlap]
+posthog/clickhouse/test/_stubs.py:0: error: NamedTuple type as an attribute is not supported  [misc]
 posthog/dags/common/resources.py:0: warning: Submodule `extensions` may not be available as an attribute on module `psycopg2`  [possibly-missing-attribute]
 posthog/dags/common/resources.py:0: warning: Submodule `extensions` may not be available as an attribute on module `psycopg2`  [possibly-missing-attribute]
 posthog/dags/delete_persons_from_trigger_log.py:0: warning: Submodule `extensions` may not be available as an attribute on module `psycopg2`  [possibly-missing-attribute]
