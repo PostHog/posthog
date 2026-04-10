@@ -30,7 +30,7 @@ tables:
         engine: Distributed
         source: cohort_membership
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit cohort_membership
 
     kafka_cohort_membership:

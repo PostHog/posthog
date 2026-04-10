@@ -74,7 +74,7 @@ tables:
         engine: Distributed
         source: sharded_events_recent
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_events_recent
 
     events_recent:

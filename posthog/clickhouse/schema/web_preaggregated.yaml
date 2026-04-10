@@ -218,7 +218,7 @@ tables:
         sharded: false
         on_nodes:
             - DATA
-            - COORDINATOR
+            - DATA
         order_by:
             - team_id
             - period_bucket
@@ -310,28 +310,28 @@ tables:
         engine: Distributed
         source: web_pre_aggregated_stats
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit web_pre_aggregated_stats
 
     web_stats_hourly_distributed:
         engine: Distributed
         source: web_pre_aggregated_stats
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit web_pre_aggregated_stats
 
     web_bounces_daily_distributed:
         engine: Distributed
         source: web_pre_aggregated_bounces
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit web_pre_aggregated_bounces
 
     web_bounces_hourly_distributed:
         engine: Distributed
         source: web_pre_aggregated_bounces
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit web_pre_aggregated_bounces
 
     web_pre_aggregated_bounces_staging:
@@ -339,7 +339,7 @@ tables:
         sharded: false
         on_nodes:
             - DATA
-            - COORDINATOR
+            - DATA
         order_by:
             - team_id
             - period_bucket

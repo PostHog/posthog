@@ -76,7 +76,7 @@ tables:
         engine: Distributed
         source: sharded_log_entries
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_log_entries
 
     # Original Kafka table (non-sharded pipeline)
