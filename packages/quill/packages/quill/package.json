@@ -38,14 +38,21 @@
         "build:js": "vite build"
     },
     "dependencies": {
+        "@base-ui/react": "^1.0.0",
+        "@posthog/quill-tokens": "workspace:*",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "cmdk": "^1.1.1",
+        "lucide-react": "^0.577.0",
+        "react-resizable-panels": "^4.7.1",
+        "tailwind-merge": "^2.2.2",
+        "vaul": "^1.1.2"
+    },
+    "devDependencies": {
         "@posthog/quill-blocks": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
-        "@posthog/quill-tokens": "workspace:*"
-    },
-    "devDependencies": {
         "@tailwindcss/cli": "^4.1.17",
-        "@vitejs/plugin-react": "^5.1.1",
         "shadcn": "^4.0.2",
         "tailwindcss": "^4.1.17",
         "tsx": "^4.19.0",

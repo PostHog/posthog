@@ -1955,6 +1955,40 @@ importers:
 
   packages/quill/packages/quill:
     dependencies:
+      '@base-ui/react':
+        specifier: ^1.0.0
+        version: 1.3.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-tokens':
+        specifier: workspace:*
+        version: link:../tokens
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      cmdk:
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      react-resizable-panels:
+        specifier: ^4.7.1
+        version: 4.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      tailwind-merge:
+        specifier: ^2.2.2
+        version: 2.2.2
+      vaul:
+        specifier: ^1.1.2
+        version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+    devDependencies:
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
@@ -1964,22 +1998,9 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../primitives
-      '@posthog/quill-tokens':
-        specifier: workspace:*
-        version: link:../tokens
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: 18.3.1
-        version: 18.3.1(react@18.3.1)
-    devDependencies:
       '@tailwindcss/cli':
         specifier: ^4.1.17
         version: 4.2.2
-      '@vitejs/plugin-react':
-        specifier: ^5.1.1
-        version: 5.2.0(vite@6.4.1(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2))
       shadcn:
         specifier: ^4.0.2
         version: 4.1.2(@cfworker/json-schema@4.1.1)(@types/node@22.18.8)(typescript@5.8.3)
