@@ -94,8 +94,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         }
 
         try {
-            // Always use person_id as the identifier since it's more stable than distinct_id
-            await testFlagEvaluation({ flagId: featureFlag.id, formData, identifierType: 'person_id' })
+            // Use person_id as the identifier since it's more stable than distinct_id
+            await testFlagEvaluation({ flagId: featureFlag.id, formData })
         } catch {
             // Error handling is done in the kea logic
         }

@@ -203,7 +203,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
         // Testing tab actions
         setTestFormData: (formData: Partial<TestFormData>) => ({ formData }),
-        setIdentifierType: (identifierType: 'distinct_id' | 'person_id') => ({ identifierType }),
         setTestError: (error: string | null) => ({ error }),
         setTestResult: (result: TestResult | null) => ({ result }),
         setShowAllProperties: (showAll: boolean) => ({ showAll }),
@@ -255,23 +254,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         testEvaluation: [
             null as TestResult | null,
             {
-                testFlagEvaluation: async ({
-                    flagId,
-                    formData,
-                    identifierType,
-                }: {
-                    flagId: number
-                    formData: TestFormData
-                    identifierType: 'distinct_id' | 'person_id'
-                }) => {
+                testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
                     const data: Record<string, any> = {}
 
-                    // Only send the identifier that matches the current identifier type
-                    if (identifierType === 'distinct_id' && formData.distinct_id?.trim()) {
-                        data.distinct_id = formData.distinct_id.trim()
-                    }
-                    if (identifierType === 'person_id' && formData.person_id?.trim()) {
+                    // Prioritize person_id, fallback to distinct_id
+                    if (formData.person_id?.trim()) {
                         data.person_id = formData.person_id.trim()
+                    } else if (formData.distinct_id?.trim()) {
+                        data.distinct_id = formData.distinct_id.trim()
                     }
                     // Parse groups JSON, defaulting to empty object if not provided or empty
                     if (formData.groups?.trim()) {
@@ -370,12 +360,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 setTestFormData: (state, { formData }) => ({ ...state, ...formData }),
                 clearTestForm: () => ({ distinct_id: '', person_id: '', timestamp: '', groups: '' }),
-            },
-        ],
-        identifierType: [
-            'distinct_id' as 'distinct_id' | 'person_id',
-            {
-                setIdentifierType: (_, { identifierType }) => identifierType,
             },
         ],
         testError: [
