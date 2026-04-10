@@ -73,7 +73,7 @@ tables:
         engine: Distributed
         source: sharded_session_replay_events
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_session_replay_events
 
     writable_session_replay_events:
@@ -176,14 +176,14 @@ tables:
         engine: Distributed
         source: sharded_session_replay_embeddings
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_session_replay_embeddings
 
     writable_session_replay_embeddings:
         engine: Distributed
         source: sharded_session_replay_embeddings
         sharding_key: 'sipHash64(session_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_session_replay_embeddings
 
     # Legacy session_recording_events tables (still in production)
@@ -191,12 +191,12 @@ tables:
         engine: Distributed
         source: sharded_session_replay_events
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_session_replay_events
 
     writable_session_recording_events:
         engine: Distributed
         source: sharded_session_replay_events
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_session_replay_events

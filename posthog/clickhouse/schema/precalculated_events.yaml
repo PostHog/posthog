@@ -35,7 +35,7 @@ tables:
         engine: Distributed
         source: sharded_precalculated_events
         sharding_key: 'sipHash64(distinct_id)'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_precalculated_events
 
     precalculated_events:

@@ -31,7 +31,7 @@ tables:
         engine: Distributed
         source: sharded_ingestion_warnings
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_ingestion_warnings
 
     ingestion_warnings:

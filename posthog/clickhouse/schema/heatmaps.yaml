@@ -51,7 +51,7 @@ tables:
         engine: Distributed
         source: sharded_heatmaps
         sharding_key: "cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))"
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit sharded_heatmaps
 
     writable_heatmaps:

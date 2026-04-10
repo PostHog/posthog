@@ -29,7 +29,7 @@ tables:
         engine: Distributed
         source: person_distinct_id_overrides
         sharding_key: 'rand()'
-        on_nodes: COORDINATOR
+        on_nodes: DATA
         columns: inherit person_distinct_id_overrides
 
     kafka_person_distinct_id_overrides:
