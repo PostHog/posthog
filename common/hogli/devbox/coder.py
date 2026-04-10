@@ -518,7 +518,7 @@ def phrocs_replace(name: str) -> None:
         "  tmux -L sandbox attach-session -t posthog; "
         "fi"
     )
-    _run_or_exit(["coder", "ssh", name, "--", "bash", "-c", remote_cmd])
+    _run_or_exit(["coder", "ssh", name, "--", remote_cmd])
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
