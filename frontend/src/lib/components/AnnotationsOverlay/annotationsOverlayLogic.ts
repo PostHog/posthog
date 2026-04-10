@@ -32,20 +32,19 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     ticks: { value: number }[]
 }
 
-export function determineAnnotationsDateGroup(
-    date: Dayjs,
-    intervalUnit: IntervalType,
-    dateRange: [Dayjs, Dayjs] | null,
-    pointsPerTick: number
-): string {
-    let adjustedDate = date.startOf(intervalUnit)
-    if (dateRange && pointsPerTick > 1) {
-        // Merge dates that are within the same tick (this is the case for very dense graphs with not enough space)
-        const deltaFromStart = date.diff(dateRange[0], intervalUnit)
-        const offset = deltaFromStart % pointsPerTick
-        adjustedDate = adjustedDate.subtract(offset, intervalUnit)
-    }
-    return adjustedDate.format('YYYY-MM-DD HH:mm:ssZZ')
+/**
+ * The time unit used to bucket annotations into badges. For charts with sub-day intervals
+ * (second/minute/hour/day) we bucket at the chart's granularity — that IS the data granularity,
+ * so there's no finer distinction to make. For week and month charts we bucket by day, so that
+ * e.g. an annotation on Dec 1 and an annotation on Dec 15 appear as two separate badges on the
+ * same monthly chart instead of being collapsed into one "December" badge.
+ */
+export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
+    return intervalUnit === 'week' || intervalUnit === 'month' ? 'day' : intervalUnit
+}
+
+export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
+    return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
 function hasPersonPropertyFiltersOrBreakdown(
@@ -138,36 +137,22 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],
         intervalUnit: [(s) => [s.interval], (interval) => interval || 'day'],
-        pointsPerTick: [
-            (_, p) => [p.ticks],
-            (ticks): number => {
-                if (ticks.length < 2) {
-                    return 0
-                }
-                return ticks[1].value - ticks[0].value
-            },
-        ],
+        groupingUnit: [(s) => [s.intervalUnit], (intervalUnit): IntervalType => getGroupingUnit(intervalUnit)],
+        tickPositions: [(_, p) => [p.ticks], (ticks): number[] => ticks.map(({ value }) => value)],
         tickDates: [
-            (s) => [
-                s.timezone,
-                (_, props: AnnotationsOverlayLogicProps) => props.dates,
-                (_, props: AnnotationsOverlayLogicProps) => props.ticks,
-            ],
-            (timezone, dates, ticks): Dayjs[] => {
-                const tickPointIndices: number[] = ticks.map(({ value }) => value)
-                const tickDates: Dayjs[] = tickPointIndices.map((dateIndex) =>
-                    dayjsLocalToTimezone(dates[dateIndex], timezone)
-                )
-                return tickDates
-            },
+            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.tickPositions],
+            (timezone, dates, tickPositions): Dayjs[] =>
+                tickPositions.map((dateIndex) => dayjsLocalToTimezone(dates[dateIndex], timezone)),
         ],
         dateRange: [
-            (s) => [s.tickDates, s.intervalUnit, s.pointsPerTick],
-            (tickDates, intervalUnit, pointsPerTick): [Dayjs, Dayjs] | null => {
-                if (tickDates.length === 0) {
+            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
+            (timezone, dates, intervalUnit): [Dayjs, Dayjs] | null => {
+                if (dates.length === 0) {
                     return null
                 }
-                return [tickDates[0], tickDates[tickDates.length - 1].add(pointsPerTick, intervalUnit)]
+                const first = dayjsLocalToTimezone(dates[0], timezone)
+                const last = dayjsLocalToTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
+                return [first, last]
             },
         ],
         relevantAnnotations: [
@@ -257,23 +242,58 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
-            (relevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
+            (s) => [s.relevantAnnotations, s.intervalUnit],
+            (relevantAnnotations, intervalUnit) => {
                 return groupBy(relevantAnnotations, (annotation) => {
-                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit, dateRange, pointsPerTick)
+                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit)
                 })
             },
         ],
-        popoverAnnotations: [
-            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit, s.dateRange, s.pointsPerTick],
-            (groupedAnnotations, activeDate, intervalUnit, dateRange, pointsPerTick) => {
-                return (
-                    (activeDate &&
-                        groupedAnnotations[
-                            determineAnnotationsDateGroup(activeDate, intervalUnit, dateRange, pointsPerTick)
-                        ]) ||
-                    []
-                )
+        /**
+         * Positions of annotation badges, keyed by data-point index into `props.dates`.
+         *
+         * `dataIndex` can be fractional: e.g. on a monthly chart, an annotation dated 15 Dec
+         * will yield a `dataIndex` approximately 0.48 data points beyond the Dec 1 data point.
+         * The overlay then linearly interpolates the pixel x between the neighboring data points
+         * so the badge lands at the date's actual horizontal position.
+         */
+        annotationBadgeDataIndices: [
+            (s) => [
+                s.groupedAnnotations,
+                s.intervalUnit,
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+            ],
+            (
+                groupedAnnotations,
+                intervalUnit,
+                timezone,
+                dates
+            ): Array<{ dateKey: string; date: Dayjs; dataIndex: number }> => {
+                if (dates.length === 0) {
+                    return []
+                }
+                const firstDate = dayjsLocalToTimezone(dates[0], timezone).startOf(intervalUnit)
+                const lastIndex = dates.length - 1
+                return Object.entries(groupedAnnotations)
+                    .map(([dateKey, annotations]) => {
+                        const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
+                        // Whole data-point index for the interval containing this date.
+                        const wholeIndex = date.diff(firstDate, intervalUnit)
+                        // Fractional offset within that interval (0 at interval start, 1 at next interval start).
+                        const intervalStart = firstDate.add(wholeIndex, intervalUnit)
+                        const intervalEnd = intervalStart.add(1, intervalUnit)
+                        const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
+                        const fraction =
+                            intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
+                        // Clamp to the last data point — annotations whose interval has no "next"
+                        // data point (e.g. Apr 15 on a chart that ends at Apr 1) must not extrapolate
+                        // past the chart, they snap onto the last data point instead.
+                        const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
+                        return { dateKey, date, dataIndex }
+                    })
+                    .filter(({ dataIndex }) => dataIndex >= 0 && dataIndex <= lastIndex)
+                    .sort((a, b) => a.dataIndex - b.dataIndex)
             },
         ],
     }),
