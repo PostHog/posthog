@@ -119,8 +119,11 @@ class LLMSkillViewSet(
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
-        return cast(dict[str, Any], self.get_serializer(skill).data)
+    def _serialize_skill(self, skill: LLMSkill, include_files: bool = True) -> dict[str, Any]:
+        data = cast(dict[str, Any], self.get_serializer(skill).data)
+        if include_files:
+            data["files"] = list(LLMSkillFile.objects.filter(skill=skill).values("path", "content_type"))
+        return data
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
@@ -185,9 +188,7 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
-        data = self._serialize_skill(skill)
-        data["files"] = list(LLMSkillFile.objects.filter(skill=skill).values("path", "content_type"))
-        return Response(data)
+        return Response(self._serialize_skill(skill))
 
     @extend_schema(request=LLMSkillPublishSerializer, responses={200: LLMSkillSerializer})
     @get_by_name.mapping.patch
