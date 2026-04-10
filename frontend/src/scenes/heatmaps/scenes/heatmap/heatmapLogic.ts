@@ -16,6 +16,21 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
+// The backend rejects `heatmap_url` values without an http(s) scheme (SSRF validation).
+// For screenshot-type heatmaps the in-app `screenshotUrl` is a same-origin API path, so we
+// resolve it to an absolute URL here before sending it to the export pipeline.
+export function resolveHeatmapExportUrl(
+    type: HeatmapType,
+    screenshotUrl: string | null,
+    displayUrl: string | null,
+    origin: string = window.location.origin
+): string {
+    if (type === 'screenshot') {
+        return screenshotUrl ? new URL(screenshotUrl, origin).toString() : ''
+    }
+    return displayUrl ?? ''
+}
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
     props({ id: 'new' as string | number }),
@@ -222,7 +237,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
                 width: values.widthOverride,
