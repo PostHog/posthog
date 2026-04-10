@@ -54,7 +54,7 @@ export function statusToLemonTagType(status: BatchExportStatus, options?: { reco
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'primary'
+            return 'default'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':
@@ -74,7 +74,7 @@ export function statusToProgressStrokeColor(status: BatchExportStatus): string {
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'var(--color-accent)'
+            return 'var(--brand-blue)'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':
