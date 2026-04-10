@@ -349,6 +349,47 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 self.save(update_fields=["current_team"])
         return self.current_team
 
+    def get_github_login(self) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Checks GitHub App integrations created by this user first (populated during
+        GitHub App installation with user authorization), then falls back to social auth.
+
+        When called from a context with prefetched data (e.g. ``_prefetched_github_integrations``
+        or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+        """
+        from posthog.models.integration import Integration
+
+        # Check GitHub integrations created by this user
+        prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
+        if prefetched_integrations is not None:
+            for integration in prefetched_integrations:
+                login = (integration.config or {}).get("connecting_user_github_login")
+                if login:
+                    return str(login)
+        else:
+            login = (
+                Integration.objects.filter(kind="github", created_by=self)
+                .values_list("config__connecting_user_github_login", flat=True)
+                .exclude(config__connecting_user_github_login=None)
+                .first()
+            )
+            if login:
+                return str(login)
+
+        # Fall back to social auth
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+        return None
+
     def join(
         self,
         *,

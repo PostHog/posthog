@@ -14,8 +14,6 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db.models import Prefetch
-from django.db.models.fields.json import KeyTextTransform
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils.html import escape
@@ -37,7 +35,6 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -119,7 +116,6 @@ class UserSerializer(serializers.ModelSerializer):
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
-    github_login = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
@@ -164,7 +160,6 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
-            "github_login",
             "has_sso_enforcement",
             "has_seen_product_intro_for",
             "scene_personalisation",
@@ -192,7 +187,6 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
             "organizations",
             "has_social_auth",
-            "github_login",
             "has_sso_enforcement",
         ]
 
@@ -243,20 +237,6 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_social_auth(self, instance: User) -> bool:
         # Use all() to hit the prefetch cache from get_queryset
         return bool(instance.social_auth.all())
-
-    def get_github_login(self, instance: User) -> Optional[str]:
-        # Use all() to hit the prefetch cache from get_queryset; filter in Python
-        for sa in instance.social_auth.all():
-            if sa.provider != "github":
-                continue
-            login_val = getattr(sa, "_prefetched_github_login", None)
-            if login_val:
-                return str(login_val)
-            if isinstance(sa.extra_data, dict):
-                login = sa.extra_data.get("login")
-                if login:
-                    return str(login)
-        return None
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -568,14 +548,7 @@ class UserViewSet(
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
-        return queryset.prefetch_related(
-            Prefetch(
-                "social_auth",
-                queryset=UserSocialAuth.objects.annotate(
-                    _prefetched_github_login=KeyTextTransform("login", "extra_data"),
-                ).only("id", "user_id", "provider", "extra_data"),
-            )
-        )
+        return queryset
 
     def get_serializer_context(self):
         return {
@@ -586,6 +559,11 @@ class UserViewSet(
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
         super().perform_destroy(user)
+
+    @action(methods=["GET"], detail=True, url_path="github_login")
+    def github_login(self, request, **kwargs):
+        user = self.get_object()
+        return Response({"github_login": user.get_github_login()})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

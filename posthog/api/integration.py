@@ -168,6 +168,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             cache.delete(cache_key)
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+
+            # If the frontend forwarded an OAuth code from "Request user authorization during installation",
+            # exchange it for the connecting user's GitHub login and store it on the integration.
+            code = config.get("code")
+            if code:
+                github_login = GitHubIntegration.github_login_from_code(code)
+                if github_login:
+                    instance.config["connecting_user_github_login"] = github_login
+                    instance.save(update_fields=["config"])
+
             return instance
 
         elif validated_data["kind"] == "gitlab":
