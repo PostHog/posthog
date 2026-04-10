@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
@@ -1910,6 +1911,12 @@ class GitHubCommitAuthor:
     commit_url: str
 
 
+# Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
+# GitHub on every paginated branch request while keeping the window in which a
+# renamed default branch stays stale tolerably short.
+GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2384,6 +2391,12 @@ class GitHubIntegration:
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        cache_key = f"github_integration:default_branch:{self.integration.id}:{repo_path}"
+
+        cached = cache.get(cache_key)
+        if isinstance(cached, str):
+            return cached
+
         access_token = self.integration.sensitive_config.get("access_token")
         if not access_token:
             raise ValueError("GitHub access token not configured")
@@ -2400,7 +2413,9 @@ class GitHubIntegration:
 
         if response.status_code == 200:
             repo_data = response.json()
-            return repo_data.get("default_branch", "main")
+            default_branch = repo_data.get("default_branch", "main")
+            cache.set(cache_key, default_branch, timeout=60 * 60 * 24)
+            return default_branch
         else:
             raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 

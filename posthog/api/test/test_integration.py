@@ -1252,3 +1252,21 @@ class TestGitHubBranches:
         )
 
         assert response.status_code == 400
+
+    @patch("posthog.models.integration.requests.get")
+    def test_get_default_branch_is_cached(self, mock_get):
+        from django.core.cache import cache
+
+        cache.clear()
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"default_branch": "develop"}
+        mock_get.return_value = response
+
+        first = self.github.get_default_branch("org/repo-cache-test")
+        second = self.github.get_default_branch("org/repo-cache-test")
+
+        assert first == "develop"
+        assert second == "develop"
+        assert mock_get.call_count == 1
