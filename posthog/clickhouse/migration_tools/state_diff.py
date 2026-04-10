@@ -170,10 +170,31 @@ def _normalize_mv_select(sql: str) -> str:
     s = re.sub(r"\s+", " ", s)
     # Normalize keyword case
     keywords = [
-        "SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "HAVING",
-        "JOIN", "LEFT JOIN", "INNER JOIN", "AS", "AND", "OR", "NOT",
-        "IN", "IS", "NULL", "LIMIT", "OFFSET", "UNION", "ALL",
-        "CASE", "WHEN", "THEN", "ELSE", "END",
+        "SELECT",
+        "FROM",
+        "WHERE",
+        "GROUP BY",
+        "ORDER BY",
+        "HAVING",
+        "JOIN",
+        "LEFT JOIN",
+        "INNER JOIN",
+        "AS",
+        "AND",
+        "OR",
+        "NOT",
+        "IN",
+        "IS",
+        "NULL",
+        "LIMIT",
+        "OFFSET",
+        "UNION",
+        "ALL",
+        "CASE",
+        "WHEN",
+        "THEN",
+        "ELSE",
+        "END",
     ]
     for kw in keywords:
         s = re.sub(rf"\b{kw}\b", kw.lower(), s, flags=re.IGNORECASE)
@@ -317,7 +338,9 @@ def diff_state(
             if desired_table.settings and current_table.engine_full:
                 for setting_key, setting_val in desired_table.settings.items():
                     resolved = (
-                        _resolve_setting(setting_key) if str(setting_val) == _FROM_SETTINGS_SENTINEL else str(setting_val)
+                        _resolve_setting(setting_key)
+                        if str(setting_val) == _FROM_SETTINGS_SENTINEL
+                        else str(setting_val)
                     )
                     if resolved not in current_table.engine_full:
                         structural_details.append(f"Kafka setting '{setting_key}' changed (desired: {resolved})")
@@ -470,8 +493,6 @@ def diff_state(
             # Default kind/expression changes → MODIFY COLUMN
             desired_default = f"{desired_col.default_kind} {desired_col.default_expression}".strip()
             current_default = f"{current_col.default_kind} {current_col.default_expression}".strip()
-            desired_codec = desired_col.codec if hasattr(desired_col, "codec") else ""
-            current_codec = ""  # system.columns doesn't expose codec directly
 
             if desired_default and desired_default != current_default:
                 kind = desired_col.default_kind or "DEFAULT"

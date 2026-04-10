@@ -31,10 +31,7 @@ def generate_plan_text(diffs: list[StateDiff]) -> str:
     lines: list[str] = []
 
     # Kafka table recreate warning — ingestion pauses between DROP and CREATE
-    kafka_recreates = [
-        d for d in diffs
-        if d.action in ("drop", "recreate") and "kafka" in d.table.lower()
-    ]
+    kafka_recreates = [d for d in diffs if d.action in ("drop", "recreate") and "kafka" in d.table.lower()]
     if kafka_recreates:
         lines.append("\u26a0\ufe0f  KAFKA TABLE RECREATE WARNING")
         lines.append("=" * 60)

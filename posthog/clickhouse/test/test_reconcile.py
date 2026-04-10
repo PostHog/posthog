@@ -790,9 +790,7 @@ class TestStructuralFieldDiffs(unittest.TestCase):
             }
         )
         current = {
-            "t": TableSchema(
-                name="t", engine="ReplicatedMergeTree", partition_key="toYYYYMMDD(created_at)"
-            ),
+            "t": TableSchema(name="t", engine="ReplicatedMergeTree", partition_key="toYYYYMMDD(created_at)"),
         }
         diffs = diff_state(desired, current)
         recreate_diffs = [d for d in diffs if d.action == "recreate"]

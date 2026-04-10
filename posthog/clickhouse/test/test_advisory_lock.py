@@ -7,9 +7,9 @@ client — no Django or ClickHouse connection required.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
 
 import unittest
+from unittest.mock import MagicMock, patch
 
 import posthog.clickhouse.test._stubs  # noqa: F401
 from posthog.clickhouse.migration_tools.tracking import acquire_apply_lock, release_apply_lock
