@@ -324,16 +324,21 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
-    """Resolve and normalize a date value for IS_DATE_* operators.
+    """Resolve a date value for IS_DATE_* operators.
 
-    Handles two cases:
-    - Relative dates (e.g. "-7d", "-10m"): resolved to absolute datetime using team timezone
-    - ISO 8601 dates (e.g. "2026-03-19T14:00:00Z"): normalized to MySQL format ("2026-03-19 14:00:00")
+    Relative dates (e.g. ``-7d``, ``-10m`` for months, ``-10M`` for minutes) are
+    resolved against the team timezone and rendered as a naive ``YYYY-MM-DD HH:MM:SS``
+    wall-clock string — the printer's constant-folding fast-path then lowers that
+    to ``toDateTime(str, <team_tz>)``, which interprets it in the team timezone.
+    Because ``relative_date_parse`` already computed the wall clock in the team
+    timezone, the round-trip is correct.
 
-    Callers pair this with `_force_datetime` to coerce both sides of the
-    comparison. Normalization to MySQL format is kept so the printer can
-    apply its fast-path optimization that rewrites `parseDateTime64BestEffortOrNull`
-    on a string constant into `toDateTime` / `toDateTime64`.
+    Absolute values are returned untouched. In particular, ISO 8601 strings with
+    an explicit ``T``/``Z`` (e.g. ``2026-03-19T14:00:00Z``) are preserved so that
+    ClickHouse's ``parseDateTime64BestEffort`` — which honors the embedded offset
+    — can parse them to the correct UTC moment regardless of the team's timezone.
+    Stripping the ``Z`` and fast-pathing to ``toDateTime`` would silently reinterpret
+    the value in the team timezone and shift it by the offset.
     """
     if not isinstance(value, str):
         return value
@@ -345,10 +350,7 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
         resolved = relative_date_parse(value, team.timezone_info)
         return resolved.strftime("%Y-%m-%d %H:%M:%S")
 
-    normalized = re.sub(r"(\d)T(\d)", r"\1 \2", value)
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1]
-    return normalized
+    return value
 
 
 def _force_datetime(expr: ast.Expr) -> ast.Expr:

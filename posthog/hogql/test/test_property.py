@@ -298,7 +298,7 @@ class TestProperty(BaseTest):
                 "2026-03-19T14:00:00Z",
                 "is_date_before",
                 ast.CompareOperationOp.Lt,
-                "2026-03-19 14:00:00",
+                "2026-03-19T14:00:00Z",
             ),
             (
                 "is_date_after_iso",
@@ -307,7 +307,7 @@ class TestProperty(BaseTest):
                 "2026-03-19T14:00:00Z",
                 "is_date_after",
                 ast.CompareOperationOp.Gt,
-                "2026-03-19 14:00:00",
+                "2026-03-19T14:00:00Z",
             ),
             (
                 "is_date_exact_date_only",
@@ -325,7 +325,7 @@ class TestProperty(BaseTest):
                 "2026-03-19T14:00:00Z",
                 "is_date_before",
                 ast.CompareOperationOp.Lt,
-                "2026-03-19 14:00:00",
+                "2026-03-19T14:00:00Z",
             ),
         ]
     )
@@ -1836,5 +1836,35 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
     def test_is_date_operator_on_datetime_event_property(
         self, _name: str, value: str, operator: str, expected_count: int
     ):
+        count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
+        assert count == expected_count
+
+    @parameterized.expand(
+        [
+            # Events stored: u1 = 2026-03-19T10:00:00Z (03:00 PDT), u2 = 2026-03-19T18:00:00Z (11:00 PDT).
+            #
+            # ISO-with-Z filters carry an absolute offset and must resolve to the same moment
+            # regardless of team timezone. This is the regression guard for the silent-drift bug
+            # where stripping the Z would have silently re-interpreted the RHS in team time.
+            ("la_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
+            ("la_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
+            # Naive MySQL-format filters are deliberately interpreted as team-local wall clock.
+            # 07:00 PDT = 14:00 UTC, so the same event split as the UTC case above.
+            ("la_is_date_before_mysql_local", "2026-03-19 07:00:00", "is_date_before", 1),
+            ("la_is_date_after_mysql_local", "2026-03-19 07:00:00", "is_date_after", 1),
+            # 14:00 PDT = 21:00 UTC, past both events.
+            ("la_is_date_before_mysql_late", "2026-03-19 14:00:00", "is_date_before", 2),
+            ("la_is_date_after_mysql_late", "2026-03-19 14:00:00", "is_date_after", 0),
+            # Date-only filters are midnight team-local: 2026-03-20 00:00 PDT = 2026-03-20 07:00 UTC.
+            ("la_is_date_before_date_only", "2026-03-20", "is_date_before", 2),
+            ("la_is_date_after_date_only", "2026-03-18", "is_date_after", 2),
+        ]
+    )
+    def test_is_date_operator_on_datetime_event_property_non_utc_team(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
