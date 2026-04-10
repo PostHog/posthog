@@ -39,9 +39,11 @@ from .agentsh import (
     generate_policy_yaml,
 )
 from .sandbox import (
+    WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
     ExecutionStream,
+    SandboxBase,
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
@@ -50,13 +52,12 @@ from .sandbox import (
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
-class DockerSandbox:
+class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
@@ -146,6 +147,11 @@ class DockerSandbox:
             return
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
+
+        # The skills dist directory is populated by CI but won't exist in local
+        # dev checkouts.  The Dockerfile COPYs it unconditionally, so ensure it
+        # exists (install-skills.sh already handles the empty-dir case).
+        os.makedirs(os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"), exist_ok=True)
 
         DockerSandbox._run(
             [
@@ -514,29 +520,6 @@ class DockerSandbox:
 
         return result
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
-        )
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
-
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
@@ -646,8 +629,11 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
+        # agentsh works reliably inside local Docker containers.
+        # For now we skip setup and ignore allowed_domains so that callers
+        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
+        allowed_domains = None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -812,12 +798,6 @@ class DockerSandbox:
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

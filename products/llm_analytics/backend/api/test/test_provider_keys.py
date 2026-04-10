@@ -732,3 +732,194 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
+
+
+class TestTrialEvaluationsEndpoint(APIBaseTest):
+    def _create_trial_eval(self, provider="openai", enabled=True):
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider=provider, model="test-model")
+        return Evaluation.objects.create(
+            team=self.team,
+            name=f"Trial {provider}",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=enabled,
+        )
+
+    def test_returns_trial_evals_for_provider(self):
+        self._create_trial_eval("openai")
+        self._create_trial_eval("anthropic")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 1)
+        self.assertEqual(response.data["evaluations"][0]["name"], "Trial openai")
+
+    def test_excludes_evals_with_pinned_key(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="test",
+            provider_key=key,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Pinned",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
+        )
+        self.assertEqual(len(response.data["evaluations"]), 0)
+
+    def test_includes_legacy_evals_for_openai(self):
+        Evaluation.objects.create(
+            team=self.team,
+            name="Legacy",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=None,
+            enabled=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
+        )
+        self.assertEqual(len(response.data["evaluations"]), 1)
+        self.assertEqual(response.data["evaluations"][0]["name"], "Legacy")
+
+    def test_rejects_invalid_provider(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=invalid"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_requires_provider_param(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestAssignKeyEndpoint(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_assigns_key_to_trial_evaluations(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Eval",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": [str(eval_obj.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["configs_updated"], 1)
+
+        mc.refresh_from_db()
+        self.assertEqual(mc.provider_key, key)
+
+    def test_assigns_key_and_reenables(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Eval",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": [str(eval_obj.id)], "enable": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evals_enabled"], 1)
+
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+
+    def test_handles_legacy_evals(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Legacy",
+            evaluation_type="llm_judge",
+            output_type="boolean",
+            model_configuration=None,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": [str(eval_obj.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        eval_obj.refresh_from_db()
+        assert eval_obj.model_configuration is not None
+        self.assertEqual(eval_obj.model_configuration.provider_key, key)
+
+    def test_rejects_empty_evaluation_ids(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

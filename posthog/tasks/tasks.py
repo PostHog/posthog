@@ -21,7 +21,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
@@ -1135,7 +1135,7 @@ def delete_organization_data_and_notify_task(
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
-    autoretry_for=(Exception,),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1159,8 +1159,10 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
     Configuration (via settings.feature_flags):
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: Bulk update batch size (default: 1000)
-    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results (default: 100000)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results per chunk (default: 100000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: Fallback lookback period (default: 1)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: Time window per ClickHouse query chunk (default: 5)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: Cap on how far back a stale/missing checkpoint can reach (default: 6)
     """
     from datetime import datetime, timedelta
 
@@ -1227,18 +1229,44 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
             )
 
-        current_sync_timestamp = timezone.now()
+        # Cap lookback to prevent excessive scanning when checkpoint is stale/missing.
+        # Capture now once to avoid drift between max_lookback and current_sync_timestamp.
+        now = timezone.now()
+        max_lookback = now - timedelta(hours=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS)
+        if last_sync_timestamp < max_lookback:
+            logger.warning(
+                "Feature flag sync checkpoint too old, capping lookback",
+                original_checkpoint=last_sync_timestamp.isoformat(),
+                capped_to=max_lookback.isoformat(),
+            )
+            last_sync_timestamp = max_lookback
+
+        current_sync_timestamp = now
+        window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
             "Starting feature flag sync",
             last_sync_timestamp=last_sync_timestamp.isoformat(),
             current_sync_timestamp=current_sync_timestamp.isoformat(),
+            window_seconds=window_seconds,
         )
 
-        # Query ClickHouse for flag usage since last sync
-        # Limit for insurance against large datasets and memory issues during a surge
-        result = sync_execute(
-            """
+        # Build time chunks to keep each ClickHouse query under the max_bytes_to_read limit
+        chunk_size = timedelta(minutes=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES)
+        chunk_start = last_sync_timestamp
+        chunks: list[tuple[datetime, datetime]] = []
+        while chunk_start < current_sync_timestamp:
+            chunk_end = min(chunk_start + chunk_size, current_sync_timestamp)
+            chunks.append((chunk_start, chunk_end))
+            chunk_start = chunk_end
+
+        # Query ClickHouse in chunks to avoid exceeding max_bytes_to_read.
+        # Merge results across chunks: keep max timestamp per (team_id, flag_key) and sum counts.
+        merged_results: dict[tuple[int, str], tuple[datetime | None, int]] = {}
+        total_clickhouse_results = 0
+
+        # ORDER BY ensures the most recent rows survive if LIMIT truncates results
+        chunk_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
@@ -1253,47 +1281,86 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
-            """,
-            {
-                "last_sync_timestamp": last_sync_timestamp,
-                "current_sync_timestamp": current_sync_timestamp,
-                "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
-            },
-        )
+        """
 
-        if not result:
-            # Update checkpoint even if no results
+        limit_hit = False
+
+        for chunk_start_ts, chunk_end_ts in chunks:
+            chunk_result = sync_execute(
+                chunk_query,
+                {
+                    "last_sync_timestamp": chunk_start_ts,
+                    "current_sync_timestamp": chunk_end_ts,
+                    "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
+                },
+            )
+
+            if chunk_result:
+                total_clickhouse_results += len(chunk_result)
+                if len(chunk_result) >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
+                    limit_hit = True
+
+                for row in chunk_result:
+                    team_id, flag_key, ts, count = row
+                    key = (team_id, flag_key)
+                    existing = merged_results.get(key)
+                    if existing is None:
+                        merged_results[key] = (ts, count)
+                    else:
+                        existing_ts, existing_count = existing
+                        if ts is not None and existing_ts is not None:
+                            best_ts = max(ts, existing_ts)
+                        else:
+                            best_ts = ts if ts is not None else existing_ts
+                        merged_results[key] = (best_ts, existing_count + count)
+
+        if limit_hit:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
+
+        if not merged_results:
+            # Update checkpoint even when no results so next run starts from current time
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)  # No lag when checkpoint is set to current time
+            checkpoint_lag_gauge.set(0.0)
 
             logger.info(
                 "Feature flag sync completed with no events",
                 duration_seconds=(timezone.now() - start_time).total_seconds(),
+                chunks_processed=len(chunks),
             )
             return
 
-        # Collect flags for bulk update
-        flags_to_update = []
+        # Build lookup map from merged results
+        flag_updates: dict[tuple[int, str], datetime] = {}
+        for key, (ts, _count) in merged_results.items():
+            if ts is not None:
+                flag_updates[key] = ts
 
-        # Use current_sync_timestamp as the checkpoint since the sync window
-        # is defined by inserted_at, not timestamp. Using max(timestamp) would
-        # mix timelines and cause gaps or reprocessing with late-arriving events.
-        checkpoint_timestamp = current_sync_timestamp
+        if not flag_updates:
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            logger.info(
+                "Feature flag sync: no valid timestamps to update",
+                chunks_processed=len(chunks),
+            )
+            clickhouse_results_gauge.set(total_clickhouse_results)
+            updated_count_gauge.set(0)
+            events_processed_gauge.set(0)
+            checkpoint_lag_gauge.set(0.0)
+            return
 
-        # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
-        flag_updates = {(row[0], row[1]): row[2] for row in result}
-
-        # Batch fetch all relevant flags in a single query
-        team_ids = list({row[0] for row in result})
-        flag_keys = list({row[1] for row in result})
-
+        # Fetch flags matching any (team_id, key) combination from updates.
+        # This may over-fetch cross-product matches (e.g. team A's flag
+        # that shares a key with team B), but the in-memory flag_updates.get()
+        # check below filters those out.
+        team_ids = {team_id for team_id, _ in flag_updates}
+        flag_keys = {flag_key for _, flag_key in flag_updates}
         flags = FeatureFlag.objects.filter(team_id__in=team_ids, key__in=flag_keys)
 
+        flags_to_update = []
         for flag in flags:
             new_timestamp = flag_updates.get((flag.team_id, flag.key))
             if new_timestamp:
@@ -1324,30 +1391,26 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 )
                 raise
 
-        # Store checkpoint for next sync using the latest timestamp from results
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+        # Set final checkpoint to current time
+        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
         duration = (timezone.now() - start_time).total_seconds()
-        processed_events = sum(row[3] for row in result)
-        clickhouse_results = len(result)
+        processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
+        checkpoint_lag_seconds = (timezone.now() - current_sync_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
-        clickhouse_results_gauge.set(clickhouse_results)
+        clickhouse_results_gauge.set(total_clickhouse_results)
         checkpoint_lag_gauge.set(checkpoint_lag_seconds)
-
-        # Track if we hit the ClickHouse result limit
-        if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
-            FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
 
         logger.info(
             "Feature flag sync completed",
             updated_count=updated_count,
             processed_events=processed_events,
-            clickhouse_results=clickhouse_results,
+            clickhouse_results=total_clickhouse_results,
             duration_seconds=duration,
+            chunks_processed=len(chunks),
         )
 
         # Alert if approaching schedule interval (25 min warning threshold)
@@ -1356,8 +1419,9 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 "Feature flag sync taking longer than expected",
                 duration_seconds=duration,
                 updated_count=updated_count,
-                processed_events=sum(row[3] for row in result),
-                recommendation="Consider reducing FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT or optimizing query",
+                processed_events=processed_events,
+                chunks_processed=len(chunks),
+                recommendation="Consider reducing FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES",
             )
 
     except Exception as e:

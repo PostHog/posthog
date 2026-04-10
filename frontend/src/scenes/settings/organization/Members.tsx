@@ -23,6 +23,7 @@ import {
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { membersExportLogic } from 'scenes/organization/membersExportLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -185,14 +186,19 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { downloadMembersList } = useActions(membersExportLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const downloadMembersListRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const membersCanInviteRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -325,7 +331,25 @@ export function Members(): JSX.Element | null {
 
     return (
         <>
-            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
+            <div className="flex flex-wrap gap-2 justify-between items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for members"
+                    value={search}
+                    onChange={setSearch}
+                    className="flex-1 basis-[min(100%,18rem)]"
+                />
+                {!downloadMembersListRestrictionReason && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={downloadMembersList}
+                        disabledReason={downloadMembersListDisabledReason}
+                        data-attr="org-members-download-csv"
+                    >
+                        Download members list
+                    </LemonButton>
+                )}
+            </div>
 
             <LemonTable
                 dataSource={filteredMembers ?? []}

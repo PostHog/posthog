@@ -1,0 +1,74 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cache_age_seconds": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Cache TTL in seconds (60–86400)."
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable description of what this endpoint returns."
+        },
+        "is_active": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether this endpoint is available for execution via the API."
+        },
+        "is_materialized": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether query results are materialized to S3."
+        },
+        "name": {
+            "type": "string"
+        },
+        "query": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."
+        },
+        "version": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Target a specific version for updates (defaults to current version)."
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

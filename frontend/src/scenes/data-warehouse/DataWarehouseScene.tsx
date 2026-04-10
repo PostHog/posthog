@@ -17,6 +17,7 @@ import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneL
 import { DashboardTab } from './scene/DashboardTab'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
+import { SettingsTab } from './scene/SettingsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
@@ -70,6 +71,19 @@ export function DataWarehouseScene(): JSX.Element {
                                   link: combineUrl(urls.dataOps(), {
                                       ...searchParams,
                                       tab: DataWarehouseTab.MODELING,
+                                  }).url,
+                              },
+                          ]
+                        : []),
+                    ...(featureFlags[FEATURE_FLAGS.PROVISION_MANAGED_WAREHOUSE_BETA]
+                        ? [
+                              {
+                                  key: DataWarehouseTab.SETTINGS,
+                                  label: 'Settings',
+                                  content: <SettingsTab />,
+                                  link: combineUrl(urls.dataOps(), {
+                                      ...searchParams,
+                                      tab: DataWarehouseTab.SETTINGS,
                                   }).url,
                               },
                           ]

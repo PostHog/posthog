@@ -105,6 +105,7 @@ async def select_repository_for_report(
     user_id: int,
     signals: list[SignalData],
     *,
+    sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
@@ -127,6 +128,8 @@ async def select_repository_for_report(
         team_id=team_id,
         user_id=user_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
+        sandbox_environment_id=sandbox_environment_id,
+        posthog_mcp_scopes=[],  # Only uses gh CLI — no PostHog MCP tools, only internal scopes (task:write, llm_gateway:read)
     )
     result = await run_sandbox_agent_get_structured_output(
         prompt=prompt,

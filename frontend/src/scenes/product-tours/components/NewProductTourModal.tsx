@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconCursorClick, IconMegaphone } from '@posthog/icons'
@@ -167,13 +167,13 @@ function TourTypeButton({
         <button
             type="button"
             onClick={onClick}
-            className={classNames(
+            className={clsx(
                 'group flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border-2 cursor-pointer transition-colors text-left',
                 active ? 'border-accent' : 'border-border hover:border-accent/70'
             )}
         >
             <Icon
-                className={classNames(
+                className={clsx(
                     'text-3xl transition-colors',
                     active ? 'text-accent' : 'text-muted group-hover:text-accent/70'
                 )}

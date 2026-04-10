@@ -79,7 +79,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         <BindLogic logic={heatmapLogic} props={logicProps}>
             <SceneContent>
                 <SceneTitleSection
-                    name={name || 'No name'}
+                    name={name}
                     resourceType={{
                         type: 'heatmap',
                     }}

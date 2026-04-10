@@ -85,6 +85,7 @@
         "oauth_client_secret_secret_store_key": "oauth_client_secret",
         "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}",
         "deep_link_purposes": ["dashboard"],
+        "capabilities": ["resources:update_service"],
         "llm_context": "https://posthog.com/stripe/llm-context.md"
     },
     "ui_extension": {

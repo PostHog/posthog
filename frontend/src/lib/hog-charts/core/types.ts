@@ -20,6 +20,10 @@ export interface Series {
     hidden?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
+    /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
+     *  so custom tooltip components can access domain-specific information (e.g. breakdown
+     *  values, comparison labels, anomaly scores) without the library needing to know about them. */
+    meta?: Record<string, unknown>
 }
 
 /** A horizontal reference line drawn across the chart at a fixed y-value. */
@@ -62,6 +66,11 @@ export interface TooltipContext {
     position: { x: number; y: number }
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
+    /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
+     *  and becomes interactive (pointer-events enabled). */
+    isPinned: boolean
+    /** Callback to unpin (close) a pinned tooltip. Only present when the tooltip is pinned. */
+    onUnpin?: () => void
 }
 
 /** Computed layout dimensions of the chart, derived from container size and margins. */
@@ -111,6 +120,8 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Show a tooltip on hover. Defaults to true. Use the `tooltip` prop to customize content. */
     showTooltip?: boolean
+    /** When true, clicking a data point with multiple series pins the tooltip in place. */
+    pinnableTooltip?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal goal/reference lines to draw across the chart. */

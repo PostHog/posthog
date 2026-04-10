@@ -5,10 +5,16 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    MAX_PROVISION_LOG_EXCERPT_LINES,
+    summarize_modal_output,
+)
 from products.tasks.backend.services.modal_sandbox import (
     AGENT_SERVER_PORT,
+    DEFAULT_MODAL_REGION,
     SANDBOX_IMAGE,
     ModalSandbox,
+    _get_modal_region,
     _get_sandbox_image_reference,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
@@ -124,6 +130,22 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestGetModalRegion:
+    @pytest.mark.parametrize(
+        "cloud_deployment,expected_region",
+        [
+            ("EU", "eu-central-1"),
+            ("US", "us-east-1"),
+            ("DEV", DEFAULT_MODAL_REGION),
+            (None, DEFAULT_MODAL_REGION),
+            ("LOCAL", DEFAULT_MODAL_REGION),
+        ],
+    )
+    def test_returns_correct_region(self, cloud_deployment, expected_region):
+        with patch("products.tasks.backend.services.modal_sandbox.CLOUD_DEPLOYMENT", cloud_deployment):
+            assert _get_modal_region() == expected_region
 
 
 class TestModalSandboxAgentServer:
@@ -275,6 +297,69 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
 
+class TestModalSandboxProvisionDiagnostics:
+    @pytest.mark.parametrize(
+        "output,expected_summary_lines,expected_excerpt,raw_excerpt_should_be_none",
+        [
+            (" \n\t ", [], None, True),
+            (
+                "\n".join(
+                    [
+                        "\x1b[32mApr 09 15:40:06 Building image im-123\x1b[0m",
+                        "\x1b[34m=> Step 0: FROM ubuntu:24.04\x1b[0m",
+                        "Copying config sha256:abc",
+                        "Copied image in 1.60s",
+                    ]
+                ),
+                [
+                    "Apr 09 15:40:06 Building image im-123",
+                    "=> Step 0: FROM ubuntu:24.04",
+                    "Copied image in 1.60s",
+                ],
+                "Copying config sha256:abc",
+                False,
+            ),
+            (
+                "\n".join(
+                    [
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                    ]
+                ),
+                ["=> Step 3: RUN apt-get update && apt-get install -y curl"],
+                "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                False,
+            ),
+        ],
+    )
+    def test_summarizes_modal_build_output(
+        self,
+        output: str,
+        expected_summary_lines: list[str],
+        expected_excerpt: str | None,
+        raw_excerpt_should_be_none: bool,
+    ):
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == expected_summary_lines
+        if raw_excerpt_should_be_none:
+            assert diagnostics.raw_excerpt is None
+        else:
+            assert diagnostics.raw_excerpt is not None
+            assert expected_excerpt is not None
+            assert expected_excerpt in diagnostics.raw_excerpt
+
+    def test_truncates_long_modal_build_output_excerpt(self):
+        output = "\n".join(f"line {index}" for index in range(MAX_PROVISION_LOG_EXCERPT_LINES + 5))
+
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == []
+        assert diagnostics.raw_excerpt is not None
+        assert diagnostics.raw_excerpt.endswith("\n... (truncated)")
+        assert f"line {MAX_PROVISION_LOG_EXCERPT_LINES}" not in diagnostics.raw_excerpt
+
+
 class TestModalSandboxCommandEscaping:
     @pytest.mark.parametrize(
         "repository",
@@ -307,6 +392,28 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(target_path) in command
                 assert shlex.quote(org_path) in command
                 assert shlex.quote(repo) in command
+
+    @pytest.mark.parametrize(
+        "shallow,expected_in_command,not_expected_in_command",
+        [
+            (True, "--depth 1", None),
+            (False, "--single-branch", "--depth"),
+        ],
+    )
+    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                command = mock_execute.call_args[0][0]
+
+                assert expected_in_command in command
+                if not_expected_in_command:
+                    assert not_expected_in_command not in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",

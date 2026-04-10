@@ -153,12 +153,14 @@ export function HTMLEditor({
     onTabChange,
     activeTab,
     textPlaceholder,
+    textMinRows = 2,
 }: {
     value?: string
     onChange: (value: any) => void
     onTabChange: (key: SurveyQuestionDescriptionContentType) => void
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
+    textMinRows?: number
 }): JSX.Element {
     return (
         <>
@@ -171,7 +173,7 @@ export function HTMLEditor({
                         label: <span className="text-sm">Text</span>,
                         content: (
                             <LemonTextArea
-                                minRows={2}
+                                minRows={textMinRows}
                                 value={value}
                                 onChange={(v) => onChange(v)}
                                 placeholder={textPlaceholder}

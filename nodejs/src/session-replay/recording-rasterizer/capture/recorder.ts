@@ -14,9 +14,9 @@ export async function rasterizeRecording(
     input: RasterizeRecordingInput,
     outputPath: string,
     playerHtml: string,
+    onProgress: () => void,
     cfg: typeof defaultConfig = defaultConfig,
-    log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id }),
-    onProgress?: () => void
+    log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id })
 ): Promise<RecordingResult> {
     validateInput(input)
 
@@ -45,7 +45,7 @@ export async function rasterizeRecording(
         log.info({ blockCount }, 'block listing fetched')
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
-        player = new PlayerController(capturePage, blockProxy, log)
+        player = new PlayerController(capturePage, blockProxy, onProgress, log)
 
         log.info('loading player')
         await player.load(playerConfig)
@@ -53,11 +53,11 @@ export async function rasterizeRecording(
 
         await player.waitForStart(playerConfig)
         log.info('recording started')
-        onProgress?.()
+        onProgress()
 
         const setupS = elapsed(setupStart)
 
-        const captureResult = await capturePlayback(player, captureConfig, outputPath, log, onProgress)
+        const captureResult = await capturePlayback(player, captureConfig, outputPath, onProgress, log)
 
         return {
             video_path: outputPath,

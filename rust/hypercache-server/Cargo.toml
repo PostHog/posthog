@@ -1,0 +1,45 @@
+[package]
+name = "hypercache-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+axum = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-hypercache = { path = "../common/hypercache" }
+common-metrics = { path = "../common/metrics" }
+common-redis = { path = "../common/redis" }
+envconfig = { workspace = true }
+health = { path = "../common/health" }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+regex = { workspace = true }
+url = "2.5"
+
+[dev-dependencies]
+common-continuous-profiling = { path = "../common/continuous_profiling" }
+serde-pickle = { version = "1.1.1" }
+tokio = { workspace = true, features = ["test-util"] }
+http-body-util = "0.1"
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+
+[lints]
+workspace = true

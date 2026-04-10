@@ -17,8 +17,7 @@ class Config(BaseSettings):
 
     api_host: str
     project_api_key: str
-    project_id: str
-    personal_api_key: str
+    team_id: int
     event_timeout_seconds: int = Field(default=3600)
     poll_interval_seconds: float = Field(default=10.0)
     activity_timeout_seconds: int = Field(default=3600)
@@ -33,7 +32,7 @@ class Config(BaseSettings):
         """Return configuration as a dictionary with sensitive values redacted."""
         return {
             "api_host": self.api_host,
-            "project_id": self.project_id,
+            "team_id": str(self.team_id),
             "event_timeout_seconds": str(self.event_timeout_seconds),
             "poll_interval_seconds": str(self.poll_interval_seconds),
             "activity_timeout_seconds": str(self.activity_timeout_seconds),

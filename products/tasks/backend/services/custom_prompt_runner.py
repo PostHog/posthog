@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from posthog.temporal.oauth import PosthogMcpScopes
+
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 
@@ -29,6 +31,8 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str
+    sandbox_environment_id: str | None = None
+    posthog_mcp_scopes: PosthogMcpScopes | None = None
 
 
 def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:

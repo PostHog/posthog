@@ -74,6 +74,9 @@ class EndpointRequestSerializer(serializers.Serializer):
 class EndpointMaterializationSerializer(serializers.Serializer):
     """Materialization status for an endpoint version."""
 
+    name = serializers.CharField(
+        help_text="URL-safe endpoint name.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",
@@ -175,6 +178,29 @@ class EndpointResponseSerializer(serializers.Serializer):
     )
 
 
+class EndpointRunResponseSerializer(serializers.Serializer):
+    """Response from executing an endpoint query."""
+
+    name = serializers.CharField(help_text="URL-safe endpoint name that was executed.")
+    results = serializers.ListField(
+        required=False,
+        help_text="Query result rows. Each row is a list of values matching the columns order.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Column names from the query SELECT clause.",
+    )
+    hasMore = serializers.BooleanField(
+        required=False,
+        help_text="Whether more results are available beyond the limit.",
+    )
+    endpoint_version = serializers.IntegerField(
+        required=False,
+        help_text="Version number of the endpoint that was executed.",
+    )
+
+
 class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     """Extended endpoint representation when viewing a specific version."""
 
@@ -185,6 +211,10 @@ class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     )
     version_created_at = serializers.CharField(
         help_text="ISO 8601 timestamp when this version was created.",
+    )
+    version_updated_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO 8601 timestamp when this version was last updated.",
     )
     version_created_by = UserBasicSerializer(
         read_only=True,
