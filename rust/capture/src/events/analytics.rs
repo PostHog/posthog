@@ -3,18 +3,21 @@
 //! This module handles processing of regular analytics events (pageviews, custom events,
 //! exceptions, etc.) as opposed to recordings (session replay).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
+use metrics::counter;
 use serde_json;
-use tracing::{error, instrument, Span};
+use tracing::{error, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
-    debug_or_info, error_tracking_sampler,
+    debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
+    global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
@@ -37,11 +40,7 @@ pub fn process_single_event(
 
     let data_type = match (event.event.as_str(), context.historical_migration) {
         ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
-        ("$exception", _) if error_tracking_sampler::should_route_to_node() => {
-            metrics::counter!("capture_exception_events_routed_to_node").increment(1);
-            DataType::ExceptionErrorTracking
-        }
-        ("$exception", _) => DataType::ExceptionMain,
+        ("$exception", _) => DataType::ExceptionErrorTracking,
         ("$$heatmap", _) => DataType::HeatmapMain,
         (_, true) => DataType::AnalyticsHistorical,
         (_, false) => DataType::AnalyticsMain,
@@ -134,6 +133,7 @@ pub async fn process_events<'a>(
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
+    global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -195,6 +195,42 @@ pub async fn process_events<'a>(
 
         events = filtered_events;
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
+    }
+
+    // Apply per-(token, distinct_id) global rate limiting -- skip person processing for high-volume distinct_ids
+    if let Some(ref limiter) = global_rate_limiter {
+        let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
+        let mut limited_event_count: u64 = 0;
+        for event in events.iter_mut() {
+            let cache_key =
+                GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
+                    .to_cache_key();
+            if limiter.is_limited(&cache_key, 1).await.is_some() {
+                event.metadata.skip_person_processing = true;
+                limited_distinct_ids.insert(&event.event.distinct_id);
+                limited_event_count += 1;
+            }
+        }
+        if limited_event_count > 0 {
+            let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
+            let preview: String = if ids.len() > 10 {
+                format!("{}...", ids[..10].join(", "))
+            } else {
+                ids.join(", ")
+            };
+            counter!(
+                "capture_events_rate_limited_token_distinctid",
+                "reason" => "global_rate_limit_token_distinctid",
+            )
+            .increment(limited_event_count);
+            warn!(
+                token = context.token,
+                limited_event_count = limited_event_count,
+                distinct_id_count = limited_distinct_ids.len(),
+                distinct_ids = %preview,
+                "events rate limited by distinct_id -- person processing disabled"
+            );
+        }
     }
 
     if events.is_empty() {
@@ -463,6 +499,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -507,6 +544,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -552,6 +590,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -597,6 +636,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -649,6 +689,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -683,6 +724,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -733,6 +775,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )
@@ -742,51 +785,6 @@ mod tests {
         // Event should NOT be dropped because filter doesn't match
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_process_events_exception_node_rollout() {
-        // Initialize the error tracking sampler at 100% to route all exceptions to Node.
-        // Note: OnceLock means this only succeeds once per test binary, so this test
-        // assumes no other test initializes the sampler first.
-        crate::error_tracking_sampler::init(true, 100.0);
-
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![create_test_event_with_name(
-            "$exception",
-            Some("2023-01-01T11:00:00Z".to_string()),
-            None,
-            None,
-        )];
-
-        let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-
-        let result = process_events(
-            sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            &events,
-            &context,
-        )
-        .await;
-
-        assert!(result.is_ok());
-        let captured = sink.get_events();
-
-        // At 100% rollout, the exception should be routed to Node (ExceptionErrorTracking)
-        assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
     }
 
     #[tokio::test]
@@ -822,6 +820,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             &events,
             &context,
         )

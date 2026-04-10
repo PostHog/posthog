@@ -90,7 +90,7 @@ jobs:
                       "ingestion-consumer": 5,
                       "hogvm": 5,
                       "k8s-awareness": 60,
-                      "kafka-assigner": 30,
+                      "kafka-assigner": 150,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
                       "lifecycle": 10,
@@ -286,6 +286,8 @@ jobs:
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
+                      # Free cgroups, overlayfs, and network namespaces from previous testcontainers
+                      docker system prune -f --volumes 2>/dev/null || true
                       extra_args=""
                       # Limit test threads for packages with sqlx pool exhaustion issues
                       if [ "$pkg" = "property-defs-rs" ]; then

@@ -28,6 +28,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -71,6 +72,45 @@ const consumedBatchBackpressureDuration = new Histogram({
     help: 'Time spent waiting for background work to finish due to backpressure',
     labelNames: ['topic', 'groupId'],
 })
+
+const counterBackgroundTaskTimeout = new Counter({
+    name: 'consumer_background_task_timeout_total',
+    help: 'Count of background tasks that hit the timeout',
+    labelNames: ['topic', 'groupId'],
+})
+
+/**
+ * Wraps a background task promise with a timeout. When the timeout fires:
+ * - Always logs an error and increments a counter (probe phase)
+ * - Optionally force-resolves the wrapper to unblock the offset commit chain
+ *
+ * If both the timeout and the real task resolve, the second resolve() is a no-op
+ * (standard Promise behavior - a promise can only be resolved once).
+ */
+export function withBackgroundTaskTimeout(
+    task: Promise<any>,
+    timeoutMs: number,
+    forceResolve: boolean,
+    labels: { topic: string; groupId: string }
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+            logger.error('🔥', 'background_task_timeout', {
+                ...labels,
+                timeoutMs,
+                forceResolve,
+            })
+            counterBackgroundTaskTimeout.inc(labels)
+            if (forceResolve) {
+                resolve()
+            }
+        }, timeoutMs)
+        void task.finally(() => {
+            clearTimeout(timer)
+            resolve()
+        })
+    })
+}
 
 const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
@@ -726,8 +766,16 @@ export class KafkaConsumer {
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
-                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-                    const stopBackgroundTaskTimer = result?.backgroundTask
+                    const rawBackgroundTask = result?.backgroundTask
+                    const backgroundTask = rawBackgroundTask
+                        ? withBackgroundTaskTimeout(
+                              rawBackgroundTask,
+                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE,
+                              { topic, groupId }
+                          )
+                        : Promise.resolve()
+                    const stopBackgroundTaskTimer = rawBackgroundTask
                         ? consumedBatchBackgroundDuration.startTimer({
                               topic: this.config.topic,
                               groupId: this.config.groupId,
@@ -778,7 +826,10 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await instrumentFn(
+                            { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
+                            () => this.backgroundTask[0].promise
+                        )
                         stopTimer()
                     }
                 }
