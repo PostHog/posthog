@@ -100,12 +100,13 @@ bypassing `data_warehouse_record_fetcher` entirely.
 DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --limit 1
 DEBUG=1 ./manage.py emit_signals_from_fixture --type github --team-id 1 --limit 2
 DEBUG=1 ./manage.py emit_signals_from_fixture --type linear --team-id 1
+DEBUG=1 ./manage.py emit_signals_from_fixture --type conversations --team-id 1 --limit 2
 
 # Override the fixture path
 DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixture path/to/custom.json
 ```
 
-`--type` accepts `zendesk`, `github`, or `linear`
+`--type` accepts `zendesk`, `github`, `linear`, or `conversations`
 and maps to the matching auto-registered config in `registry.py`.
 The command requires `DEBUG=True` and is intended for local iteration only.
 
