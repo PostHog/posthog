@@ -148,8 +148,23 @@ def _generate_create_sql(
             f"SETTINGS\n{settings_block}"
         )
 
-    # MergeTree family
-    engine_call = f"{table.engine}()"
+    # MergeTree family.
+    # Replicated* engines must be given explicit (zk_path, replica_name) args —
+    # otherwise ClickHouse falls back to a default path containing a `{uuid}` macro
+    # that can only be resolved inside an ON CLUSTER query or a Replicated database
+    # engine. The runner sends CREATE statements directly to each host via
+    # map_hosts_by_roles(), so there is no ON CLUSTER context and the macro fails:
+    #   Code: 36. DB::Exception: Macro 'uuid' in engine arguments is only supported
+    #   when the UUID is explicitly specified, used within an ON CLUSTER query,
+    #   or when using the Replicated database engine.
+    # This mirrors the pattern tracking.py uses for the tracking table itself and
+    # matches the legacy PostHog ZK path convention.
+    if table.engine.startswith("Replicated"):
+        zk_path = f"/clickhouse/tables/{{shard}}/{database}/{table.name}"
+        engine_call = f"{table.engine}('{zk_path}', '{{replica}}')"
+    else:
+        engine_call = f"{table.engine}()"
+
     partition = f"\nPARTITION BY {table.partition_by}" if table.partition_by else ""
     order_by = f"\nORDER BY ({', '.join(table.order_by)})" if table.order_by else ""
 

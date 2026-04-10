@@ -897,6 +897,87 @@ class TestStructuralFieldDiffs(unittest.TestCase):
         self.assertEqual(len(recreate_diffs), 0)
 
 
+class TestReplicatedEngineExplicitZkPath(unittest.TestCase):
+    """Regression tests for the P0 `{uuid}` macro bug found in 2026-04-10 e2e run.
+
+    Before the fix, `_generate_create_sql` emitted zero-arg Replicated* engines
+    like `ReplicatedReplacingMergeTree()`. ClickHouse falls back to a default
+    zk_path containing `{uuid}`, which only resolves inside `ON CLUSTER` queries
+    or Replicated database engines. Since the runner sends CREATE statements
+    directly to each host via `map_hosts_by_roles()`, the macro was unresolvable
+    and apply failed on the very first table with:
+
+        Code: 36. DB::Exception: Macro 'uuid' in engine arguments is only
+        supported when the UUID is explicitly specified, used within an ON
+        CLUSTER query, or when using the Replicated database engine.
+
+    The fix emits explicit (zk_path, replica_name) args for every Replicated*
+    engine, matching the convention used by `tracking.py` and legacy PostHog
+    migrations.
+    """
+
+    def _make_table(self, name: str, engine: str) -> DesiredTable:
+        return DesiredTable(
+            name=name,
+            engine=engine,
+            columns=[ColumnDef(name="id", type="UUID"), ColumnDef(name="team_id", type="Int64")],
+            on_nodes=["DATA"],
+            order_by=["team_id", "id"],
+        )
+
+    def test_replicated_merge_tree_has_explicit_zk_path(self) -> None:
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = self._make_table("events_raw", "ReplicatedMergeTree")
+        sql = _generate_create_sql(table, database="posthog", cluster="main")
+        self.assertIn("ReplicatedMergeTree(", sql)
+        self.assertIn("'/clickhouse/tables/{shard}/posthog/events_raw'", sql)
+        self.assertIn("'{replica}'", sql)
+        self.assertNotIn("ReplicatedMergeTree()", sql)
+
+    def test_replicated_replacing_merge_tree_has_explicit_zk_path(self) -> None:
+        """The actual engine/table that broke on 2026-04-10 — adhoc_events_deletion."""
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = self._make_table("adhoc_events_deletion", "ReplicatedReplacingMergeTree")
+        sql = _generate_create_sql(table, database="posthog_test", cluster="main")
+        self.assertIn("ReplicatedReplacingMergeTree(", sql)
+        self.assertIn("'/clickhouse/tables/{shard}/posthog_test/adhoc_events_deletion'", sql)
+        self.assertIn("'{replica}'", sql)
+        self.assertNotIn("ReplicatedReplacingMergeTree()", sql)
+
+    def test_replicated_variants_all_emit_explicit_zk_path(self) -> None:
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        for engine in (
+            "ReplicatedAggregatingMergeTree",
+            "ReplicatedSummingMergeTree",
+            "ReplicatedCollapsingMergeTree",
+        ):
+            sql = _generate_create_sql(
+                self._make_table("t", engine),
+                database="posthog",
+                cluster="main",
+            )
+            self.assertIn(
+                "'/clickhouse/tables/{shard}/posthog/t'",
+                sql,
+                f"{engine} missing explicit zk_path",
+            )
+            self.assertIn("'{replica}'", sql, f"{engine} missing replica macro")
+            self.assertNotIn(f"{engine}()", sql, f"{engine} still emits zero-arg form")
+
+    def test_non_replicated_merge_tree_has_no_zk_path(self) -> None:
+        """Plain (unreplicated) MergeTree must stay zero-arg — no zk_path."""
+        from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
+
+        table = self._make_table("local_t", "MergeTree")
+        sql = _generate_create_sql(table, database="posthog", cluster="main")
+        self.assertIn("ENGINE = MergeTree()", sql)
+        self.assertNotIn("/clickhouse/tables/", sql)
+        self.assertNotIn("{replica}", sql)
+
+
 class TestKafkaRecreateWarning(unittest.TestCase):
     """Tests for High #2 fix: Kafka DROP+CREATE operator warning."""
 
