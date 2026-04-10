@@ -317,15 +317,14 @@ sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNA
 # Now expose the running sandbox via Tailscale Serve. HTTPS path (if the
 # cert call above succeeded) gives us HTTP/2 multiplexing; HTTP path is the
 # same fallback we had before — slower but functional.
-# Always serve HTTP on port 80 so bare-hostname URLs work in browsers.
-log "Exposing sandbox on port 80 via Tailscale Serve..."
-tailscale serve --bg --http=80 http://localhost:48001 \
-    || log "WARNING: tailscale serve --http failed"
-# When we got a cert, also serve HTTPS on 443 for HTTP/2 multiplexing.
 if [ -n "$SANDBOX_JS_URL" ]; then
     log "Enabling HTTPS + HTTP/2 via tailscale serve (port 443)..."
     tailscale serve --bg --https=443 http://localhost:48001 \
         || log "WARNING: tailscale serve --https failed"
+else
+    log "Exposing sandbox on port 80 via Tailscale Serve..."
+    tailscale serve --bg --http=80 http://localhost:48001 \
+        || log "WARNING: tailscale serve failed — fall back to http://$SANDBOX_HOSTNAME:48001"
 fi
 
 log "Waiting for app to be healthy..."
