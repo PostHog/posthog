@@ -694,14 +694,16 @@ class TestClusterRegistry(unittest.TestCase):
             get_cluster_by_name("logs")
             mock_get_cluster.assert_called_once_with(host="logs-host", cluster="posthog_single_shard")
 
-    def test_cluster_registry_unknown_falls_back(self) -> None:
-        from unittest.mock import patch
+    def test_cluster_registry_unknown_raises(self) -> None:
+        """Unknown logical cluster names must raise instead of silently
+        falling back — silent fallback masks bugs where callers mis-spell
+        or forget to register a new cluster."""
+        from posthog.clickhouse.cluster import get_cluster_by_name
 
-        with patch("posthog.clickhouse.cluster.get_cluster") as mock_get_cluster:
-            from posthog.clickhouse.cluster import get_cluster_by_name
-
+        with self.assertRaises(ValueError) as cm:
             get_cluster_by_name("unknown_cluster")
-            mock_get_cluster.assert_called_once_with()
+        self.assertIn("unknown_cluster", str(cm.exception))
+        self.assertIn("Known clusters:", str(cm.exception))
 
     def test_plan_groups_by_cluster(self) -> None:
         """Desired states with different clusters should each connect to their own cluster host."""
@@ -731,26 +733,23 @@ class TestClusterRegistry(unittest.TestCase):
         self.assertEqual(len(by_cluster["logs"]), 1)
 
     def test_unknown_cluster_in_yaml_errors(self) -> None:
-        """A YAML referencing an unknown cluster should produce a clear error."""
+        """A YAML referencing a truly unknown cluster should produce a clear
+        error. `sessions`, `aux`, `ops`, and `ai_events` are now registered
+        as satellite clusters, so this test uses a synthetic name."""
         from posthog.clickhouse.cluster import get_all_logical_clusters, is_known_cluster
 
-        self.assertFalse(is_known_cluster("sessions"))
+        # Satellite clusters are now registered — they must resolve.
+        self.assertTrue(is_known_cluster("sessions"))
+        self.assertTrue(is_known_cluster("aux"))
+
+        # A name that is NOT registered must still be flagged.
+        self.assertFalse(is_known_cluster("definitely_not_a_cluster"))
 
         known = ", ".join(get_all_logical_clusters())
         self.assertIn("logs", known)
         self.assertIn("main", known)
         self.assertIn("migrations", known)
-
-        # Simulate the validation error message
-        cluster_name = "sessions"
-        ecosystem = "sessions_v3"
-        msg = (
-            f"Schema file for ecosystem '{ecosystem}' references cluster "
-            f"'{cluster_name}' which is not in the cluster registry. "
-            f"Known clusters: {known}."
-        )
-        self.assertIn("sessions", msg)
-        self.assertIn("not in the cluster registry", msg)
+        self.assertIn("sessions", known)
 
 
 if __name__ == "__main__":
