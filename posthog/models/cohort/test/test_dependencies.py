@@ -817,6 +817,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
             "cohort-backfill-on-change",
             str(cohort.team_id),
             groups={"team": str(cohort.team_id)},
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
         # Verify backfill was not triggered due to disabled feature flag
