@@ -7,20 +7,20 @@ closing the gap between the current repo state and the definition of done.
 
 ## Implementation status
 
-| Phase                                          | Status      | Notes                                                                                     |
-| ---------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------- |
-| Phase 0 — Housekeeping                         | ✅ complete | All 5 items landed; facade tests fixed as a side benefit.                                 |
-| Phase 1.5 — Tach layer flip                    | ✅ complete | Inverted layer order so `non_isolated` (periphery) depends on `products` (isolated core). |
-| Phase 7 — Delete `backend/api/`                | ✅ complete | Entire legacy shim package removed; no importers remained after Phase 0.                  |
-| Phase 1 — Test factories                       | ⏳ pending  | Unblocked.                                                                                |
-| Phase 2 — Infra extraction                     | ⏳ pending  | No longer tach-blocked; moves to straight refactor.                                       |
-| Phase 3 — Typed digest/remote-config contracts | ⏳ pending  | Unblocked.                                                                                |
-| Phase 4 — Facade read completeness             | ⏳ pending  | Unblocked.                                                                                |
-| Phase 5a — Typed query contracts               | ⏳ pending  | Blocked by Phase 4.                                                                       |
-| Phase 5b — Migrate query consumers             | ⏳ pending  | Blocked by Phase 5a.                                                                      |
-| Phase 5c — Framework dispatch split            | ⏳ pending  | Blocked by Phase 5b.                                                                      |
-| Phase 6 — Contract-check                       | ⏳ pending  | Blocked by Phase 3.                                                                       |
-| Phase 8 — Final tach lockdown                  | ⏳ pending  | Blocked by 1, 2, 5c, 6, 7.                                                                |
+| Phase                                          | Status      | Notes                                                                                                                                                               |
+| ---------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 0 — Housekeeping                         | ✅ complete | All 5 items landed; facade tests fixed as a side benefit.                                                                                                           |
+| Phase 1.5 — Tach layer flip                    | ✅ complete | Inverted layer order so `non_isolated` (periphery) depends on `products` (isolated core).                                                                           |
+| Phase 7 — Delete `backend/api/`                | ✅ complete | Entire legacy shim package removed; no importers remained after Phase 0.                                                                                            |
+| Phase 1 — Test factories                       | ✅ complete | `backend/test/factories.py` created; all 5 external tests migrated; `backend.models` removed from tach interfaces; new facade `count_issues_for_team` helper added. |
+| Phase 2 — Infra extraction                     | ⏳ pending  | No longer tach-blocked; moves to straight refactor.                                                                                                                 |
+| Phase 3 — Typed digest/remote-config contracts | ⏳ pending  | Unblocked.                                                                                                                                                          |
+| Phase 4 — Facade read completeness             | ⏳ pending  | Unblocked.                                                                                                                                                          |
+| Phase 5a — Typed query contracts               | ⏳ pending  | Blocked by Phase 4.                                                                                                                                                 |
+| Phase 5b — Migrate query consumers             | ⏳ pending  | Blocked by Phase 5a.                                                                                                                                                |
+| Phase 5c — Framework dispatch split            | ⏳ pending  | Blocked by Phase 5b.                                                                                                                                                |
+| Phase 6 — Contract-check                       | ⏳ pending  | Blocked by Phase 3.                                                                                                                                                 |
+| Phase 8 — Final tach lockdown                  | ⏳ pending  | Blocked by 1, 2, 5c, 6, 7.                                                                                                                                          |
 
 ### Side findings (not in original plan)
 
@@ -32,6 +32,9 @@ closing the gap between the current repo state and the definition of done.
   pre-existing bugs (`summary.id == issue.id` comparing `str` to `UUID`,
   `self.create_team(...)` method not on `BaseTest`). Fixed as part of
   Phase 0 so the facade suite is now green.
+- New facade helper `count_issues_for_team(team)` added during Phase 1
+  so `test_personal_api_keys` could assert post-merge issue counts
+  without importing the ORM model.
 
 ## Current gap, at a glance
 

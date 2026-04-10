@@ -91,6 +91,10 @@ def count_issues_created_since(team: Team | int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=_team_id(team), created_at__gte=since).count()
 
 
+def count_issues_for_team(team: Team | int) -> int:
+    return ErrorTrackingIssue.objects.filter(team_id=_team_id(team)).count()
+
+
 def get_issue_counts_by_team() -> list[TeamCountContract]:
     return [
         TeamCountContract(team_id=row["team_id"], total=row["total"])

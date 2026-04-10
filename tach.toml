@@ -216,9 +216,10 @@ interfaces = [
     "products.error_tracking.backend.apps",
     "products.error_tracking.backend.embedding",
     "products.error_tracking.backend.indexed_embedding",
-    "products.error_tracking.backend.models",
     "products.error_tracking.backend.sql",
     "products.error_tracking.dags",
+    # Test-only sanctioned helper for external tests.
+    "products.error_tracking.backend.test.factories",
 ]
 
 [[modules]]

@@ -38,7 +38,11 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.test.factories import (
+    create_issue as create_error_tracking_issue,
+    create_issue_assignment as create_error_tracking_issue_assignment,
+    create_issue_fingerprint as create_error_tracking_issue_fingerprint,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
@@ -228,22 +232,18 @@ def _create_endpoint_version(team: Team, label: str) -> EndpointVersion:
     )
 
 
-def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
-    return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
+def _create_error_tracking_issue(team: Team, label: str):
+    return create_error_tracking_issue(team=team, name=f"issue_{label}", status="active")
 
 
 def _create_error_tracking_issue_assignment(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
-
-    issue = ErrorTrackingIssue.objects.create(team=team, name=f"assigned_issue_{label}", status="active")
-    return ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue)
+    issue = create_error_tracking_issue(team=team, name=f"assigned_issue_{label}", status="active")
+    return create_error_tracking_issue_assignment(team=team, issue=issue)
 
 
 def _create_error_tracking_issue_fingerprint(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-
-    issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
-    return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
+    issue = create_error_tracking_issue(team=team, name=f"fp_issue_{label}", status="active")
+    return create_error_tracking_issue_fingerprint(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
 def _create_hog_flow(team: Team, label: str) -> HogFlow:

@@ -7,7 +7,10 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from products.error_tracking.backend.facade import ErrorTrackingIssueContract
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.test.factories import (
+    create_issue as create_error_tracking_issue,
+    create_issue_fingerprint as create_error_tracking_issue_fingerprint,
+)
 
 from ee.hogai.context.error_tracking.context import ErrorTrackingIssueContext
 
@@ -69,9 +72,9 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-    def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
-        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
-        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+    def create_issue(self, issue_id, fingerprint, name=None, status="active"):
+        issue = create_error_tracking_issue(id=issue_id, team=self.team, status=status, name=name)
+        create_error_tracking_issue_fingerprint(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
     def create_events_and_issue(
@@ -81,7 +84,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         distinct_ids,
         timestamp=None,
         issue_name=None,
-        status=ErrorTrackingIssue.Status.ACTIVE,
+        status="active",
         exception_list=None,
     ):
         if timestamp:

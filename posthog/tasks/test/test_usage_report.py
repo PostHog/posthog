@@ -71,7 +71,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.test.factories import create_issue as create_error_tracking_issue
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -266,7 +266,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 deleted=True,
             )
 
-            ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
+            create_error_tracking_issue(team=self.org_1_team_1)
 
             uuids = [uuid4() for _ in range(0, 10)]
             for uuid in uuids:
