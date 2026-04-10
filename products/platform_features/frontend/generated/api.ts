@@ -11,10 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogApi,
     ActivityLogListParams,
-    AdvancedActivityLogsAvailableFiltersRetrieve200,
     AdvancedActivityLogsListParams,
     ApprovalPoliciesListParams,
     ApprovalPolicyApi,
+    AvailableFiltersResponseApi,
     ChangeRequestApi,
     ChangeRequestsListParams,
     CommentApi,
@@ -606,14 +606,11 @@ export const getAdvancedActivityLogsAvailableFiltersRetrieveUrl = (projectId: st
 export const advancedActivityLogsAvailableFiltersRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<AdvancedActivityLogsAvailableFiltersRetrieve200> => {
-    return apiMutator<AdvancedActivityLogsAvailableFiltersRetrieve200>(
-        getAdvancedActivityLogsAvailableFiltersRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<AvailableFiltersResponseApi> => {
+    return apiMutator<AvailableFiltersResponseApi>(getAdvancedActivityLogsAvailableFiltersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getAdvancedActivityLogsExportCreateUrl = (projectId: string) => {

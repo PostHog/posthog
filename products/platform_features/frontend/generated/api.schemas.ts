@@ -327,6 +327,33 @@ export interface ActivityLogApi {
 
 export type PaginatedActivityLogListApi = ActivityLogApi[]
 
+/**
+ * Discovered detail fields and their value distributions.
+ */
+export type AvailableFiltersResponseApiDetailFields = { [key: string]: unknown }
+
+export type StaticFiltersApiUsersItem = { [key: string]: unknown }
+
+export type StaticFiltersApiScopesItem = { [key: string]: unknown }
+
+export type StaticFiltersApiActivitiesItem = { [key: string]: unknown }
+
+export interface StaticFiltersApi {
+    /** Users who have logged activity. */
+    users: StaticFiltersApiUsersItem[]
+    /** Available activity scopes. */
+    scopes: StaticFiltersApiScopesItem[]
+    /** Available activity types. */
+    activities: StaticFiltersApiActivitiesItem[]
+}
+
+export interface AvailableFiltersResponseApi {
+    /** Pre-computed filter options for scopes, activities, and users. */
+    static_filters: StaticFiltersApi
+    /** Discovered detail fields and their value distributions. */
+    detail_fields: AvailableFiltersResponseApiDetailFields
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -734,8 +761,6 @@ export type AdvancedActivityLogsListParams = {
      */
     was_impersonated?: boolean | null
 }
-
-export type AdvancedActivityLogsAvailableFiltersRetrieve200 = { [key: string]: unknown }
 
 export type CommentsListParams = {
     /**

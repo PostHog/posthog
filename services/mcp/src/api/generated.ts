@@ -5744,6 +5744,33 @@ export namespace Schemas {
     }
 
     /**
+     * Discovered detail fields and their value distributions.
+     */
+    export type AvailableFiltersResponseDetailFields = {[key: string]: unknown};
+
+    export type StaticFiltersUsersItem = {[key: string]: unknown};
+
+    export type StaticFiltersScopesItem = {[key: string]: unknown};
+
+    export type StaticFiltersActivitiesItem = {[key: string]: unknown};
+
+    export interface StaticFilters {
+      /** Users who have logged activity. */
+      users: StaticFiltersUsersItem[];
+      /** Available activity scopes. */
+      scopes: StaticFiltersScopesItem[];
+      /** Available activity types. */
+      activities: StaticFiltersActivitiesItem[];
+    }
+
+    export interface AvailableFiltersResponse {
+      /** Pre-computed filter options for scopes, activities, and users. */
+      static_filters: StaticFilters;
+      /** Discovered detail fields and their value distributions. */
+      detail_fields: AvailableFiltersResponseDetailFields;
+    }
+
+    /**
      * * `ingest_first_event` - ingest_first_event
     * `set_up_reverse_proxy` - set_up_reverse_proxy
     * `create_first_insight` - create_first_insight
@@ -33745,8 +33772,6 @@ export namespace Schemas {
      */
     was_impersonated?: boolean | null;
     };
-
-    export type AdvancedActivityLogsAvailableFiltersRetrieve200 = {[key: string]: unknown};
 
     export type AlertsListParams = {
     /**

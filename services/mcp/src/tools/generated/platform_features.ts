@@ -217,13 +217,16 @@ const advancedActivityLogsList = (): ToolBase<
 
 const AdvancedActivityLogsFiltersSchema = z.object({})
 
-const advancedActivityLogsFilters = (): ToolBase<typeof AdvancedActivityLogsFiltersSchema, unknown> => ({
+const advancedActivityLogsFilters = (): ToolBase<
+    typeof AdvancedActivityLogsFiltersSchema,
+    Schemas.AvailableFiltersResponse
+> => ({
     name: 'advanced-activity-logs-filters',
     schema: AdvancedActivityLogsFiltersSchema,
     // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsFiltersSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.AvailableFiltersResponse>({
             method: 'GET',
             path: `/api/projects/${projectId}/advanced_activity_logs/available_filters/`,
         })

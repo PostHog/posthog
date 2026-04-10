@@ -241,6 +241,17 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         return json.dumps(obj.detail) if obj.detail else ""
 
 
+class StaticFiltersSerializer(serializers.Serializer):
+    users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
+    scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
+    activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+
+
+class AvailableFiltersResponseSerializer(serializers.Serializer):
+    static_filters = StaticFiltersSerializer(help_text="Pre-computed filter options for scopes, activities, and users.")
+    detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
+
+
 @extend_schema(tags=["platform_features"])
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
@@ -343,7 +354,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @extend_schema(responses={200: dict})
+    @extend_schema(responses={200: AvailableFiltersResponseSerializer})
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
         queryset = self.get_queryset()
