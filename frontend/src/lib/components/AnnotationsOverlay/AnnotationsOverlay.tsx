@@ -33,8 +33,6 @@ import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const EMPTY_ANNOTATIONS: DatedAnnotationType[] = []
 
-/** User-facing format for annotation groups. Keyed by the grouping unit (not the raw interval),
- * so monthly/weekly charts — which group by day — show full dates in the popover title. */
 const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     second: 'MMMM D, YYYY H:mm:ss',
     minute: 'MMMM D, YYYY H:mm:00',
@@ -131,11 +129,6 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 }
                 ref={overlayRef}
             >
-                {/* Add-annotation targets: one per chart tick, invisible until hovered.
-                    Skipped when too close to any part of a rendered cluster to prevent overlap —
-                    uses full cluster extent (leftPx..rightPx), not just the anchor, so ticks
-                    inside a chained cluster that spans more than MIN_BADGE_SPACING_PX are also
-                    suppressed. */}
                 {tickDates.map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
                     if (tickOverlapsAnyCluster(leftPx, clusters, MIN_BADGE_SPACING_PX)) {
@@ -152,8 +145,6 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         />
                     )
                 })}
-                {/* Cluster badges: merged from nearby annotation groups. Hit area is narrow so
-                    adjacent badges don't swallow each other's clicks. */}
                 {clusters.map((cluster) => (
                     <AnnotationsBadge
                         key={`cluster-${cluster.date.toISOString()}`}
@@ -182,13 +173,10 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
 
 interface AnnotationsBadgeProps {
     date: dayjs.Dayjs
-    /** Pixel offset from the left of the overlay (which starts at the chart's plot area). */
     leftPx: number
-    /** Hit area width in pixels. Tick add-targets use the full tick interval so users can hover
-     *  anywhere along the tick to add an annotation; cluster badges use a narrow width to avoid
-     *  swallowing clicks intended for neighboring badges. */
+    /** Tick add-targets use the full tick interval; cluster badges use a narrow width so
+     *  adjacent badges don't swallow each other's clicks. */
     widthPx: number
-    /** Annotations to show in this badge. Empty array for tick add-targets. */
     annotations: DatedAnnotationType[]
     badgeRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
 }
@@ -280,8 +268,6 @@ function AnnotationsPopover({
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
-    // An empty cluster means the active badge is a tick add-target — no annotations to show,
-    // only the "add annotation" affordance.
     const popoverAnnotations = cluster?.annotations ?? []
 
     // Capture event when popup is shown with a system annotation

@@ -32,13 +32,7 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     ticks: { value: number }[]
 }
 
-/**
- * The time unit used to bucket annotations into badges. For charts with sub-day intervals
- * (second/minute/hour/day) we bucket at the chart's granularity — that IS the data granularity,
- * so there's no finer distinction to make. For week and month charts we bucket by day, so that
- * e.g. an annotation on Dec 1 and an annotation on Dec 15 appear as two separate badges on the
- * same monthly chart instead of being collapsed into one "December" badge.
- */
+/** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
 export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
     return intervalUnit === 'week' || intervalUnit === 'month' ? 'day' : intervalUnit
 }
@@ -249,14 +243,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 })
             },
         ],
-        /**
-         * Positions of annotation badges, keyed by data-point index into `props.dates`.
-         *
-         * `dataIndex` can be fractional: e.g. on a monthly chart, an annotation dated 15 Dec
-         * will yield a `dataIndex` approximately 0.48 data points beyond the Dec 1 data point.
-         * The overlay then linearly interpolates the pixel x between the neighboring data points
-         * so the badge lands at the date's actual horizontal position.
-         */
+        /** Fractional data-point indices for annotation badges, e.g. Dec 15 on a monthly chart
+         *  lands at index ~0.48 between the Dec 1 and Jan 1 data points. */
         annotationBadgeDataIndices: [
             (s) => [
                 s.groupedAnnotations,
@@ -273,26 +261,21 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return []
                 }
-                // `dates[0]` is already interval-aligned by the query pipeline — do NOT apply
-                // `.startOf(intervalUnit)` here. Dayjs's default locale uses Sunday as the week
-                // start, so on Monday-aligned weekly data `startOf('week')` would shift firstDate
-                // backward by a day and bias every fractional `dataIndex` by ~1/7.
+                // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
+                // drift Monday-aligned dates backward and bias every fractional index by 1/7.
                 const firstDate = dayjsLocalToTimezone(dates[0], timezone)
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
-                        // Whole data-point index for the interval containing this date.
                         const wholeIndex = date.diff(firstDate, intervalUnit)
-                        // Fractional offset within that interval (0 at interval start, 1 at next interval start).
                         const intervalStart = firstDate.add(wholeIndex, intervalUnit)
                         const intervalEnd = intervalStart.add(1, intervalUnit)
                         const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
                         const fraction =
                             intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
-                        // Clamp to the last data point — annotations whose interval has no "next"
-                        // data point (e.g. Apr 15 on a chart that ends at Apr 1) must not extrapolate
-                        // past the chart, they snap onto the last data point instead.
+                        // Clamp to lastIndex so annotations past the final data point snap onto
+                        // it rather than extrapolating off the canvas.
                         const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
                         return { dateKey, date, dataIndex }
                     })
