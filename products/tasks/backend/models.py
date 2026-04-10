@@ -39,10 +39,10 @@ logger = structlog.get_logger(__name__)
 LogLevel = Literal["debug", "info", "warn", "error"]
 
 
-def resolve_schema(schema: BaseModel | dict) -> dict:
-    if isinstance(schema, BaseModel):
-        return schema.model_json_schema()
-    return schema
+def resolve_schema(schema: type[BaseModel] | dict) -> dict:
+    if isinstance(schema, dict):
+        return schema
+    return schema.model_json_schema()
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -253,7 +253,7 @@ class Task(DeletedMetaFields, models.Model):
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
-        output_schema: BaseModel | dict | None = None,
+        output_schema: type[BaseModel] | dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
