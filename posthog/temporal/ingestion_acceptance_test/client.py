@@ -3,6 +3,7 @@
 import json
 import time
 import uuid
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -10,9 +11,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 import structlog
+from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from .config import Config
 
@@ -22,6 +25,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+RETRYABLE_CH_ERROR_CODES: frozenset[int] = frozenset(
+    {
+        ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+        ErrorCodes.TIMEOUT_EXCEEDED,
+        ErrorCodes.MEMORY_LIMIT_EXCEEDED,
+    }
+)
 
 
 def _person_has_min_version(person: "Person | None", min_version: int | None) -> "Person | None":
@@ -73,6 +84,8 @@ class PostHogClient:
         # ClickHouse ORDER BY uses toDate(timestamp) (day granularity), so filtering by date
         # is sufficient. We subtract 1 day to handle clock skew between test machine and server.
         self._test_start_date = (datetime.now(UTC) - timedelta(days=1)).date()
+        self._pending_polls: dict[int, str] = {}
+        self._pending_polls_lock = threading.Lock()
 
     def _retry_on_error(self, fn: Callable[[], T], description: str) -> T:
         """Retry a function on transient errors with exponential backoff.
@@ -239,6 +252,11 @@ class PostHogClient:
         """Shutdown the client and flush any pending events."""
         self._posthog.shutdown()
 
+    def pending_polls_snapshot(self) -> dict[int, str]:
+        """Return a snapshot of currently active polls, keyed by thread ID."""
+        with self._pending_polls_lock:
+            return dict(self._pending_polls)
+
     # Polling configuration
     POLL_BACKOFF_FACTOR = 1.5
     POLL_MAX_INTERVAL_SECONDS = 60.0
@@ -251,57 +269,93 @@ class PostHogClient:
         """Poll until fetch_fn returns a non-None result or timeout.
 
         Sleeps before each request with exponential backoff to reduce query pressure
-        and increase likelihood of success on first call.
+        and increase likelihood of success on first call. Transient connection errors
+        are caught and logged, allowing polling to continue.
         """
+        tid = threading.get_ident()
+        with self._pending_polls_lock:
+            self._pending_polls[tid] = description
         start_time = time.time()
         current_interval = self.config.poll_interval_seconds
         attempt = 0
 
-        while time.time() - start_time < self.config.event_timeout_seconds:
-            attempt += 1
-            time.sleep(current_interval)
-            if attempt > 1:
-                elapsed = time.time() - start_time
-                logger.info(
-                    "Polling attempt",
-                    attempt=attempt,
-                    description=description,
-                    elapsed_seconds=round(elapsed, 1),
-                    next_interval_seconds=round(current_interval, 1),
+        try:
+            while time.time() - start_time < self.config.event_timeout_seconds:
+                attempt += 1
+                time.sleep(current_interval)
+                if attempt > 1:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "Polling attempt",
+                        attempt=attempt,
+                        description=description,
+                        elapsed_seconds=round(elapsed, 1),
+                        next_interval_seconds=round(current_interval, 1),
+                    )
+                try:
+                    result = fetch_fn()
+                except (
+                    InternalCHQueryError,
+                    # wrap_clickhouse_query_error() converts TOO_MANY_SIMULTANEOUS_QUERIES,
+                    # TIMEOUT_EXCEEDED, and MEMORY_LIMIT_EXCEEDED into APIException subclasses
+                    # (not InternalCHQueryError), so we must catch them explicitly.
+                    ClickHouseAtCapacity,
+                    ClickHouseQueryTimeOut,
+                    ClickHouseQueryMemoryLimitExceeded,
+                    EOFError,
+                    ConnectionError,
+                    OSError,
+                ) as e:
+                    is_retryable = not isinstance(e, InternalCHQueryError) or e.code in RETRYABLE_CH_ERROR_CODES
+                    if is_retryable:
+                        logger.warning(
+                            "Transient error during polling, will retry",
+                            retry_action="retrying",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            error_code=getattr(e, "code", None),
+                            error_code_name=getattr(e, "code_name", None),
+                            description=description,
+                            attempt=attempt,
+                        )
+                        result = None
+                    else:
+                        logger.exception(
+                            "Fatal ClickHouse error, aborting poll",
+                            retry_action="fatal",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            error_code=getattr(e, "code", None),
+                            error_code_name=getattr(e, "code_name", None),
+                            description=description,
+                            attempt=attempt,
+                        )
+                        raise
+                if result is not None:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "Polling succeeded",
+                        description=description,
+                        attempt=attempt,
+                        elapsed_seconds=round(elapsed, 1),
+                    )
+                    return result
+                current_interval = min(
+                    current_interval * self.POLL_BACKOFF_FACTOR,
+                    self.POLL_MAX_INTERVAL_SECONDS,
+                    self.config.event_timeout_seconds - (time.time() - start_time),
                 )
-            try:
-                result = fetch_fn()
-            except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
-                logger.warning(
-                    "Transient error during polling, will retry",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    description=description,
-                    attempt=attempt,
-                )
-                result = None
-            if result is not None:
-                elapsed = time.time() - start_time
-                logger.info(
-                    "Polling succeeded",
-                    description=description,
-                    attempt=attempt,
-                    elapsed_seconds=round(elapsed, 1),
-                )
-                return result
-            current_interval = min(
-                current_interval * self.POLL_BACKOFF_FACTOR,
-                self.POLL_MAX_INTERVAL_SECONDS,
-                self.config.event_timeout_seconds - (time.time() - start_time),
-            )
 
-        logger.warning(
-            "Polling timed out",
-            description=description,
-            timeout_seconds=self.config.event_timeout_seconds,
-            attempts=attempt,
-        )
-        return None
+            logger.warning(
+                "Polling timed out",
+                description=description,
+                timeout_seconds=self.config.event_timeout_seconds,
+                attempts=attempt,
+            )
+            return None
+        finally:
+            with self._pending_polls_lock:
+                self._pending_polls.pop(tid, None)
 
     def _fetch_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
         """Fetch an event by UUID via direct ClickHouse query.
@@ -344,11 +398,15 @@ class PostHogClient:
         )
 
     def _fetch_person_by_distinct_id(self, distinct_id: str) -> Person | None:
-        """Fetch a person by distinct_id via direct ClickHouse query."""
+        """Fetch a person by distinct_id via direct ClickHouse query.
+
+        Uses FINAL on both ReplacingMergeTree tables to ensure correct deduplication
+        after merges/aliases without waiting for background merges.
+        """
         query = """
             SELECT p.id, p.properties, p.created_at
-            FROM person p
-            JOIN person_distinct_id2 pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
+            FROM person AS p FINAL
+            JOIN person_distinct_id2 AS pdi FINAL ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
             WHERE p.team_id = %(team_id)s
               AND pdi.distinct_id = %(distinct_id)s
               AND pdi.is_deleted = 0
@@ -379,14 +437,22 @@ class PostHogClient:
     def _fetch_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
         """Fetch events by person_id. Returns None if not all expected UUIDs are found.
 
-        Includes a timestamp filter to benefit from ClickHouse's table partitioning
-        (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
+        Resolves the person's distinct_ids via person_distinct_id2 FINAL rather than
+        filtering on events.person_id directly. After merges/aliases, person_distinct_id2
+        is updated immediately, while events.person_id is only rewritten by async
+        background mutations that may lag significantly.
         """
         query = """
             SELECT uuid, event, distinct_id, properties, timestamp
             FROM events
             WHERE team_id = %(team_id)s
-              AND person_id = %(person_id)s
+              AND distinct_id IN (
+                SELECT distinct_id
+                FROM person_distinct_id2 FINAL
+                WHERE team_id = %(team_id)s
+                  AND person_id = %(person_id)s
+                  AND is_deleted = 0
+              )
               AND timestamp >= %(min_timestamp)s
             ORDER BY timestamp ASC
         """

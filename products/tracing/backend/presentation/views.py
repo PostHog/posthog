@@ -11,7 +11,6 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
-import base64
 
 from pydantic import ValidationError
 from rest_framework import status, viewsets
@@ -95,22 +94,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
         results = response.results
-        has_more = len(results) > requested_limit
-
-        next_cursor = None
-        if has_more and results:
-            last_result = results[-1]
-            cursor_data = {
-                "timestamp": last_result["timestamp"].isoformat(),
-                "uuid": last_result["uuid"],
-            }
-            next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         return Response(
             {
                 "results": results,
-                "hasMore": has_more,
-                "nextCursor": next_cursor,
+                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
+                "nextCursor": None,
             },
             status=status.HTTP_200_OK,
         )

@@ -44,7 +44,7 @@ export const errorTrackingQuery = ({
     groupKey,
     groupTypeIndex,
     limit = 50,
-    useQueryV2,
+    useQueryV3,
 }: Pick<
     ErrorTrackingQuery,
     | 'orderBy'
@@ -58,7 +58,7 @@ export const errorTrackingQuery = ({
     | 'personId'
     | 'groupKey'
     | 'groupTypeIndex'
-    | 'useQueryV2'
+    | 'useQueryV3'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
@@ -83,7 +83,7 @@ export const errorTrackingQuery = ({
             personId,
             groupKey,
             groupTypeIndex,
-            useQueryV2,
+            useQueryV3,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },

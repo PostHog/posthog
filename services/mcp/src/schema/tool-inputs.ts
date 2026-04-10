@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema, PropertyFilter } from './query'
 
 export const PromptListInputSchema = z.object({
@@ -243,6 +242,13 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
+
+    allow_unknown_events: z
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+        ),
 })
 
 export const InsightCreateSchema = z.object({
@@ -338,8 +344,6 @@ export const SurveyResponseCountsSchema = z.object({})
 export const QueryRunInputSchema = z.object({
     query: InsightQuerySchema,
 })
-
-export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
 
 // Entity Search
 export const EntitySearchSchema = z.object({

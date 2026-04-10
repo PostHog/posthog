@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -9,6 +8,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -409,10 +409,9 @@ export const productToursLogic = kea<productToursLogicType>([
                 let filtered = productTours
 
                 if (searchTerm) {
-                    const fuse = new Fuse(filtered, {
+                    const fuse = createFuse(filtered, {
                         keys: ['name', 'description'],
                         ignoreLocation: true,
-                        threshold: 0.3,
                     })
                     filtered = fuse.search(searchTerm).map((result) => result.item)
                 }

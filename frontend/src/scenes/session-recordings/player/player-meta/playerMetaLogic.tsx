@@ -134,12 +134,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setShowFeedbackSurvey: (show: boolean) => ({ show }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
             false,
             {
                 sessionSummaryFeedback: () => true,
+            },
+        ],
+        showFeedbackSurvey: [
+            false,
+            {
+                setShowFeedbackSurvey: (_, { show }) => show,
             },
         ],
         sessionSummary: [
