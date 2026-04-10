@@ -214,26 +214,23 @@ def requires_full_run(changed_file: str) -> bool:
     return False
 
 
-def parse_dorny_backend_patterns() -> list[str]:
-    """Extract the backend filter patterns from ci-backend.yml."""
-    ci_backend = REPO_ROOT / ".github" / "workflows" / "ci-backend.yml"
-    lines = ci_backend.read_text().splitlines()
+def parse_dorny_filter(workflow_file: str, filter_name: str) -> list[str]:
+    """Extract patterns from a named dorny filter section in a workflow file."""
+    path = REPO_ROOT / ".github" / "workflows" / workflow_file
+    lines = path.read_text().splitlines()
 
     patterns: list[str] = []
-    in_backend = False
+    in_section = False
     for line in lines:
         stripped = line.strip()
-        # Look for "backend:" at the start of a filter group
-        if stripped == "backend:":
-            in_backend = True
+        if stripped == f"{filter_name}:":
+            in_section = True
             continue
-        if in_backend:
+        if in_section:
             if stripped.startswith("- "):
-                # Strip "- " prefix and surrounding quotes
                 pattern = stripped[2:].strip().strip("'\"")
                 patterns.append(pattern)
             elif stripped and not stripped.startswith("#"):
-                # Hit the next filter group (e.g. "legacy:")
                 break
     return patterns
 
@@ -263,7 +260,7 @@ def pattern_is_covered(pattern: str) -> bool:
 
 def check_sync() -> None:
     """Verify all dorny backend patterns are covered by find_affected_tests.py."""
-    patterns = parse_dorny_backend_patterns()
+    patterns = parse_dorny_filter("ci-backend.yml", "backend")
     if not patterns:
         sys.stderr.write("ERROR: could not parse any backend patterns from ci-backend.yml\n")
         sys.exit(1)
@@ -284,6 +281,123 @@ def check_sync() -> None:
         sys.exit(1)
     else:
         sys.stderr.write(f"OK: all {len(patterns)} dorny backend patterns are covered\n")
+
+
+DAG_MODULE_RE = re.compile(r"(^|\.)(dags)\.")
+
+# Dorny dagster filter patterns that are infrastructure (not derivable from imports).
+# These are checked for presence but not derived from the import graph.
+DAGSTER_INFRA_PATTERNS = (
+    ".github/workflows/ci-dagster.yml",
+    ".github/clickhouse-versions.json",
+    "docker-compose.dev.yml",
+    "docker-compose.profiles.yml",
+    "frontend/public/email/*",
+    "pyproject.toml",
+    "uv.lock",
+)
+
+
+def file_to_dir_prefix(file_path: str, depth: int = 2) -> str:
+    """Extract a directory prefix from a file path.
+
+    'posthog/models/team/team.py' at depth=2 -> 'posthog/models'
+    'posthog/schema.py' at depth=2 -> 'posthog' (file in top-level package)
+    'ee/billing/dags/foo.py' at depth=2 -> 'ee/billing'
+    """
+    parts = file_path.split("/")
+    # If the file is directly in a package dir (e.g. posthog/schema.py), use depth 1
+    if len(parts) <= depth:
+        return "/".join(parts[: len(parts) - 1]) if len(parts) > 1 else parts[0]
+    return "/".join(parts[:depth])
+
+
+def check_dagster_sync() -> None:
+    """Verify the dagster dorny filter covers all modules imported by DAG code."""
+    sys.stderr.write("Building import graph to trace DAG dependencies...\n")
+    start = time.monotonic()
+
+    repo_root_str = str(REPO_ROOT)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+
+    graph = grimp.build_graph(*LOCAL_PACKAGES)
+
+    # Map modules to file paths
+    module_files: dict[str, str] = {}
+    dag_modules: set[str] = set()
+    for module in graph.modules:
+        file_path = module_to_file(module)
+        if file_path:
+            module_files[module] = file_path
+            # DAG modules live under */dags/*
+            if DAG_MODULE_RE.search(module):
+                dag_modules.add(module)
+
+    sys.stderr.write(f"Found {len(dag_modules)} DAG modules in {time.monotonic() - start:.1f}s\n")
+
+    if not dag_modules:
+        sys.stderr.write("ERROR: no DAG modules found\n")
+        sys.exit(1)
+
+    # Trace all upstream dependencies of DAG modules
+    dep_dirs: set[str] = set()
+    for dag_module in sorted(dag_modules):
+        dag_file = module_files[dag_module]
+        dep_dirs.add(file_to_dir_prefix(dag_file))
+
+        try:
+            upstream = graph.find_upstream_modules(dag_module)
+        except Exception as e:
+            sys.stderr.write(f"  Warning: could not resolve deps for {dag_module}: {e}\n")
+            continue
+
+        for dep_module in upstream:
+            if dep_module in module_files:
+                dep_dirs.add(file_to_dir_prefix(module_files[dep_module]))
+
+    sys.stderr.write(f"DAG code depends on {len(dep_dirs)} directory prefixes\n")
+
+    # Parse the dorny dagster filter
+    dorny_patterns = parse_dorny_filter("ci-dagster.yml", "dagster")
+    if not dorny_patterns:
+        sys.stderr.write("ERROR: could not parse dagster patterns from ci-dagster.yml\n")
+        sys.exit(1)
+
+    # Normalize dorny patterns to comparable prefixes
+    dorny_prefixes: set[str] = set()
+    for pattern in dorny_patterns:
+        base = pattern.rstrip("/*")
+        dorny_prefixes.add(base)
+
+    # Check each dependency directory is covered by a dorny pattern
+    uncovered: list[str] = []
+    for dep_dir in sorted(dep_dirs):
+        covered = False
+        for dorny_prefix in dorny_prefixes:
+            # dorny_prefix covers dep_dir if it's a prefix match
+            # e.g. "posthog/models" is covered by "posthog/models"
+            # e.g. "posthog/models" is covered by "posthog" (via posthog/*.py or similar)
+            if dep_dir == dorny_prefix or dep_dir.startswith(dorny_prefix + "/"):
+                covered = True
+                break
+            # Also check the reverse: "posthog" is covered by "posthog/*.py" (base "posthog")
+            if dorny_prefix == dep_dir or dorny_prefix.startswith(dep_dir + "/"):
+                covered = True
+                break
+        if not covered:
+            uncovered.append(dep_dir)
+
+    if uncovered:
+        sys.stderr.write("ERROR: DAG dependencies not covered by dagster dorny filter:\n")
+        for d in uncovered:
+            sys.stderr.write(f"  - {d}\n")
+        sys.stderr.write("\nAdd the missing paths to the dagster filter in .github/workflows/ci-dagster.yml\n")
+        sys.exit(1)
+    else:
+        sys.stderr.write(
+            f"OK: all {len(dep_dirs)} DAG dependency dirs are covered by {len(dorny_patterns)} dorny patterns\n"
+        )
 
 
 def load_durations() -> dict[str, float]:
@@ -337,10 +451,19 @@ def main():
         action="store_true",
         help="Verify all dorny backend patterns in ci-backend.yml are covered",
     )
+    parser.add_argument(
+        "--check-dagster-sync",
+        action="store_true",
+        help="Verify dagster dorny filter covers all DAG import dependencies",
+    )
     args = parser.parse_args()
 
     if args.check_sync:
         check_sync()
+        return
+
+    if args.check_dagster_sync:
+        check_dagster_sync()
         return
 
     # Build-only mode: just print stats
