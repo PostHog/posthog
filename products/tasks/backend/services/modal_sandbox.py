@@ -63,10 +63,10 @@ AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
-    "EU": "eu-central-1",
-    "US": "us-east-1",
+    "EU": "eu-west",
+    "US": "us-east",
 }
-DEFAULT_MODAL_REGION = "us-east-1"
+DEFAULT_MODAL_REGION = "us-east"
 
 
 def _get_modal_region() -> str:
