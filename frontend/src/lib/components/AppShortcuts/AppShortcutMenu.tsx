@@ -100,6 +100,9 @@ export function AppShortcutMenu(): JSX.Element | null {
         const currentScene = activeTab?.sceneId
 
         registeredAppShortcuts.forEach((shortcut) => {
+            if (shortcut.hidden) {
+                return
+            }
             const scope = shortcut.scope || 'global'
 
             // Only include shortcuts that are global or match the current scene

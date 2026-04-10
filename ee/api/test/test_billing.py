@@ -1046,7 +1046,29 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["success"], True)
         self.assertEqual(response.json()["code"], "TEST-CODE-123")
-        mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"})
+        mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"}, authorizer_actor=None)
+
+    @patch("ee.api.billing.report_user_action")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_claim_coupon_billing_auth_error_is_not_reported_as_success(self, mock_post, mock_report):
+        """Regression: a 401 from the billing service must surface as an error.
+
+        `handle_billing_service_error` treated 401 as a "valid" code, so an auth
+        failure flowed back as a normal return, the view wrapped it in HTTP 200,
+        showed the success toast, and fired the redemption analytics event.
+        """
+        mock_post.return_value = MagicMock(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            json=lambda: {"detail": "Invalid signature", "code": "authentication_failed"},
+        )
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid signature", str(response.json()))
+        # Must NOT report a redemption for a failed claim
+        redemption_calls = [c for c in mock_report.call_args_list if "cheat code redeemed" in str(c)]
+        self.assertEqual(redemption_calls, [])
 
     def test_claim_coupon_non_admin_failure(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1056,7 +1078,70 @@ class TestCouponClaimBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_claim_coupon_missing_code(self):
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_allowlisted_campaign_slug_as_member_escalates(self, mock_claim_coupon):
+        owner = self._create_user("owner@posthog.com")
+        owner_membership = OrganizationMembership.objects.get(user=owner, organization=self.organization)
+        owner_membership.level = OrganizationMembership.Level.OWNER
+        owner_membership.save()
+        admin = self._create_user("admin@posthog.com")
+        admin_membership = OrganizationMembership.objects.get(user=admin, organization=self.organization)
+        admin_membership.level = OrganizationMembership.Level.ADMIN
+        admin_membership.save()
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        mock_claim_coupon.return_value = {"success": True, "campaign": "Hesoyam Easter Egg"}
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_claim_coupon.assert_called_once_with(
+            self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=owner
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_non_allowlisted_campaign_slug_as_member_denied(self, mock_claim_coupon):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, {"campaign_slug": "definitely-not-allowlisted"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_claim_coupon.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_allowlisted_campaign_slug_as_admin_does_not_escalate(self, mock_claim_coupon):
+        owner = self._create_user("owner@posthog.com")
+        owner_membership = OrganizationMembership.objects.get(user=owner, organization=self.organization)
+        owner_membership.level = OrganizationMembership.Level.OWNER
+        owner_membership.save()
+
+        mock_claim_coupon.return_value = {"success": True, "campaign": "Hesoyam Easter Egg"}
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_claim_coupon.assert_called_once_with(
+            self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=None
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_allowlisted_campaign_slug_as_owner_does_not_escalate(self, mock_claim_coupon):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        mock_claim_coupon.return_value = {"success": True, "campaign": "Hesoyam Easter Egg"}
+
+        response = self.client.post(self.url, {"campaign_slug": "hesoyam"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_claim_coupon.assert_called_once_with(
+            self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=None
+        )
+
+    def test_claim_coupon_missing_code_and_slug(self):
         empty_data: dict[str, Any] = {}
 
         response = self.client.post(self.url, empty_data)
@@ -1067,8 +1152,8 @@ class TestCouponClaimBillingAPI(APILicensedTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "This field is required.",
-                "attr": "code",
+                "detail": "Either 'code' or 'campaign_slug' is required.",
+                "attr": "detail",
             },
         )
 

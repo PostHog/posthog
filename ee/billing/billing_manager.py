@@ -652,14 +652,19 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
-    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+    def claim_coupon(
+        self,
+        organization: Organization,
+        data: dict[str, Any],
+        authorizer_actor: User | None = None,
+    ) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
         )
 
-        handle_billing_service_error(res)
+        handle_billing_service_error(res, valid_codes=(200, 201))
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:

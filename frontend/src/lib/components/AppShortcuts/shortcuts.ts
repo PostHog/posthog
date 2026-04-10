@@ -42,4 +42,5 @@ export const keyBinds: Record<string, string[]> = {
     allApps: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],
     jumpToTimestamp: ['j', 'then', 't'],
+    hesoyam: ['h', 'then', 'e', 'then', 's', 'then', 'o', 'then', 'y', 'then', 'a', 'then', 'm'],
 }
