@@ -206,3 +206,29 @@ class TestUniqueMigrationPrefixes(TestCase):
             error_message += "For more information, see posthog/clickhouse/migrations/AGENTS.md\n"
 
             self.fail(error_message)
+
+    def test_run_sql_with_exceptions_deprecation_fires_once(self):
+        """The deprecation warning should fire exactly once per process,
+        regardless of how many times run_sql_with_exceptions is called."""
+        import warnings
+
+        from posthog.clickhouse.client import migration_tools
+
+        # Reset the module flag for test isolation
+        migration_tools._deprecation_warned = False
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                migration_tools.run_sql_with_exceptions("SELECT 1")
+            except Exception:
+                pass
+            try:
+                migration_tools.run_sql_with_exceptions("SELECT 2")
+            except Exception:
+                pass
+        dep_warns = [
+            w
+            for w in caught
+            if issubclass(w.category, DeprecationWarning) and "run_sql_with_exceptions" in str(w.message)
+        ]
+        self.assertEqual(len(dep_warns), 1, f"Expected 1 deprecation warning, got {len(dep_warns)}")
