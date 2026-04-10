@@ -10,7 +10,6 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
-import posthoganalytics
 import temporalio.exceptions
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -158,7 +157,6 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                     continue
                 except Exception:
                     workflow.logger.exception(f"Failed to start conversations signal emission for team {team_id}")
-                    posthoganalytics.capture_exception(properties={"team_id": team_id})
                     failed_teams.add(team_id)
             for team_id, handle in workflow_handles.items():
                 try:
@@ -168,7 +166,6 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                     successful_teams.add(team_id)
                 except Exception:
                     workflow.logger.exception(f"Conversations signal emission errored for team {team_id}")
-                    posthoganalytics.capture_exception(properties={"team_id": team_id})
                     failed_teams.add(team_id)
         return {
             "teams_processed": len(enabled_team_ids),
