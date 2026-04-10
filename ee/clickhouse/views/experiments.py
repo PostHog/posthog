@@ -97,7 +97,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
-            "exposure_preaggregation_enabled",
             "only_count_matured_users",
             "status",
             "user_access_level",
@@ -215,7 +214,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
-        exposure_preaggregation_enabled = validated_data.pop("exposure_preaggregation_enabled", False)
         only_count_matured_users = validated_data.pop("only_count_matured_users", False)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
@@ -249,7 +247,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             create_in_folder=create_in_folder,
             filters=filters,
             scheduling_config=scheduling_config,
-            exposure_preaggregation_enabled=exposure_preaggregation_enabled,
             only_count_matured_users=only_count_matured_users,
             archived=archived,
             deleted=deleted,
