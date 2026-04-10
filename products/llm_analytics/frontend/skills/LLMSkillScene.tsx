@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
+import { useCallback, useState } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconDocument, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,8 +19,15 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import api from '~/lib/api'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, LLMSkillVersionSummary } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    LLMSkillFile,
+    LLMSkillFileManifestEntry,
+    LLMSkillVersionSummary,
+} from '~/types'
 
 import { SKILL_NAME_MAX_LENGTH, SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 
@@ -323,13 +331,12 @@ function SkillViewDetails(): JSX.Element {
 
             {skill.files && skill.files.length > 0 && (
                 <div>
-                    <label className="text-xs font-semibold uppercase text-secondary">Bundled files</label>
+                    <label className="text-xs font-semibold uppercase text-secondary">
+                        Bundled files ({skill.files.length})
+                    </label>
                     <div className="mt-1 space-y-1">
                         {skill.files.map((file) => (
-                            <div key={file.path} className="flex items-center gap-2 rounded border px-3 py-1.5 text-sm">
-                                <span className="font-mono">{file.path}</span>
-                                <span className="text-muted-alt text-xs">{file.content_type}</span>
-                            </div>
+                            <SkillFileViewer key={file.path} skillName={skill.name} file={file} />
                         ))}
                     </div>
                 </div>
@@ -339,6 +346,65 @@ function SkillViewDetails(): JSX.Element {
                 <div>Published {dayjs(skill.created_at).format('MMM D, YYYY h:mm A')}</div>
                 <div>First version created {dayjs(skill.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
+        </div>
+    )
+}
+
+function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkillFileManifestEntry }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [content, setContent] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
+
+    const toggleExpand = useCallback(async () => {
+        if (expanded) {
+            setExpanded(false)
+            return
+        }
+        if (content === null) {
+            setLoading(true)
+            try {
+                const fileData: LLMSkillFile = await api.llmSkills.getFile(skillName, file.path)
+                setContent(fileData.content)
+            } catch {
+                setContent('Failed to load file content.')
+            } finally {
+                setLoading(false)
+            }
+        }
+        setExpanded(true)
+    }, [expanded, content, skillName, file.path])
+
+    const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
+
+    return (
+        <div className="rounded border">
+            <button
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"
+                onClick={toggleExpand}
+            >
+                <IconChevronRight
+                    className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                />
+                <IconDocument className="h-3.5 w-3.5 shrink-0 text-muted" />
+                <span className="font-mono flex-1">{file.path}</span>
+                <span className="text-muted-alt text-xs">{file.content_type}</span>
+            </button>
+            {expanded && (
+                <div className="border-t px-3 py-2">
+                    {loading ? (
+                        <div className="space-y-2">
+                            <LemonSkeleton active className="h-3 w-full" />
+                            <LemonSkeleton active className="h-3 w-3/4" />
+                            <LemonSkeleton active className="h-3 w-1/2" />
+                        </div>
+                    ) : isMarkdown && content ? (
+                        <LemonMarkdown className="text-sm">{content}</LemonMarkdown>
+                    ) : (
+                        <pre className="max-h-80 overflow-auto text-xs whitespace-pre-wrap">{content}</pre>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
