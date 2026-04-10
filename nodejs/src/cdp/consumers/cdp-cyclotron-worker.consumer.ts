@@ -126,26 +126,42 @@ export class CdpCyclotronWorker<
         const invocationResults = await this.processInvocations(invocations)
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
-            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-            return Promise.allSettled([
-                this.hogFunctionMonitoringService
-                    .queueInvocationResults(invocationResults)
-                    .then(() => this.hogFunctionMonitoringService.flush())
-                    .catch((err) => {
-                        captureException(err)
-                        logger.error('Error processing invocation results', { err })
-                    }),
-                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
-                    captureException(err)
-                    logger.error('Error observing results', { err })
-                }),
-            ])
-        })
+        const backgroundTask = this.runBackgroundTasks(invocationResults)
 
         return { backgroundTask, invocationResults }
     }
 
+    @instrumented('cdpConsumer.backgroundTask')
+    private async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        await this.queueInvocationResults(invocationResults)
+
+        // After this point we parallelize and any issues are logged rather than thrown
+        // as retrying now would end up in duplicate messages
+        await Promise.allSettled([this.flushMonitoring(invocationResults), this.observeResults(invocationResults)])
+    }
+
+    @instrumented('cdpConsumer.backgroundTask.monitoringFlush')
+    private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        try {
+            await this.hogFunctionMonitoringService.queueInvocationResults(invocationResults)
+            await this.hogFunctionMonitoringService.flush()
+        } catch (err) {
+            captureException(err)
+            logger.error('Error processing invocation results', { err })
+        }
+    }
+
+    @instrumented('cdpConsumer.backgroundTask.hogWatcherObserve')
+    private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        try {
+            await this.hogWatcher.observeResults(invocationResults)
+        } catch (err: any) {
+            captureException(err)
+            logger.error('Error observing results', { err })
+        }
+    }
+
+    @instrumented('cdpConsumer.backgroundTask.queueInvocationResults')
     protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }

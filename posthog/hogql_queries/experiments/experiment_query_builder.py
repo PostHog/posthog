@@ -86,10 +86,12 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
+        funnel_steps_data_disabled: bool = False,
     ):
         self.team = team
         self.metric = metric
         self.only_count_matured_users = only_count_matured_users
+        self.funnel_steps_data_disabled = funnel_steps_data_disabled
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -314,6 +316,12 @@ class ExperimentQueryBuilder:
         # Build the JOIN clause with conditional temporal filter
         temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
+        session_map_columns = ""
+        if not self.funnel_steps_data_disabled:
+            session_map_columns = """,
+                    {uuid_to_session_map} AS uuid_to_session,
+                    {uuid_to_timestamp_map} AS uuid_to_timestamp"""
+
         ctes_sql = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -328,9 +336,7 @@ class ExperimentQueryBuilder:
                     exposures.exposure_event_uuid AS exposure_event_uuid,
                     exposures.exposure_session_id AS exposure_session_id,
                     exposures.first_exposure_time AS exposure_timestamp,
-                    {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session,
-                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                    {{funnel_aggregation}} AS value{session_map_columns}
                 FROM exposures
                 LEFT JOIN metric_events
                     ON exposures.entity_id = metric_events.entity_id
@@ -352,10 +358,11 @@ class ExperimentQueryBuilder:
             "funnel_steps_filter": self._build_funnel_steps_filter(),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-            "uuid_to_session_map": self._build_uuid_to_session_map(),
-            "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
             "exposure_select_query": self._get_exposure_query(),
         }
+        if not self.funnel_steps_data_disabled:
+            placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map()
+            placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map()
 
         query = parse_select(
             f"""
@@ -403,25 +410,28 @@ class ExperimentQueryBuilder:
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
+        query.select.append(parse_expr(step_counts_expr))
+
         # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
         # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
-        event_uuids_exprs = []
-        for i in range(1, num_steps + 1):
-            event_uuids_expr = f"""
-                groupArraySampleIf(100)(
-                    if(
-                        entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
-                    ),
-                    entity_metrics.value.1 = {i} - 1
-                )
-            """
-            event_uuids_exprs.append(event_uuids_expr)
-        event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
-
-        query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
+        # This is skipped when funnel_steps_data_disabled is set, as it's expensive for high-traffic experiments.
+        if not self.funnel_steps_data_disabled:
+            event_uuids_exprs = []
+            for i in range(1, num_steps + 1):
+                event_uuids_expr = f"""
+                    groupArraySampleIf(100)(
+                        if(
+                            entity_metrics.value.2 != '',
+                            tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                            tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
+                        ),
+                        entity_metrics.value.1 = {i} - 1
+                    )
+                """
+                event_uuids_exprs.append(event_uuids_expr)
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+            query.select.append(parse_expr(event_uuids_exprs_sql))
 
         return query
 
