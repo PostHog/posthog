@@ -821,7 +821,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             ok, err = is_url_allowed(heatmap_url)
             if not ok:
-                raise ValidationError("heatmap_url not allowed")
+                raise ValidationError(f"heatmap_url not allowed: {err}")
 
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:

@@ -18,6 +18,7 @@ import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuratio
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
+import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -60,6 +61,7 @@ export function HogFunctionConfiguration({
         showExpectedVolume,
         canEditSource,
         showTesting,
+        survey,
     } = useValues(logic)
 
     if (loading && !loaded) {
@@ -171,6 +173,7 @@ export function HogFunctionConfiguration({
 
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                             {showFilters && <HogFunctionFilters />}
+                            {survey && <SurveyResponseKeysReference questions={survey.questions} />}
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                         </div>
 

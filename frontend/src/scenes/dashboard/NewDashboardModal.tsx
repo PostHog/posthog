@@ -1,10 +1,18 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import {
+    dashboardTemplateChooserLogic,
+    resolveDashboardTemplateChooserExperimentVariant,
+} from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -21,11 +29,26 @@ export function NewDashboardModal(): JSX.Element {
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
 
-    const templatesLogic = dashboardTemplatesLogic({
-        scope: builtLogic.props.featureFlagId ? 'feature_flag' : 'default',
-    })
+    const templateScope = builtLogic.props.featureFlagId ? 'feature_flag' : 'default'
+    const templatesLogic = dashboardTemplatesLogic({ scope: templateScope })
     const { templateFilter } = useValues(templatesLogic)
     const { setTemplateFilter } = useActions(templatesLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const experimentVariant = resolveDashboardTemplateChooserExperimentVariant(
+        featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
+    )
+    const createChooserLogic = useMemo(
+        () =>
+            dashboardTemplateChooserLogic({
+                scope: templateScope,
+                experimentVariant,
+                availabilityContexts: undefined,
+            }),
+        [templateScope, experimentVariant]
+    )
+    const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
+    const { blankTileClicked } = useActions(createChooserLogic)
 
     const title = activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'
     const description = activeDashboardTemplate ? (
@@ -36,10 +59,10 @@ export function NewDashboardModal(): JSX.Element {
     ) : (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-secondary">
-                Here are some ready-made templates to help you get started quickly. Pick one below, or choose to start
-                from scratch.
+                Here are some ready-made templates to help you get started quickly. Pick one below or start from
+                scratch.
             </p>
-            <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <LemonInput
                     type="search"
                     placeholder="Filter templates"
@@ -47,7 +70,19 @@ export function NewDashboardModal(): JSX.Element {
                     value={templateFilter}
                     fullWidth={true}
                     autoFocus
+                    className="min-w-0 flex-1"
                 />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => blankTileClicked('modal_toolbar')}
+                    disabled={blankDashboardLoading}
+                    data-attr="create-dashboard-blank"
+                    className="shrink-0 self-start sm:self-auto"
+                >
+                    Start from scratch
+                </LemonButton>
             </div>
         </div>
     )
@@ -72,7 +107,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={builtLogic.props.featureFlagId ? 'feature_flag' : 'default'} />
+                        <DashboardTemplateChooser scope={templateScope} experimentVariant={experimentVariant} />
                     )}
                 </div>
             </div>

@@ -167,7 +167,7 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
 })
 
 const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true }).extend(
-    EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
+    EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, version: true }).shape
 )
 
 const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schemas.EndpointRunResponse>> => ({

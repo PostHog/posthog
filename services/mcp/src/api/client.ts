@@ -25,14 +25,6 @@ import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsDat
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
-import type {
-    LogAttribute,
-    LogAttributeValue,
-    LogsListAttributeValuesInput,
-    LogsListAttributesInput,
-    LogsQueryInput,
-    LogsQueryResponse,
-} from '../schema/logs.js'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
@@ -955,74 +947,6 @@ export class ApiClient {
                     success: true,
                     data: result.data,
                 }
-            },
-        }
-    }
-
-    logs({ projectId }: { projectId: string }): Endpoint {
-        return {
-            query: async ({ params }: { params: LogsQueryInput }): Promise<Result<LogsQueryResponse>> => {
-                const queryBody = {
-                    query: {
-                        dateRange: {
-                            date_from: params.dateFrom,
-                            date_to: params.dateTo,
-                        },
-                        severityLevels: params.severityLevels ?? [],
-                        serviceNames: params.serviceNames ?? [],
-                        orderBy: params.orderBy ?? 'latest',
-                        limit: params.limit ?? 100,
-                        after: params.after ?? null,
-                        filterGroup: params.filters?.length
-                            ? {
-                                  type: 'AND' as const,
-                                  values: [{ type: 'AND' as const, values: params.filters }],
-                              }
-                            : { type: 'AND' as const, values: [] },
-                    },
-                }
-
-                return this.fetchJson<LogsQueryResponse>(`${this.baseUrl}/api/projects/${projectId}/logs/query/`, {
-                    method: 'POST',
-                    body: JSON.stringify(queryBody),
-                })
-            },
-
-            attributes: async ({
-                params,
-            }: {
-                params?: LogsListAttributesInput
-            } = {}): Promise<Result<{ results: LogAttribute[]; count: number }>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    search: params?.search,
-                    attribute_type: params?.attributeType ?? 'log',
-                    limit: params?.limit ?? 100,
-                    offset: params?.offset ?? 0,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/attributes/?${searchParams}`
-
-                return this.fetchJson<{ results: LogAttribute[]; count: number }>(url)
-            },
-
-            values: async ({
-                params,
-            }: {
-                params: LogsListAttributeValuesInput
-            }): Promise<Result<LogAttributeValue[]>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    key: params.key,
-                    attribute_type: params.attributeType ?? 'log',
-                    value: params.search,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
-
-                const result = await this.fetchJson<{ results: LogAttributeValue[]; refreshing: boolean }>(url)
-                if (!result.success) {
-                    return result
-                }
-                return { success: true, data: result.data.results }
             },
         }
     }
