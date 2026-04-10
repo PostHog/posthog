@@ -225,7 +225,9 @@ async def validate_schema_and_update_table(
                 # select_for_update prevents two concurrent sync operations from
                 # causing a lost-update: both would read the current columns,
                 # merge independently, and one write would overwrite the other.
-                table_for_update = DataWarehouseTable.objects.select_for_update().get(id=table_created.id)
+                # Use raw_objects to skip the default manager's select_related —
+                # its nullable LEFT JOINs are rejected by Postgres under FOR UPDATE.
+                table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
                 existing_columns = table_for_update.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 table_for_update.columns = columns
