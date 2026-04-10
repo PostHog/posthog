@@ -44,10 +44,12 @@ class DataDeletionRequest(UUIDModel):
     status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
 
     # Stats (populated by ClickHouse query)
-    count = models.BigIntegerField(null=True, blank=True)
-    part_count = models.IntegerField(null=True, blank=True)
+    count = models.BigIntegerField(null=True, blank=True, help_text="Number of events matching criteria")
+    part_count = models.IntegerField(null=True, blank=True, help_text="Number of ClickHouse parts")
     parts_size = models.BigIntegerField(null=True, blank=True)
     parts_row_count = models.BigIntegerField(null=True, blank=True)
+    min_timestamp = models.DateTimeField(null=True, blank=True, help_text="Earliest timestamp of matching events.")
+    max_timestamp = models.DateTimeField(null=True, blank=True, help_text="Latest timestamp of matching events.")
     stats_calculated_at = models.DateTimeField(null=True, blank=True)
 
     # Metadata
