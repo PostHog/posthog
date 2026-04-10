@@ -20,6 +20,10 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
+const MASKING_HASH_ALL = 'all'
+const MASKING_HASH_PER_PERSON = '{person.id}'
+const MASKING_HASH_PER_PERSON_PER_EVENT = '{concat(person.id, event.event)}'
+
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
@@ -363,15 +367,15 @@ export function HogFunctionFilters({
                                         label: 'Run every time',
                                     },
                                     {
-                                        value: 'all',
+                                        value: MASKING_HASH_ALL,
                                         label: 'Run once per interval',
                                     },
                                     {
-                                        value: '{person.id}',
+                                        value: MASKING_HASH_PER_PERSON,
                                         label: 'Run once per person per interval',
                                     },
                                     {
-                                        value: '{concat(person.id, event.event)}',
+                                        value: MASKING_HASH_PER_PERSON_PER_EVENT,
                                         label: 'Run once per person per event name per interval',
                                     },
                                 ]}
@@ -464,6 +468,14 @@ export function HogFunctionFilters({
                         </div>
                     )}
                 </LemonField>
+            ) : null}
+            {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT &&
+            (configuration.filters?.actions?.length ?? 0) > 0 ? (
+                <LemonBanner type="info">
+                    When filtering by an action that matches multiple event names, this destination will trigger once
+                    per event name per person, not once per action. If you want to trigger only once regardless of event
+                    name, use "Run once per person per interval" instead.
+                </LemonBanner>
             ) : null}
         </div>
     )

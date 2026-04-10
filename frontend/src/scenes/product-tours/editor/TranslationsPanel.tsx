@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
@@ -57,7 +57,7 @@ function LanguageCard({ tourId, langCode }: { tourId: string; langCode: string }
 
     return (
         <button
-            className={classNames(
+            className={clsx(
                 'group flex p-3 rounded-md bg-surface-primary border items-center justify-between cursor-pointer',
                 isActive ? 'border-accent' : 'border'
             )}

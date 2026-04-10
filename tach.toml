@@ -220,6 +220,7 @@ path = "products.experiments"
 depends_on = [
     "ee",
     "posthog",
+    "products.event_definitions",
 ]
 layer = "products"
 interfaces = [
