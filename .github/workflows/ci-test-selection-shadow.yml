@@ -74,6 +74,7 @@ jobs:
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. test duration | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$(($TOTAL_DUR - $AFFECTED_DUR))s** |
                   EOF
+                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, affected: .affected_test_count, total: .total_test_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
                   else
                     REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
                     cat >> "$GITHUB_STEP_SUMMARY" << EOF
@@ -81,4 +82,5 @@ jobs:
 
                   **Full run required:** $REASON
                   EOF
+                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: "full", reason: .reason}')"
                   fi
