@@ -284,7 +284,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         data.timestamp = formData.timestamp.trim()
                     }
 
-                    return await api.featureFlagTestEvaluation(flagId).create({ data })
+                    return await api.featureFlags.testEvaluation(flagId, data)
                 },
             },
         ],
