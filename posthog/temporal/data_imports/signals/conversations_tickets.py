@@ -97,11 +97,11 @@ def conversations_ticket_emitter(team_id: int, record: dict[str, Any]) -> Signal
     )
 
 
-_AUTHOR_TAGS = {"customer": "C", "team": "T", "AI": "AI"}
+_AUTHOR_TAGS = {"customer": "C", "team": "T", "support": "T", "AI": "AI"}
 
 
 def _author_tag(author_type: str) -> str:
-    return _AUTHOR_TAGS.get(author_type, "C")
+    return _AUTHOR_TAGS.get(author_type, "T")
 
 
 def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
