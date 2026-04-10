@@ -3,6 +3,8 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,6 +12,7 @@ from rest_framework import status
 CONFIG_REFRESH_QUERY_COUNT = 5
 
 
+@override_settings(POSTHOG_JS_S3_BUCKET="")
 class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.client.logout()
