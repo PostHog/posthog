@@ -897,3 +897,48 @@ class TestStructuralFieldDiffs(unittest.TestCase):
         # Only column adds since current has no columns defined
         recreate_diffs = [d for d in diffs if d.action in ("recreate", "recreate_mv")]
         self.assertEqual(len(recreate_diffs), 0)
+
+
+class TestKafkaRecreateWarning(unittest.TestCase):
+    """Tests for High #2 fix: Kafka DROP+CREATE operator warning."""
+
+    def test_plan_emits_kafka_warning_on_recreate(self) -> None:
+        diffs = [
+            StateDiff(
+                action="recreate",
+                table="kafka_events_json",
+                detail="Recreate kafka_events_json (Kafka setting changed)",
+                sql="DROP TABLE IF EXISTS posthog.kafka_events_json;\nCREATE TABLE ...",
+                node_roles=["ALL"],
+            ),
+        ]
+        plan = generate_plan_text(diffs)
+        self.assertIn("KAFKA TABLE RECREATE WARNING", plan)
+        self.assertIn("ingestion will pause", plan)
+        self.assertIn("kafka_events_json", plan)
+
+    def test_plan_no_kafka_warning_for_non_kafka_table(self) -> None:
+        diffs = [
+            StateDiff(
+                action="recreate",
+                table="sharded_events",
+                detail="Recreate sharded_events",
+                sql="DROP TABLE IF EXISTS posthog.sharded_events;\nCREATE TABLE ...",
+                node_roles=["DATA"],
+            ),
+        ]
+        plan = generate_plan_text(diffs)
+        self.assertNotIn("KAFKA TABLE RECREATE WARNING", plan)
+
+    def test_plan_kafka_warning_on_drop(self) -> None:
+        diffs = [
+            StateDiff(
+                action="drop",
+                table="kafka_session_recording",
+                detail="Drop Kafka table for recreation",
+                sql="DROP TABLE IF EXISTS posthog.kafka_session_recording",
+                node_roles=["ALL"],
+            ),
+        ]
+        plan = generate_plan_text(diffs)
+        self.assertIn("KAFKA TABLE RECREATE WARNING", plan)

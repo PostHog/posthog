@@ -28,7 +28,27 @@ def generate_plan_text(diffs: list[StateDiff]) -> str:
     if not diffs:
         return "No changes. Infrastructure is up to date."
 
-    lines: list[str] = ["ch_migrate plan:\n"]
+    lines: list[str] = []
+
+    # Kafka table recreate warning — ingestion pauses between DROP and CREATE
+    kafka_recreates = [
+        d for d in diffs
+        if d.action in ("drop", "recreate") and "kafka" in d.table.lower()
+    ]
+    if kafka_recreates:
+        lines.append("\u26a0\ufe0f  KAFKA TABLE RECREATE WARNING")
+        lines.append("=" * 60)
+        for k in kafka_recreates:
+            lines.append(f"  - {k.table}: ingestion will pause between DROP and CREATE.")
+            lines.append("    Messages accumulating in Kafka during this window may be")
+            lines.append("    lost if the topic retention expires. Consumer group offsets")
+            lines.append("    reset. Dependent MaterializedViews will also need recreating.")
+        lines.append("")
+        lines.append("  Recommended: pause upstream producers or extend retention before applying.")
+        lines.append("=" * 60)
+        lines.append("")
+
+    lines.append("ch_migrate plan:\n")
 
     creates = 0
     destroys = 0
