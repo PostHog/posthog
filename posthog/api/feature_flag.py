@@ -3292,11 +3292,11 @@ class FeatureFlagViewSet(
         # Build person properties at timestamp if provided
         if timestamp:
             try:
-                result = build_person_properties_at_time(
+                properties_result = build_person_properties_at_time(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
                 )
                 # build_person_properties_at_time returns dict[str, Any] when return_debug_info=False (default)
-                person_properties = result if isinstance(result, dict) else result[0]
+                person_properties = properties_result if isinstance(properties_result, dict) else properties_result[0]
             except Exception:
                 return Response(
                     {"error": "Failed to build person properties at specified timestamp"},
@@ -3332,6 +3332,7 @@ class FeatureFlagViewSet(
             condition_index = None
             payload = None
             detailed_conditions = []
+            result: bool | str = False
 
             if flag_result is None:
                 result = False
@@ -3396,13 +3397,14 @@ class FeatureFlagViewSet(
         throttle_classes=[RemoteConfigThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
-        is_flag_id_provided: bool = kwargs["pk"].isdigit()
+        pk = str(kwargs["pk"])
+        is_flag_id_provided: bool = pk.isdigit()
 
         try:
             feature_flag = (
-                FeatureFlag.objects.get(pk=kwargs["pk"], team__project_id=self.project_id)
+                FeatureFlag.objects.get(pk=pk, team__project_id=self.project_id)
                 if is_flag_id_provided
-                else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+                else FeatureFlag.objects.get(key=pk, team__project_id=self.project_id)
             )
         except FeatureFlag.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)

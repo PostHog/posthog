@@ -237,7 +237,7 @@ class TestGetPersonAndDistinctIdsForIdentifierValidation(SimpleTestCase):
             get_person_and_distinct_ids_for_identifier(1, person_id="")
 
 
-class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
+class TestGetPersonAndDistinctIdsForIdentifierPersonhog(TestCase):
     def test_lookup_by_distinct_id(self):
         with fake_personhog_client() as fake:
             fake.add_person(

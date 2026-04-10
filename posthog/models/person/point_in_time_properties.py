@@ -178,6 +178,8 @@ def get_person_and_distinct_ids_for_identifier(
         else:
             logger.debug("[Person Lookup] Looking up person by person_id using direct ORM")
             # Direct ORM query avoiding PersonHog routing
+            # person_id is guaranteed to be not None at this point due to validation above
+            assert person_id is not None
             person = query_manager.filter(team_id=team_id, uuid=person_id).first()
 
         logger.debug(f"[Person Lookup] ORM query result: {'found' if person else 'not found'}")
