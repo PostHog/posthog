@@ -3315,6 +3315,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,
+                "allow_unknown_events": True,
             },
             team=expected_team,
             request=ANY,
@@ -3352,6 +3353,7 @@ class TestExperimentCRUD(APILicensedTest):
                 ],
                 "stats_config": {"method": "bayesian"},
                 "exposure_criteria": {"filterTestAccounts": True},
+                "allow_unknown_events": True,
             },
         )
         self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
@@ -3487,6 +3489,7 @@ class TestExperimentCRUD(APILicensedTest):
                         "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
+                "allow_unknown_events": True,
             },
             format="json",
         )
