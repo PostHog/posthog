@@ -37,6 +37,7 @@ pub async fn check_limits(
 ///
 /// Only increments billing counters if there are billable flags present.
 /// Survey and product tour targeting flags are not billable.
+/// Internal requests (with matching internal_request_token) are not billed.
 ///
 /// The `library` parameter is passed in to avoid duplicate detection - it should
 /// be detected once at the start of request processing and reused.
@@ -47,6 +48,11 @@ pub async fn record_usage(
     library: Library,
 ) {
     if *context.state.config.skip_writes {
+        return;
+    }
+
+    // Check if this is an internal request (non-billable)
+    if is_internal_request(context) {
         return;
     }
 
@@ -86,6 +92,30 @@ fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
 /// This function is extracted for testing purposes
 pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
     contains_billable_flags(filtered_flags)
+}
+
+/// Checks if the request is an internal request that should not be billed.
+/// Returns true if the Authorization header contains a Bearer token that matches
+/// the configured internal_request_token.
+fn is_internal_request(context: &RequestContext) -> bool {
+    let Some(internal_token) = &context.state.config.internal_request_token else {
+        // No internal token configured, so no requests are internal
+        return false;
+    };
+
+    // Empty token should never be considered valid
+    if internal_token.trim().is_empty() {
+        return false;
+    }
+
+    use crate::api::auth::extract_bearer_token;
+    
+    if let Some(auth_token) = extract_bearer_token(&context.headers) {
+        // Ensure auth token is not empty either
+        !auth_token.trim().is_empty() && auth_token == *internal_token
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -278,4 +308,5 @@ mod tests {
         // Should record usage: first flag doesn't START with prefix, second does start with prefix
         assert!(should_record_usage(&flag_list));
     }
+
 }

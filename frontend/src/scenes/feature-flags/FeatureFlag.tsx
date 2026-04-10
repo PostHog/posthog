@@ -321,7 +321,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     if (featureFlag.key && id) {
         tabs.push({
-            label: 'Testing',
+            label: (
+                <div className="flex flex-row">
+                    <div>Testing</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        New
+                    </LemonTag>
+                </div>
+            ),
             key: FeatureFlagsTab.TESTING,
             content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
         })

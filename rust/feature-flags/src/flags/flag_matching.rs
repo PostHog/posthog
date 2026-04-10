@@ -1524,7 +1524,6 @@ impl FeatureFlagMatcher {
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
-                tracing::debug!(flag_key = %feature_flag.key, "Condition has no property filters, proceeding to rollout check");
                 return self.check_rollout(
                     feature_flag,
                     rollout_percentage,
@@ -1550,13 +1549,7 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    let match_result = match_property(filter, props, false);
-                    if !match_result.unwrap_or(false) {
-                        tracing::debug!(
-                            flag_key = %feature_flag.key,
-                            filter_key = %filter.key,
-                            "Property filter failed, condition does not match"
-                        );
+                    if !match_property(filter, props, false).unwrap_or(false) {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
@@ -1575,18 +1568,7 @@ impl FeatureFlagMatcher {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
-        } else {
-            tracing::debug!(
-                flag_key = %feature_flag.key,
-                "Condition has no properties defined, proceeding to rollout check"
-            );
         }
-
-        tracing::debug!(
-            flag_key = %feature_flag.key,
-            rollout_percentage = rollout_percentage,
-            "All property filters passed, proceeding to rollout check"
-        );
         self.check_rollout(
             feature_flag,
             rollout_percentage,

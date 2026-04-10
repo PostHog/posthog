@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import json
 import math
@@ -3322,6 +3323,7 @@ class FeatureFlagViewSet(
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
                 flag_keys=[feature_flag.key],
+                internal_request_token=os.getenv("INTERNAL_REQUEST_TOKEN"),
             )
 
             # Extract the flag result from the Rust response
@@ -3350,12 +3352,6 @@ class FeatureFlagViewSet(
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
                     detailed_conditions = flag_result.get("conditions", [])
-
-                    logger.info(f"[FeatureFlag Test] Parsed - result: {result}, variant: {variant}, reason: {reason}")
-                    logger.info(f"[FeatureFlag Test] Condition index: {condition_index}, payload: {payload}")
-                    logger.info(f"[FeatureFlag Test] Detailed conditions: {detailed_conditions}")
-                    logger.info(f"[FeatureFlag Test] Reason data: {reason_data}")
-                    logger.info(f"[FeatureFlag Test] Metadata: {metadata}")
 
                     # If there's a variant, use it as the result
                     if variant is not None:
