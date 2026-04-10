@@ -4,8 +4,7 @@ import json
 import time
 import uuid
 import logging
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
 
@@ -21,7 +20,6 @@ class EvalCaseResult:
     artifacts: AgentArtifacts
     trace_id: str = ""
     raw_log: str = ""
-    conversation: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def run_eval_case(
@@ -50,8 +48,7 @@ async def run_eval_case(
             last_message or "(none)",
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
-        conversation = _extract_conversation(full_log)
-        return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log, conversation=conversation)
+        return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log)
     except Exception as e:
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
@@ -59,83 +56,6 @@ async def run_eval_case(
             artifacts=AgentArtifacts(exit_code=1, stderr=str(e), duration_seconds=duration),
             trace_id=trace_id,
         )
-
-
-def _extract_conversation(log_content: str) -> list[dict[str, Any]]:
-    """Extract a conversation timeline from JSONL agent logs.
-
-    Returns a list of message dicts with role, content, and optional tool info
-    suitable for display in the Braintrust UI.
-    """
-    messages: list[dict[str, Any]] = []
-
-    for line in log_content.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        notification = entry.get("notification")
-        if not isinstance(notification, dict):
-            continue
-
-        method = notification.get("method")
-
-        # Console messages from the workflow
-        if method == "_posthog/console":
-            params = notification.get("params", {})
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"[{params.get('level', 'info')}] {params.get('message', '')}",
-                }
-            )
-            continue
-
-        if method != "session/update":
-            continue
-
-        params = notification.get("params")
-        update = params.get("update") if isinstance(params, dict) else None
-        if not isinstance(update, dict):
-            continue
-
-        session_update = update.get("sessionUpdate")
-        content = update.get("content")
-        text = ""
-        if isinstance(content, dict) and content.get("type") == "text":
-            text = content.get("text", "").strip()
-        elif isinstance(content, str):
-            text = content.strip()
-        message_text = update.get("message", "")
-        if isinstance(message_text, str):
-            message_text = message_text.strip()
-
-        if session_update == "user_message" and (text or message_text):
-            messages.append({"role": "user", "name": "user", "content": text or message_text})
-        elif session_update in {"agent_message", "agent_message_chunk"} and (text or message_text):
-            messages.append({"role": "assistant", "name": "agent", "content": text or message_text})
-        elif session_update in {"tool_call", "tool_call_update"}:
-            title = update.get("title") or "tool_call"
-            status = update.get("status", "")
-            tool_text = text or message_text
-            output = f"({status}) " if status else ""
-            if tool_text:
-                output += tool_text[:2000]
-            messages.append(
-                {
-                    "role": "assistant",
-                    "name": title,
-                    "title": title,
-                    "content": output or "(no output)",
-                    "tool": True,
-                }
-            )
-
-    return messages
 
 
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:

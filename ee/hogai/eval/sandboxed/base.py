@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 import logging
 from collections.abc import Sequence
 from functools import partial
@@ -15,28 +16,89 @@ from products.tasks.backend.services.custom_prompt_runner import CustomPromptSan
 
 from .config import AgentArtifacts, SandboxedEvalCase
 from .runner import run_eval_case
-from .trace_capture import emit_evaluation_events, emit_trace_events
+from .trace_capture import (
+    ParsedLog,
+    emit_evaluation_events,
+    emit_trace_events,
+    emit_trace_root,
+    parse_log,
+    wrap_scorers,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _log_conversation_spans(hooks: EvalHooks, conversation: list[dict[str, Any]]) -> None:
-    """Log each conversation turn as a child span so Braintrust renders a trace tree."""
-    for turn in conversation:
-        role = turn.get("role", "system")
-        content = turn.get("content", "")
-        span_type = "llm" if role == "assistant" and not turn.get("tool") else "function"
-        name = turn.get("name") or role
+def _get_last_assistant_text(parsed: ParsedLog) -> str:
+    """Extract the last assistant message text from the final generation."""
+    for gen in reversed(parsed.generations):
+        if not gen.output_content:
+            continue
+        texts = [b.get("text", "") for b in gen.output_content if isinstance(b, dict) and b.get("type") == "text"]
+        text = "\n".join(t for t in texts if t)
+        if text:
+            return text
+    return ""
+
+
+def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
+    """Log each conversation message as a child span so Braintrust renders a trace tree.
+
+    Uses the same Anthropic-format messages as PostHog trace capture.
+    """
+    for msg in parsed.messages:
+        role = msg.get("role", "system")
+        content = msg.get("content", "")
+
+        # Anthropic format: content can be a string or list of content blocks
+        if isinstance(content, list):
+            # Render content blocks for display
+            parts: list[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get("type", "")
+                if block_type == "text":
+                    parts.append(block.get("text", ""))
+                elif block_type == "tool_use":
+                    parts.append(f"[tool_use: {block.get('name', '?')}]")
+                elif block_type == "tool_result":
+                    result_text = str(block.get("content", ""))[:500]
+                    is_error = block.get("is_error", False)
+                    prefix = "[tool_result error]" if is_error else "[tool_result]"
+                    parts.append(f"{prefix} {result_text}")
+            display_content = "\n".join(parts)
+        else:
+            display_content = str(content)
+
+        if role == "assistant":
+            # Check if this message contains tool_use blocks
+            has_tool_use = isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_use" for b in content
+            )
+            span_type = "function" if has_tool_use else "llm"
+            name = "tool_call" if has_tool_use else "agent"
+        elif role == "user":
+            has_tool_result = isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+            )
+            span_type = "function"
+            name = "tool_result" if has_tool_result else "user"
+        else:
+            span_type = "function"
+            name = role
 
         with hooks.span.start_span(name=name, span_attributes={"type": span_type}) as span:
             if role == "user":
-                span.log(input=content)
-            elif role == "assistant" and turn.get("tool"):
-                span.log(input=turn.get("title", ""), output=content)
+                span.log(input=display_content)
             elif role == "assistant":
-                span.log(output=content)
+                span.log(output=display_content)
             else:
-                span.log(metadata={"message": content})
+                span.log(metadata={"message": display_content})
+
+    # Also log non-AI spans (console, errors)
+    for span_desc in parsed.spans:
+        with hooks.span.start_span(name=span_desc.span_name, span_attributes={"type": "function"}) as span:
+            span.log(metadata={"message": span_desc.content})
 
 
 async def SandboxedEval(
@@ -55,6 +117,23 @@ async def SandboxedEval(
     (sandbox provisioning, agent-server, prompt delivery, cleanup), polls S3 logs
     for results, and feeds parsed artifacts to the scorers.
     """
+    # Generate a unique experiment ID per eval run
+    experiment_id = str(uuid.uuid4())
+
+    # Shared lookups populated by task(), read after EvalAsync completes.
+    agent_trace_id_lookup: dict[str, str] = {}
+    # Per-case metadata for emitting $ai_trace root events after scoring.
+    case_trace_meta: dict[str, dict[str, Any]] = {}
+
+    # Wrap scorers with tracing if PostHog client is available
+    scorer_traces: dict[tuple[str, str], str] = {}
+    if posthog_client:
+        active_scorers, scorer_traces = wrap_scorers(
+            scorers, posthog_client, experiment_id, experiment_name, agent_trace_id_lookup
+        )
+    else:
+        active_scorers = list(scorers)
+
     # Filter cases by --eval flag if provided
     case_filter = pytestconfig.option.eval if hasattr(pytestconfig.option, "eval") else None
 
@@ -83,26 +162,47 @@ async def SandboxedEval(
             # Store trace_id in metadata so evaluation events can link to the trace
             if result.trace_id:
                 hooks.metadata["trace_id"] = result.trace_id
+                agent_trace_id_lookup[eval_case.name] = result.trace_id
+            hooks.metadata["artifacts"] = result.artifacts.model_dump()
 
-            if result.conversation:
-                _log_conversation_spans(hooks, result.conversation)
+            # Parse the log once, use for both Braintrust spans and PostHog trace capture
+            last_message = ""
+            messages: list[dict[str, Any]] = []
+            if result.raw_log:
+                parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
+                _log_conversation_spans(hooks, parsed)
+                last_message = _get_last_assistant_text(parsed)
+                messages = parsed.messages
 
-            # Emit trace events to PostHog
-            if posthog_client and result.raw_log:
-                try:
-                    emit_trace_events(
-                        posthog_client,
-                        trace_id=result.trace_id,
-                        case_name=eval_case.name,
-                        prompt=eval_case.prompt,
-                        raw_log=result.raw_log,
-                        duration=result.artifacts.duration_seconds,
-                        artifacts_summary=result.artifacts.model_dump(),
-                    )
-                except Exception:
-                    logger.exception("Failed to emit trace events for '%s'", eval_case.name)
+                if posthog_client:
+                    try:
+                        emit_trace_events(
+                            posthog_client,
+                            trace_id=result.trace_id,
+                            experiment_id=experiment_id,
+                            experiment_name=experiment_name,
+                            case_name=eval_case.name,
+                            prompt=eval_case.prompt,
+                            parsed=parsed,
+                            duration=result.artifacts.duration_seconds,
+                            artifacts_summary=result.artifacts.model_dump(),
+                        )
+                        # Store metadata for emit_trace_root (called after scoring)
+                        case_trace_meta[eval_case.name] = {
+                            "prompt": eval_case.prompt,
+                            "duration": result.artifacts.duration_seconds,
+                            "first_timestamp": parsed.first_timestamp,
+                            "last_message": last_message,
+                            "artifacts_summary": result.artifacts.model_dump(),
+                        }
+                    except Exception:
+                        logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
-            return result.artifacts.model_dump()
+            return result.artifacts.model_dump() | {
+                "last_message": last_message,
+                "messages": messages,
+                "raw_log": result.raw_log,
+            }
         except Exception as e:
             return AgentArtifacts(
                 exit_code=-1,
@@ -119,7 +219,7 @@ async def SandboxedEval(
         project_name,
         data=eval_cases,
         task=task,
-        scores=scorers,
+        scores=active_scorers,
         timeout=timeout,
         max_concurrency=2,
         update=True,
@@ -127,10 +227,29 @@ async def SandboxedEval(
         no_send_logs=no_send_logs,
     )
 
-    # Emit evaluation events to PostHog
+    # Emit evaluation events and trace roots to PostHog (after scoring)
     if posthog_client and result.results:
         try:
-            experiment_id = emit_evaluation_events(posthog_client, experiment_name, result.results)
+            emit_evaluation_events(posthog_client, experiment_id, experiment_name, result.results, scorer_traces)
+            # Emit $ai_trace root events now that scores are available
+            for eval_result in result.results:
+                case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
+                trace_id = agent_trace_id_lookup.get(case_name)
+                meta = case_trace_meta.get(case_name)
+                if trace_id and meta:
+                    emit_trace_root(
+                        posthog_client,
+                        trace_id=trace_id,
+                        experiment_id=experiment_id,
+                        experiment_name=experiment_name,
+                        case_name=case_name,
+                        prompt=meta["prompt"],
+                        duration=meta["duration"],
+                        first_timestamp=meta["first_timestamp"],
+                        last_message=meta.get("last_message", ""),
+                        artifacts_summary=meta.get("artifacts_summary"),
+                        scores=eval_result.scores,
+                    )
             posthog_client.flush()
             print(  # noqa: T201
                 f"\nPostHog evaluations: "
