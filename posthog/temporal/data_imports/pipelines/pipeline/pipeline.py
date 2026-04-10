@@ -2,7 +2,7 @@ import sys
 import time
 import asyncio
 import threading
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, Literal, TypeVar
 
@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.common.load import (
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
+from posthog.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -43,6 +44,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     setup_partitioning,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+    set_initial_sync_complete,
     update_last_synced_at,
     validate_schema_and_update_table,
 )
@@ -65,13 +67,19 @@ T = TypeVar("T")
 _SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
 
 
-async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
+async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
     """
-    Wrap a sync iterable to be used with `async for`.
+    Normalize a sync or async iterable into an async iterator.
 
-    Each call to `next()` is run in a dedicated thread pool so that
-    blocking source HTTP calls can't exhaust the default executor.
+    Async iterables are yielded directly. Sync iterables are wrapped so that
+    each call to `next()` runs in a dedicated thread pool, preventing
+    blocking source HTTP calls from exhausting the default executor.
     """
+    if isinstance(iterable, AsyncIterable):
+        async for item in iterable:
+            yield item
+        return
+
     iterator = iter(iterable)
     lock = threading.Lock()
     loop = asyncio.get_running_loop()
@@ -90,10 +98,11 @@ async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
             if not has_value:
                 break
-            yield item  # type: ignore[misc]
+
+            yield item
     finally:
         await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
 
@@ -139,7 +148,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental
+        self._is_incremental = schema.is_incremental or schema.is_webhook
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
@@ -258,7 +267,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
-        if self._schema.is_incremental:
+        if self._schema.is_incremental or self._schema.is_webhook:
             write_type = "incremental"
         elif self._schema.is_append:
             write_type = "append"
@@ -384,6 +393,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         await self._logger.adebug("Updating last synced at timestamp on schema")
         await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
 
+        if not self._schema.initial_sync_complete:
+            await self._logger.adebug("Setting initial_sync_complete on schema")
+            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
+
         await self._logger.adebug("Notifying revenue analytics that sync has completed")
         await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
 
@@ -391,17 +404,45 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._resource, self._schema, self._last_incremental_field_value, self._logger
         )
 
-        await self._logger.adebug("Validating schema and updating table")
-        await validate_schema_and_update_table(
-            run_id=str(self._job.id),
-            team_id=self._job.team_id,
-            schema_id=self._schema.id,
-            table_schema_dict=self._internal_schema.to_hogql_types(),
-            row_count=row_count,
-            queryable_folder=queryable_folder,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-        )
-        await self._logger.adebug("Finished validating schema and updating table")
+        # For cdc_only mode, skip registering the consolidated DataWarehouseTable — only the
+        # _cdc companion table should be visible.  The DeltaLake files still exist on S3 for
+        # the seeding step to read from.
+        if not (
+            self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode == "cdc_only"
+        ):
+            await self._logger.adebug("Validating schema and updating table")
+            await validate_schema_and_update_table(
+                run_id=str(self._job.id),
+                team_id=self._job.team_id,
+                schema_id=self._schema.id,
+                table_schema_dict=self._internal_schema.to_hogql_types(),
+                row_count=row_count,
+                queryable_folder=queryable_folder,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            )
+            await self._logger.adebug("Finished validating schema and updating table")
+
+        # Seed the _cdc companion table for CDC schemas (same logic as in run_post_load_operations
+        # for the V3 pipeline — the V2 pipeline calls validate_schema_and_update_table directly
+        # and doesn't go through run_post_load_operations).
+        if self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode in (
+            "cdc_only",
+            "both",
+        ):
+            from posthog.temporal.data_imports.pipelines.common.load import _seed_cdc_companion_from_snapshot
+
+            await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
+            await _seed_cdc_companion_from_snapshot(
+                schema=self._schema,
+                job=self._job,
+                source=self._source,
+                snapshot_delta_table_helper=self._delta_table_helper,
+                logger=self._logger,
+            )
+            await self._logger.ainfo("Finished seeding CDC companion table from snapshot")
+
+        await self._logger.adebug("Syncing revenue analytics views")
+        await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
 
 
 def _estimate_size(obj: Any) -> int:

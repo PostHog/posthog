@@ -1,12 +1,12 @@
 import { StoryObj } from '@storybook/react'
 import { Meta } from '@storybook/react'
 
-import MonacoDiffEditor from './MonacoDiffEditor'
+import MonacoDiffEditor, { MonacoDiffEditorProps } from './MonacoDiffEditor'
 
-type Story = StoryObj<typeof MonacoDiffEditor>
-const meta: Meta<typeof MonacoDiffEditor> = {
+type Story = StoryObj<MonacoDiffEditorProps>
+const meta: Meta<MonacoDiffEditorProps> = {
     title: 'Components/Monaco Diff Editor',
-    component: MonacoDiffEditor,
+    component: MonacoDiffEditor as any,
     tags: ['autodocs', 'test-skip'], // There are too many icons, the snapshots are huge in table form
 }
 export default meta

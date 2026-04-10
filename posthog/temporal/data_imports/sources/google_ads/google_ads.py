@@ -1,6 +1,5 @@
 import typing
 import datetime as dt
-import operator
 import collections.abc
 
 from django.conf import settings
@@ -118,6 +117,33 @@ class GoogleAdsColumn(Column):
         self.is_message = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
         self.is_date = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE
 
+    @staticmethod
+    def _safe_get_enum(enum_cls, value) -> str:
+        try:
+            return enum_cls(value).name
+        except ValueError:
+            return str(value)
+
+    def resolve_value(self, value):
+        """Coerce a raw protobuf value to the appropriate Python type."""
+        if self.is_enum:
+            enum_cls = _resolve_protobuf_message_type_url(self.type_url)
+            if self.is_repeatable:
+                return [self._safe_get_enum(enum_cls, v) for v in value]
+            return self._safe_get_enum(enum_cls, value)
+
+        if self.is_message:
+            if self.is_repeatable:
+                return list(map(MessageToJson, value))
+            return MessageToJson(value)
+
+        if self.is_date:
+            if self.is_repeatable:
+                return [dt.date.fromisoformat(v[:10]) if v else None for v in value]
+            return dt.date.fromisoformat(value[:10]) if value else None
+
+        return value
+
     def to_arrow_field(self):
         """Return the Arrow type associated with this column.
 
@@ -228,9 +254,23 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 class GoogleAdsTable(Table[GoogleAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
+    def __init__(
+        self,
+        *args,
+        requires_filter: bool,
+        primary_key: list[str],
+        should_sync_default: bool,
+        description: str | None,
+        partition_keys: list[str] | None = None,
+        extra_where: str | None = None,
+        **kwargs,
+    ):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
+        self.should_sync_default = should_sync_default
+        self.description = description
+        self.partition_keys = [pkey.replace(".", "_") for pkey in partition_keys] if partition_keys else None
+        self.extra_where = extra_where
         super().__init__(*args, **kwargs)
 
 
@@ -264,6 +304,11 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
 
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
+        extra_where = typing.cast(str | None, resource_contents.get("extra_where", None))
+        partition_keys = typing.cast(list[str] | None, resource_contents.get("partition_keys", None))
+
+        should_sync_default = resource_contents.get("should_sync_default", True)
+        description = resource_contents.get("description", None)
 
         columns = []
 
@@ -293,8 +338,12 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             alias=table_alias,
             requires_filter=requires_filter,
             primary_key=primary_key,
+            extra_where=extra_where,
+            partition_keys=partition_keys,
             columns=columns,
             parents=None,
+            should_sync_default=should_sync_default,
+            description=description,
         )
         table_schemas[table_alias] = table
 
@@ -348,6 +397,9 @@ def google_ads_source(
                 # TODO: Make sure to bump this before 2100-01-01.
                 query += f" AND {incremental_field} < '2100-01-01'"
 
+        if table.extra_where:
+            query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
+
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v23")
         stream = service.search_stream(query=query, customer_id=clean_customer_id(config.customer_id))
@@ -362,7 +414,7 @@ def google_ads_source(
         partition_size=1 if table.requires_filter else None,  # this enables partitioning
         partition_mode="datetime" if table.requires_filter else None,
         partition_format="day" if table.requires_filter else None,
-        partition_keys=["segments_date"] if table.requires_filter else None,
+        partition_keys=table.partition_keys or (["segments_date"] if table.requires_filter else None),
     )
 
 
@@ -401,7 +453,6 @@ def _stream_response_as_dicts(
     resource we are querying, and everything else unset.
     """
     field_paths = response.field_mask.paths
-    get_enum_name = operator.attrgetter("name")
     path_to_column = {col.qualified_name: col for col in table}
 
     for row in response.results:
@@ -410,27 +461,6 @@ def _stream_response_as_dicts(
         for path in field_paths:
             value = _traverse_attributes(row, *path.split("."))
             column = path_to_column[path]
-
-            # TODO: Special type handling moved somewhere else.
-            if column.is_enum:
-                enum_cls = _resolve_protobuf_message_type_url(column.type_url)
-                if column.is_repeatable:
-                    value = list(map(get_enum_name, map(enum_cls, value)))
-                else:
-                    value = enum_cls(value).name
-
-            elif column.is_message:
-                if column.is_repeatable:
-                    value = list(map(MessageToJson, value))
-                else:
-                    value = MessageToJson(value)
-
-            elif column.is_date:
-                if column.is_repeatable:
-                    value = [dt.date.fromisoformat(v[:10]) if v else None for v in value]
-                else:
-                    value = dt.date.fromisoformat(value[:10]) if value else None
-
-            row_dict[column.name] = value
+            row_dict[column.name] = column.resolve_value(value)
 
         yield row_dict

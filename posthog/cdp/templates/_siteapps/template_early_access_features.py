@@ -355,6 +355,25 @@ export function onLoad({ inputs, posthog }) {
         window.addEventListener('click', clickListener)
     }
 
+    const escapeHTML = (str) => {
+        const div = document.createElement('div')
+        div.appendChild(document.createTextNode(str || ''))
+        // innerHTML only encodes &, <, > — not single quotes, which would allow
+        // attribute breakout in single-quoted contexts like data-name='${...}'
+        return div.innerHTML.replace(/'/g, '&#39;')
+    }
+
+    const safeUrl = (url) => {
+        try {
+            const parsed = new URL(url)
+            return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+                ? encodeURI(url)
+                : ''
+        } catch {
+            return ''
+        }
+    }
+
     const listItemComponents = (items?: PreviewItem[]) => {
         if (items) {
             return items
@@ -363,15 +382,15 @@ export function onLoad({ inputs, posthog }) {
 
                     const documentationLink = item.documentationUrl
                         ? `<div class='list-item-documentation-link'>
-                        <a class='label' href='${item.documentationUrl}' target='_blank'>Documentation</a>
+                        <a class='label' href='${safeUrl(item.documentationUrl)}' target='_blank'>Documentation</a>
                     </div>
                     `
                         : ''
                     return `
-                        <div class='list-item' data-name='${item.name}'>
+                        <div class='list-item' data-name='${escapeHTML(item.name)}'>
                             <div class='list-content'>
-                                <b class='list-item-name'>${item.name}</b>
-                                <div class='list-item-description'>${item.description}</div>
+                                <b class='list-item-name'>${escapeHTML(item.name)}</b>
+                                <div class='list-item-description'>${escapeHTML(item.description)}</div>
                                 ${documentationLink}
                             </div>
                             <label class="switch">

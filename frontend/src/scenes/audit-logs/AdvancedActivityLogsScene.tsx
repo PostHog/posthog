@@ -16,8 +16,8 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from 
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
-import { ExportsList } from './ExportsList'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { ExportsList } from './ExportsList'
 
 export const scene: SceneExport = {
     component: AdvancedActivityLogsScene,

@@ -52,7 +52,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
                         pass it to AutoGen's `OpenAIChatCompletionClient`.
                     </Markdown>
@@ -67,7 +67,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             from autogen_ext.models.openai import OpenAIChatCompletionClient
 
                             posthog = Posthog(
-                                "<ph_project_api_key>",
+                                "<ph_project_token>",
                                 host="<ph_client_api_host>"
                             )
 

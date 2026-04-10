@@ -4,6 +4,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
+import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-01-30'
@@ -16,8 +17,7 @@ const shouldDefer = (): boolean => {
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     return (
         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
-        (!!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE) &&
-            sampleOnProperty(loadedInstance.get_session_id(), 0.5))
+        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE)
     )
 }
 
@@ -54,6 +54,13 @@ export function loadPostHogJS(): void {
                     if (shouldTrackFramerate(loadedInstance)) {
                         console.info('tracking react framerate')
                         startFramerateTracking(loadedInstance)
+                    }
+
+                    if (
+                        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
+                        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_DETACHED_ELEMENTS)
+                    ) {
+                        startDetachedElementTracking(loadedInstance)
                     }
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
@@ -137,8 +144,6 @@ export function loadPostHogJS(): void {
                 blockSelector: '.ph-replay-block',
             },
             person_profiles: 'always',
-            __preview_remote_config: true,
-            __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             external_scripts_inject_target: 'head',
@@ -146,6 +151,8 @@ export function loadPostHogJS(): void {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,
             },
+            identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
+            identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

@@ -15,7 +15,7 @@ function EnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`POSTHOG_KEY=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
+            {[`POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
         </CodeSnippet>
     )
 }
@@ -33,7 +33,7 @@ import { AppComponent } from './app/app.component';
 import posthog from 'posthog-js'
 
 posthog.init(
-  process.env.POSTHOG_KEY,
+  process.env.POSTHOG_PROJECT_TOKEN,
   {
     api_host:process.env.POSTHOG_HOST,
     ${
@@ -59,13 +59,13 @@ export function SDKInstallAngularInstructions(): JSX.Element {
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <EnvVarsSnippet />
 
             <h3>Initialize</h3>
             <p>
-                In your <code>src/main.ts</code>, initialize PostHog using your project API key and instance address:
+                In your <code>src/main.ts</code>, initialize PostHog using your project token and instance address:
             </p>
             <AngularInitializeCodeSnippet />
         </>

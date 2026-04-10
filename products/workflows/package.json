@@ -13,6 +13,8 @@
         "use-debounce": "catalog:"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -24,6 +26,7 @@
         "fast-deep-equal": "*",
         "fuse.js": "*",
         "react": "*",
+        "rrule": "*",
         "zod": "*"
     }
 }

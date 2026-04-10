@@ -11,7 +11,6 @@ import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTi
 import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
@@ -36,7 +35,6 @@ export function GlobalShortcuts(): null {
     const { toggleTheme } = useActions(themeLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -99,9 +97,9 @@ export function GlobalShortcuts(): null {
     })
 
     useAppShortcut({
-        name: isRemovingSidePanelFlag ? 'toggle-context-panel' : 'toggle-scene-panel',
+        name: 'toggle-context-panel',
         keybind: [keyBinds.toggleRightNav],
-        intent: isRemovingSidePanelFlag ? 'Toggle context panel' : 'Toggle scene panel',
+        intent: 'Toggle context panel',
         interaction: 'function',
         callback: () => {
             if (sidePanelOpen) {

@@ -6,8 +6,10 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
+import { buildIntegerMatcher } from '../../../config/config'
+import { HealthCheckResultError, ValueMatcher } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CYCLOTRON_JOB_QUEUE_SOURCES,
@@ -16,9 +18,10 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
-import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
-import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres } from './job-queue-postgres'
+import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
+import { sanitizeInvocationForPersistence } from './shared'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -33,12 +36,15 @@ const counterJobsProcessed = new Counter({
 })
 
 export const JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS = 10 * 1000 // Any scheduled jobs need to be scheduled this much in the future to be considered for postgres
+const PERCENTAGE_TOLERANCE = 0.001
+
+export type CyclotronJobQueueRoutingEntry = {
+    target: CyclotronJobQueueSource
+    percentage: number
+}
 
 export type CyclotronJobQueueRouting = {
-    [key: string]: {
-        target: CyclotronJobQueueSource
-        percentage: number
-    }
+    [key: string]: CyclotronJobQueueRoutingEntry[]
 }
 
 export type CyclotronJobQueueTeamRouting = {
@@ -46,51 +52,38 @@ export type CyclotronJobQueueTeamRouting = {
 }
 
 export class CyclotronJobQueue {
-    private consumerMode: CyclotronJobQueueSource
+    private queue?: CyclotronJobQueueKind
+    private consumerMode?: CyclotronJobQueueSource
+    private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private producerMapping: CyclotronJobQueueRouting
     private producerTeamMapping: CyclotronJobQueueTeamRouting
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
+    private jobQueuePostgresV2: CyclotronJobQueuePostgresV2 | null = null
     private jobQueueKafka: CyclotronJobQueueKafka
-    private jobQueueDelay: CyclotronJobQueueDelay
-    private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
-    private shadowFailures = 0
-    private shadowCircuitOpenUntil = 0
+    private stripPersonMatcher: ValueMatcher<number>
 
     constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        consumerMode?: CyclotronJobQueueSource
+        private consumerBatchSize: number,
+        private kafkaClientRack: string | undefined,
+        private config: CdpConfig
     ) {
-        this.consumerMode = consumerMode ?? this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
+        this.stripPersonMatcher = buildIntegerMatcher(this.config.CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS, true)
 
-        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, 'kafka')
-        )
-        this.jobQueueDelay = new CyclotronJobQueueDelay(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, 'delay')
-        )
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
-        )
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.kafkaClientRack, this.config)
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.consumerBatchSize, this.config)
 
-        if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
-            const shadowConfig = {
-                ...this.config,
-                CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
-            }
-            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig, this.queue)
+        if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
+            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
-            consumerMode: this.consumerMode,
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
-            shadowWriteEnabled: !!this.shadowPostgres,
+            v2Enabled: !!this.jobQueuePostgresV2,
         })
     }
 
@@ -99,11 +92,11 @@ export class CyclotronJobQueue {
         source: CyclotronJobQueueSource
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue, source })
-            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
+            .labels({ queue: this.queue!, source })
+            .set(invocations.length / this.consumerBatchSize)
 
         const result = await this._consumeBatch!(invocations)
-        counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
+        counterJobsProcessed.inc({ queue: this.queue!, source }, invocations.length)
 
         return result
     }
@@ -113,63 +106,58 @@ export class CyclotronJobQueue {
     public async startAsProducer() {
         // We only need to connect to the queue targets that are configured
 
-        const allTargets: {
-            target: CyclotronJobQueueSource
-            percentage: number
-        }[] = []
+        const allEntries: CyclotronJobQueueRoutingEntry[] = []
 
         for (const teamId in this.producerTeamMapping) {
-            allTargets.push(...Object.values(this.producerTeamMapping[teamId]))
+            for (const queue in this.producerTeamMapping[teamId]) {
+                allEntries.push(...this.producerTeamMapping[teamId][queue])
+            }
         }
 
         for (const queue in this.producerMapping) {
-            allTargets.push({
-                target: this.producerMapping[queue].target,
-                percentage: this.producerMapping[queue].percentage,
-            })
+            allEntries.push(...this.producerMapping[queue])
         }
 
-        const targets = new Set<CyclotronJobQueueSource>(allTargets.map((x) => x.target))
+        const targets = new Set<CyclotronJobQueueSource>(allEntries.map((x) => x.target))
 
-        // If any target is a non-100% then we need both producers ready
-        const anySplitRouting = allTargets.some((x) => x.percentage < 1)
-
-        if (anySplitRouting || targets.has('postgres') || this.producerForceScheduledToPostgres) {
+        if (targets.has('postgres') || this.producerForceScheduledToPostgres) {
             await this.jobQueuePostgres.startAsProducer()
         }
 
-        if (anySplitRouting || targets.has('kafka')) {
+        if (targets.has('postgres-v2')) {
+            await this.jobQueuePostgresV2?.startAsProducer()
+        }
+
+        if (targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
-        }
-
-        if (this.consumerMode === 'delay') {
-            await this.jobQueueDelay.startAsProducer()
-        }
-
-        if (this.shadowPostgres) {
-            await this.shadowPostgres.startAsProducer().catch((err) => {
-                logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
-                    error: err.message,
-                })
-                this.shadowPostgres = null
-            })
         }
     }
 
-    public async start() {
-        if (!this.consumeBatch) {
-            throw new Error('consumeBatch is required to start the job queue')
-        }
+    public async start(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        consumerMode?: CyclotronJobQueueSource
+    ) {
+        this.queue = queue
+        this._consumeBatch = consumeBatch
+        this.consumerMode = consumerMode ?? this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
 
         // The consumer always needs the producers as well
         await this.startAsProducer()
 
-        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
-            await this.jobQueuePostgres.startAsConsumer()
+        if (this.consumerMode === 'postgres') {
+            await this.jobQueuePostgres.startAsConsumer(queue, (invocations) =>
+                this.consumeBatch(invocations, 'postgres')
+            )
+        } else if (this.consumerMode === 'postgres-v2') {
+            if (!this.jobQueuePostgresV2) {
+                throw new Error('Cyclotron V2 consumer mode requires CYCLOTRON_NODE_DATABASE_URL to be set')
+            }
+            await this.jobQueuePostgresV2.startAsConsumer(queue, (invocations) =>
+                this.consumeBatch(invocations, 'postgres-v2')
+            )
         } else if (this.consumerMode === 'kafka') {
-            await this.jobQueueKafka.startAsConsumer()
-        } else if (this.consumerMode === 'delay') {
-            await this.jobQueueDelay.startAsConsumer()
+            await this.jobQueueKafka.startAsConsumer(queue, (invocations) => this.consumeBatch(invocations, 'kafka'))
         }
     }
 
@@ -177,33 +165,55 @@ export class CyclotronJobQueue {
         // Important - first shut down the consumers so we aren't processing anything
         await Promise.all([
             this.jobQueuePostgres.stopConsumer(),
+            this.jobQueuePostgresV2?.stopConsumer(),
             this.jobQueueKafka.stopConsumer(),
-            this.jobQueueDelay.stopConsumer(),
         ])
 
         // Only then do we shut down the producers
         await Promise.all([
             this.jobQueuePostgres.stopProducer(),
+            this.jobQueuePostgresV2?.stopProducer(),
             this.jobQueueKafka.stopProducer(),
-            this.jobQueueDelay.stopProducer(),
-            this.shadowPostgres?.stopProducer(),
         ])
     }
 
     public isHealthy() {
-        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
+        if (!this.consumerMode) {
+            return new HealthCheckResultError('Consumer not started', {})
+        } else if (this.consumerMode === 'postgres') {
             return this.jobQueuePostgres.isHealthy()
+        } else if (this.consumerMode === 'postgres-v2') {
+            return this.jobQueuePostgresV2?.isHealthy() ?? new HealthCheckResultError('V2 not enabled', {})
         } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()
-        } else if (this.consumerMode === 'delay') {
-            return this.jobQueueDelay.isHealthy()
         }
 
         return new HealthCheckResultError('Invalid consumer mode', {})
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
+        const teamId = invocation.teamId
+        const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
+        const entries = mapping[invocation.queue] ?? mapping['*']
+
+        let target: CyclotronJobQueueSource
+        if (entries.length === 1) {
+            target = entries[0].target
+        } else {
+            const roll = Math.random()
+            let cumulative = 0
+            target = entries[entries.length - 1].target
+            for (const entry of entries) {
+                cumulative += entry.percentage
+                if (roll < cumulative) {
+                    target = entry.target
+                    break
+                }
+            }
+        }
+
         if (
+            target === 'kafka' &&
             this.producerForceScheduledToPostgres &&
             invocation.queueScheduledAt &&
             invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
@@ -213,29 +223,24 @@ export class CyclotronJobQueue {
             return 'postgres'
         }
 
-        const teamId = invocation.teamId
-        const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
-        const producerConfig = mapping[invocation.queue] ?? mapping['*']
-
-        let target = producerConfig.target
-
-        if (producerConfig.percentage < 1) {
-            const otherTarget = target === 'postgres' ? 'kafka' : 'postgres'
-            target = Math.random() < producerConfig.percentage ? target : otherTarget
-        }
-
         return target
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
+        const sanitized = invocations.map((inv) =>
+            sanitizeInvocationForPersistence(inv, { stripPerson: this.stripPersonMatcher(inv.teamId) })
+        )
         const postgresInvocations: CyclotronJobInvocation[] = []
+        const postgresV2Invocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
 
-        for (const invocation of invocations) {
+        for (const invocation of sanitized) {
             const target = this.getTarget(invocation)
 
             if (target === 'postgres') {
                 postgresInvocations.push(invocation)
+            } else if (target === 'postgres-v2') {
+                postgresV2Invocations.push(invocation)
             } else {
                 kafkaInvocations.push(invocation)
             }
@@ -243,29 +248,9 @@ export class CyclotronJobQueue {
 
         await Promise.all([
             this.jobQueuePostgres.queueInvocations(postgresInvocations),
+            this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
-
-        if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
-            const hogInvocations = invocations.filter((x) => x.queue === 'hog')
-            if (!hogInvocations.length) {
-                return
-            }
-            void this.shadowPostgres
-                .queueInvocations(hogInvocations)
-                .then(() => {
-                    this.shadowFailures = 0
-                })
-                .catch((err) => {
-                    this.shadowFailures++
-                    if (this.shadowFailures >= 5) {
-                        this.shadowCircuitOpenUntil = Date.now() + 60_000
-                        this.shadowFailures = 0
-                        logger.warn('Shadow cyclotron circuit breaker opened')
-                    }
-                    logger.warn('Shadow cyclotron write failed', { error: err.message, stack: err.stack })
-                })
-        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
@@ -273,6 +258,11 @@ export class CyclotronJobQueue {
         const pgJobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres')
         if (pgJobsToDequeue.length > 0) {
             await this.jobQueuePostgres.dequeueInvocations(pgJobsToDequeue)
+        }
+
+        const v2JobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres-v2')
+        if (v2JobsToDequeue.length > 0) {
+            await this.jobQueuePostgresV2?.dequeueInvocations(v2JobsToDequeue)
         }
     }
 
@@ -282,17 +272,31 @@ export class CyclotronJobQueue {
         if (pgJobsToCancel.length > 0) {
             await this.jobQueuePostgres.cancelInvocations(pgJobsToCancel)
         }
+
+        const v2JobsToCancel = invocations.filter((x) => x.queueSource === 'postgres-v2')
+        if (v2JobsToCancel.length > 0) {
+            await this.jobQueuePostgresV2?.cancelInvocations(v2JobsToCancel)
+        }
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
         // We need to know if the job came from postgres and if so we need to ack, regardless of the target...
 
+        const sanitizedResults = invocationResults.map((result) => ({
+            ...result,
+            invocation: sanitizeInvocationForPersistence(result.invocation, {
+                stripPerson: this.stripPersonMatcher(result.invocation.teamId),
+            }),
+        }))
+
         const postgresInvocationsToCreate: CyclotronJobInvocationResult[] = []
         const postgresInvocationsToUpdate: CyclotronJobInvocationResult[] = []
+        const postgresV2InvocationsToUpdate: CyclotronJobInvocationResult[] = []
+        const postgresV2InvocationsToCreate: CyclotronJobInvocationResult[] = []
         const kafkaInvocations: CyclotronJobInvocationResult[] = []
 
-        for (const invocationResult of invocationResults) {
+        for (const invocationResult of sanitizedResults) {
             const target = this.getTarget(invocationResult.invocation)
 
             if (target === 'postgres') {
@@ -301,12 +305,18 @@ export class CyclotronJobQueue {
                 } else {
                     postgresInvocationsToCreate.push(invocationResult)
                 }
+            } else if (target === 'postgres-v2') {
+                if (invocationResult.invocation.queueSource === 'postgres-v2') {
+                    postgresV2InvocationsToUpdate.push(invocationResult)
+                } else {
+                    postgresV2InvocationsToCreate.push(invocationResult)
+                }
             } else {
                 kafkaInvocations.push(invocationResult)
             }
         }
 
-        logger.debug('🔄', 'Queueing postgres invocations', {
+        logger.debug('🔄', 'Queueing invocation results', {
             kafka: kafkaInvocations.map(
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
@@ -314,6 +324,12 @@ export class CyclotronJobQueue {
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
             postgres_create: postgresInvocationsToCreate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_v2_update: postgresV2InvocationsToUpdate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_v2_create: postgresV2InvocationsToCreate.map(
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
         })
@@ -326,6 +342,32 @@ export class CyclotronJobQueue {
 
         if (postgresInvocationsToCreate.length > 0) {
             promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
+
+            // Release postgres-v2 source jobs that are being re-routed to postgres
+            const v2JobsToRelease = postgresInvocationsToCreate
+                .filter((x) => x.invocation.queueSource === 'postgres-v2')
+                .map((x) => x.invocation)
+            if (v2JobsToRelease.length > 0 && this.jobQueuePostgresV2) {
+                promises.push(this.jobQueuePostgresV2.releaseInvocations(v2JobsToRelease))
+            }
+        }
+
+        if (postgresV2InvocationsToUpdate.length > 0 && this.jobQueuePostgresV2) {
+            promises.push(this.jobQueuePostgresV2.queueInvocationResults(postgresV2InvocationsToUpdate))
+        }
+
+        if (postgresV2InvocationsToCreate.length > 0 && this.jobQueuePostgresV2) {
+            promises.push(
+                this.jobQueuePostgresV2.queueInvocations(postgresV2InvocationsToCreate.map((x) => x.invocation))
+            )
+
+            // Release postgres source jobs that are being re-routed to postgres-v2
+            const pgJobsToRelease = postgresV2InvocationsToCreate
+                .filter((x) => x.invocation.queueSource === 'postgres')
+                .map((x) => x.invocation)
+            if (pgJobsToRelease.length > 0) {
+                promises.push(this.jobQueuePostgres.releaseInvocations(pgJobsToRelease))
+            }
         }
 
         if (kafkaInvocations.length > 0) {
@@ -337,6 +379,14 @@ export class CyclotronJobQueue {
 
             if (jobsToRelease.length > 0) {
                 promises.push(this.jobQueuePostgres.releaseInvocations(jobsToRelease))
+            }
+
+            const v2JobsToRelease = kafkaInvocations
+                .filter((x) => x.invocation.queueSource === 'postgres-v2')
+                .map((x) => x.invocation)
+
+            if (v2JobsToRelease.length > 0 && this.jobQueuePostgresV2) {
+                promises.push(this.jobQueuePostgresV2.releaseInvocations(v2JobsToRelease))
             }
         }
 
@@ -380,38 +430,89 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
             percentage = parsedPercentage
         }
 
-        if (routing[queue]) {
-            throw new Error(`Duplicate mapping: ${part}`)
+        if (!routing[queue]) {
+            routing[queue] = []
         }
 
-        routing[queue] = {
+        routing[queue].push({
             target: target as CyclotronJobQueueSource,
             percentage,
-        }
+        })
     }
 
     if (!routing['*']) {
         throw new Error('No mapping for the default queue for example: *:postgres')
     }
 
+    // Validate that percentages sum to 1 for multi-target queues
+    for (const [queue, entries] of Object.entries(routing)) {
+        if (entries.length > 1) {
+            const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
+            if (Math.abs(sum - 1) > PERCENTAGE_TOLERANCE) {
+                throw new Error(`Invalid mapping for queue ${queue}: percentages must sum to 1 (got ${sum})`)
+            }
+        }
+    }
+
     return routing
 }
 
 /**
- * Same as getProducerMapping but with a team check too.
- * So for example `1:*:kafka,2:*:postgres` would result in team 1 using kafka and team 2 using postgres
+ * Same as getProducerMapping but with a team prefix.
+ * Entries for the same team are grouped together before parsing.
+ *
+ * Format: `TEAM:QUEUE:TARGET[:PERCENTAGE],...`
+ *
+ * For queue-specific overrides with percentages < 1, the remainder is automatically
+ * filled from the team's `*` default.
+ *
+ * Example: `79155:*:kafka,79155:hog:postgres-v2:0.001` results in team 79155 routing
+ * 0.1% of hog jobs to postgres-v2 and 99.9% to kafka (remainder filled from team's `*`).
  */
 export function getProducerTeamMapping(stringMapping: string): CyclotronJobQueueTeamRouting {
     if (!stringMapping) {
         return {}
     }
 
-    const routing: CyclotronJobQueueTeamRouting = {}
-    const parts = stringMapping.split(',')
-
-    for (const part of parts) {
+    // Group parts by team ID
+    const teamParts: Record<string, string[]> = {}
+    for (const part of stringMapping.split(',')) {
         const [team, ...rest] = part.split(':')
-        routing[team] = getProducerMapping(rest.join(':'))
+        if (!team || rest.length < 2) {
+            throw new Error(`Invalid team mapping: ${part} - expected format TEAM:QUEUE:TARGET[:PERCENTAGE]`)
+        }
+        if (!teamParts[team]) {
+            teamParts[team] = []
+        }
+        teamParts[team].push(rest.join(':'))
+    }
+
+    const routing: CyclotronJobQueueTeamRouting = {}
+
+    for (const [team, groupedParts] of Object.entries(teamParts)) {
+        const teamRouting = getProducerMapping(groupedParts.join(','))
+
+        // Fill remainder for queues where percentages don't sum to 1,
+        // using the team's `*` default to fill the gap
+        for (const [queue, entries] of Object.entries(teamRouting)) {
+            if (queue === '*') {
+                continue
+            }
+            const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
+            if (sum < 1 - PERCENTAGE_TOLERANCE) {
+                const fallbackEntries = teamRouting['*']
+                const remainder = 1 - sum
+                const fallbackSum = fallbackEntries.reduce((acc, e) => acc + e.percentage, 0)
+                for (const fallback of fallbackEntries) {
+                    entries.push({
+                        target: fallback.target,
+                        percentage: (fallback.percentage / fallbackSum) * remainder,
+                    })
+                }
+            }
+        }
+
+        routing[team] = teamRouting
     }
 
     return routing

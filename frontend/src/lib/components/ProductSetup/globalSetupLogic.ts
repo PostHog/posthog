@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
@@ -10,7 +11,6 @@ import { ActivationTaskStatus } from '~/types'
 
 import type { globalSetupLogicType } from './globalSetupLogicType'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
-import { SetupTaskId } from './types'
 
 /**
  * Global setup logic - the single source of truth for task completion and UI state.

@@ -1,12 +1,10 @@
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 
-import { Hub } from '../../../types'
-
-/** Narrowed Hub type for HogRateLimiterService */
-export type HogRateLimiterServiceHub = Pick<
-    Hub,
-    'CDP_RATE_LIMITER_BUCKET_SIZE' | 'CDP_RATE_LIMITER_REFILL_RATE' | 'CDP_RATE_LIMITER_TTL'
->
+export interface HogRateLimiterConfig {
+    bucketSize: number
+    refillRate: number
+    ttl: number
+}
 
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/hog-rate-limiter' : '@posthog/hog-rate-limiter'
@@ -19,7 +17,7 @@ export type HogRateLimit = {
 
 export class HogRateLimiterService {
     constructor(
-        private hub: HogRateLimiterServiceHub,
+        private config: HogRateLimiterConfig,
         private redis: RedisV2
     ) {}
 
@@ -30,9 +28,9 @@ export class HogRateLimiterService {
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
             cost,
-            this.hub.CDP_RATE_LIMITER_BUCKET_SIZE,
-            this.hub.CDP_RATE_LIMITER_REFILL_RATE,
-            this.hub.CDP_RATE_LIMITER_TTL,
+            this.config.bucketSize,
+            this.config.refillRate,
+            this.config.ttl,
         ]
     }
 
@@ -50,7 +48,7 @@ export class HogRateLimiterService {
         return idCosts.map(([id], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             // V2 returns [tokensBefore, tokensAfter], we use tokensAfter for backward compatibility
-            const tokensAfter = tokenRes[1]?.[1] ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE
+            const tokensAfter = tokenRes[1]?.[1] ?? this.config.bucketSize
             return [
                 id,
                 {

@@ -3,13 +3,16 @@ import os
 import dagster
 from clickhouse_driver import Client
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
+    DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
+    get_teams_by_weekly_pageviews_sql,
 )
 from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
 
@@ -138,7 +141,7 @@ def _web_analytics_team_selection_impl(
 
 @dagster.asset(
     name="web_analytics_team_selection",
-    group_name="web_analytics",
+    group_name="web_analytics_v2",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_team_selection(
@@ -153,13 +156,78 @@ def web_analytics_team_selection(
 
 
 @dagster.asset(
-    name="web_analytics_team_selection_v2",
+    name="web_analytics_high_volume_team_candidates",
     group_name="web_analytics_v2",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_analytics_team_selection_v2(
+def web_analytics_high_volume_team_candidates(
     context: dagster.AssetExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dagster.MaterializeResult:
-    """This is the same as the team_selection on the web_analytics group but here to make the v2 graph independent"""
-    return _web_analytics_team_selection_impl(context, cluster)
+    """
+    Materializes the list of teams qualifying for pre-aggregation based on weekly pageview volume.
+
+    Teams qualify if they had more than 500k average weekly pageviews over the last 4 complete
+    weeks, with data in all 4 weeks (ensuring constant traffic, not spikes).
+    """
+    try:
+        threshold = int(os.getenv("WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD", str(DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD)))
+    except ValueError:
+        context.log.warning(
+            f"Invalid WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD, using default {DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD}"
+        )
+        threshold = DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
+
+    sql = get_teams_by_weekly_pageviews_sql(threshold)
+    context.log.info(f"Querying for teams with >{threshold:,} avg weekly pageviews over last 4 weeks")
+    result = sync_execute(sql)
+
+    team_candidates = []
+    total_avg_weekly_pageviews = 0
+    for row in result:
+        team_id, avg_pv, min_pv, max_pv = int(row[0]), int(row[1]), int(row[2]), int(row[3])
+        team_candidates.append(
+            {
+                "team_id": team_id,
+                "avg_weekly_pageviews": avg_pv,
+                "min_weekly_pageviews": min_pv,
+                "max_weekly_pageviews": max_pv,
+            }
+        )
+        total_avg_weekly_pageviews += avg_pv
+
+    team_ids = [tc["team_id"] for tc in team_candidates]
+
+    context.log.info(f"Found {len(team_candidates)} teams qualifying with >{threshold:,} avg weekly pageviews")
+    for tc in team_candidates:
+        context.log.info(
+            f"  Team {tc['team_id']}: avg={tc['avg_weekly_pageviews']:,}/week, "
+            f"min={tc['min_weekly_pageviews']:,}, max={tc['max_weekly_pageviews']:,}"
+        )
+    context.log.info(f"Total estimated weekly pageviews across all candidates: {total_avg_weekly_pageviews:,}")
+
+    metadata: dict[str, str | int] = {
+        "team_count": len(team_candidates),
+        "team_ids": str(team_ids),
+        "threshold": threshold,
+        "total_avg_weekly_pageviews": total_avg_weekly_pageviews,
+        "team_details": str(team_candidates),
+    }
+
+    return dagster.MaterializeResult(metadata=metadata)
+
+
+web_analytics_team_candidates_job = dagster.define_asset_job(
+    name="web_analytics_team_candidates_job",
+    selection=["web_analytics_high_volume_team_candidates"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+
+
+@dagster.schedule(
+    cron_schedule="0 2 * * 1",  # Weekly on Monday at 2am UTC
+    job=web_analytics_team_candidates_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_analytics_team_candidates_schedule(context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest()

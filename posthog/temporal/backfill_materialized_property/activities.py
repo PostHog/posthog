@@ -9,7 +9,8 @@ from temporalio import activity
 from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 logger = structlog.get_logger(__name__)
 

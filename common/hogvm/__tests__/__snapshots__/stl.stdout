@@ -10,6 +10,12 @@ tom%20%26%20jerry
 http://www.google.com
 tom & jerry
 
+-- tryDecodeURLComponent --
+hello world
+null
+null
+
+
 -- base64Encode, base64Decode --
 aHR0cDovL3d3dy5nb29nbGUuY29t
 dG9tICYgamVycnk=

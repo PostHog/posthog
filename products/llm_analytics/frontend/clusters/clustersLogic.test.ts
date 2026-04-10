@@ -224,6 +224,19 @@ describe('clustersLogic', () => {
     })
 
     describe('selectors', () => {
+        describe('breadcrumbs', () => {
+            it('returns clusters breadcrumb with icon type', () => {
+                expect(logic.values.breadcrumbs).toEqual([
+                    {
+                        key: 'LLMAnalyticsClusters',
+                        name: 'Clusters',
+                        path: '/llm-analytics/clusters',
+                        iconType: 'llm_clusters',
+                    },
+                ])
+            })
+        })
+
         const mockCluster1: Cluster = {
             cluster_id: 0,
             size: 10,

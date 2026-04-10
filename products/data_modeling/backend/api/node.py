@@ -2,9 +2,11 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.db import models
+from django.db.models import OuterRef, Subquery
 
 import posthoganalytics
 from rest_framework import filters, request, response, serializers, status, viewsets
@@ -19,7 +21,7 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
-from products.data_modeling.backend.models import Edge, Node, NodeType
+from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
@@ -30,6 +32,7 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_status = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
+    dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Node
@@ -37,7 +40,9 @@ class NodeSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "type",
-            "dag_id_text",
+            "dag",
+            "dag_name",
+            "description",
             "saved_query_id",
             "created_at",
             "updated_at",
@@ -55,19 +60,26 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
+            "dag_name",
         ]
 
     def get_upstream_count(self, node: Node) -> int:
+        counts = self.context.get("node_counts")
+        if counts and str(node.id) in counts:
+            return counts[str(node.id)][0]
         return len(_get_upstream_nodes(node))
 
     def get_downstream_count(self, node: Node) -> int:
+        counts = self.context.get("node_counts")
+        if counts and str(node.id) in counts:
+            return counts[str(node.id)][1]
         return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_at")
+        return node.properties.get("system", {}).get("last_run_at") or getattr(node, "_latest_job_run_at", None)
 
     def get_last_run_status(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_status")
+        return node.properties.get("system", {}).get("last_run_status") or getattr(node, "_latest_job_status", None)
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
@@ -77,6 +89,9 @@ class NodeSerializer(serializers.ModelSerializer):
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
+    def get_dag_name(self, node: Node) -> str:
+        return node.dag.name
+
 
 class NodePagination(PageNumberPagination):
     page_size = 1000
@@ -85,7 +100,8 @@ class NodePagination(PageNumberPagination):
 # TODO: consolidate graph traversal logic. similar implementations exist in:
 # - products/data_warehouse/backend/api/lineage.py (get_upstream_dag) should be deleted after new system takes over
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
-# shared utility should exist and used between node viewset and workflow
+# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
+# the temporal workflow and lineage API should migrate to Graph
 
 
 def _is_v2_backend_enabled(user: User, team: Team) -> bool:
@@ -103,20 +119,19 @@ def _is_v2_backend_enabled(user: User, team: Team) -> bool:
     )
 
 
-def _get_upstream_nodes(node: Node) -> set[str]:
-    """Get all upstream (ancestor) node IDs recursively, excluding TABLE nodes."""
+def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
+    """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        current = list(
-            Edge.objects.exclude(source__type=NodeType.TABLE)
-            .filter(
-                team_id=node.team_id,
-                dag_id_text=node.dag_id_text,
-                target_id__in=current,
-            )
-            .values_list("source_id", flat=True)
+        qs = Edge.objects.filter(
+            team_id=node.team_id,
+            dag=node.dag,
+            target_id__in=current,
         )
+        if not include_tables:
+            qs = qs.exclude(source__type=NodeType.TABLE)
+        current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
@@ -130,7 +145,7 @@ def _get_downstream_nodes(node: Node) -> set[str]:
             Edge.objects.exclude(target__type=NodeType.TABLE)
             .filter(
                 team_id=node.team_id,
-                dag_id_text=node.dag_id_text,
+                dag=node.dag,
                 source_id__in=current,
             )
             .values_list("target_id", flat=True)
@@ -139,20 +154,73 @@ def _get_downstream_nodes(node: Node) -> set[str]:
     return nodes
 
 
+def _node_queryset_with_latest_job() -> models.QuerySet:
+    """Node queryset annotated with the latest DataModelingJob status and last_run_at.
+
+    This lets the serializer fall back to job data when node.properties["system"] is unpopulated.
+    - _latest_job_status: status of the most recent job (any status)
+    - _latest_job_run_at: last_run_at of the most recent *successful* job
+    """
+    from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+
+    latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
+    latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
+    return (
+        Node.objects.select_related("saved_query", "dag")
+        .annotate(
+            _latest_job_status=Subquery(latest_job.values("status")[:1]),
+            _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
+        )
+        .all()
+    )
+
+
 class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = Node.objects.select_related("saved_query").all()
+    queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["name", "dag_id_text"]
+    search_fields = ["name", "dag__name"]
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
+    def list(self, request, *args, **kwargs):
+        from products.data_modeling.backend.graph import Graph
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        nodes = page if page is not None else queryset
+
+        dag_id = self._get_dag_id_param()
+        graph = Graph(team_id=self.team_id, dag_id=dag_id)
+        node_ids = [str(n.id) for n in nodes]
+        counts = graph.batch_counts(node_ids)
+
+        serializer = self.get_serializer(
+            nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
+
+    def _get_dag_id_param(self) -> str | None:
+        dag_id = self.request.query_params.get("dag")
+        if dag_id:
+            try:
+                UUID(dag_id)
+            except ValueError:
+                return None
+        return dag_id
+
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id, dag_id_text=f"posthog_{self.team_id}").order_by(self.ordering)
+        qs = queryset.filter(team_id=self.team_id).exclude(dag__name__startswith="conflict_")
+        dag_id = self._get_dag_id_param()
+        if dag_id:
+            qs = qs.filter(dag_id=dag_id)
+        return qs.order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -189,7 +257,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
                 team_id=self.team_id,
-                dag_id=node.dag_id_text,
+                dag_id=str(node.dag_id),
                 node_ids=list(node_ids),
             )
             workflow_name = "data-modeling-execute-dag"
@@ -212,7 +280,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             inputs = RunWorkflowInputs(team_id=self.team_id, select=selectors)
             workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.dag_id_text}-{uuid4()}"
+            workflow_id = f"data-modeling-run-{node.dag_id}-{uuid4()}"
 
         temporal = sync_connect()
         asyncio.run(
@@ -232,15 +300,38 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
+    @action(methods=["GET"], detail=True)
+    def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
+        from products.data_modeling.backend.api.edge import EdgeSerializer
+
+        node = self.get_object()
+        upstream_ids = _get_upstream_nodes(node, include_tables=True)
+        downstream_ids = _get_downstream_nodes(node)
+        all_ids = upstream_ids | downstream_ids | {str(node.id)}
+
+        nodes = _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+        edges = Edge.objects.select_related("source", "target", "dag").filter(
+            team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+        )
+
+        return response.Response(
+            {
+                "nodes": NodeSerializer(nodes, many=True, context=self.get_serializer_context()).data,
+                "edges": EdgeSerializer(edges, many=True).data,
+            }
+        )
+
     @action(methods=["GET"], detail=False)
     def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Get all distinct dag_ids for the team's nodes."""
-        dag_ids = list(
-            Node.objects.filter(team_id=self.team_id)
-            .values_list("dag_id_text", flat=True)
-            .distinct()
-            .order_by("dag_id_text")
+        """Get all distinct DAGs for the team."""
+        dags = list(
+            DAG.objects.filter(team_id=self.team_id)
+            .exclude(name__startswith="conflict_")
+            .order_by("name")
+            .values("id", "name")
         )
+        dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
         return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
@@ -257,7 +348,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
                 team_id=self.team_id,
-                dag_id=node.dag_id_text,
+                dag_id=str(node.dag_id),
                 node_id=str(node.id),
             )
             workflow_name = "data-modeling-materialize-view"

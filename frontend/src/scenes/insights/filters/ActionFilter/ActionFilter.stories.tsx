@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -16,8 +16,8 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 
-type Story = StoryObj<typeof ActionFilter>
-const meta: Meta<typeof ActionFilter> = {
+type Story = StoryObj<ActionFilterProps>
+const meta: Meta<ActionFilterProps> = {
     title: 'Filters/Action Filter',
     decorators: [taxonomicFilterMocksDecorator],
 }
@@ -25,7 +25,7 @@ export default meta
 
 let uniqueNode = 0
 
-const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilterProps>) => {
+const renderActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -96,32 +96,44 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
     )
 }
 
-export const Standard: Story = Template.bind({})
-Standard.args = {}
-
-export const Bordered: Story = Template.bind({})
-Bordered.args = {
-    bordered: true,
+export const Standard: Story = {
+    render: renderActionFilter,
+    args: {},
 }
 
-export const PropertyFiltersWithPopover: Story = Template.bind({})
-PropertyFiltersWithPopover.args = {
-    propertyFiltersPopover: true,
+export const Bordered: Story = {
+    render: renderActionFilter,
+    args: {
+        bordered: true,
+    },
 }
 
-export const Sortable: Story = Template.bind({})
-Sortable.args = {
-    sortable: true,
+export const PropertyFiltersWithPopover: Story = {
+    render: renderActionFilter,
+    args: {
+        propertyFiltersPopover: true,
+    },
 }
 
-export const FunnelLike: Story = Template.bind({})
-FunnelLike.args = {
-    sortable: true,
-    bordered: true,
-    seriesIndicatorType: 'numeric',
+export const Sortable: Story = {
+    render: renderActionFilter,
+    args: {
+        sortable: true,
+    },
 }
 
-export const SingleFilter: Story = Template.bind({})
-SingleFilter.args = {
-    entitiesLimit: 1,
+export const FunnelLike: Story = {
+    render: renderActionFilter,
+    args: {
+        sortable: true,
+        bordered: true,
+        seriesIndicatorType: 'numeric',
+    },
+}
+
+export const SingleFilter: Story = {
+    render: renderActionFilter,
+    args: {
+        entitiesLimit: 1,
+    },
 }

@@ -38,7 +38,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             file: 'Python',
                             code: dedent`
                                 from posthog import Posthog
-                                posthog = Posthog("<ph_project_api_key>", enable_exception_autocapture=True, ...)
+                                posthog = Posthog("<ph_project_token>", enable_exception_autocapture=True, ...)
                             `,
                         },
                     ]}
@@ -152,7 +152,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         code: dedent`
                                             from flask import Flask, jsonify
                                             from posthog import Posthog
-                                            posthog = Posthog('<ph_project_api_key>', host='https://us.i.posthog.com')
+                                            posthog = Posthog('<ph_project_token>', host='https://us.i.posthog.com')
                                             @app.errorhandler(Exception)
                                             def handle_exception(e):
                                                 event_id = posthog.capture_exception(e)
@@ -173,7 +173,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         code: dedent`
                                             from fastapi.responses import JSONResponse
                                             from posthog import Posthog
-                                            posthog = Posthog('<ph_project_api_key>', host='https://us.i.posthog.com')
+                                            posthog = Posthog('<ph_project_token>', host='https://us.i.posthog.com')
                                             @app.exception_handler(Exception)
                                             async def http_exception_handler(request, exc):
                                                 posthog.capture_exception(exc)
@@ -189,14 +189,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        verifyInitStep,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-        frameworkStep,
-    ]
+    return [...installSteps, verifyInitStep, exceptionAutocaptureStep, manualCaptureStep, verifyStep, frameworkStep]
 }
 
 export const PythonInstallation = createInstallation(getPythonSteps)

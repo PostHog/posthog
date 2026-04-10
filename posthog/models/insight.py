@@ -13,12 +13,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
-from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.utils import get_filter
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +49,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    saved = models.BooleanField(default=False)
+    # DEPRECATED: legacy field from a removed history feature. Retained to filter out old saved=False records.
+    saved = models.BooleanField(default=True)
     created_at = models.DateTimeField(null=True, blank=True, auto_now_add=True)
     refreshing = models.BooleanField(default=False)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -69,7 +71,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     # DEPRECATED: using the new "dashboards" relation instead
     dashboard = models.ForeignKey(
-        "Dashboard",
+        "dashboards.Dashboard",
         related_name="items",
         on_delete=models.CASCADE,
         null=True,
@@ -82,7 +84,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     # DEPRECATED: on dashboard_insight now
     color = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: dive dashboards were never shipped
-    dive_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    dive_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
     updated_at = models.DateTimeField(auto_now=True)
     # DEPRECATED: use `display` property of the Filter object instead
@@ -304,6 +306,20 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             return bool(self.filters.get("show_legend", False) if self.filters else False)
         except (AttributeError, TypeError, KeyError):
             return False
+
+    @property
+    def are_alerts_supported(self) -> bool:
+        from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+        with upgrade_query(self):
+            query = self.query
+            if query is None:
+                return False
+            while query.get("source"):
+                query = query["source"]
+            if query.get("kind") != "TrendsQuery":
+                return False
+        return True
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

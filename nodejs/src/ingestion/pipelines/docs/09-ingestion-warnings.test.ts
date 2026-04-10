@@ -43,11 +43,13 @@
  * ignored and never sent to Kafka. Always ensure `handleIngestionWarnings()`
  * is called within a `teamAware()` block to process warnings.
  */
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
 import { PipelineResult, isOkResult, ok } from '../results'
 
@@ -86,7 +88,7 @@ describe('Warning Basics', () => {
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createValidationStep()).build()
 
-        const batch = [createContext(ok({ name: 'pageview' }), { team })]
+        const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -151,7 +153,7 @@ describe('Warning Basics', () => {
             .pipeBatch(createPropertiesCheckStep())
             .build()
 
-        const batch = [createContext(ok({ name: 'click' }), { team })]
+        const batch = [createOkContext({ name: 'click' }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -216,7 +218,7 @@ describe('Warning Basics', () => {
         }
         manyProperties['$ip'] = 12345 // Wrong type
 
-        const batch = [createContext(ok({ name: longName, properties: manyProperties }), { team })]
+        const batch = [createOkContext({ name: longName, properties: manyProperties }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -235,9 +237,7 @@ describe('Handling Ingestion Warnings', () => {
      * Use `handleSideEffects()` to execute the warning side effects.
      */
     it('handleIngestionWarnings converts warnings to side effects', async () => {
-        const mockKafkaProducer = {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        }
+        const mockOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
         const promiseScheduler = new PromiseScheduler()
 
         interface Event {
@@ -256,11 +256,11 @@ describe('Handling Ingestion Warnings', () => {
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
             .pipeBatch(createWarningStep())
             .teamAware((builder) => builder)
-            .handleIngestionWarnings(mockKafkaProducer as any)
+            .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
-        const batch = [createContext(ok({ name: 'pageview' }), { team })]
+        const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -268,8 +268,8 @@ describe('Handling Ingestion Warnings', () => {
         // Warnings are cleared after handling
         expect(results![0].context.warnings).toEqual([])
 
-        // Side effects were executed (warning sent to Kafka)
-        expect(mockKafkaProducer.queueMessages).toHaveBeenCalled()
+        // Side effects were executed (warning sent to Kafka via outputs)
+        expect(mockOutputs.queueMessages).toHaveBeenCalled()
     })
 
     /**
@@ -277,9 +277,7 @@ describe('Handling Ingestion Warnings', () => {
      * Both the original side effects and warning side effects are executed.
      */
     it('handleIngestionWarnings preserves existing side effects', async () => {
-        const mockKafkaProducer = {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        }
+        const mockOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
         const promiseScheduler = new PromiseScheduler()
 
         const sideEffectLog: string[] = []
@@ -304,11 +302,11 @@ describe('Handling Ingestion Warnings', () => {
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
             .pipeBatch(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
-            .handleIngestionWarnings(mockKafkaProducer as any)
+            .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
             .build()
 
-        const batch = [createContext(ok({ name: 'click' }), { team })]
+        const batch = [createOkContext({ name: 'click' }, { team })]
         pipeline.feed(batch)
 
         await pipeline.next()
@@ -316,8 +314,8 @@ describe('Handling Ingestion Warnings', () => {
         // Original side effect executed
         expect(sideEffectLog).toContain('processed: click')
 
-        // Warning side effect executed (sent to Kafka)
-        expect(mockKafkaProducer.queueMessages).toHaveBeenCalled()
+        // Warning side effect executed (sent to Kafka via outputs)
+        expect(mockOutputs.queueMessages).toHaveBeenCalled()
     })
 })
 
@@ -354,7 +352,7 @@ describe('Warning Debouncing', () => {
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createUserWarningStep()).build()
 
-        const batch = [createContext(ok({ distinctId: 'user-123' }), { team })]
+        const batch = [createOkContext({ distinctId: 'user-123' }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -399,7 +397,7 @@ describe('Warning Debouncing', () => {
         const team = createTestTeam()
         const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createCriticalWarningStep()).build()
 
-        const batch = [createContext(ok({ name: 'important_event' }), { team })]
+        const batch = [createOkContext({ name: 'important_event' }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()

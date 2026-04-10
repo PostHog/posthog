@@ -21,15 +21,18 @@ WORKDIR /migrations
 COPY ./persons_migrations ./persons_migrations
 COPY ./cyclotron-core/migrations ./cyclotron-core/migrations
 COPY ./behavioral_cohorts_migrations ./behavioral_cohorts_migrations
+COPY ./cyclotron-node-migrations ./cyclotron-node-migrations
 
 COPY ./bin/migrate-persons ./bin/migrate-persons
 COPY ./bin/migrate-cyclotron ./bin/migrate-cyclotron
+COPY ./bin/migrate-cyclotron-node ./bin/migrate-cyclotron-node
 COPY ./bin/migrate-behavioral-cohorts ./bin/migrate-behavioral-cohorts
 COPY ./bin/migrate-entry ./bin/migrate-entry
 
 RUN chmod +x /migrations/bin/migrate-entry && \
     chmod +x /migrations/bin/migrate-persons && \
     chmod +x /migrations/bin/migrate-cyclotron && \
+    chmod +x /migrations/bin/migrate-cyclotron-node && \
     chmod +x /migrations/bin/migrate-behavioral-cohorts
 
 ENTRYPOINT ["/migrations/bin/migrate-entry"]

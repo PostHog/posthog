@@ -12,6 +12,7 @@ from posthog.schema import (
     AssistantTrendsFilter,
     AssistantTrendsQuery,
     NodeKind,
+    TrendsFormulaNode,
 )
 
 from ee.hogai.chat_agent.trends.toolkit import TRENDS_SCHEMA
@@ -146,7 +147,9 @@ Formula:
                 dateRange={"date_from": "-30d", "date_to": None},
                 filterTestAccounts=True,
                 interval="day",
-                trendsFilter=AssistantTrendsFilter(display="ActionsLineGraph", showLegend=True, formulas=["A/B"]),
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph", showLegend=True, formulaNodes=[TrendsFormulaNode(formula="A/B")]
+                ),
                 series=[
                     AssistantTrendsEventsNode(
                         event="$identify",
@@ -330,7 +333,9 @@ Formula:
                 dateRange={"date_from": "-30d", "date_to": None},
                 filterTestAccounts=True,
                 interval="day",
-                trendsFilter=AssistantTrendsFilter(display="BoldNumber", showLegend=True, formulas=["B/A * 100"]),
+                trendsFilter=AssistantTrendsFilter(
+                    display="BoldNumber", showLegend=True, formulaNodes=[TrendsFormulaNode(formula="B/A * 100")]
+                ),
                 series=[
                     AssistantTrendsEventsNode(
                         event=None,

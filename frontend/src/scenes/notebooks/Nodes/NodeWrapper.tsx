@@ -1,6 +1,4 @@
-// sort-imports-ignore
-
-// KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
+// KLUDGE: This file is NOT formatted by oxfmt to avoid problems with import resolutions.
 // Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
     Node,
@@ -342,6 +340,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         size="small"
                                                         icon={<IconPencil />}
                                                         active={editingNodeIds[nodeId]}
+                                                        data-attr="notebook-node-edit-settings"
                                                     />
                                                 ) : null}
 

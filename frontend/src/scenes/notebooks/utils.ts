@@ -69,6 +69,8 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.UsageMetrics]: customOrTitleSerializer,
         [NotebookNodeType.ZendeskTickets]: customOrTitleSerializer,
         [NotebookNodeType.RelatedGroups]: customOrTitleSerializer,
+        [NotebookNodeType.CustomerJourney]: customOrTitleSerializer,
+        [NotebookNodeType.SupportTickets]: customOrTitleSerializer,
     }
 
     return getText(node, {

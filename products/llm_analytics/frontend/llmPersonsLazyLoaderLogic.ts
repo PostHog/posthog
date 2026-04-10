@@ -37,6 +37,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
 
     actions({
         ensurePersonLoaded: (distinctId: string) => ({ distinctId }),
+        queuePersonLoad: (distinctId: string) => ({ distinctId }),
         loadPersonsBatchSuccess: (persons: Record<string, LLMTracePerson>, requestedDistinctIds: string[]) => ({
             persons,
             requestedDistinctIds,
@@ -72,7 +73,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
         loadingDistinctIds: [
             new Set<string>(),
             {
-                ensurePersonLoaded: (state, { distinctId }) => {
+                queuePersonLoad: (state, { distinctId }) => {
                     if (state.has(distinctId)) {
                         return state
                     }
@@ -115,6 +116,45 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
     listeners(({ values, actions }) => {
         let pendingDistinctIds = new Set<string>()
         let batchTimer: ReturnType<typeof setTimeout> | null = null
+        const scheduleBatchLoad = (): void => {
+            if (batchTimer) {
+                return
+            }
+
+            batchTimer = setTimeout(async () => {
+                const batch = Array.from(pendingDistinctIds)
+                pendingDistinctIds = new Set()
+                batchTimer = null
+
+                if (batch.length === 0) {
+                    return
+                }
+
+                const teamId = values.currentTeamId
+
+                if (!teamId) {
+                    actions.loadPersonsBatchFailure(batch)
+                    return
+                }
+
+                try {
+                    const response = await api.create<BatchByDistinctIdsResponse>(
+                        `api/environments/${teamId}/persons/batch_by_distinct_ids/`,
+                        { distinct_ids: batch }
+                    )
+
+                    const persons: Record<string, LLMTracePerson> = {}
+
+                    for (const [distinctId, personData] of Object.entries(response.results)) {
+                        persons[distinctId] = toTracePerson(personData, distinctId)
+                    }
+
+                    actions.loadPersonsBatchSuccess(persons, batch)
+                } catch {
+                    actions.loadPersonsBatchFailure(batch)
+                }
+            }, 0)
+        }
 
         return {
             ensurePersonLoaded: ({ distinctId }) => {
@@ -122,44 +162,9 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                     return
                 }
 
+                actions.queuePersonLoad(distinctId)
                 pendingDistinctIds.add(distinctId)
-
-                if (batchTimer) {
-                    return
-                }
-
-                batchTimer = setTimeout(async () => {
-                    const batch = Array.from(pendingDistinctIds)
-                    pendingDistinctIds = new Set()
-                    batchTimer = null
-
-                    if (batch.length === 0) {
-                        return
-                    }
-
-                    const teamId = values.currentTeamId
-
-                    if (!teamId) {
-                        return
-                    }
-
-                    try {
-                        const response = await api.create<BatchByDistinctIdsResponse>(
-                            `api/environments/${teamId}/persons/batch_by_distinct_ids/`,
-                            { distinct_ids: batch }
-                        )
-
-                        const persons: Record<string, LLMTracePerson> = {}
-
-                        for (const [distinctId, personData] of Object.entries(response.results)) {
-                            persons[distinctId] = toTracePerson(personData, distinctId)
-                        }
-
-                        actions.loadPersonsBatchSuccess(persons, batch)
-                    } catch {
-                        actions.loadPersonsBatchFailure(batch)
-                    }
-                }, 0)
+                scheduleBatchLoad()
             },
         }
     }),

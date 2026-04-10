@@ -62,6 +62,7 @@ DISCOVERY_LOOKBACK_DAYS = DEFAULT_DISCOVERY_LOOKBACK_DAYS
 @dataclasses.dataclass
 class LLMAWorkflowConfig:
     guaranteed_team_ids: list[int]
+    skip_team_ids: list[int]
     sample_percentage: float
     discovery_lookback_days: int
 
@@ -77,6 +78,7 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
             logger.info("No valid FF payload, using defaults", payload_type=type(payload).__name__)
             return LLMAWorkflowConfig(
                 guaranteed_team_ids=DEFAULT_GUARANTEED_TEAM_IDS,
+                skip_team_ids=[],
                 sample_percentage=DEFAULT_SAMPLE_PERCENTAGE,
                 discovery_lookback_days=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
             )
@@ -84,6 +86,10 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
         guaranteed = payload.get("guaranteed_team_ids", DEFAULT_GUARANTEED_TEAM_IDS)
         if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
             guaranteed = DEFAULT_GUARANTEED_TEAM_IDS
+
+        skip = payload.get("skip_team_ids", [])
+        if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
+            skip = []
 
         sample_pct = payload.get("sample_percentage", DEFAULT_SAMPLE_PERCENTAGE)
         if not isinstance(sample_pct, (int, float)) or not (0.0 <= float(sample_pct) <= 1.0):
@@ -96,12 +102,14 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
         logger.info(
             "Loaded LLMA config from feature flag",
             guaranteed_count=len(guaranteed),
+            skip_count=len(skip),
             sample_percentage=sample_pct,
             discovery_lookback_days=lookback,
         )
 
         return LLMAWorkflowConfig(
             guaranteed_team_ids=guaranteed,
+            skip_team_ids=skip,
             sample_percentage=float(sample_pct),
             discovery_lookback_days=lookback,
         )
@@ -109,6 +117,7 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
         logger.warning("Failed to read LLMA config from feature flag, using defaults", exc_info=True)
         return LLMAWorkflowConfig(
             guaranteed_team_ids=DEFAULT_GUARANTEED_TEAM_IDS,
+            skip_team_ids=[],
             sample_percentage=DEFAULT_SAMPLE_PERCENTAGE,
             discovery_lookback_days=DEFAULT_DISCOVERY_LOOKBACK_DAYS,
         )
@@ -138,6 +147,7 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
     async with Heartbeater():
         config = await asyncio.to_thread(_get_llma_workflow_config)
         guaranteed = set(config.guaranteed_team_ids)
+        skip = set(config.skip_team_ids)
 
         # FF payload is the source of truth, intentionally overriding
         # TeamDiscoveryInput so config can be tuned from the PostHog UI
@@ -154,16 +164,17 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
 
             ai_event_teams = await asyncio.to_thread(get_teams_with_ai_events, begin, end)
 
-            remaining = [t for t in ai_event_teams if t not in guaranteed]
+            remaining = [t for t in ai_event_teams if t not in guaranteed and t not in skip]
 
             sample_size = math.ceil(len(remaining) * sample_percentage)
             sampled = random.sample(remaining, min(sample_size, len(remaining)))
 
-            result = sorted(guaranteed | set(sampled))
+            result = sorted((guaranteed | set(sampled)) - skip)
 
             logger.info(
                 "Team discovery completed",
                 guaranteed_count=len(guaranteed),
+                skip_count=len(skip),
                 ai_event_teams_count=len(ai_event_teams),
                 remaining_count=len(remaining),
                 sampled_count=len(sampled),
@@ -178,5 +189,6 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
                 "Team discovery failed, falling back to guaranteed teams",
                 exc_info=True,
                 guaranteed_count=len(guaranteed),
+                skip_count=len(skip),
             )
-            return sorted(guaranteed)
+            return sorted(guaranteed - skip)

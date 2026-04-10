@@ -80,7 +80,7 @@ describe('MemoryKeyStore', () => {
 
         it('should return deleted state if key was deleted', async () => {
             await keyStore.generateKey('session-123', 1)
-            await keyStore.deleteKey('session-123', 1)
+            await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             const result = await keyStore.getKey('session-123', 1)
             expect(result.sessionState).toBe('deleted')
@@ -93,7 +93,7 @@ describe('MemoryKeyStore', () => {
 
             // Timestamps are in seconds
             const beforeDelete = Math.floor(Date.now() / 1000)
-            await keyStore.deleteKey('session-123', 1)
+            await keyStore.deleteKey('session-123', 1, 'test@example.com')
             const afterDelete = Math.floor(Date.now() / 1000) + 1
 
             const result = await keyStore.getKey('session-123', 1)
@@ -104,17 +104,17 @@ describe('MemoryKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should return deleted: true if key existed', async () => {
+        it('should return status deleted if key existed', async () => {
             await keyStore.generateKey('session-123', 1)
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
+            expect(result).toEqual({ status: 'deleted', deletedAt: expect.any(Number), deletedBy: 'test@example.com' })
         })
 
         it('should create tombstone if key did not exist', async () => {
-            const result = await keyStore.deleteKey('non-existent', 999)
+            const result = await keyStore.deleteKey('non-existent', 999, 'test@example.com')
 
-            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
+            expect(result).toEqual({ status: 'deleted', deletedAt: expect.any(Number), deletedBy: 'test@example.com' })
 
             // Subsequent getKey should return deleted state
             const key = await keyStore.getKey('non-existent', 999)
@@ -123,18 +123,17 @@ describe('MemoryKeyStore', () => {
 
         it('should return already_deleted with timestamp if key was already deleted', async () => {
             await keyStore.generateKey('session-123', 1)
-            await keyStore.deleteKey('session-123', 1)
+            await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(result.deleted).toBe(false)
-            expect((result as any).reason).toBe('already_deleted')
-            expect((result as any).deletedAt).toBeDefined()
+            expect(result.status).toBe('already_deleted')
+            expect(result.deletedAt).toBeDefined()
         })
 
         it('should return deleted state on subsequent getKey calls', async () => {
             await keyStore.generateKey('session-123', 1)
-            await keyStore.deleteKey('session-123', 1)
+            await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             const result = await keyStore.getKey('session-123', 1)
             expect(result.sessionState).toBe('deleted')
@@ -144,7 +143,7 @@ describe('MemoryKeyStore', () => {
             await keyStore.generateKey('session-1', 1)
             await keyStore.generateKey('session-2', 1)
 
-            await keyStore.deleteKey('session-1', 1)
+            await keyStore.deleteKey('session-1', 1, 'test@example.com')
 
             // session-2 should still be accessible
             const result = await keyStore.getKey('session-2', 1)
@@ -159,7 +158,7 @@ describe('MemoryKeyStore', () => {
             await keyStore.generateKey('session-1', 1)
             await keyStore.generateKey('session-1', 2)
 
-            await keyStore.deleteKey('session-1', 1)
+            await keyStore.deleteKey('session-1', 1, 'test@example.com')
 
             // Team 2 should still have access
             const result = await keyStore.getKey('session-1', 2)

@@ -264,6 +264,7 @@ mod test {
             issue_description: None,
             handled: None,
             other: HashMap::new(),
+            debug_images: vec![],
         }
     }
 

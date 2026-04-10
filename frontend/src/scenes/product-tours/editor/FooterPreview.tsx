@@ -6,25 +6,26 @@ import { hasElementTarget } from '../stepUtils'
 import { PostHogLogo } from './icons'
 
 export function FooterPreview({ tourId }: { tourId: string }): JSX.Element | null {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { productTour, productTourForm, selectedStep, selectedStepIndex } = useValues(
+        productTourLogic({ id: tourId })
+    )
 
     const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
     const appearance = productTourForm.content?.appearance
 
     if (productTour && isBannerAnnouncement(productTour)) {
         return null
     }
 
-    if (!step) {
+    if (!selectedStep) {
         return null
     }
 
     const totalSteps = steps.length
     const isFirstStep = selectedStepIndex === 0
 
-    const hasCustomButtons = !!step.buttons
-    const needsDefaultButtons = step.progressionTrigger === 'button' || !hasElementTarget(step)
+    const hasCustomButtons = !!selectedStep.buttons
+    const needsDefaultButtons = selectedStep.progressionTrigger === 'button' || !hasElementTarget(selectedStep)
     const showButtons = hasCustomButtons || needsDefaultButtons
 
     const showProgress = totalSteps > 1
@@ -36,9 +37,9 @@ export function FooterPreview({ tourId }: { tourId: string }): JSX.Element | nul
     }
 
     const isLastStep = selectedStepIndex >= totalSteps - 1
-    const primaryText = step.buttons?.primary?.text ?? (isLastStep ? 'Done' : 'Next')
-    const secondaryText = step.buttons?.secondary?.text ?? 'Back'
-    const showSecondary = hasCustomButtons ? !!step.buttons?.secondary : !isFirstStep
+    const primaryText = selectedStep.buttons?.primary?.text ?? (isLastStep ? 'Done' : 'Next')
+    const secondaryText = selectedStep.buttons?.secondary?.text ?? 'Back'
+    const showSecondary = hasCustomButtons ? !!selectedStep.buttons?.secondary : !isFirstStep
 
     return (
         <>

@@ -1,5 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -12,12 +13,14 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { AlertType, AlertTypeWrite } from './types'
+import { quietHoursFormError } from './scheduleRestrictionValidation'
+import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -31,6 +34,8 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'schedule_restriction'
+    | 'detector_config'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -51,6 +56,25 @@ export interface AlertFormLogicProps {
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
+    insightInterval?: IntervalType
+}
+
+/** Apply create/update/snooze API response to alertLogic so UI (e.g. next planned evaluation) updates immediately. */
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    alertLogic({ alertId: updatedAlert.id }).actions.loadAlertSuccess(updatedAlert)
+}
+
+function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
+    switch (interval) {
+        case 'hour':
+            return AlertCalculationInterval.HOURLY
+        case 'week':
+            return AlertCalculationInterval.WEEKLY
+        case 'month':
+            return AlertCalculationInterval.MONTHLY
+        default:
+            return AlertCalculationInterval.DAILY
+    }
 }
 
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
@@ -76,7 +100,48 @@ export const alertFormLogic = kea<alertFormLogicType>([
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
+        simulateAlert: true,
+        clearSimulation: true,
+        setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
+
+    reducers({
+        simulationDateFrom: [
+            null as string | null,
+            {
+                setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+    }),
+
+    loaders(({ props, values }) => ({
+        simulationResult: [
+            null as AlertSimulationResult | null,
+            {
+                simulateAlert: async (): Promise<AlertSimulationResult | null> => {
+                    const detectorConfig = values.alertForm.detector_config
+                    if (!detectorConfig || !props.insightId) {
+                        return null
+                    }
+                    const defaultRange =
+                        values.alertForm.calculation_interval === AlertCalculationInterval.HOURLY
+                            ? '-48h'
+                            : values.alertForm.calculation_interval === AlertCalculationInterval.WEEKLY
+                              ? '-12w'
+                              : values.alertForm.calculation_interval === AlertCalculationInterval.MONTHLY
+                                ? '-12m'
+                                : '-30d'
+                    return await api.alerts.simulate({
+                        insight: props.insightId,
+                        detector_config: detectorConfig,
+                        series_index: values.alertForm.config?.series_index ?? 0,
+                        date_from: values.simulationDateFrom ?? defaultRange,
+                    })
+                },
+                clearSimulation: () => null,
+            },
+        ],
+    })),
 
     forms(({ props, values }) => ({
         alertForm: {
@@ -104,13 +169,17 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     },
                     subscribed_users: [],
                     checks: [],
-                    calculation_interval: AlertCalculationInterval.DAILY,
+                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
+                    schedule_restriction: null,
+                    detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
-            errors: ({ name }) => ({
-                name: !name ? 'You need to give your alert a name' : undefined,
-            }),
+            errors: (alert: AlertType | AlertFormType) =>
+                ({
+                    name: !alert.name ? 'You need to give your alert a name' : undefined,
+                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
+                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
                 const payload: AlertTypeWrite = {
                     ...alert,
@@ -126,6 +195,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    detector_config: alert.detector_config ?? null,
+                    schedule_restriction:
+                        (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
+                            ? alert.schedule_restriction
+                            : null,
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -157,6 +231,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         await flushPendingNotifications(updatedAlert.id)
+                        hydrateAlertLogicFromSaveResponse(updatedAlert)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -167,6 +242,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     await flushPendingNotifications(updatedAlert.id)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
@@ -213,6 +289,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -227,6 +304,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -237,6 +315,40 @@ export const alertFormLogic = kea<alertFormLogicType>([
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
+            },
+            simulateAlertSuccess: ({ simulationResult }) => {
+                const parent = getParentLogic()
+                if (!parent || !simulationResult) {
+                    return
+                }
+
+                let anomalyPoints: AnomalyPoint[]
+
+                if (simulationResult.breakdown_results && simulationResult.breakdown_results.length > 0) {
+                    // For breakdowns, create anomaly points per breakdown value.
+                    // Each breakdown result maps to a chart series by its position in the results array.
+                    anomalyPoints = simulationResult.breakdown_results.flatMap((br, seriesIndex) =>
+                        br.triggered_indices.map((idx) => ({
+                            index: idx,
+                            date: br.dates[idx] ?? '',
+                            score: br.scores[idx] ?? null,
+                            seriesIndex,
+                        }))
+                    )
+                } else {
+                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
+                        index: idx,
+                        date: simulationResult.dates[idx] ?? '',
+                        score: simulationResult.scores[idx] ?? null,
+                        seriesIndex,
+                    }))
+                }
+
+                parent.actions.setSimulationAnomalyPoints(anomalyPoints)
+            },
+            simulateAlertFailure: ({ error }) => {
+                lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }
     }),

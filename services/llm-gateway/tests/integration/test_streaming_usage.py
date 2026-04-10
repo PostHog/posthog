@@ -20,7 +20,7 @@ class TestStreamingUsageExtraction:
     def test_streaming_returns_usage_in_final_message(self, anthropic_client: Anthropic):
         """Verify streaming through gateway returns complete response with usage."""
         with anthropic_client.messages.stream(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": "Say 'hello world' and nothing else."}],
             max_tokens=20,
         ) as stream:
@@ -37,7 +37,7 @@ class TestStreamingUsageExtraction:
     def test_non_streaming_returns_usage(self, anthropic_client: Anthropic):
         """Verify non-streaming requests through gateway return usage."""
         response = anthropic_client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": "Say 'test' and nothing else."}],
             max_tokens=10,
         )

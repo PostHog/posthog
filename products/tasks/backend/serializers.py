@@ -1,14 +1,16 @@
 from django.core.cache import cache
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
+from .temporal.process_task.utils import PrAuthorshipMode, RunSource
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
@@ -29,11 +31,14 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_number",
             "slug",
             "title",
+            "title_manually_set",
             "description",
             "origin_product",
             "repository",
             "github_integration",
+            "signal_report",
             "json_schema",
+            "internal",
             "latest_run",
             "created_at",
             "updated_at",
@@ -49,6 +54,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Latest run details for this task"))
     def get_latest_run(self, obj):
         latest_run = obj.latest_run
         if latest_run:
@@ -72,6 +78,11 @@ class TaskSerializer(serializers.ModelSerializer):
 
         return value.lower()
 
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
 
@@ -84,12 +95,19 @@ class TaskSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        # Auto-generate title from description if not provided or empty
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
             validated_data["title"] = generate_task_title(validated_data["description"])
+            validated_data.setdefault("title_manually_set", False)
+        elif title:
+            validated_data.setdefault("title_manually_set", True)
 
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        return super().update(instance, validated_data)
 
 
 class AgentDefinitionSerializer(serializers.Serializer):
@@ -162,6 +180,9 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
         ]
 
+    @extend_schema_field(
+        serializers.URLField(allow_null=True, help_text="Presigned S3 URL for log access (valid for 1 hour).")
+    )
     def get_log_url(self, obj: TaskRun) -> str | None:
         """Return presigned S3 URL for log access, cached to avoid regeneration."""
         cache_key = f"task_run_log_url:{obj.id}"
@@ -218,8 +239,17 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
+    relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")
+
+
+class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=10000)
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
-    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
+    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact", "tree_snapshot"]
 
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
     type = serializers.ChoiceField(choices=ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
@@ -267,6 +297,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    internal = serializers.BooleanField(
+        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -325,12 +358,119 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
 class TaskRunCreateRequestSerializer(serializers.Serializer):
     """Request body for creating a new task run"""
 
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
         required=False,
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
     )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
+    resume_from_run_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="ID of a previous run to resume from. Must belong to the same task.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+    )
+
+
+class TaskRunCommandRequestSerializer(serializers.Serializer):
+    """JSON-RPC request to send a command to the agent server in the sandbox."""
+
+    ALLOWED_METHODS = [
+        "user_message",
+        "cancel",
+        "close",
+    ]
+
+    jsonrpc = serializers.ChoiceField(
+        choices=["2.0"],
+        help_text="JSON-RPC version, must be '2.0'",
+    )
+    method = serializers.ChoiceField(
+        choices=ALLOWED_METHODS,
+        help_text="Command method to execute on the agent server",
+    )
+    params = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Parameters for the command",
+    )
+    id = serializers.JSONField(
+        required=False,
+        default=None,
+        help_text="Optional JSON-RPC request ID (string or number)",
+    )
+
+    def validate_id(self, value):
+        if value is not None and not isinstance(value, (str, int, float)):
+            raise serializers.ValidationError("id must be a string or number")
+        return value
+
+    def validate(self, attrs):
+        method = attrs["method"]
+        params = attrs.get("params", {})
+        if method == "user_message":
+            content = params.get("content")
+            if not content or not isinstance(content, str) or not content.strip():
+                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+        return attrs
+
+
+class TaskRunCommandResponseSerializer(serializers.Serializer):
+    """Response from the agent server command endpoint."""
+
+    jsonrpc = serializers.CharField(help_text="JSON-RPC version")
+    id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
+    result = serializers.DictField(required=False, help_text="Command result on success")
+    error = serializers.DictField(required=False, help_text="Error details on failure")
+
+
+class CodeInviteRedeemRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
@@ -355,3 +495,84 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         max_value=5000,
         help_text="Maximum number of entries to return (default 1000, max 5000)",
     )
+
+
+class SandboxEnvironmentSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    effective_domains = serializers.SerializerMethodField(
+        help_text="Computed domain allowlist based on network_access_level and allowed_domains"
+    )
+    environment_variables = serializers.JSONField(
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Encrypted environment variables (write-only, never returned in responses)",
+    )
+    has_environment_variables = serializers.SerializerMethodField(
+        help_text="Whether this environment has any environment variables set"
+    )
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "include_default_domains",
+            "repositories",
+            "environment_variables",
+            "has_environment_variables",
+            "private",
+            "effective_domains",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "effective_domains",
+            "has_environment_variables",
+        ]
+
+    def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
+        return obj.get_effective_domains()
+
+    def get_has_environment_variables(self, obj: SandboxEnvironment) -> bool:
+        return bool(obj.environment_variables)
+
+    def validate_environment_variables(self, value):
+        if value:
+            for key in value:
+                if not SandboxEnvironment.is_valid_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+        return value
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "repositories",
+            "private",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]

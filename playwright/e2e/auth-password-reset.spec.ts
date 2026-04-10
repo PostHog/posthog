@@ -7,8 +7,8 @@ test.describe('Password Reset', () => {
     let loginPage: LoginPage
 
     test.beforeEach(async ({ page }) => {
-        await page.click('[data-attr=menu-item-me]')
-        await page.click('[data-attr=top-menu-item-logout]')
+        await page.click('[data-attr=new-account-menu-button]')
+        await page.click('[data-attr=new-account-menu-logout-button]')
         await expect(page).toHaveURL('/login')
         loginPage = new LoginPage(page)
     })
@@ -45,8 +45,9 @@ test.describe('Password Reset', () => {
         await page.fill('[data-attr="password"]', '123')
         await page.fill('[data-attr="password-confirm"]', '123')
         await page.click('button[type=submit]')
-        await expect(page.getByText('Add another word or two')).toBeVisible()
-        await expect(page.getByText('Add another word or two')).toHaveClass(/text-danger/)
+        const passwordTooShortError = page.getByText('Must be at least 8 characters long')
+        await expect(passwordTooShortError).toBeVisible()
+        await expect(passwordTooShortError).toHaveClass(/text-danger/)
         await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
     })
 

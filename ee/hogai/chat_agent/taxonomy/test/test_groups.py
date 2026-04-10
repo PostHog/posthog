@@ -3,8 +3,9 @@ from datetime import datetime
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
 

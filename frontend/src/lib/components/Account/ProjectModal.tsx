@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 
-import { ProjectSwitcher } from './ProjectSwitcher'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { ProjectSwitcher } from './ProjectSwitcher'
 
 export function ProjectModal(): JSX.Element {
     const { isProjectSwitcherOpen } = useValues(newAccountMenuLogic)

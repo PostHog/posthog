@@ -13,8 +13,8 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
-import { TranslatePopover } from './TranslatePopover'
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
+import { TranslatePopover } from './TranslatePopover'
 
 const MAX_EDITOR_RETRIES = 10
 const EDITOR_RETRY_DELAY_MS = 100

@@ -61,7 +61,10 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
+    from posthog.models import InsightVariable, Team, User
+
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -363,10 +366,15 @@ def get_js_url(request: HttpRequest) -> str:
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
     it is necessary to set the JS_URL host based on the calling origin.
     """
-    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
-        # given the strict usage of 'get_host()', this string is not susceptible to xss
+    from urllib.parse import urlparse
+
+    parsed = urlparse(settings.JS_URL)
+    if settings.DEBUG and parsed.hostname == "localhost":
+        # Rewrite the JS_URL hostname to match the request origin so the browser
+        # can reach the Vite dev server when accessed via a non-localhost address
+        # (e.g. from a Docker container or remote host).
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"http://{request.get_host().split(':')[0]}:8234"
+        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
     return settings.JS_URL
 
 
@@ -396,17 +404,18 @@ def get_context_for_template(
         elif template_name == "render_query.html":
             source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
+        js_url = get_js_url(request)
         context["vite_dev_scripts"] = f"""
         <script nonce="{request.csp_nonce}" type="module">
-            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            import RefreshRuntime from '{js_url}/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="http://localhost:8234/@vite/client"></script>
-        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
+        <script type="module" src="{js_url}/@vite/client"></script>
+        <script type="module" src="{js_url}/{source_path}"></script>"""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
@@ -523,6 +532,10 @@ def get_context_for_template(
                 )
                 posthog_app_context["custom_products"] = user_product_list.data
 
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
+    if "oauth_application" in context:
+        posthog_app_context["oauth_application"] = context.pop("oauth_application")
+
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
@@ -558,6 +571,19 @@ def get_context_for_template(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    if posthog_distinct_id:
+        from posthog.models.instance_setting import get_instance_setting
+
+        support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
+        if support_secret:
+            from products.conversations.backend.services.identity import compute_identity_hash
+
+            context["js_posthog_identity_distinct_id"] = posthog_distinct_id
+            context["js_posthog_identity_hash"] = compute_identity_hash(
+                posthog_distinct_id,
+                support_secret,
+            )
 
     return context
 
@@ -1213,6 +1239,24 @@ def get_safe_cache(cache_key: str):
     return None
 
 
+def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:
+    """Best-effort cache write. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.set(cache_key, value, timeout)
+    except Exception:
+        logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
+
+
+def safe_cache_delete(cache_key: str) -> None:
+    """Best-effort cache delete. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.delete(cache_key)
+    except Exception:
+        logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
+
+
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
@@ -1283,13 +1327,15 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return dashboard_filters
 
     try:
@@ -1304,13 +1350,19 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+    if not raw_override or (
+        request
+        and isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
+    ):
         return map_stale_to_latest(dashboard_variables, variables)
 
     try:
@@ -1322,13 +1374,15 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return tile_filters
 
     try:

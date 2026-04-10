@@ -85,6 +85,11 @@ pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
 
+// Signal metrics
+pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
+pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
+pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
+
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
 pub const CONSUMER_EXCEPTION_PIPELINE: &str = "cymbal_consumer_exception_pipeline";
@@ -105,4 +110,8 @@ pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolv
 pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
 pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression_operator";
+pub const RULE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_rule_suppression_operator";
 pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_generator_operator";
+pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
+pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
+pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";

@@ -23,7 +23,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Basic request (flags only)',
                                 code: dedent`
                                     curl -v -L --header "Content-Type: application/json" -d '{
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "groups" : {
                                             "group_type": "group_id"
@@ -43,7 +43,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         "Content-Type": "application/json"
                                     }
                                     payload = {
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "distinct_id": "user distinct id",
                                         "groups": {
                                             "group_type": "group_id"
@@ -63,7 +63,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             "Content-Type": "application/json",
                                         },
                                         body: JSON.stringify({
-                                            api_key: "<ph_project_api_key>",
+                                            token: "<ph_project_token>",
                                             distinct_id: "user distinct id",
                                             groups: {
                                                 group_type: "group_id",
@@ -103,7 +103,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Terminal',
                                 code: dedent`
                                     curl -v -L --header "Content-Type: application/json" -d '{
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "event": "your_event_name",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "properties": {
@@ -124,7 +124,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         "Content-Type": "application/json"
                                     }
                                     payload = {
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "event": "your_event_name",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "properties": {
@@ -161,7 +161,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Terminal',
                                 code: dedent`
                                     curl -v -L --header "Content-Type: application/json" -d '{
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "event": "$feature_flag_called",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "properties": {
@@ -183,7 +183,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         "Content-Type": "application/json"
                                     }
                                     payload = {
-                                        "api_key": "<ph_project_api_key>",
+                                        "token": "<ph_project_token>",
                                         "event": "$feature_flag_called",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "properties": {

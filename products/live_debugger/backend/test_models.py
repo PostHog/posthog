@@ -35,7 +35,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user123",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": breakpoint_id,
                         "$line_number": 42,
@@ -76,7 +76,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(self.breakpoint.id),
                         "$line_number": 42,
@@ -96,7 +96,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": other_team.pk,
                     "distinct_id": "user2",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(other_breakpoint.id),
                         "$line_number": 100,
@@ -141,7 +141,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(self.breakpoint.id),
                         "$line_number": 42,
@@ -155,7 +155,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(breakpoint2.id),
                         "$line_number": 100,
@@ -185,6 +185,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
 
     def test_get_breakpoint_hits_time_filter(self):
         """Test that get_breakpoint_hits only returns hits from the last hour"""
+        # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
         now = datetime.now()
 
         # Create event from 30 minutes ago (should be included)
@@ -196,7 +197,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                         "event": "$data_breakpoint_hit",
                         "team_id": self.team.pk,
                         "distinct_id": "user1",
-                        "timestamp": datetime.now(),
+                        "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                         "properties": {
                             "$breakpoint_id": str(self.breakpoint.id),
                             "$line_number": 42,
@@ -217,7 +218,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                         "event": "$data_breakpoint_hit",
                         "team_id": self.team.pk,
                         "distinct_id": "user1",
-                        "timestamp": datetime.now(),
+                        "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                         "properties": {
                             "$breakpoint_id": str(self.breakpoint.id),
                             "$line_number": 42,
@@ -246,7 +247,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(self.breakpoint.id),
                         "$line_number": 42 + i,
@@ -286,7 +287,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(self.breakpoint.id),
                         "$line_number": 42,
@@ -314,7 +315,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$pageview",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {},
                 }
             ]
@@ -328,7 +329,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
                     "event": "$data_breakpoint_hit",
                     "team_id": self.team.pk,
                     "distinct_id": "user1",
-                    "timestamp": datetime.now(),
+                    "timestamp": datetime.now(),  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
                     "properties": {
                         "$breakpoint_id": str(self.breakpoint.id),
                         "$line_number": 42,
@@ -348,6 +349,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
 
     def test_get_breakpoint_hits_orders_by_timestamp_desc(self):
         """Test that get_breakpoint_hits returns hits ordered by timestamp descending"""
+        # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
         now = datetime.now()
 
         # Create events at different times

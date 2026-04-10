@@ -28,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
@@ -196,7 +196,7 @@ def _fetch_evaluation_runs(
         """
     )
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
         query_result = execute_hogql_query(
             query_type="EvaluationSummaryFetchRuns",
             query=query,
@@ -447,7 +447,8 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                     "fail_count": result["statistics"]["fail_count"],
                     "na_count": result["statistics"]["na_count"],
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

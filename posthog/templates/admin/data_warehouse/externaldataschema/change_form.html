@@ -1,0 +1,108 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+
+    <fieldset class="module aligned">
+        <h2>Temporal schedule</h2>
+        <div class="form-row" style="padding: 10px;">
+            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ original.id }}"
+               target="_blank">View schedule in Temporal</a>
+        </div>
+    </fieldset>
+
+    <fieldset class="module aligned">
+        <h2>Jobs{% if page_obj %} ({{ page_obj.paginator.count }} total){% endif %}</h2>
+        {% if page_obj and page_obj.object_list %}
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f5f5f5;">
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Job ID</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Created at</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Finished at</th>
+                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd;">Rows synced</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Temporal workflow</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Logs</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in page_obj %}
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
+                    <td style="padding: 8px;">
+                        {% if job.status == "Running" %}
+                            <span class="status-badge status-running" style="color: blue;">Running</span>
+                        {% elif job.status == "Completed" %}
+                            <span class="status-badge status-completed" style="color: green;">Completed</span>
+                        {% elif job.status == "Failed" %}
+                            <span class="status-badge status-failed" style="color: red;">Failed</span>
+                        {% elif job.status == "BillingLimitReached" %}
+                            <span style="color: orange;">Billing limit reached</span>
+                        {% elif job.status == "BillingLimitTooLow" %}
+                            <span style="color: orange;">Billing limit too low</span>
+                        {% else %}
+                            <span>{{ job.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px;">{{ job.created_at|date:"Y-m-d H:i:s" }}</td>
+                    <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+                    <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
+                    <td style="padding: 8px;">
+                        {% if job.workflow_id and job.workflow_run_id %}
+                            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
+                               target="_blank">View workflow</a>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px;">
+                        {% if job.workflow_id %}
+                            <a href="{{ site_url }}/project/{{ team_id }}/logs?searchTerm={{ job.workflow_id }}"
+                               target="_blank">View logs</a>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px;">
+                        {% if job.latest_error %}
+                            <span style="color: red; font-size: 12px;" title="{{ job.latest_error }}">
+                                {{ job.latest_error|truncatechars:80 }}
+                            </span>
+                            <br>
+                            <a href="{{ site_url }}/project/{{ team_id }}/error_tracking?searchQuery={{ job.latest_error|truncatechars:200|urlencode }}"
+                               target="_blank" style="font-size: 11px;">View in error tracking</a>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if page_obj.paginator.num_pages > 1 %}
+        <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
+            {% if page_obj.has_previous %}
+                <a href="?page=1">&laquo; First</a>
+                <a href="?page={{ page_obj.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
+            {% endif %}
+
+            <span style="margin: 0 12px;">
+                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}">Next &rsaquo;</a>
+                <a href="?page={{ page_obj.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% else %}
+            <div class="form-row" style="padding: 10px; color: #666;">No jobs found for this schema.</div>
+        {% endif %}
+    </fieldset>
+{% endblock %}

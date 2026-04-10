@@ -3,7 +3,7 @@ import asyncio
 import datetime as dt
 
 import pytest
-from posthog.test.base import _create_event
+from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
@@ -15,6 +15,7 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_backfill_ok,
     list_batch_export_backfills_ok,
 )
+from posthog.batch_exports.models import BatchExportRun
 
 pytestmark = [
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
@@ -34,6 +35,18 @@ def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id
             return backfills[0]
 
     raise Exception("Backfill not found")
+
+
+def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExportRun]:
+    total = 0
+    while total < timeout:
+        runs = list(BatchExportRun.objects.filter(backfill_id=backfill_id))
+        if runs:
+            return runs
+        time.sleep(1)
+        total += 1
+
+    raise Exception("No runs found for backfill")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -71,8 +84,6 @@ def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, te
         )
         batch_export_id = batch_export["id"]
 
-        start_at = "2023-10-23T00:00:00+00:00"
-        end_at = "2023-10-24T00:00:00+00:00"
         # ensure there is data to backfill, otherwise validation will fail
         _create_event(
             team=team,
@@ -80,15 +91,27 @@ def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, te
             distinct_id="person_1",
             timestamp=dt.datetime(2023, 10, 23, 0, 1, 0, tzinfo=dt.UTC),
         )
+        flush_persons_and_events()
+
+        start_at = "2023-10-23T00:00:00+00:00"
+        end_at = "2023-10-24T00:00:00+00:00"
         backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
 
         # backfill model is created as part of a temporal activity, so we need to wait for it to be created
         backfill_data = wait_for_backfill_creation(client, team.pk, batch_export_id)
-        assert backfill_data["status"] == "Running"
+        assert backfill_data["status"] in ("Running", "Starting")
         backfill_id = backfill_data["id"]
+
+        # wait for at least one run to be created so we can verify runs are cancelled too
+        wait_for_backfill_runs(backfill_id)
 
         data = cancel_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
         assert data["cancelled"] is True
 
         backfill_data = get_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
         assert backfill_data["status"] == "Cancelled"
+
+        runs = BatchExportRun.objects.filter(backfill_id=backfill_id)
+        assert runs.count() > 0
+        for run in runs:
+            assert run.status == BatchExportRun.Status.CANCELLED

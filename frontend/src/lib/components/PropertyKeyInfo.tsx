@@ -12,7 +12,7 @@ import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
-interface PropertyKeyInfoProps {
+export interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: TaxonomicFilterGroupType
     displayText?: string

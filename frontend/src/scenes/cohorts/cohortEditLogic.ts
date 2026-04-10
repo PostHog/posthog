@@ -10,8 +10,10 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isOperatorDate } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
@@ -26,6 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
@@ -36,7 +39,10 @@ import {
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinitionType,
     PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
@@ -217,15 +223,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
-                setCohort: (state, { cohort }) => ({
-                    ...state,
-                    source: {
-                        ...state.source,
-                        select: cohort.is_static
-                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
-                            : ['person_display_name -- Person', 'id', 'created_at'],
-                    },
-                }),
+                setCohort: (state, { cohort }) => {
+                    const source = state.source as ActorsQuery
+                    const defaultSelect = cohort.is_static
+                        ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                        : ['person_display_name -- Person', 'id', 'created_at']
+                    return {
+                        ...state,
+                        source: {
+                            ...source,
+                            select: source.select ?? defaultSelect,
+                        },
+                    }
+                },
             },
         ],
         creationPersonQuery: [
@@ -284,6 +294,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
+                // Prevent multiple concurrent saves
+                if (values.cohortLoading) {
+                    return
+                }
+
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
@@ -512,6 +527,41 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
+            // When the person property key changes, auto-reset the operator to match the
+            // property type (DateTime → "on the date", non-DateTime → "equals").
+            if (!('key' in newCriteria)) {
+                return
+            }
+
+            const groups = values.cohort.filters.properties.values
+            const group = groups[groupIndex]
+            if (!isCohortCriteriaGroup(group)) {
+                return
+            }
+            const criteria = group.values[criteriaIndex]
+            if (!criteria || isCohortCriteriaGroup(criteria)) {
+                return
+            }
+
+            if (criteria.type !== BehavioralFilterKey.Person) {
+                return
+            }
+
+            const propDef = newCriteria.key
+                ? propertyDefinitionsModel
+                      .findMounted()
+                      ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+                : null
+            const isDateTime = propDef?.property_type === PropertyType.DateTime
+            const currentOperator = criteria.operator as PropertyOperator | undefined
+
+            if (isDateTime && (!currentOperator || !isOperatorDate(currentOperator))) {
+                actions.setCriteria({ operator: PropertyOperator.IsDateExact }, groupIndex, criteriaIndex)
+            } else if (!isDateTime && currentOperator && isOperatorDate(currentOperator)) {
+                actions.setCriteria({ operator: PropertyOperator.Exact }, groupIndex, criteriaIndex)
+            }
+        },
         deleteCohort: () => {
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
         },

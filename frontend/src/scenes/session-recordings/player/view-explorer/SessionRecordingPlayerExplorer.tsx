@@ -29,7 +29,7 @@ function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExpl
                 label="Reset"
                 title="Reset any changes you've made to the DOM with your developer tools"
             />
-            <div className="font-medium">
+            <div className="font-medium flex items-center gap-1.5">
                 Snapshot of DOM as it was at <Timestamp size="small" noPadding />
             </div>
             <SettingsButton onClick={onClose} label="Close" icon={<IconX />} />
@@ -60,6 +60,7 @@ export function SessionRecordingPlayerExplorer({
                 <iframe
                     key={iframeKey}
                     srcDoc={html}
+                    title="Session recording DOM explorer"
                     sandbox=""
                     width={width}
                     height={height}

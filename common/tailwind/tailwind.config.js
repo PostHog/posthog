@@ -335,6 +335,8 @@ const config = {
         '../../frontend/src/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
+        '../../products/**/mcp/apps/**/*.{ts,tsx}',
+        '../../common/mosaic/src/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],

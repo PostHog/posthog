@@ -9,6 +9,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,12 +17,14 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionBranchingType } from '~/types'
 
-import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
+import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
+import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
+import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
-import { doesSurveyHaveDisplayConditions } from '../utils'
+import { surveysLogic } from '../surveysLogic'
+import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
-import { WizardStepper } from './WizardStepper'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
 import { SuccessStep } from './steps/SuccessStep'
@@ -29,13 +32,17 @@ import { TemplateStep } from './steps/TemplateStep'
 import { WhenStep } from './steps/WhenStep'
 import { WhereStep } from './steps/WhereStep'
 import { SurveyWizardLogicProps, surveyWizardLogic } from './surveyWizardLogic'
+import { WizardStepper } from './WizardStepper'
 
 export const scene: SceneExport<SurveyWizardLogicProps> = {
     component: SurveyWizardComponent,
+    // Declaring the logic here keeps it (and its connected surveyLogic) mounted
+    // across tab switches, so unsaved edits and the current step survive re-entry.
+    logic: surveyWizardLogic,
     paramsToProps: ({ params: { id } }): SurveyWizardLogicProps => ({ id: id || 'new' }),
 }
 
-function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
+export function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
     return (
         <BindLogic logic={surveyWizardLogic} props={{ id }}>
             <BindLogic logic={surveyLogic} props={{ id }}>
@@ -58,8 +65,35 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
-    const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { survey, surveyWarnings } = useValues(surveyLogic)
+    const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
+
+    const { setPreferredEditor } = useActions(surveysLogic)
+
+    // Redirect existing surveys that use wizard-unsupported fields to the full
+    // editor. Brand-new surveys should always start on template selection,
+    // regardless of the user's editor preference.
+    // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
+    // respected and bypass the redirect.
+    useEffect(() => {
+        if (window.location.hash) {
+            return
+        }
+        if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
+            router.actions.replace(`${urls.survey(id)}?edit=true`)
+        }
+    }, [isEditing, survey, surveyLoading, id])
+
+    // register tool so edits from AI will always reload the survey data on-page
+    useMaxTool({
+        identifier: 'edit_survey',
+        active: isEditing,
+        callback: (toolOutput: { survey_id?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.survey_id === id) {
+                loadSurvey()
+            }
+        },
+    })
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -75,11 +109,19 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
 
+    const handleCustomizeMore = (): void => {
+        setPreferredEditor('full')
+        const target = isEditing
+            ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
+            : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
+        router.actions.push(target)
+    }
+
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
         return (
-            <div className="min-h-screen bg-bg-light">
-                <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+            <div className="min-h-full w-full shrink-0 bg-bg-light">
+                <div className="mx-auto max-w-6xl space-y-5 px-6 py-6">
                     <LemonSkeleton className="h-10 w-full" />
                     <LemonSkeleton className="h-64 w-full" />
                 </div>
@@ -90,14 +132,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     // Template selection step - only for new surveys
     if (currentStep === 'template' && !isEditing) {
         return (
-            <div className="min-h-screen bg-bg-light">
-                <div className="max-w-3xl mx-auto p-8">
+            <div className="min-h-full w-full shrink-0 bg-bg-light">
+                <div className="mx-auto max-w-3xl space-y-5 p-8">
                     <div className="mb-6">
                         <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.surveys()}>
                             Surveys
                         </LemonButton>
                     </div>
-                    <TemplateStep />
+                    <TemplateStep handleCustomizeMore={handleCustomizeMore} />
                 </div>
             </div>
         )
@@ -108,16 +150,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         id,
     } as NewSurvey
 
-    const handleCustomizeMore = (): void => {
-        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
-    }
-
     const getConditionsSummary = (): string[] => {
         const conditions = survey.conditions
         const summary: string[] = []
 
         if (conditions?.url) {
-            summary.push(`URL contains "${conditions.url}"`)
+            summary.push(`URL ${conditions.urlMatchType === 'exact' ? 'is exactly' : 'contains'} "${conditions.url}"`)
         }
 
         if (conditions?.selector) {
@@ -129,8 +167,28 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         }
 
         if (conditions?.events?.values && conditions.events.values.length > 0) {
-            const eventNames = conditions.events.values.map((e) => e.name).join(', ')
+            const eventNames = conditions.events.values
+                .map((event) => {
+                    const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
+                    return propertyFilterCount > 0
+                        ? `${event.name} (${propertyFilterCount} property filter${propertyFilterCount !== 1 ? 's' : ''})`
+                        : event.name
+                })
+                .join(', ')
             summary.push(`User performed event: ${eventNames}`)
+        }
+
+        if (survey.linked_flag?.key) {
+            summary.push(
+                survey.conditions?.linkedFlagVariant
+                    ? `Feature flag: ${survey.linked_flag.key} (${survey.conditions.linkedFlagVariant} variant)`
+                    : `Feature flag: ${survey.linked_flag.key}`
+            )
+        }
+
+        const audienceSummary = getSurveyAudienceSummaryValue(survey)
+        if (audienceSummary) {
+            summary.push(`Audience: ${audienceSummary}`)
         }
 
         return summary
@@ -139,12 +197,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const showLaunchConfirmation = (onConfirm: () => void): void => {
         const hasConditions = doesSurveyHaveDisplayConditions(survey)
         const conditionsSummary = getConditionsSummary()
+        const hasAudienceConditions = conditionsSummary.length > 0
 
         LemonDialog.open({
             title: 'Launch this survey?',
             content: (
                 <div className="space-y-2">
-                    {hasConditions && conditionsSummary.length > 0 ? (
+                    <SdkVersionWarnings warnings={surveyWarnings} />
+                    {hasConditions || hasAudienceConditions ? (
                         <>
                             <p className="text-secondary">
                                 The survey will be shown to users who match these conditions:
@@ -210,8 +270,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     if (currentStep === 'success' && createdSurvey) {
         return (
-            <div className="min-h-screen bg-bg-light">
-                <div className="max-w-2xl mx-auto p-8">
+            <div className="min-h-full w-full shrink-0 bg-bg-light">
+                <div className="mx-auto max-w-2xl p-8">
                     <SuccessStep survey={createdSurvey} />
                 </div>
             </div>
@@ -231,9 +291,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     // Shared header for all main steps
     const header = (
-        <div className="space-y-4">
+        <div className="space-y-3">
             <div className="space-y-1">
-                {backButton}
+                <div className="flex items-center justify-between">
+                    {backButton}
+                    <LemonButton type="secondary" size="small" onClick={handleCustomizeMore}>
+                        Full editor
+                    </LemonButton>
+                </div>
                 <div>
                     <label htmlFor="survey-name" className="text-xs font-medium text-muted">
                         Survey name
@@ -261,8 +326,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     // Appearance step - full width with built-in preview
     if (currentStep === 'appearance') {
         return (
-            <div className="min-h-screen bg-bg-light">
-                <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+            <div className="min-h-full w-full shrink-0 bg-bg-light">
+                <div className="mx-auto max-w-6xl space-y-5 px-6 py-6">
                     {header}
                     <AppearanceStep />
 
@@ -297,16 +362,16 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     return (
-        <div className="min-h-screen bg-bg-light">
-            <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+        <div className="min-h-full w-full shrink-0 bg-bg-light">
+            <div className="mx-auto max-w-6xl space-y-5 px-6 py-6">
                 {header}
 
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                     {/* Left: Form */}
-                    <div className="lg:col-span-3 space-y-6">
+                    <div className="space-y-5 lg:col-span-3">
                         <div>
                             {currentStep === 'questions' && <QuestionsStep />}
-                            {currentStep === 'where' && <WhereStep />}
+                            {currentStep === 'where' && <WhereStep onOpenFullEditor={handleCustomizeMore} />}
                             {currentStep === 'when' && <WhenStep />}
                         </div>
 
@@ -352,13 +417,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                 )}
                             </div>
                         </div>
-
-                        <p className="text-center text-xs text-muted">
-                            Need more control?{' '}
-                            <button type="button" onClick={handleCustomizeMore} className="text-link hover:underline">
-                                Open full editor
-                            </button>
-                        </p>
                     </div>
 
                     {/* Right: Preview */}

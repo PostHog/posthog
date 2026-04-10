@@ -58,7 +58,8 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
-    TeamType,
+    Survey,
+    SurveyEventProperties,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -506,22 +507,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    // Capture error tracking specific alert event
-                    if (
-                        res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened' ||
-                        res.template?.id === 'error-tracking-issue-spiking'
-                    ) {
-                        const triggerEventMap: Record<string, string> = {
-                            'error-tracking-issue-created': '$error_tracking_issue_created',
-                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
-                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
-                        }
-                        const triggerEvent = triggerEventMap[res.template.id]
-
+                    const errorTrackingTriggerEvent = res.filters?.events
+                        ?.map((event) => event.id)
+                        ?.find((id) =>
+                            [
+                                '$error_tracking_issue_created',
+                                '$error_tracking_issue_reopened',
+                                '$error_tracking_issue_spiking',
+                            ].includes(id)
+                        )
+                    if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            trigger_event: triggerEvent,
-                            subtemplate_id: res.template.id,
+                            source: 'traditional',
+                            trigger_event: errorTrackingTriggerEvent,
+                            subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
                             enabled: res.enabled,
                         })
@@ -671,6 +670,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
+
+        survey: [
+            null as Survey | null,
+            {
+                loadSurvey: async () => {
+                    const surveyId = values.surveyIdFromFilters
+                    if (!surveyId) {
+                        return null
+                    }
+                    try {
+                        return await api.surveys.get(surveyId)
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -715,7 +731,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const type = values.type
                     const typeFolder =
                         type === 'site_app'
-                            ? 'Site apps'
+                            ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
                               : type === 'source_webhook'
@@ -729,6 +745,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
+        surveyIdFromFilters: [
+            (s) => [s.configuration],
+            (configuration): string | null => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const prop = (event.properties as AnyPropertyFilter[] | undefined)?.find(
+                        (p) => p.key === SurveyEventProperties.SURVEY_ID && 'value' in p && p.value
+                    )
+                    if (prop) {
+                        return String(prop.value)
+                    }
+                }
+                return null
+            },
+        ],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
@@ -737,19 +767,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        teamHasCohortFilters: [
-            (s) => [s.currentTeam, s.configuration],
-            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
-                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
-                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
-                const teamHasCohorts =
-                    currentTeam?.test_account_filters?.some(
-                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
-                    ) || false
-
-                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -1475,6 +1492,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     actions: [],
                     data_warehouse: [],
                 })
+            }
+        },
+        surveyIdFromFilters: (surveyId) => {
+            if (surveyId) {
+                actions.loadSurvey()
+            } else {
+                actions.loadSurveySuccess(null)
             }
         },
     })),

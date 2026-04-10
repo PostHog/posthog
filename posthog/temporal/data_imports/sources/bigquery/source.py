@@ -44,10 +44,13 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
         }
 
-    def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
             logger=None,
+            names=names,
         )
 
         filtered_results = [
@@ -60,8 +63,14 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                 supports_incremental=len(columns) > 0,
                 supports_append=len(columns) > 0,
                 incremental_fields=[
-                    {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                    for column_name, column_type in columns
+                    {
+                        "label": column_name,
+                        "type": column_type,
+                        "field": column_name,
+                        "field_type": column_type,
+                        "nullable": nullable,
+                    }
+                    for column_name, column_type, nullable in columns
                 ],
             )
             for table_name, columns in filtered_results

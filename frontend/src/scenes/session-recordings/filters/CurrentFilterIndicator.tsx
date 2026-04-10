@@ -27,7 +27,7 @@ export function CurrentFilterIndicator(): JSX.Element | null {
 
     return (
         <div className="text-xs flex gap-2 items-center pt-2">
-            <div className="font-semibold whitespace-nowrap flex-shrink-0">Current filter applied:</div>
+            <div className="font-semibold shrink-0">Current filter applied:</div>
             <div className="flex items-center min-w-0 flex-1">
                 <LemonTag
                     data-attr="current-filter-indicator"

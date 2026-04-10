@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import React from 'react'
 
 import { LemonTable } from '@posthog/lemon-ui'
 
@@ -6,7 +7,7 @@ import * as hedgehogs from './hedgehogs'
 
 interface HedgehogDefinition {
     name: string
-    hedgehog: (...args: any[]) => JSX.Element
+    hedgehog: React.ComponentType<Record<string, unknown>>
 }
 
 const allHedgehogs: HedgehogDefinition[] = Object.entries(hedgehogs).map(([key, Hedgehog]) => ({

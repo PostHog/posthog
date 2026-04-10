@@ -4,10 +4,12 @@ from typing import Any
 
 import structlog
 
-from posthog.batch_exports.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
+
+from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 
 logger = structlog.get_logger(__name__)
 
@@ -16,6 +18,7 @@ actions_that_require_current_team = [
     "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",
+    "default_release_conditions",
 ]
 
 
@@ -128,6 +131,44 @@ def delete_batch_exports(team_ids: list[int]):
                 "Schedule not found during team deletion",
                 schedule_id=e.schedule_id,
             )
+
+
+def delete_data_modeling_schedules(team_ids: list[int]) -> None:
+    """Delete Temporal schedules for data modeling saved queries in deleted teams.
+
+    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
+    call revert_materialization(), leaving orphaned Temporal schedules.
+    """
+    import temporalio.service
+
+    from posthog.temporal.common.schedule import delete_schedule
+
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_queries = list(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id__in=team_ids,
+            sync_frequency_interval__isnull=False,
+        ).exclude(deleted=True)  # as it's nullable
+    )
+
+    if not saved_queries:
+        return
+
+    temporal = sync_connect()
+
+    for saved_query in saved_queries:
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                logger.warning(
+                    "Data modeling schedule not found during team deletion",
+                    schedule_id=str(saved_query.id),
+                    team_id=saved_query.team_id,
+                )
+                continue
+            capture_exception(e)
 
 
 can_enable_actor_on_events = False

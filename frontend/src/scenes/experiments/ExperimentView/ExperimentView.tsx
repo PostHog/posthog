@@ -1,30 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
+import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
-import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
-import { ActivityScope, ExperimentProgressStatus } from '~/types'
+import {
+    LegacyExperimentInfo,
+    LegacyResultsQuery,
+    LegacyExploreButton,
+    LegacyExperimentHeader,
+    LegacyMetricsView,
+} from '~/scenes/experiments/legacy'
+import { ActivityScope } from '~/types'
 
-import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
-import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
-import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
-import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
-import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
-import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -34,29 +30,51 @@ import {
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
+import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
+import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { LegacyEditConclusionModal } from '../legacy/LegacyEditConclusionModal'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
+import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
+import { Metrics } from '../MetricsView/new/Metrics'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
+import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
-import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { ResultsNotificationBanner } from './ResultsNotificationBanner'
+import { SettingsTab } from './SettingsTab'
 import { SummaryTable } from './SummaryTable'
-import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-    StopExperimentModal,
-} from './components'
+
+const AiAnalysisTab = (): JSX.Element => {
+    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
+
+    return (
+        <div className="flex flex-row gap-2">
+            <SummarizeExperimentButton
+                disabledReason={
+                    !hasMinimumExposureForResults
+                        ? 'Experiment needs at least 50 exposures to summarize results.'
+                        : undefined
+                }
+            />
+            <SummarizeSessionReplaysButton experiment={experiment} />
+        </div>
+    )
+}
 
 const MetricsTab = (): JSX.Element => {
     const {
@@ -66,6 +84,9 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
+        isExperimentLaunched,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -95,9 +116,12 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+
     return (
         <>
-            {usesNewQueryRunner && (
+            <ResultsNotificationBanner />
+            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
                     <SummarizeExperimentButton
                         disabledReason={
@@ -109,6 +133,7 @@ const MetricsTab = (): JSX.Element => {
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
+
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -126,7 +151,7 @@ const MetricsTab = (): JSX.Element => {
              */}
             {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
-                    <MetricsViewLegacy isSecondary={false} />
+                    <LegacyMetricsView isSecondary={false} />
                     {showResultDetails && (
                         <div>
                             <div className="pb-4">
@@ -185,8 +210,10 @@ const MetricsTab = (): JSX.Element => {
                             )}
                         </div>
                     )}
-                    <MetricsViewLegacy isSecondary={true} />
+                    <LegacyMetricsView isSecondary={true} />
                 </>
+            ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
+                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
             ) : (
                 <>
                     <Metrics isSecondary={false} />
@@ -196,6 +223,7 @@ const MetricsTab = (): JSX.Element => {
         </>
     )
 }
+
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
 
@@ -220,10 +248,23 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
-    const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
-        useActions(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
+    const {
+        setExperiment,
+        setExposureCriteria,
+        updateExposureCriteria,
+        updateExperimentMetrics,
+        addSharedMetricsToExperiment,
+        removeSharedMetricFromExperiment,
+    } = useActions(experimentLogic)
 
     if (!tabId) {
         throw new Error('<ExperimentView /> must receive a tabId prop')
@@ -235,23 +276,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
-    /**
-     * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
-     * we show the experiment view.
-     */
-    const allPrimaryMetrics = [
-        ...(experiment.metrics || []),
-        ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),
-    ]
-
-    if (
-        !experimentLoading &&
-        getExperimentStatus(experiment) === ExperimentProgressStatus.Draft &&
-        experiment.type === 'product' &&
-        allPrimaryMetrics.length === 0
-    ) {
-        return <ExperimentForm draftExperiment={experiment} tabId={tabId} />
-    }
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
     return (
         <SceneContent>
@@ -260,6 +285,24 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                 <LoadingState />
             ) : (
                 <>
+                    <ExperimentWarningBanner />
+                    {showDebugPanel && (
+                        <div className="mb-4">
+                            <DebugCHQueries experimentId={typeof experiment.id === 'number' ? experiment.id : null} />
+                        </div>
+                    )}
+                    {!usesNewQueryRunner && (
+                        <LemonBanner type="warning" className="mb-4">
+                            This is a legacy experiment. Metrics can no longer be edited.
+                        </LemonBanner>
+                    )}
+                    {experiment.feature_flag?.id && (
+                        <PendingChangeRequestBanner
+                            resourceType="feature_flag"
+                            resourceId={experiment.feature_flag.id}
+                            context="experiment"
+                        />
+                    )}
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
@@ -267,11 +310,34 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
                         tabs={[
+                            ...(usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'settings',
+                                          label: 'Settings',
+                                          content: <SettingsTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'metrics',
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
+                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'ai_analysis',
+                                          label: (
+                                              <div className="flex items-center gap-1">
+                                                  <IconSparkles />
+                                                  <span>AI analysis</span>
+                                              </div>
+                                          ),
+                                          content: <AiAnalysisTab />,
+                                      },
+                                  ]
+                                : []),
                             ...(!isExperimentDraft
                                 ? [
                                       {
@@ -353,32 +419,27 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric) => {
-                                    removeSharedMetricFromExperiment(metric.id)
-                                    closeSharedMetricModal()
+                            />
+                            <SharedMetricDetailsModal onDelete={removeSharedMetricFromExperiment} />
+                            <ExposureCriteriaModal
+                                onSave={(exposureCriteria) => {
+                                    setExposureCriteria(exposureCriteria)
+                                    /**
+                                     * this will trigger a save of the experiment and
+                                     * a refresh of the results
+                                     */
+                                    updateExposureCriteria()
                                 }}
                             />
-                            <ExposureCriteriaModal />
                             <RunningTimeCalculatorModal />
                         </>
-                    ) : (
-                        <>
-                            <LegacyMetricSourceModal isSecondary={true} />
-                            <LegacyMetricSourceModal isSecondary={false} />
-                            <LegacySharedMetricModal isSecondary={true} />
-                            <LegacySharedMetricModal isSecondary={false} />
-                            <LegacyMetricModal isSecondary={true} />
-                            <LegacyMetricModal isSecondary={false} />
-                        </>
-                    )}
+                    ) : null}
 
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal />
                     <EditConclusionModal />
-
-                    <VariantDeltaTimeseries />
+                    <LegacyEditConclusionModal />
                 </>
             )}
         </SceneContent>

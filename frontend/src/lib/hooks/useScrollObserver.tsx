@@ -45,7 +45,7 @@ export function useScrollObserver({ onScrollTop, onScrollBottom }: ScrollObserve
                 }
             } else {
                 containerRef.current = el
-                el.addEventListener('scroll', handleScroll)
+                el.addEventListener('scroll', handleScroll, { passive: true })
             }
         },
         [handleScroll]

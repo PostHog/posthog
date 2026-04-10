@@ -5,6 +5,7 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -21,6 +22,7 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -48,6 +50,7 @@ class TableSerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    options = serializers.DictField(required=False, default=dict)
 
     class Meta:
         model = DataWarehouseTable
@@ -63,9 +66,11 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
+            "options",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
@@ -97,6 +102,7 @@ class TableSerializer(serializers.ModelSerializer):
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.data_warehouse.backend.api.external_data_schema import SimpleExternalDataSchemaSerializer
 
@@ -127,11 +133,19 @@ class TableSerializer(serializers.ModelSerializer):
             access_secret=access_secret,
         )
         table = DataWarehouseTable(**validated_data)
+        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
+            try:
+                table._validate_csv_double_quotes_setting()
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
         try:
             table.columns = table.get_columns()
         except Exception as err:
             raise serializers.ValidationError(str(err))
-        table.save()
+        try:
+            table.save()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
@@ -147,6 +161,11 @@ class TableSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(error_message)
 
         return url_pattern
+
+    def validate_options(self, options):
+        if not isinstance(options, dict):
+            raise serializers.ValidationError("Options must be a JSON object.")
+        return options
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
@@ -214,6 +233,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
+            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -251,9 +271,24 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 credential.access_secret = access_secret
             credential.save()
 
+        old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        instance.save()
+
+        if (
+            instance._is_csv_format()
+            and instance.csv_allow_double_quotes is not None
+            and instance.csv_allow_double_quotes != old_csv_allow_double_quotes
+        ):
+            try:
+                instance._validate_csv_double_quotes_setting()
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
+
+        try:
+            instance.save()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -338,8 +373,27 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
 
         file = request.FILES["file"]
-        table_name = request.data.get("name", file.name)
+
+        # Sanitize filename — Django strips path separators via os.path.basename
+        # in UploadedFile._set_name, but we further restrict to safe characters
+        # as defense-in-depth for the S3 key and url_pattern.
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
+        if not safe_filename or safe_filename.startswith("."):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid filename"},
+            )
+
+        table_name = request.data.get("name", safe_filename)
         file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate format against allowed choices
+        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        if file_format not in valid_formats:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"},
+            )
 
         # Validate table name format
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
@@ -386,10 +440,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else:
                     s3 = boto3.client("s3")
 
-                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{safe_filename}")
 
                 # Set the URL pattern for the table
-                table.url_pattern = f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
+                table.url_pattern = (
+                    f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
+                )
                 table.format = file_format
 
                 # Try to determine columns from the file

@@ -7,7 +7,7 @@ pub use error::{StorageError, StorageResult};
 
 pub use types::{
     CohortMembership, DistinctIdMapping, DistinctIdWithVersion, Group, GroupIdentifier, GroupKey,
-    GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, HashKeyOverrideInput, Person,
+    GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person,
 };
 
 pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};

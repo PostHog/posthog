@@ -11,6 +11,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import boto3
+from asgiref.sync import sync_to_async
 from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute
@@ -230,14 +231,14 @@ def minio_client(bucket_name):
     _ = minio_client.delete_bucket(Bucket=bucket_name)
 
 
-def setup_bigquery(
+async def setup_bigquery(
     team: Team,
     bigquery_config: dict[str, str],
     bigquery_dataset: bigquery.Dataset,
     bigquery_table: bigquery.Table,
     is_incremental: bool,
 ):
-    source = ExternalDataSource.objects.create(
+    source = await ExternalDataSource.objects.acreate(
         team=team,
         source_id="source_id",
         connection_id="connection_id",
@@ -250,7 +251,7 @@ def setup_bigquery(
             **bigquery_config,
         },
     )
-    credentials = DataWarehouseCredential.objects.create(
+    credentials = await DataWarehouseCredential.objects.acreate(
         access_key=str(settings.OBJECT_STORAGE_ACCESS_KEY_ID),
         access_secret=str(settings.OBJECT_STORAGE_SECRET_ACCESS_KEY),
         team=team,
@@ -267,7 +268,7 @@ def setup_bigquery(
     else:
         raise ValueError(f"Invalid id field: {incremental_field}")
 
-    warehouse_table = DataWarehouseTable.objects.create(
+    warehouse_table = await DataWarehouseTable.objects.acreate(
         name=bigquery_table.table_id,
         format="Parquet",
         team=team,
@@ -285,7 +286,7 @@ def setup_bigquery(
             "value": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
         },
     )
-    schema = ExternalDataSchema.objects.create(
+    schema = await ExternalDataSchema.objects.acreate(
         team=team,
         name=bigquery_table.table_id,
         source=source,
@@ -305,7 +306,7 @@ def setup_bigquery(
         else {},
     )
 
-    job = ExternalDataJob.objects.create(
+    job = await ExternalDataJob.objects.acreate(
         team=team,
         pipeline=source,
         schema=schema,
@@ -319,7 +320,8 @@ def setup_bigquery(
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_full_refresh_table(
+@pytest.mark.asyncio
+async def test_bigquery_source_full_refresh_table(
     activity_environment,
     team,
     bigquery_client,
@@ -339,7 +341,7 @@ def test_bigquery_source_full_refresh_table(
     Finally, we assert the values correspond to the ones we have inserted in
     BigQuery.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=False)
+    inputs = await setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=False)
 
     with override_settings(
         NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
@@ -350,25 +352,25 @@ def test_bigquery_source_full_refresh_table(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_integer.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -384,7 +386,8 @@ def test_bigquery_source_full_refresh_table(
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_full_refresh_view(
+@pytest.mark.asyncio
+async def test_bigquery_source_full_refresh_view(
     activity_environment,
     team,
     bigquery_client,
@@ -404,7 +407,7 @@ def test_bigquery_source_full_refresh_view(
     Finally, we assert the values correspond to the ones we have inserted in
     BigQuery.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_view_integer, is_incremental=False)
+    inputs = await setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_view_integer, is_incremental=False)
 
     with override_settings(
         NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
@@ -415,25 +418,25 @@ def test_bigquery_source_full_refresh_view(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_view_integer.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_view_integer.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -449,7 +452,8 @@ def test_bigquery_source_full_refresh_view(
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_incremental_integer(
+@pytest.mark.asyncio
+async def test_bigquery_source_incremental_integer(
     activity_environment,
     team,
     bigquery_client,
@@ -473,7 +477,7 @@ def test_bigquery_source_incremental_integer(
     have inserted in BigQuery, and we verify the incremental configuration
     is updated accordingly.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=True)
+    inputs = await setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=True)
 
     with override_settings(
         DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -483,25 +487,25 @@ def test_bigquery_source_incremental_integer(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_integer.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -514,8 +518,8 @@ def test_bigquery_source_incremental_integer(
     assert all(incremental in incrementals for incremental in [0, 1])
     assert all(value in values for value in ["a", "b"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == 1
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_integer.table_id)
+    assert schema.incremental_field_last_value == 1
 
     job = bigquery_client.query(
         f"INSERT INTO {bigquery_table_integer.dataset_id}.{bigquery_table_integer.table_id} ({bigquery_table_primary_key}, incremental, value) VALUES ('third', 2, 'c')"
@@ -530,25 +534,25 @@ def test_bigquery_source_incremental_integer(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_integer.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
@@ -561,13 +565,14 @@ def test_bigquery_source_incremental_integer(
     assert all(incremental in incrementals for incremental in [0, 1, 2])
     assert all(value in values for value in ["a", "b", "c"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == 2
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_integer.table_id)
+    assert schema.incremental_field_last_value == 2
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_incremental_timestamp(
+@pytest.mark.asyncio
+async def test_bigquery_source_incremental_timestamp(
     activity_environment,
     team,
     bigquery_client,
@@ -591,7 +596,9 @@ def test_bigquery_source_incremental_timestamp(
     have inserted in BigQuery, and we verify the incremental configuration
     is updated accordingly.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True)
+    inputs = await setup_bigquery(
+        team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True
+    )
 
     with override_settings(
         DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -601,25 +608,25 @@ def test_bigquery_source_incremental_timestamp(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_timestamp.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -632,8 +639,8 @@ def test_bigquery_source_incremental_timestamp(
     assert all(ts in timestamps for ts in [dt.datetime(2025, 1, 1, 0, 0), dt.datetime(2025, 1, 2, 0, 0)])
     assert all(value in values for value in ["a", "b"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-02T00:00:00"
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_timestamp.table_id)
+    assert schema.incremental_field_last_value == "2025-01-02T00:00:00"
 
     now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
     job = bigquery_client.query(
@@ -649,25 +656,25 @@ def test_bigquery_source_incremental_timestamp(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_timestamp.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
@@ -683,14 +690,15 @@ def test_bigquery_source_incremental_timestamp(
     )
     assert all(value in values for value in ["a", "b", "c"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_timestamp.table_id)
+    assert schema.incremental_field_last_value == "2025-01-03T00:00:00"
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("bigquery_table_primary_key", ["test_pk"], indirect=True)
-def test_bigquery_source_incremental_custom_primary_key(
+@pytest.mark.asyncio
+async def test_bigquery_source_incremental_custom_primary_key(
     activity_environment,
     team,
     bigquery_client,
@@ -714,7 +722,9 @@ def test_bigquery_source_incremental_custom_primary_key(
     have inserted in BigQuery, and we verify the incremental configuration
     is updated accordingly.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True)
+    inputs = await setup_bigquery(
+        team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True
+    )
 
     with override_settings(
         DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -724,25 +734,25 @@ def test_bigquery_source_incremental_custom_primary_key(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_timestamp.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 2
 
@@ -755,8 +765,8 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert all(ts in timestamps for ts in [dt.datetime(2025, 1, 1, 0, 0), dt.datetime(2025, 1, 2, 0, 0)])
     assert all(value in values for value in ["a", "b"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-02T00:00:00"
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_timestamp.table_id)
+    assert schema.incremental_field_last_value == "2025-01-02T00:00:00"
 
     now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
     job = bigquery_client.query(
@@ -772,25 +782,25 @@ def test_bigquery_source_incremental_custom_primary_key(
         BUCKET_URL=f"s3://{bucket_name}",
         BUCKET_PATH=bucket_name,
     ):
-        activity_environment.run(import_data_activity_sync, inputs)
+        await activity_environment.run(import_data_activity_sync, inputs)
 
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
-    columns = table.get_columns()
+    table = await DataWarehouseTable.objects.aget(name=bigquery_table_timestamp.table_id)
+    columns = await sync_to_async(table.get_columns)()
 
     assert bigquery_table_primary_key in columns
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
-    function_call, context = table.get_function_call()
+    function_call, context = await sync_to_async(table.get_function_call)()
     query = f"SELECT * FROM {function_call}"
-    result = sync_execute(query, args=context.values)
+    result = await sync_to_async(sync_execute)(query, args=context.values)
     assert result is not None
     assert len(result) == 3
 
@@ -806,5 +816,5 @@ def test_bigquery_source_incremental_custom_primary_key(
     )
     assert all(value in values for value in ["a", "b", "c"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
-    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"
+    schema = await ExternalDataSchema.objects.aget(name=bigquery_table_timestamp.table_id)
+    assert schema.incremental_field_last_value == "2025-01-03T00:00:00"

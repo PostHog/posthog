@@ -6,10 +6,10 @@ import { IconExclamation, IconRobot } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationMessagesDisplay'
-import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
 import { AIDataLoading } from 'products/llm_analytics/frontend/components/AIDataLoading'
+import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from 'products/llm_analytics/frontend/hooks/useAIData'
+import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {

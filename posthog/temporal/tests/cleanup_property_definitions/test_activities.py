@@ -6,7 +6,6 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized_class
 
 from posthog.models import PropertyDefinition
-from posthog.models.event_property import EventProperty
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
     delete_property_definitions_from_postgres,
@@ -21,6 +20,8 @@ from posthog.temporal.tests.cleanup_property_definitions.conftest import (
     get_ch_property_definitions,
     insert_property_definition_to_ch,
 )
+
+from products.event_definitions.backend.models.event_property import EventProperty
 
 
 def create_property_definition(team, name: str, property_type: int) -> PropertyDefinition:

@@ -1,4 +1,4 @@
-from typing import Optional, Protocol, cast, runtime_checkable
+from typing import Optional, Protocol, Union, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
@@ -10,7 +10,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
+from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 
@@ -66,6 +66,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if property not in self._extra_event_properties:
                 self._extra_event_properties.append(property)
 
+        # When aggregating by non person property (e.g. session_id)
+        # add the person_id so we can later fetch the person data
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
+            self._extra_event_fields.append("person_id")
+
     def conversion_window_limit(self) -> int:
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
@@ -104,9 +109,65 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     arrayRotateRight(events_array, 1),
                     arrayRotateLeft(events_array, 1))"""
 
+    def _should_apply_pre_filter(self) -> bool:
+        funnelOrderType = self.context.funnelsFilter.funnelOrderType
+        if funnelOrderType == StepOrderValue.UNORDERED:
+            return False
+        if getattr(self.context.query.series[1], "optionalInFunnel", False):
+            return False
+        if self.context.breakdown:
+            return False
+        if getattr(self.context.funnelsFilter, "exclusions", None):
+            return False
+        # The synthetic branch produces dummy placeholders, not real events/timestamps
+        if self._include_matched_events() or self.context.includeTimestamp or self.context.includePrecedingTimestamp:
+            return False
+        return True
+
+    def _build_synthetic_branch(self) -> ast.SelectQuery:
+        """Build a cheap GROUP BY query for persons with step_0 but NOT step_1.
+
+        These persons can never progress past step 0, so their result is
+        deterministic. This avoids sending their events through the UDF.
+        """
+        prop_vals = self._prop_vals()
+        breakdown_select = self._default_breakdown_selector()
+        events_array_prop_default = "''"
+
+        person_id_select = ""
+        if self._is_session_aggregation():
+            person_id_select = "any(person_id) as person_id,"
+
+        inner_event_query = self._get_inner_event_query()
+
+        # Must match the UDF's non-nullable Array(Float64) return type, otherwise the UNION ALL fails
+        non_nullable_empty_float_array = "arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [toFloat(0)]))"
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
+                SELECT
+                    arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), {events_array_prop_default}, [0])]) as events_array,
+                    {prop_vals} as prop,
+                    tuple(0, {breakdown_select}, {non_nullable_empty_float_array}, arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
+                    0 as step_reached,
+                    1 as steps,
+                    {breakdown_select} as breakdown,
+                    {non_nullable_empty_float_array} as timings,
+                    1 as steps_bitfield,
+                    {person_id_select}
+                    aggregation_target
+                FROM {{inner_event_query}}
+                GROUP BY aggregation_target
+                HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) = 0
+            """,
+                {"inner_event_query": inner_event_query},
+            ),
+        )
+
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
-    def _inner_aggregation_query(self):
+    def _inner_aggregation_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
@@ -132,6 +193,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
+        elif self.context.breakdownType == BreakdownType.COHORT:
+            prop_selector = "prop_basic"
         elif self._query_has_array_breakdown():
             prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
         else:
@@ -155,6 +218,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         ):
             assert isinstance(self.context.breakdown, list)
             prop_arg = f"""[empty(prop) ? [{",".join(["''"] * len(self.context.breakdown))}] : prop]"""
+
+        person_id_select = ""
+        if self._is_session_aggregation():
+            # person is already merged with the overrides in the inner query
+            # so we should be safe to pick any of the person_ids
+            person_id_select = "any(person_id) as person_id,"
 
         inner_select = parse_select(
             f"""
@@ -181,6 +250,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 af_tuple.3 as timings,
                 {self.matched_event_arrays_selects()}
                 af_tuple.5 as steps_bitfield,
+                {person_id_select}
                 aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
@@ -188,6 +258,33 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """,
             {"inner_event_query": inner_event_query},
         )
+
+        if self._should_apply_pre_filter():
+            assert isinstance(inner_select, ast.SelectQuery)
+            qualifying_subquery = parse_select(
+                """
+                SELECT aggregation_target FROM {iq}
+                GROUP BY aggregation_target
+                HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) > 0
+            """,
+                {"iq": self._get_inner_event_query()},
+            )
+
+            assert inner_select.select_from is not None
+            event_query = inner_select.select_from.table
+            assert isinstance(event_query, ast.SelectQuery)
+            in_filter = parse_expr(
+                "aggregation_target IN ({qualifying})",
+                {"qualifying": qualifying_subquery},
+            )
+            if event_query.where:
+                event_query.where = ast.And(exprs=[event_query.where, in_filter])
+            else:
+                event_query.where = in_filter
+
+            synthetic = self._build_synthetic_branch()
+            inner_select = ast.SelectSetQuery.create_from_queries([inner_select, synthetic], "UNION ALL")
+
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
@@ -247,6 +344,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """,
             {"inner_select": inner_select},
         )
+
+        if self.should_add_not_in_cohort_group:
+            columns: list[ast.Expr] = [
+                ast.Alias(alias=f"step_{i + 1}", expr=ast.Constant(value=0)) for i in range(self.context.max_steps)
+            ]
+            columns.extend(
+                ast.Alias(alias=f"step_{i}_conversion_times", expr=ast.Array(exprs=[]))
+                for i in range(1, self.context.max_steps)
+            )
+            columns.append(ast.Alias(alias="row_number", expr=ast.Constant(value=0)))
+            columns.append(ast.Alias(alias="final_prop", expr=ast.Constant(value=NOT_IN_COHORT_ID)))
+            synthetic_row = ast.SelectQuery(select=columns)
+            s = ast.SelectSetQuery.create_from_queries([s, synthetic_row], "UNION ALL")
 
         mean_conversion_times = ",".join(
             [
@@ -395,6 +505,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             *self._get_timestamp_outer_select(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
+        if self._is_session_aggregation():
+            select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
         where = self._get_funnel_person_step_condition()
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
@@ -442,7 +554,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value, self.context.team)
+                            get_breakdown_cohort_name(
+                                breakdown_value,
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),

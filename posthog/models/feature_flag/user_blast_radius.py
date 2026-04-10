@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from rest_framework.exceptions import ValidationError
@@ -5,10 +6,17 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+
+@dataclass
+class BlastRadiusResult:
+    affected: int
+    total: int
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -44,14 +52,30 @@ def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
+) -> BlastRadiusResult:
+    # No rollout % calculations here, since it makes more sense to compute that on the frontend
+    cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+
+    if group_type_index is not None:
+        affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+    else:
+        affected, total = _get_person_blast_radius(team, cleaned_filter)
+    return BlastRadiusResult(affected=affected, total=total)
+
+
+def get_user_blast_radius_persons(
+    team: Team,
+    feature_flag_condition: dict,
+    group_type_index: Optional[GroupTypeIndex] = None,
+    cursor: Optional[str] = None,
 ):
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
     if group_type_index is not None:
-        return _get_group_blast_radius(team, cleaned_filter, group_type_index)
+        return _get_group_blast_radius_persons(team, cleaned_filter, group_type_index, cursor=cursor)
     else:
-        return _get_person_blast_radius(team, cleaned_filter)
+        return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
@@ -66,9 +90,10 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
         return total_users, total_users
 
     # Build the SELECT query - property_to_expr handles all properties including cohorts
-    select_query = _build_person_count_query(team, filter)
+    select_query = _build_person_query(team, filter, return_count=True)
 
     # Execute the query
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -81,16 +106,23 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
     return blast_radius, total_users
 
 
-def _build_person_count_query(team: Team, filter: Filter):
-    """Build HogQL AST query to count distinct persons matching filters."""
+def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
+    """Build HogQL AST query to count or select distinct persons matching filters."""
     from posthog.hogql import ast
     from posthog.hogql.property import property_to_expr
 
-    # Build the main SELECT with count(DISTINCT persons.id)
-    select_query = ast.SelectQuery(
-        select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-    )
+    # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
+    if return_count:
+        select_query = ast.SelectQuery(
+            select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        )
+    else:
+        select_query = ast.SelectQuery(
+            select=[ast.Field(chain=["persons", "id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            distinct=True,
+        )
 
     # Build WHERE clause with team_id and property filters
     # property_to_expr handles all property types including cohorts
@@ -106,8 +138,23 @@ def _build_person_count_query(team: Team, filter: Filter):
     property_expr = property_to_expr(filter.property_groups, team, scope="person")
     where_exprs.append(property_expr)
 
+    # Add cursor-based pagination when returning IDs
+    if not return_count and cursor is not None:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["persons", "id"]),
+                right=ast.Constant(value=cursor),
+            )
+        )
+
     # Combine all WHERE expressions with AND
     select_query.where = ast.And(exprs=where_exprs)
+
+    # Add ORDER BY and LIMIT for pagination when returning IDs
+    if not return_count:
+        select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
+        select_query.limit = ast.Constant(value=500)
 
     return select_query
 
@@ -132,9 +179,10 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
         return total_groups, total_groups
 
     # Build the SELECT query for groups
-    select_query = _build_group_count_query(team, filter, group_type_index)
+    select_query = _build_group_query(team, filter, group_type_index, return_count=True)
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -147,16 +195,32 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     return total_affected, total_groups
 
 
-def _build_group_count_query(team: Team, filter: Filter, group_type_index: GroupTypeIndex):
-    """Build HogQL AST query to count distinct groups matching filters."""
+PERSON_BATCH_SIZE = 500
+
+
+def _build_group_query(
+    team: Team,
+    filter: Filter,
+    group_type_index: GroupTypeIndex,
+    return_count: bool = True,
+    cursor: Optional[str] = None,
+):
+    """Build HogQL AST query to count or select distinct groups matching filters."""
     from posthog.hogql import ast
     from posthog.hogql.property import property_to_expr
 
-    # Build the main SELECT with count(DISTINCT groups.key)
-    select_query = ast.SelectQuery(
-        select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["groups", "key"])])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
-    )
+    # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
+    if return_count:
+        select_query = ast.SelectQuery(
+            select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["groups", "key"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
+        )
+    else:
+        select_query = ast.SelectQuery(
+            select=[ast.Field(chain=["groups", "key"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
+            distinct=True,
+        )
 
     # Build WHERE clauses
     where_exprs: list[ast.Expr] = [
@@ -321,8 +385,6 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
 
     # Add regular property filters using property_to_expr (only if there are any)
     if regular_properties:
-        from posthog.models.property import PropertyGroup
-
         regular_filter = Filter(
             data={"properties": PropertyGroup(type=filter.property_groups.type, values=regular_properties).to_dict()},
             team=team,
@@ -330,7 +392,70 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
         property_expr = property_to_expr(regular_filter.property_groups, team, scope="group")
         where_exprs.append(property_expr)
 
+    # Add cursor-based pagination when returning keys
+    if not return_count and cursor is not None:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["groups", "key"]),
+                right=ast.Constant(value=cursor),
+            )
+        )
+
     # Combine all WHERE expressions with AND
     select_query.where = ast.And(exprs=where_exprs)
 
+    # Add ORDER BY and LIMIT for pagination when returning keys
+    if not return_count:
+        select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["groups", "key"]), order="ASC")]
+        select_query.limit = ast.Constant(value=PERSON_BATCH_SIZE)
+
     return select_query
+
+
+def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
+    """Get distinct person IDs matching person-based feature flag filters."""
+    from posthog.hogql.query import execute_hogql_query
+
+    # Build the SELECT query to get person IDs
+    select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        query=select_query,
+        team=team,
+    )
+
+    # Extract person IDs from results
+    person_ids = [str(row[0]) for row in response.results] if response.results else []
+    return person_ids
+
+
+def _get_group_blast_radius_persons(
+    team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
+) -> list[str]:
+    """Get distinct group keys matching group-based feature flag filters."""
+    from posthog.hogql.query import execute_hogql_query
+
+    properties = filter.property_groups.flat
+
+    # Validate all group properties have correct group_type_index
+    for property in properties:
+        if property.key == "$group_key":
+            property.group_type_index = group_type_index
+        elif property.group_type_index is None or property.group_type_index != group_type_index:
+            raise ValidationError("Invalid group type index for feature flag condition.")
+
+    # Build the SELECT query to get group keys
+    select_query = _build_group_query(team, filter, group_type_index, return_count=False, cursor=cursor)
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        query=select_query,
+        team=team,
+        workload=Workload.OFFLINE,
+    )
+
+    # Extract group keys from results
+    group_keys = [str(row[0]) for row in response.results] if response.results else []
+    return group_keys

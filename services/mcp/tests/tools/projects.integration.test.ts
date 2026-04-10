@@ -27,6 +27,7 @@ describe('Projects', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {
@@ -72,7 +73,7 @@ describe('Projects', { concurrent: false }, () => {
             const targetProject = TEST_PROJECT_ID!
             const setResult = await setTool.handler(context, { projectId: Number(targetProject) })
 
-            expect(setResult.content[0].text).toBe(`Switched to project ${targetProject}`)
+            expect(setResult.content[0]!.text).toBe(`Switched to project ${targetProject}`)
         })
     })
 
@@ -337,7 +338,7 @@ describe('Projects', { concurrent: false }, () => {
             const targetProject = projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
 
             const setResult = await setTool.handler(context, { projectId: targetProject.id })
-            expect(setResult.content[0].text).toBe(`Switched to project ${targetProject.id}`)
+            expect(setResult.content[0]!.text).toBe(`Switched to project ${targetProject.id}`)
 
             await context.cache.set('projectId', targetProject.id.toString())
         })

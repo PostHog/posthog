@@ -1,11 +1,14 @@
 import { Meta } from '@storybook/react'
 
-import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+import {
+    NetworkRequestTiming,
+    NetworkRequestTimingProps,
+} from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { mswDecorator } from '~/mocks/browser'
 import { PerformanceEvent } from '~/types'
 
-const meta: Meta<typeof NetworkRequestTiming> = {
+const meta: Meta<NetworkRequestTimingProps> = {
     title: 'Components/NetworkRequest/Timing',
     component: NetworkRequestTiming,
     decorators: [

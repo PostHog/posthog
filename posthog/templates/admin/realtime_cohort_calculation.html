@@ -49,10 +49,17 @@
         <h2>Configuration</h2>
 
         <div class="form-row">
-            <label for="{{ form.team_id.id_for_label }}">{{ form.team_id.label }}:</label>
-            {{ form.team_id }}
-            {% if form.team_id.help_text %}<p class="help">{{ form.team_id.help_text }}</p>{% endif %}
-            {{ form.team_id.errors }}
+            <label for="{{ form.team_ids.id_for_label }}">{{ form.team_ids.label }}:</label>
+            {{ form.team_ids }}
+            {% if form.team_ids.help_text %}<p class="help">{{ form.team_ids.help_text }}</p>{% endif %}
+            {{ form.team_ids.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.global_percentage.id_for_label }}">{{ form.global_percentage.label }}:</label>
+            {{ form.global_percentage }}
+            {% if form.global_percentage.help_text %}<p class="help">{{ form.global_percentage.help_text }}</p>{% endif %}
+            {{ form.global_percentage.errors }}
         </div>
 
         <div class="form-row">

@@ -1,5 +1,3 @@
-import { ItemCategory, ItemRenderer, TimelineItem } from '..'
-
 import { IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
@@ -10,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 import { BasePreview, EventLoader } from './base'
 
 export interface ExceptionItem extends TimelineItem {

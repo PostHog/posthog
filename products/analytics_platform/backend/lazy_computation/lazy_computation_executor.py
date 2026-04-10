@@ -18,8 +18,9 @@ import structlog
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -27,7 +28,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -47,7 +48,7 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 # ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
 # waiting for something else, it expires and is deleted in clickhouse.
-EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
+EXPIRY_BUFFER_SECONDS = 48 * 60 * 60  # 48 hours
 
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
@@ -62,6 +63,31 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 60  # 1 minute
 
 # Grace period before declaring a job "not started" as stale. Covers executor boot time.
 DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
+
+# Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
+# the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
+# preventing stale reads from hitting a replica that hasn't received the data yet.
+# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
+# ClickHouse setup and we want them to remain fast and deterministic).
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+
+
+def _get_insert_settings(team_id: int) -> dict:
+    """Build ClickHouse settings for preaggregation INSERT queries.
+
+    Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
+    uses for regular queries, then applies INSERT-specific overrides.
+    """
+    settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
+    settings.pop("readonly", None)  # INSERTs need write access
+    settings.update(
+        {
+            "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+        }
+    )
+    return settings
 
 
 @dataclass
@@ -564,10 +590,7 @@ def run_lazy_computation_insert(
         sync_execute(
             insert_sql,
             values,
-            settings={
-                "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-            },
+            settings=_get_insert_settings(team.id),
         )
 
 
@@ -962,10 +985,7 @@ def ensure_precomputed(
             sync_execute(
                 insert_sql,
                 values,
-                settings={
-                    "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-                },
+                settings=_get_insert_settings(t.id),
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
@@ -1020,7 +1040,13 @@ def _build_manual_insert_sql(
     query.select.append(expires_at_expr)
 
     # Print to SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=create_default_modifiers_for_team(team),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,

@@ -2,31 +2,35 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { BatchExportBackfill } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
+import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
 
-export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportBackfillsLogic({ id })
-    const { batchExportConfig } = useValues(logic)
+export function BatchExportBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id, context })
+    const { batchExportConfig, batchExportConfigLoading } = useValues(logic)
 
     if (!batchExportConfig) {
+        if (batchExportConfigLoading) {
+            return <BatchExportLoadingSkeleton />
+        }
         return <NotFound object="batch export" />
     }
 
     return (
         <div className="flex flex-col gap-2">
             <BatchExportBackfillsControls id={id} />
-            <BatchExportLatestBackfills id={id} />
-            <BatchExportBackfillModal id={id} />
+            <BatchExportLatestBackfills id={id} context={context} />
+            <BatchExportBackfillModal id={id} context={context} />
         </div>
     )
 }
@@ -49,9 +53,9 @@ function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): J
     )
 }
 
-function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportBackfillsLogic({ id })
-    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
+function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id, context })
+    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig, recordLabel } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
 
     if (!batchExportConfig) {
@@ -107,15 +111,15 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const status = backfill.status
                             const color = colorForStatus(status)
                             const progress = backfill.progress
-                            if (progress && progress.progress !== null && progress.progress !== undefined) {
+                            if (progress && progress.progress != null) {
                                 let label = ''
-                                if (
-                                    progress.finished_runs !== null &&
-                                    progress.finished_runs !== undefined &&
-                                    progress.total_runs
-                                ) {
-                                    const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
-                                    label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
+                                if (progress.finished_runs != null && progress.total_runs != null) {
+                                    if (progress.total_runs === 0) {
+                                        label = '(0 runs)'
+                                    } else {
+                                        const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
+                                        label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
+                                    }
                                 }
 
                                 return (
@@ -136,6 +140,27 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         title: 'ID',
                         key: 'runId',
                         render: (_, backfill) => backfill.id,
+                    },
+                    {
+                        title: `Total ${recordLabel}`,
+                        key: 'total_records_count',
+                        render: (_, backfill) => {
+                            if (backfill.total_records_count == null) {
+                                return ''
+                            }
+                            const isEstimate = backfill.status === 'Running' || backfill.status === 'Starting'
+                            const formatted = backfill.total_records_count.toLocaleString()
+                            if (isEstimate) {
+                                return (
+                                    <Tooltip title="Estimated count, may change as the backfill progresses">
+                                        <div className="cursor-help border-b border-dashed border-current w-fit">
+                                            ~{formatted}
+                                        </div>
+                                    </Tooltip>
+                                )
+                            }
+                            return formatted
+                        },
                     },
                     {
                         title: 'Interval start',
@@ -164,13 +189,13 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                     {
                         title: 'Started',
                         key: 'started',
-                        tooltip: 'Date and time when this BatchExport backfill started',
+                        tooltip: 'Date and time when this backfill started',
                         render: (_, backfill) => (backfill.created_at ? <TZLabel time={backfill.created_at} /> : ''),
                     },
                     {
                         title: 'Finished',
                         key: 'finished',
-                        tooltip: 'Date and time when this BatchExport backfill finished',
+                        tooltip: 'Date and time when this backfill finished',
                         render: (_, backfill) => (backfill.finished_at ? <TZLabel time={backfill.finished_at} /> : ''),
                     },
                     {

@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -31,9 +31,12 @@ const TriggerPopover = ({
         })
     )
 
+    const blastRadiusExceeded =
+        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.affected > BLAST_RADIUS_LIMIT
+
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
         }
         return ''
     }
@@ -103,6 +106,11 @@ const TriggerPopover = ({
                     type="primary"
                     status="alt"
                     loading={blastRadiusLoading}
+                    disabledReason={
+                        blastRadiusExceeded
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                            : undefined
+                    }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
                             triggerBatchWorkflow(
@@ -131,7 +139,7 @@ const TriggerPopover = ({
 
 export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, workflowChanged } = useValues(workflowLogic(props))
+    const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
 
@@ -144,7 +152,7 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
             disabledReason={
                 workflow?.status !== 'active'
                     ? 'Must enable workflow to use trigger'
-                    : workflowChanged
+                    : hasUnsavedChanges
                       ? 'Save changes first'
                       : undefined
             }

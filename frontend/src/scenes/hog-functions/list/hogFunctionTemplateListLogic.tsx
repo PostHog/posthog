@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -155,6 +156,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
+                    .filter(
+                        (x) =>
+                            x.id !== 'template-source-vercel-log-drain' ||
+                            !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
+                    )
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -162,9 +168,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         templatesFuse: [
             (s) => [s.templates],
             (templates): Fuse => {
-                return new FuseClass(templates || [], {
+                return createFuse(templates || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],

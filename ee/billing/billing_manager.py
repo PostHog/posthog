@@ -32,6 +32,12 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
+class BillingServiceOpenInvoicesError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -589,7 +595,15 @@ class BillingManager:
             timeout=30,
         )
 
-        handle_billing_service_error(res)
+        if res.status_code == 409:
+            try:
+                data = res.json()
+            except JSONDecodeError:
+                data = {}
+            if data.get("code") == BillingAPIErrorCodes.OPEN_INVOICES_ERROR.value:
+                raise BillingServiceOpenInvoicesError(data.get("error_message", "Open invoices must be resolved first"))
+
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 

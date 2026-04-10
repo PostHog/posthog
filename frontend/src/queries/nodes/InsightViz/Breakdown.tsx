@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdownFilter, display, isTrends, isSingleSeriesOutput, hasDataWarehouseSeries } = useValues(
+    const { breakdownFilter, display, isTrends, isFunnels, isSingleSeriesOutput, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     return (
         <>
@@ -18,8 +20,11 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
                 breakdownFilter={breakdownFilter}
                 display={display}
                 isTrends={isTrends}
+                isFunnels={isFunnels}
                 updateBreakdownFilter={updateBreakdownFilter}
                 updateDisplay={updateDisplay}
+                showLabel={!editorPanelsEnabled}
+                showInlineOptions={editorPanelsEnabled}
                 disabledReason={
                     isTrends && !isSingleSeriesOutput && hasDataWarehouseSeries
                         ? 'Breakdowns are not supported for multiple series types when at least one of them is a data warehouse series.'

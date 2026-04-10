@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     AggregationType,
     Breakdown,
@@ -9,6 +11,7 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     InCohortVia,
     IntervalType,
     RetentionEntity,
@@ -94,11 +97,18 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        """
-        Called after __init__ and after dashboard filters are applied.
-        This ensures cohort optimizations work for both direct filters and dashboard-level filters.
-        """
+        self.validate()
+
+        # Called after __init__ and after dashboard filters are applied. This ensures cohort optimizations work for both direct filters and dashboard-level filters.
         self.update_hogql_modifiers()
+
+    def validate(self) -> None:
+        if (
+            self.query.retentionFilter
+            and self.query.retentionFilter.timeWindowMode == "24_hour_windows"
+            and self.query.retentionFilter.cumulative
+        ):
+            raise ValidationError("Cumulative retention is not supported for 24 hour windows.")
 
     def update_hogql_modifiers(self) -> None:
         """
@@ -145,14 +155,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def aggregation_target(self) -> ast.Expr | None:
-        """
-        Extract prop val
-        """
         if (
             self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
             and self.query.retentionFilter.aggregationProperty
         ):
-            property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
+            prop_name = self.query.retentionFilter.aggregationProperty
+            if self.query.retentionFilter.aggregationPropertyType == "person":
+                # person.properties resolves via the HogQL person join on the events table
+                chain = cast(list[str | int], ["person", "properties", prop_name])
+            else:
+                chain = cast(list[str | int], ["events", "properties", prop_name])
+            property_field = ast.Field(chain=chain)
             return ast.Call(
                 name="ifNull",
                 args=[
@@ -348,20 +361,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
-        if not is_first_ever_occurrence:
-            # Pre filter event
-            events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-            unique_events = set(events)
-            # Don't pre-filter if any of them is "All events"
-            if None not in unique_events:
-                events_where.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        # Sorting for consistent snapshots in tests
-                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                        op=ast.CompareOperationOp.In,
-                    )
+        # Pre-filter by event name
+        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
+        unique_events = set(events)
+        # Don't pre-filter if any of them is "All events"
+        if None not in unique_events:
+            events_where.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    # Sorting for consistent snapshots in tests
+                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+                    op=ast.CompareOperationOp.In,
                 )
+            )
 
         return events_where
 
@@ -396,6 +408,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 properties_chain = ["person", property_name]
             else:
                 properties_chain = ["person", "properties", property_name]
+        elif breakdown_type == "data_warehouse_person_property":
+            properties_chain = ["person", *property_name.split(".")]
         elif breakdown_type == "group":
             if property_name.startswith("$virt_"):
                 # Virtual properties exist as expression fields on the groups table
@@ -647,11 +661,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
         if self.aggregation_target:
-            # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+)
+            # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+).
+            # Tuples are (interval_start, value, actual_timestamp); actual_timestamp is used when start and
+            # return events differ to filter interval-0 return events that happen after the start event.
+            #
+            # These raw expressions are stored in return_event_values and added as named aliases (_start_event_data,
+            # _return_event_data) in select_fields. All later references use ast.Field to those aliases instead of
+            # inlining the groupArrayIf expressions. This prevents ClickHouse from creating a self-join on the events
+            # table when these aggregations appear inside lambda functions (arrayFilter/arrayMap/arrayMin), which would
+            # otherwise cause MEMORY_LIMIT_EXCEEDED on large datasets.
             start_event_data = parse_expr(
                 """
                 groupArrayIf(
-                    ({start_of_interval_sql}, {aggregation_target}),
+                    ({start_of_interval_sql}, {aggregation_target}, events.timestamp),
                     {start_entity_expr} and {filter_timestamp}
                 )
                 """,
@@ -667,7 +689,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )
-            return_event_timestamps = parse_expr("arrayMap(x -> x.1, {val})", {"val": return_event_data})
+            # Reference the pre-computed aliases rather than inlining the expressions again
+            return_event_timestamps = parse_expr("arrayMap(x -> x.1, _return_event_data)")
             return_event_values = (start_event_data, return_event_data)
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
@@ -717,47 +740,102 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         retention_value_expr: ast.Expr | None = None
 
         if self.aggregation_target and return_event_values:
-            # return_event_values is a tuple of (start_event_data, return_event_data)
-            start_event_data, return_event_data = return_event_values
+            # return_event_values raw exprs are added as named SELECT aliases (_start_event_data, _return_event_data)
+            # in select_fields below. Here we only build the combined_data expression using field references.
+            start_event_data_ref = ast.Field(chain=["_start_event_data"])
+            return_event_data_ref = ast.Field(chain=["_return_event_data"])
 
-            # Combine all events (start and return) with their intervals and values
-            # Create rows for each event
-            combined_data = parse_expr(
-                """
-                arrayConcat(
-                    arrayFilter(
-                        x -> x.1 >= 0,
-                        arrayMap(
-                            (ts, val) -> (
-                                toInt(if(ts = date_range[start_interval_index + 1], 0, -1)),
-                                val
-                            ),
-                            arrayMap(x -> x.1, {start_data}),
-                            arrayMap(x -> x.2, {start_data})
-                        )
-                    ),
-                    arrayFilter(
-                        x -> x.1 > 0,
-                        arrayMap(
-                            (ts, val) -> (
-                                toInt(indexOf(
-                                    arraySlice(date_range, start_interval_index + 2, {lookahead}),
-                                    ts
-                                )),
-                                val
-                            ),
-                            arrayMap(x -> x.1, {return_data}),
-                            arrayMap(x -> x.2, {return_data})
+            # When start and return events are different event types, return events that occur
+            # strictly after the start event within interval 0 are counted for that interval.
+            # When they are the same event type, start_data already captures all occurrences in
+            # interval 0; allowing return_data to also contribute would double-count.
+            different_event_entities = (
+                self.start_event.id != self.return_event.id or self.start_event.type != self.return_event.type
+            )
+
+            if different_event_entities:
+                # Include return events in interval 0 (index 0 = same interval as cohort) only when
+                # they happen strictly after the earliest start event in that interval.
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 1, {lookahead_plus_one}),
+                                        item.1
+                                    ) - 1),
+                                    item.2
+                                ),
+                                arrayFilter(
+                                    x -> (
+                                        x.1 > date_range[start_interval_index + 1] OR (
+                                            x.1 = date_range[start_interval_index + 1] AND
+                                            x.3 > arrayMin(
+                                                arrayMap(
+                                                    y -> y.3,
+                                                    arrayFilter(
+                                                        z -> z.1 = date_range[start_interval_index + 1],
+                                                        {start_data}
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    ),
+                                    {return_data}
+                                )
+                            )
                         )
                     )
+                    """,
+                    {
+                        "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
+                    },
                 )
-                """,
-                {
-                    "lookahead": ast.Constant(value=self.query_date_range.lookahead),
-                    "start_data": start_event_data,
-                    "return_data": return_event_data,
-                },
-            )
+            else:
+                # Same event: return events only contribute to intervals > 0 (current behaviour).
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 > 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 2, {lookahead}),
+                                        item.1
+                                    )),
+                                    item.2
+                                ),
+                                {return_data}
+                            )
+                        )
+                    )
+                    """,
+                    {
+                        "lookahead": ast.Constant(value=self.query_date_range.lookahead),
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
+                    },
+                )
 
             intervals_from_base_expr = parse_expr("(arrayJoin({data})).1", {"data": combined_data})
             retention_value_expr = parse_expr("(arrayJoin({data})).2", {"data": combined_data})
@@ -817,13 +895,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
             ),
             *minimum_occurrences_aliases,
-            # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
-            ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
-            # exploded (0 based) indices of matching intervals for start event
-            ast.Alias(
-                alias="start_interval_index",
-                expr=parse_expr(
-                    """
+        ]
+
+        # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
+        # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
+        # lambda functions, which would otherwise trigger a self-join on the events table and exceed memory limits.
+        if self.aggregation_target and return_event_values:
+            start_event_data_raw, return_event_data_raw = return_event_values
+            select_fields.append(ast.Alias(alias="_start_event_data", expr=start_event_data_raw))
+            select_fields.append(ast.Alias(alias="_return_event_data", expr=return_event_data_raw))
+
+        select_fields.extend(
+            [
+                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+                # exploded (0 based) indices of matching intervals for start event
+                ast.Alias(
+                    alias="start_interval_index",
+                    expr=parse_expr(
+                        """
                         arrayJoin(
                             arrayFilter(
                                 x -> x > -1,
@@ -840,14 +930,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             )
                         )
                     """,
-                    {"is_valid_start_interval": is_valid_start_interval},
+                        {"is_valid_start_interval": is_valid_start_interval},
+                    ),
                 ),
-            ),
-            ast.Alias(
-                alias="intervals_from_base",
-                expr=intervals_from_base_expr,
-            ),
-        ]
+                ast.Alias(
+                    alias="intervals_from_base",
+                    expr=intervals_from_base_expr,
+                ),
+            ]
+        )
 
         if retention_value_expr:
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
@@ -985,64 +1076,127 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
                 actor_query = self._explode_cumulative_actors(cumulative_actors_query)
 
-            count_expr: ast.Expr
+            # count_expr always represents the number of distinct actors
+            count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+
+            # aggregation_value_expr is only used when aggregation_target is set
+            aggregation_value_expr: ast.Expr | None = None
             if self.aggregation_target:
                 if self.query.retentionFilter.aggregationType == AggregationType.AVG:
-                    count_expr = parse_expr(
+                    aggregation_value_expr = parse_expr(
                         "sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)"
                     )
                 else:
-                    count_expr = parse_expr("sum(actor_activity.retention_value)")
-            else:
-                count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+                    aggregation_value_expr = parse_expr("sum(actor_activity.retention_value)")
+                assert aggregation_value_expr is not None
 
             # Add breakdown if needed
             if self.breakdowns_in_query:
-                retention_query = parse_select(
-                    """
-                    SELECT
-                        actor_activity.start_interval_index AS start_event_matching_interval,
-                        actor_activity.intervals_from_base AS intervals_from_base,
-                        actor_activity.breakdown_value AS breakdown_value,
-                        {count_expr} AS count
-
-                    FROM {actor_query} AS actor_activity
-
-                    GROUP BY
-                        start_event_matching_interval,
-                        intervals_from_base,
-                        breakdown_value
-
-                    ORDER BY
-                        breakdown_value,
-                        start_event_matching_interval,
-                        intervals_from_base
-
-                    LIMIT 100000
-                    """,
-                    {"actor_query": actor_query, "count_expr": count_expr},
-                    timings=self.timings,
-                )
-            else:
-                retention_query = parse_select(
-                    """
-                        SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
-                               actor_activity.intervals_from_base      AS intervals_from_base,
-                               {count_expr} AS count
+                if self.aggregation_target:
+                    assert aggregation_value_expr is not None
+                    retention_query = parse_select(
+                        """
+                        SELECT
+                            actor_activity.start_interval_index AS start_event_matching_interval,
+                            actor_activity.intervals_from_base AS intervals_from_base,
+                            actor_activity.breakdown_value AS breakdown_value,
+                            {count_expr} AS count,
+                            {aggregation_value_expr} AS aggregation_value
 
                         FROM {actor_query} AS actor_activity
 
-                        GROUP BY start_event_matching_interval,
-                                 intervals_from_base
+                        GROUP BY
+                            start_event_matching_interval,
+                            intervals_from_base,
+                            breakdown_value
 
-                        ORDER BY start_event_matching_interval,
-                                 intervals_from_base
+                        ORDER BY
+                            breakdown_value,
+                            start_event_matching_interval,
+                            intervals_from_base
 
                         LIMIT 100000
-                    """,
-                    {"actor_query": actor_query, "count_expr": count_expr},
-                    timings=self.timings,
-                )
+                        """,
+                        {
+                            "actor_query": actor_query,
+                            "count_expr": count_expr,
+                            "aggregation_value_expr": aggregation_value_expr,
+                        },
+                        timings=self.timings,
+                    )
+                else:
+                    retention_query = parse_select(
+                        """
+                        SELECT
+                            actor_activity.start_interval_index AS start_event_matching_interval,
+                            actor_activity.intervals_from_base AS intervals_from_base,
+                            actor_activity.breakdown_value AS breakdown_value,
+                            {count_expr} AS count
+
+                        FROM {actor_query} AS actor_activity
+
+                        GROUP BY
+                            start_event_matching_interval,
+                            intervals_from_base,
+                            breakdown_value
+
+                        ORDER BY
+                            breakdown_value,
+                            start_event_matching_interval,
+                            intervals_from_base
+
+                        LIMIT 100000
+                        """,
+                        {"actor_query": actor_query, "count_expr": count_expr},
+                        timings=self.timings,
+                    )
+            else:
+                if self.aggregation_target:
+                    assert aggregation_value_expr is not None
+                    retention_query = parse_select(
+                        """
+                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
+                                   actor_activity.intervals_from_base      AS intervals_from_base,
+                                   {count_expr} AS count,
+                                   {aggregation_value_expr} AS aggregation_value
+
+                            FROM {actor_query} AS actor_activity
+
+                            GROUP BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            ORDER BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            LIMIT 100000
+                        """,
+                        {
+                            "actor_query": actor_query,
+                            "count_expr": count_expr,
+                            "aggregation_value_expr": aggregation_value_expr,
+                        },
+                        timings=self.timings,
+                    )
+                else:
+                    retention_query = parse_select(
+                        """
+                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
+                                   actor_activity.intervals_from_base      AS intervals_from_base,
+                                   {count_expr} AS count
+
+                            FROM {actor_query} AS actor_activity
+
+                            GROUP BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            ORDER BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            LIMIT 100000
+                        """,
+                        {"actor_query": actor_query, "count_expr": count_expr},
+                        timings=self.timings,
+                    )
         return retention_query
 
     def _build_cumulative_actors_query(
@@ -1144,12 +1298,30 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
+        results = self.format_results(response)
+
+        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+
+    def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
+        """Format raw retention HogQL response into nested interval structures.
+
+        Columns are accessed by name to support arbitrary column ordering
+        (materialized tables return columns alphabetically).
+        Handles: breakdown ranking, 'Other' aggregation, sampling correction,
+        bracket labels, date computation.
+        """
+        cols = {name: i for i, name in enumerate(response.columns or [])}
+        has_aggregation_value = "aggregation_value" in cols
+
         if self.breakdowns_in_query:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
             breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
             for row in original_results:
-                start_interval, intervals_from_base, breakdown_value, count = row
+                start_interval = row[cols["start_event_matching_interval"]]
+                intervals_from_base = row[cols["intervals_from_base"]]
+                breakdown_value = row[cols["breakdown_value"]]
+                count = row[cols["count"]]
                 if intervals_from_base == 0:
                     breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
 
@@ -1159,45 +1331,66 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit is not None
                 else get_breakdown_limit_for_context(self.limit_context)
             )
-            # Sort by count descending, then by breakdown value ascending for stability
             sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]))
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
-            aggregated_data: dict[str, dict[int, dict[int, float]]] = {}
+            aggregated_count_data: dict[str, dict[int, dict[int, float]]] = {}
+            aggregated_value_data: dict[str, dict[int, dict[int, float]]] = {}
             for row in original_results:
-                start_interval, intervals_from_base, breakdown_value, count = row
+                start_interval = row[cols["start_event_matching_interval"]]
+                intervals_from_base = row[cols["intervals_from_base"]]
+                breakdown_value = row[cols["breakdown_value"]]
+                count = row[cols["count"]]
+                aggregation_value = row[cols["aggregation_value"]] if has_aggregation_value else None
 
                 target_breakdown = breakdown_value
                 if breakdown_value in other_values:
                     target_breakdown = BREAKDOWN_OTHER_STRING_LABEL
 
-                # Apply sampling correction when aggregating into the final structure
                 corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
-                aggregated_data[target_breakdown] = aggregated_data.get(target_breakdown, {})
-                breakdown_data = aggregated_data[target_breakdown]
 
+                aggregated_count_data[target_breakdown] = aggregated_count_data.get(target_breakdown, {})
+                breakdown_data = aggregated_count_data[target_breakdown]
                 breakdown_data[start_interval] = breakdown_data.get(start_interval, {})
                 interval_data = breakdown_data[start_interval]
-                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0.0) + corrected_count
+                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0) + corrected_count
+
+                if self.aggregation_target and aggregation_value is not None:
+                    corrected_aggregation_value = correct_result_for_sampling(
+                        aggregation_value, self.query.samplingFactor
+                    )
+                    aggregated_value_data[target_breakdown] = aggregated_value_data.get(target_breakdown, {})
+                    value_breakdown_data = aggregated_value_data[target_breakdown]
+                    value_breakdown_data[start_interval] = value_breakdown_data.get(start_interval, {})
+                    value_interval_data = value_breakdown_data[start_interval]
+                    value_interval_data[intervals_from_base] = (
+                        value_interval_data.get(intervals_from_base, 0.0) + corrected_aggregation_value
+                    )
 
             # Step 4: Format final output
             final_results: list[dict[str, Any]] = []
-            # Keep track of the order based on the ranking
             ordered_breakdown_keys = [item[0] for item in sorted_breakdowns[:breakdown_limit]]
             if other_values:
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                intervals_data: dict[int, dict[int, float]] = aggregated_data.get(breakdown_value, {})
+                count_intervals_data: dict[int, dict[int, float]] = aggregated_count_data.get(breakdown_value, {})
+                value_intervals_data: dict[int, dict[int, float]] = aggregated_value_data.get(breakdown_value, {})
                 labels = self.get_bracket_labels()
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    result_dict: dict[int, float] = intervals_data.get(start_interval, {})
+                    count_result_dict: dict[int, float] = count_intervals_data.get(start_interval, {})
+                    value_result_dict: dict[int, float] = value_intervals_data.get(start_interval, {})
                     values = [
                         {
-                            "count": result_dict.get(return_interval, 0.0),
+                            "count": count_result_dict.get(return_interval, 0),
+                            **(
+                                {"aggregation_value": value_result_dict.get(return_interval, 0.0)}
+                                if self.aggregation_target
+                                else {}
+                            ),
                             "label": labels[return_interval],
                         }
                         for return_interval in range(self.lookahead_period_count)
@@ -1216,30 +1409,38 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             results = final_results
         else:
-            # Rename this variable to avoid conflict with the one in the if block
-            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
-                (start_event_matching_interval, intervals_from_base): {
-                    "count": correct_result_for_sampling(count, self.query.samplingFactor)
-                }
-                for (start_event_matching_interval, intervals_from_base, count) in response.results
-            }
+            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {}
+            for row in response.results or []:
+                key = (row[cols["start_event_matching_interval"]], row[cols["intervals_from_base"]])
+                count = correct_result_for_sampling(row[cols["count"]], self.query.samplingFactor)
+                entry: dict[str, float] = {"count": count}
+                if self.aggregation_target and has_aggregation_value:
+                    entry["aggregation_value"] = (
+                        correct_result_for_sampling(row[cols["aggregation_value"]], self.query.samplingFactor) or 0.0
+                    )
+                results_by_interval_pair[key] = entry
+
             labels = self.get_bracket_labels()
+            default_values: dict[str, float] = {"count": 0.0}
+            if self.aggregation_target and has_aggregation_value:
+                default_values["aggregation_value"] = 0.0
             results = [
                 {
                     "values": [
                         {
-                            **results_by_interval_pair.get((start_interval, return_interval), {"count": 0.0}),
+                            **results_by_interval_pair.get((start_interval, return_interval), default_values),
                             "label": labels[return_interval],
                         }
                         for return_interval in range(self.lookahead_period_count)
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
                     "date": self.get_date(start_interval),
+                    "breakdown_value": None,  # intentional to keep shape consistent
                 }
                 for start_interval in range(self.query_date_range.intervals_between)
             ]
 
-        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return results
 
     def to_actors_query(
         self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None
@@ -1486,11 +1687,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
     ) -> Expr:
         if self.aggregation_target:
-            # For aggregation, collect tuples of (timestamp, value) for return events only
+            # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
+            # actual_timestamp is needed to filter same-interval return events that happen after the start event.
             return parse_expr(
                 """
                 groupArrayIf(
-                    ({start_of_interval_timestamp}, {aggregation_target}),
+                    ({start_of_interval_timestamp}, {aggregation_target}, events.timestamp),
                     {returning_entity_expr} and
                     {filter_timestamp}
                 )

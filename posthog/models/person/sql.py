@@ -61,6 +61,7 @@ def PERSONS_TABLE_SQL(on_cluster=True):
 
 
 def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
+    # Kafka tables cannot have DEFAULT expressions
     return PERSONS_TABLE_BASE_SQL.format(
         table_name=KAFKA_PERSONS_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -499,6 +500,10 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT DISTINCT actor_id FROM ({query})
+) AS new_actors
+WHERE actor_id NOT IN (
+    SELECT person_id FROM {cohort_table}
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 )
 """
 

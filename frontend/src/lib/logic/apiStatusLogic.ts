@@ -60,16 +60,16 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.detail === 'This action requires you to be recently authenticated.') {
+                    if (responseData.code === 'sensitive_action_required_reauth') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
                     } else if (
-                        responseData.detail === '2FA setup required' &&
+                        responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
                     ) {
                         twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     } else if (
-                        responseData.detail === '2FA verification required' &&
+                        responseData.code === 'two_factor_verification_required' &&
                         !values.twoFactorVerificationExpiredToastShown
                     ) {
                         actions.setTwoFactorVerificationExpiredToastShown(true)

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { match } from 'ts-pattern'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -32,7 +32,13 @@ export function SessionRecordingLoading(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const { recordingProps, recordingTimestamp, isNotFound, sessionPlayerMetaDataLoading } = useValues(sessionTabLogic)
+    const {
+        recordingProps,
+        recordingTimestamp,
+        isNotFound,
+        sessionPlayerMetaDataLoading,
+        isTimestampOutsideRecording,
+    } = useValues(sessionTabLogic)
     const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
 
     useEffect(() => {
@@ -46,15 +52,23 @@ export function SessionRecordingContent(): JSX.Element {
     }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
 
     return (
-        <div className="h-full flex justify-center items-center">
-            <SessionRecordingPlayer
-                {...recordingProps}
-                mode={SessionRecordingPlayerMode.Standard}
-                autoPlay={true}
-                noMeta
-                noBorder
-                withSidebar={false}
-            />
+        <div className="h-full flex flex-col">
+            {isTimestampOutsideRecording && (
+                <LemonBanner type="info" className="m-2">
+                    The exception occurred outside the recorded session timeframe. It is attached to a session but not
+                    visible in the recording.
+                </LemonBanner>
+            )}
+            <div className="flex-1 flex justify-center items-center min-h-0">
+                <SessionRecordingPlayer
+                    {...recordingProps}
+                    mode={SessionRecordingPlayerMode.Standard}
+                    autoPlay={true}
+                    noMeta
+                    noBorder
+                    withSidebar={false}
+                />
+            </div>
         </div>
     )
 }

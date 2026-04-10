@@ -63,7 +63,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
                 return
             }
             const portNum = parseInt(values.port, 10)
-            if (isNaN(portNum) || portNum < 1 || portNum > 65535 || String(portNum) !== values.port) {
+            if (isNaN(portNum) || portNum < 1 || portNum > 65535 || String(portNum) !== String(values.port)) {
                 actions.setError('Invalid port parameter')
                 return
             }
@@ -89,7 +89,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
         '/cli/live': (_, searchParams) => {
             const port = searchParams.port
             if (port) {
-                actions.setPort(port)
+                actions.setPort(String(port)) // Ensure stored as string, `searchParams` sometimes automatically parses number
             }
         },
     })),

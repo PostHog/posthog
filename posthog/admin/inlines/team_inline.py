@@ -44,6 +44,7 @@ class TeamInline(TabularInlinePaginated):
             "internal_properties",
             "export_individual_replay",
             "import_individual_replay",
+            "delete_recordings",
             "remote_config_cache_actions",
         )
     ] + ["displayed_name"]

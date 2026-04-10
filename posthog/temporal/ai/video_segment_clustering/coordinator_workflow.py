@@ -13,16 +13,18 @@ from typing import Any
 import structlog
 import temporalio
 import posthoganalytics
+import temporalio.exceptions
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ChildWorkflowHandle
 
-from posthog.models.team.team import Team
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
-from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW
-from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, WorkflowResult
+from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW, clustering_workflow_id
+from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, EmitSignalsResult
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+
+from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 activity_logger = get_logger(__name__)
@@ -49,7 +51,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: VideoSegmentClusteringCoordinatorInputs) -> dict[str, Any]:
-        enabled_team_ids: list[int] = await workflow.execute_activity(
+        enabled_configs: list[tuple[int, str]] = await workflow.execute_activity(
             get_proactive_tasks_enabled_team_ids_activity,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(
@@ -59,39 +61,40 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             ),
         )
 
-        if not enabled_team_ids:
+        if not enabled_configs:
             workflow.logger.debug("No teams with proactive tasks enabled")
             return {
                 "teams_processed": 0,
                 "teams_succeeded": 0,
                 "teams_failed": 0,
-                "total_reports_created": 0,
-                "total_reports_updated": 0,
+                "total_signals_emitted": 0,
             }
 
-        workflow.logger.debug(f"Processing {len(enabled_team_ids)} teams with proactive tasks enabled")
+        workflow.logger.debug(f"Processing {len(enabled_configs)} configs with proactive tasks enabled")
 
         # Track results
-        total_reports_created = 0
-        total_reports_updated = 0
+        total_signals_emitted = 0
         failed_teams: set[int] = set()
         successful_teams: set[int] = set()
 
-        # Process teams in batches for controlled parallelism
-        for batch_start in range(0, len(enabled_team_ids), DEFAULT_MAX_CONCURRENT_TEAMS):
-            batch = enabled_team_ids[batch_start : batch_start + DEFAULT_MAX_CONCURRENT_TEAMS]
+        # Process configs in batches for controlled parallelism
+        for batch_start in range(0, len(enabled_configs), DEFAULT_MAX_CONCURRENT_TEAMS):
+            batch = enabled_configs[batch_start : batch_start + DEFAULT_MAX_CONCURRENT_TEAMS]
 
             # Start all workflows in batch concurrently
-            workflow_handles: dict[int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, WorkflowResult]] = {}
-            for team_id in batch:
+            workflow_handles: dict[
+                int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, EmitSignalsResult | None]
+            ] = {}
+            for team_id, config_id in batch:
                 try:
-                    handle = await temporalio.workflow.start_child_workflow(
+                    handle = await workflow.start_child_workflow(
                         VideoSegmentClusteringWorkflow.run,
                         ClusteringWorkflowInputs(
                             team_id=team_id,
                             lookback_hours=inputs.lookback_hours,
                         ),
-                        id=f"video-segment-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
+                        id=clustering_workflow_id(team_id, config_id),
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                         # Clustering is fast, but priming session summaries takes a while due to video export.
                         # However, 3h should comfortably allow exporting even long sessions, thanks to optimization like
                         # ignoring inactivity or playback speedup. If this is not enough, then we need to optimize export further.
@@ -102,9 +105,11 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                             maximum_interval=timedelta(minutes=5),
                             backoff_coefficient=2.0,
                         ),
-                        parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,  # Terminate but softly
+                        parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,  # Terminate but softly
                     )
                     workflow_handles[team_id] = handle
+                except temporalio.exceptions.WorkflowAlreadyStartedError:
+                    continue
                 except Exception:
                     workflow.logger.exception(f"Failed to start video segment clustering for team {team_id}")
                     posthoganalytics.capture_exception(properties={"team_id": team_id})
@@ -113,37 +118,31 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles.items():
                 try:
-                    workflow_result = await handle
-                    if workflow_result.success:
-                        total_reports_created += workflow_result.reports_created
-                        total_reports_updated += workflow_result.reports_updated
-                        successful_teams.add(team_id)
-                    else:
-                        workflow.logger.error(
-                            f"Video segment clustering failed for team {team_id}: {workflow_result.error}"
-                        )
-                        posthoganalytics.capture_exception(
-                            Exception(workflow_result.error), properties={"team_id": team_id}
-                        )
-                        failed_teams.add(team_id)
+                    emit_result = await handle
+                    if emit_result is not None:
+                        total_signals_emitted += emit_result.signals_emitted
+                    successful_teams.add(team_id)
                 except Exception:
                     workflow.logger.exception(f"Video segment clustering errored for team {team_id}")
                     posthoganalytics.capture_exception(properties={"team_id": team_id})
                     failed_teams.add(team_id)
 
         return {
-            "teams_processed": len(enabled_team_ids),
+            "teams_processed": len(enabled_configs),
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": list(failed_teams),
-            "total_reports_created": total_reports_created,
-            "total_reports_updated": total_reports_updated,
+            "total_signals_emitted": total_signals_emitted,
         }
 
 
 @activity.defn
-async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
-    enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
-        enabled_team_ids.append(team.id)
-    return enabled_team_ids
+async def get_proactive_tasks_enabled_team_ids_activity() -> list[tuple[int, str]]:
+    enabled_configs: list[tuple[int, str]] = []
+    async for config in SignalSourceConfig.objects.filter(
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
+    ).only("team_id", "id"):
+        enabled_configs.append((config.team_id, str(config.id)))
+    return enabled_configs

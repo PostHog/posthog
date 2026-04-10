@@ -2,11 +2,13 @@ import re
 import json
 import time
 import uuid
+import posixpath
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -24,7 +26,7 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from social_core.exceptions import AuthCanceled, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -32,8 +34,9 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
@@ -41,6 +44,7 @@ from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import _is_valid_ip_address
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
@@ -132,6 +136,49 @@ class AllowIPMiddleware:
             "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
             status=403,
         )
+
+
+_OAUTH_CORS_PATHS = frozenset(
+    {
+        "/oauth/token",
+        "/oauth/token/",
+        "/toolbar_oauth/check",
+        "/toolbar_oauth/check/",
+    }
+)
+
+
+class OAuthCorsPreflightMiddleware:
+    """Echo back all requested headers for OAuth CORS preflights.
+
+    The toolbar runs inside the customer's page and calls ``window.fetch``.
+    Customer code may monkey-patch ``fetch`` to inject custom headers
+    (e.g. ``x-app-version``).  If those headers aren't in our CORS
+    ``Access-Control-Allow-Headers``, the browser blocks the request.
+
+    For OAuth endpoints we simply echo back whatever
+    ``Access-Control-Request-Headers`` the browser asks for.
+    This is safe because the endpoints are auth-protected via Bearer
+    tokens (not cookies), so no credentials header is needed.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        origin = request.headers.get("Origin")
+        if request.method == "OPTIONS" and origin and request.path in _OAUTH_CORS_PATHS:
+            response = HttpResponse(status=200)
+            response["Access-Control-Allow-Origin"] = origin
+            response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            requested_headers = request.headers.get("Access-Control-Request-Headers", "")
+            if requested_headers:
+                response["Access-Control-Allow-Headers"] = requested_headers
+            response["Access-Control-Max-Age"] = "86400"
+            response["Vary"] = "Origin"
+            return response
+
+        return self.get_response(request)
 
 
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
@@ -254,7 +301,7 @@ class AutoProjectMiddleware:
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                    return FeatureFlag.objects.filter(id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
@@ -339,6 +386,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
+            source=get_event_source(request),
+            **get_mcp_properties(request),
         )
 
         try:
@@ -673,6 +722,49 @@ class Fix204Middleware:
         return response
 
 
+class OAuthCoopMiddleware:
+    """
+    Override Cross-Origin-Opener-Policy for OAuth pages that need cross-origin communication.
+
+    Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
+    window.opener when a cross-origin popup navigates to our pages — breaking
+    popup-based OAuth flows that rely on the opener reference to detect completion.
+
+    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
+    reference is preserved.
+    """
+
+    OAUTH_PATH_PREFIXES = (
+        "/toolbar_oauth/",
+        "/oauth/",
+        "/connect/vercel/",
+        "/login/vercel/",
+        "/api/agentic/authorize",
+        "/api/agentic/oauth/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    @staticmethod
+    def _matches_oauth_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
+        for prefix in prefixes:
+            if path.startswith(prefix) or path.rstrip("/") + "/" == prefix:
+                return True
+        return False
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+            response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        elif request.path == "/login" or request.path == "/login/":
+            next_url = request.GET.get("next", "")
+            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
+                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        return response
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -707,6 +799,12 @@ class CSPMiddleware:
 
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
+
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
@@ -773,6 +871,8 @@ class SocialAuthExceptionMiddleware:
     Middleware to handle custom social auth exceptions.
     """
 
+    _AUTH_FAILED_PREFIX = "Authentication failed: "
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -781,14 +881,14 @@ class SocialAuthExceptionMiddleware:
 
     def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
         # Only handle exceptions on OAuth callback URLs
-        if not request.path.startswith("/complete/"):
+        if not request.path.startswith("/complete/") and not request.path.startswith("/login/"):
             return None
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
             return redirect("/login?error_code=oauth_cancelled")
 
-        # Handle AuthFailed with specific error codes
+        # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
@@ -800,8 +900,26 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(f"/login?error_code={error}")
 
-        # Handle other exceptions with existing middleware
+        # Handle any other social auth exception by passing the error detail to the frontend
+        if isinstance(exception, AuthException):
+            error_detail = self._get_error_detail(exception)
+            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
+            return redirect(f"/login?{params}")
+
         return None
+
+    def _get_error_detail(self, exception: AuthException) -> str:
+        error_detail = str(exception).strip()
+
+        if isinstance(exception, AuthFailed):
+            error_detail = self._strip_auth_failed_prefix(error_detail)
+
+        return error_detail or "An unexpected error occurred during authentication."
+
+    def _strip_auth_failed_prefix(self, error_detail: str) -> str:
+        if error_detail.startswith(self._AUTH_FAILED_PREFIX):
+            return error_detail[len(self._AUTH_FAILED_PREFIX) :].strip()
+        return error_detail
 
 
 class ActiveOrganizationMiddleware:
@@ -853,13 +971,17 @@ IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # These should be paths that are safe or necessary for the impersonated session to function.
 # Supports both prefix strings and compiled regex patterns.
 READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
-    # These endpoints use POST but are read-only
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
+    # These endpoints use POST but are read-only:
+    # /query/[A-Z][A-Za-z]* matches query-kind segments, while the schema-upgrade POST action
+    # /query/upgrade/ needs an explicit "|upgrade" branch as that starts with a lowercase letter
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/[A-Za-z]+)?/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+    # POST but read-only: loads stack frame records (source context) for error tracking UI
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
 ]

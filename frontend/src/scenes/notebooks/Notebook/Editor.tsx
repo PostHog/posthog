@@ -23,6 +23,7 @@ import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeCustomerJourney } from '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
@@ -34,8 +35,8 @@ import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupPropertie
 import { NotebookNodeHogQL } from '../Nodes/NotebookNodeHogQL'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
-import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
+import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
@@ -46,6 +47,7 @@ import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
+import { NotebookNodeSupportTickets } from '../Nodes/NotebookNodeSupportTickets'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
 import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
@@ -57,9 +59,11 @@ import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
+import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
+import { notebookLogic } from './notebookLogic'
+import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
-import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -82,6 +86,7 @@ export function Editor(): JSX.Element {
         document: false,
         gapcursor: false,
         link: false,
+        trailingNode: false,
     }
 
     const extensions = [
@@ -155,7 +160,11 @@ export function Editor(): JSX.Element {
         NotebookNodeIssues,
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
+        NotebookNodeSupportTickets,
         NotebookNodeRelatedGroups,
+        NotebookNodeCustomerJourney,
+        NotebookTrailingParagraph,
+        NotebookDefaultBlockOnEnter,
     ]
 
     if (hasCollapsibleSections) {
@@ -185,7 +194,7 @@ export function Editor(): JSX.Element {
             {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
-                    !editor.isActive('comment') ? (
+                    !editor.isSelectionFullyWithinSingleMark('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton
@@ -212,13 +221,15 @@ function getNodeBeforeActiveNode(editor: TTEditor): RichContentNode | null {
 }
 
 function findCommentPosition(editor: TTEditor, markId: string): number | null {
-    let result = null
+    let result: number | null = null
     const doc = editor.state.doc
     doc.descendants((node, pos) => {
         const mark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === markId)
         if (mark) {
-            result = pos
-            return
+            // Same id can appear on multiple text nodes; use the start of the marked run.
+            if (result === null || pos < result) {
+                result = pos
+            }
         }
     })
     return result

@@ -98,6 +98,14 @@ export function HogFlowFunctionConfiguration({
             },
         }
         sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
     }
 
     return (
@@ -113,7 +121,7 @@ export function HogFlowFunctionConfiguration({
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
             <HogFlowFunctionMappings
-                useMapping={Array.isArray(mappings) ?? (template?.mapping_templates?.length ?? 0) > 0}
+                useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
                 inputs={inputs}
                 inputs_schema={template?.inputs_schema ?? []}
                 mappings={mappings ?? []}

@@ -1,30 +1,19 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import {
-    APIErrorType,
-    CohortType,
-    ExportContext,
-    ExportedAssetType,
-    ExporterFormat,
-    LocalExportContext,
-    SidePanelTab,
-} from '~/types'
+import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -61,11 +50,6 @@ export const exportsLogic = kea<exportsLogicType>([
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
-
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
-    })),
 
     reducers({
         exports: [
@@ -114,18 +98,13 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            if (featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]) {
-                lemonToast.info('Export starting...', {
-                    button: {
-                        label: 'View exports',
-                        action: () => newInternalTab(urls.exports()),
-                    },
-                    autoClose: false,
-                })
-            } else {
-                actions.openSidePanel(SidePanelTab.Exports)
-                lemonToast.info('Export starting...')
-            }
+            lemonToast.info('Export starting...', {
+                button: {
+                    label: 'View exports',
+                    action: () => newInternalTab(urls.exports()),
+                },
+                autoClose: false,
+            })
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {

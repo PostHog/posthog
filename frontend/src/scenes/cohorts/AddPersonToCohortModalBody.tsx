@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { PersonSelectList } from './PersonSelectList'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { PersonSelectList } from './PersonSelectList'
 
 export function AddPersonToCohortModalBody(): JSX.Element {
     const { query, cohortPersons, personsToAddToCohort } = useValues(addPersonToCohortModalLogic)

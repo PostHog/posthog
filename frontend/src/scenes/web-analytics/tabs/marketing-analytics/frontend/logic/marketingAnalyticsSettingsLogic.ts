@@ -20,6 +20,7 @@ import {
     ProductIntentContext,
     ProductKey,
     SourceMap,
+    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
@@ -32,6 +33,15 @@ export interface IntegrationSettingsModalState {
     integration: NativeMarketingSource | null
     initialTab: IntegrationSettingsTab
     initialUtmValue: string
+    initialCampaignName: string
+}
+
+export interface TestMappingResult {
+    status: 'idle' | 'loading' | 'success' | 'error'
+    message?: string
+    row_count?: number
+    columns?: string[]
+    sample_data?: any[][]
 }
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
@@ -43,6 +53,9 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     custom_source_mappings: {},
     campaign_field_preferences: {},
 })
+
+const isNativeMarketingSource = (value: string): value is NativeMarketingSource =>
+    VALID_NATIVE_MARKETING_SOURCES.includes(value as NativeMarketingSource)
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
     path(['scenes', 'web-analytics', 'marketingAnalyticsSettingsLogic']),
@@ -97,9 +110,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         openIntegrationSettingsModal: (
             integration: NativeMarketingSource,
             initialTab: IntegrationSettingsTab,
-            initialUtmValue: string
-        ) => ({ integration, initialTab, initialUtmValue }),
+            initialUtmValue: string,
+            initialCampaignName: string = ''
+        ) => ({ integration, initialTab, initialUtmValue, initialCampaignName }),
         closeIntegrationSettingsModal: true,
+        testMapping: (tableId: string, sourceMap: SourceMap) => ({ tableId, sourceMap }),
+        setTestMappingResult: (tableId: string, result: TestMappingResult) => ({ tableId, result }),
     }),
     reducers(({ values }) => ({
         marketingAnalyticsConfig: [
@@ -250,19 +266,38 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 integration: null,
                 initialTab: 'mappings',
                 initialUtmValue: '',
+                initialCampaignName: '',
             } as IntegrationSettingsModalState,
             {
-                openIntegrationSettingsModal: (_, { integration, initialTab, initialUtmValue }) => ({
+                openIntegrationSettingsModal: (
+                    _,
+                    { integration, initialTab, initialUtmValue, initialCampaignName }
+                ) => ({
                     isOpen: true,
                     integration,
                     initialTab,
                     initialUtmValue,
+                    initialCampaignName,
                 }),
                 closeIntegrationSettingsModal: () => ({
                     isOpen: false,
                     integration: null,
                     initialTab: 'mappings',
                     initialUtmValue: '',
+                    initialCampaignName: '',
+                }),
+            },
+        ],
+        testMappingResults: [
+            {} as Record<string, TestMappingResult>,
+            {
+                testMapping: (state, { tableId }) => ({
+                    ...state,
+                    [tableId]: { status: 'loading' as const },
+                }),
+                setTestMappingResult: (state, { tableId, result }) => ({
+                    ...state,
+                    [tableId]: result,
                 }),
             },
         ],
@@ -302,6 +337,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 // For each native source, find its campaign table
                 for (const source of sources) {
                     const sourceType = source.source_type
+                    if (!isNativeMarketingSource(sourceType)) {
+                        continue
+                    }
                     const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
                     if (!patterns) {
                         continue
@@ -364,7 +402,39 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignNameMappings: trackSettingsUpdated,
             updateCustomSourceMappings: trackSettingsUpdated,
             updateCampaignFieldPreferences: trackSettingsUpdated,
+            testMapping: async ({ tableId, sourceMap }) => {
+                try {
+                    const response = await api.create(
+                        `api/environments/${values.currentTeamId}/marketing_analytics/test_mapping/`,
+                        { table_id: tableId, source_map: sourceMap }
+                    )
+                    if (response.success) {
+                        actions.setTestMappingResult(tableId, {
+                            status: 'success',
+                            message: `${response.row_count} rows returned`,
+                            row_count: response.row_count,
+                            columns: response.columns,
+                            sample_data: response.sample_data,
+                        })
+                    } else {
+                        actions.setTestMappingResult(tableId, {
+                            status: 'error',
+                            message: response.error || 'Unknown error',
+                        })
+                    }
+                } catch (e: any) {
+                    actions.setTestMappingResult(tableId, {
+                        status: 'error',
+                        message: e.message || 'Failed to test mapping',
+                    })
+                }
+            },
             loadIntegrationCampaigns: async ({ integration }) => {
+                if (!isNativeMarketingSource(integration)) {
+                    actions.setIntegrationCampaigns(integration, [])
+                    return
+                }
+
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {
                     actions.setIntegrationCampaigns(integration, [])

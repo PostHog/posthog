@@ -1,15 +1,18 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/plugin-scaffold'
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventFilterManager } from '../common/event-filters'
+import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
+import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -18,7 +21,6 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
-    createValidateEventUuidStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
@@ -30,14 +32,15 @@ export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
     event: PluginEvent
     team: Team
+    eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
+    eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
-    cookielessManager: Hub['cookielessManager']
-    overflowTopic: string
+    cookielessManager: CookielessManager
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
@@ -52,11 +55,11 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        overflowTopic,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -78,8 +81,8 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
-                    .pipe(createValidateEventUuidStep())
                     .pipe(createDropOldEventsStep())
+                    .pipe(createApplyEventFiltersStep(eventFilterManager))
             })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
@@ -88,7 +91,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
             // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
-            .pipeBatch(createRateLimitToOverflowStep(overflowTopic, preservePartitionLocality, overflowRedirectService))
+            .pipeBatch(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs

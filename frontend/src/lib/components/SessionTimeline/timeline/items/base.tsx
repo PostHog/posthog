@@ -1,11 +1,11 @@
-import { ItemLoader, TimelineItem } from '..'
-
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql } from '~/queries/utils'
+
+import { ItemLoader, TimelineItem } from '..'
 
 export function BasePreview({
     name,

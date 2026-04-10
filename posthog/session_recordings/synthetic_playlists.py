@@ -18,7 +18,7 @@ import posthoganalytics
 from posthog.schema import RecordingOrder, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -298,6 +298,7 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
     CACHE_KEY_PREFIX = "frustration_signals_synthetic_playlist"
     CACHE_TTL = 3600  # 1 hour
     LOOKBACK_DAYS = 7
+    MIN_FRUSTRATION_SCORE = 5
 
     @staticmethod
     def _get_cache_key(team_id: int) -> str:
@@ -332,18 +333,19 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
                 AND timestamp <= %(date_to)s
                 AND notEmpty(`$session_id`)
             GROUP BY `$session_id`
-            HAVING frustration_score > 0
+            HAVING frustration_score > %(min_frustration_score)s
             ORDER BY frustration_score DESC
             LIMIT 1000
         """
 
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             query,
             {
                 "team_id": team.pk,
                 "date_from": date_from,
                 "date_to": now_ts,
+                "min_frustration_score": FrustrationSignalsPlaylistSource.MIN_FRUSTRATION_SCORE,
             },
         )
 
@@ -501,7 +503,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
             LIMIT 50000
         """
 
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             query,
             {

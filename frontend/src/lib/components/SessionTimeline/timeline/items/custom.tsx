@@ -1,5 +1,3 @@
-import { ItemCategory, ItemRenderer, TimelineItem } from '..'
-
 import { IconGraph } from '@posthog/icons'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
@@ -8,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 import { BasePreview, EventLoader } from './base'
 
 export interface CustomItem extends TimelineItem {

@@ -21,6 +21,7 @@ describe('read-data-warehouse-schema', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {

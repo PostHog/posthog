@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDatabase, IconPlug, IconRefresh, IconServer } from '@posthog/icons'
+import { IconDatabase, IconPlug, IconRefresh, IconRevert, IconServer, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -171,7 +171,17 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
     )
 }
 
-export function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
+export function HealthIssueCard({
+    issue,
+    isDismissed,
+    onDismiss,
+    onUndismiss,
+}: {
+    issue: DataHealthIssue
+    isDismissed?: boolean
+    onDismiss?: () => void
+    onUndismiss?: () => void
+}): JSX.Element {
     const typeLabel = getTypeLabel(issue)
     const statusLabel = getStatusLabel(issue.status)
     const statusTagType = getStatusTagType(issue.status)
@@ -180,7 +190,7 @@ export function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Elem
     const showLink = issue.url && issue.type !== 'materialized_view'
 
     return (
-        <div className="border rounded p-3 bg-surface-primary">
+        <div className={`border rounded p-3 bg-surface-primary${isDismissed ? ' opacity-60' : ''}`}>
             <div className="flex items-start gap-2">
                 <div className="mt-0.5">{getIssueIcon(issue.type)}</div>
                 <div className="flex-1 min-w-0">
@@ -195,6 +205,16 @@ export function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Elem
                         <LemonTag type={statusTagType} size="small">
                             {statusLabel}
                         </LemonTag>
+                        {(onDismiss || onUndismiss) && (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={isDismissed ? <IconRevert /> : <IconX />}
+                                tooltip={isDismissed ? 'Undismiss' : 'Dismiss'}
+                                onClick={() => (isDismissed ? onUndismiss?.() : onDismiss?.())}
+                                className="shrink-0 ml-auto"
+                            />
+                        )}
                     </div>
                     <div className="text-xs text-muted mb-2">{typeLabel}</div>
                     {issue.error && (

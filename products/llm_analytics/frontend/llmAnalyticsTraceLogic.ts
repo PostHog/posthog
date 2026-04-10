@@ -1,6 +1,6 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -8,6 +8,8 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -32,6 +34,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
+    ExpandUserOnly = 'expand_user_only',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
     TextView = 'text_view',
 }
@@ -72,14 +75,20 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
+export interface LLMAnalyticsTraceLogicProps {
+    tabId?: string
+}
+
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    props({} as LLMAnalyticsTraceLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
+    connect((props: LLMAnalyticsTraceLogicProps) => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),
@@ -87,6 +96,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setHighlightMessageIndex: (highlightMessageIndex: number | null) => ({ highlightMessageIndex }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setInitialTab: (tab: string | null) => ({ tab }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
@@ -104,6 +114,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         handleTextViewFallback: true,
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        setTraceReviewPanelExpanded: (isExpanded: boolean) => ({ isExpanded }),
         loadCommentCount: true,
         setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
         loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
@@ -112,6 +123,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        highlightMessageIndex: [
+            null as number | null,
+            { setHighlightMessageIndex: (_, { highlightMessageIndex }) => highlightMessageIndex },
+        ],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         initialTab: [null as string | null, { setInitialTab: (_, { tab }) => tab }],
         viewMode: [
@@ -219,6 +234,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     ...state,
                     [eventType]: !(state[eventType] ?? true),
                 }),
+            },
+        ],
+        isTraceReviewPanelExpanded: [
+            false as boolean,
+            persistConfig,
+            {
+                setTraceReviewPanelExpanded: (_, { isExpanded }) => isExpanded,
             },
         ],
     }),
@@ -448,11 +470,14 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab }) => {
+    tabAwareUrlToAction(({ actions }) => ({
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
-            actions.setLineNumber(line ? parseInt(line, 10) : null)
+            const parsedMsg = msg ? parseInt(msg, 10) : NaN
+            actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)
+            const parsedLine = line ? parseInt(line, 10) : NaN
+            actions.setLineNumber(!isNaN(parsedLine) ? parsedLine : null)
             actions.setInitialTab(tab || null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
@@ -469,7 +494,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const buildUrl = (): string | undefined => {
             if (!values.traceId) {
                 return undefined

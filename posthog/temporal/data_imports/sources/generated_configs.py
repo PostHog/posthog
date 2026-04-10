@@ -59,6 +59,13 @@ class SnowflakeAuthTypeConfig(config.Config):
 
 
 @config.config
+class StripeAuthMethodConfig(config.Config):
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "api_key"] = "oauth"
+    stripe_secret_key: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -177,6 +184,11 @@ class BrevoSourceConfig(config.Config):
 
 
 @config.config
+class BuildBetterSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class CalendlySourceConfig(config.Config):
     pass
 
@@ -230,6 +242,12 @@ class ConfluenceSourceConfig(config.Config):
 @config.config
 class ConvertKitSourceConfig(config.Config):
     pass
+
+
+@config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
 
 
 @config.config
@@ -361,8 +379,21 @@ class HelpScoutSourceConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
+    custom_properties: HubspotCustomPropertiesConfig | None = None
 
 
 @config.config
@@ -548,7 +579,8 @@ class PendoSourceConfig(config.Config):
 
 @config.config
 class PinterestAdsSourceConfig(config.Config):
-    pass
+    ad_account_id: str
+    pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -653,7 +685,11 @@ class SendGridSourceConfig(config.Config):
 
 @config.config
 class SentrySourceConfig(config.Config):
-    pass
+    auth_token: str
+    organization_slug: str
+    api_base_url: Literal["https://sentry.io", "https://us.sentry.io", "https://de.sentry.io"] | None = config.value(
+        default="https://sentry.io"
+    )
 
 
 @config.config
@@ -680,7 +716,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class SlackSourceConfig(config.Config):
-    pass
+    slack_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -711,7 +747,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
+    auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
 
 
@@ -766,7 +802,10 @@ class TwitterAdsSourceConfig(config.Config):
 
 @config.config
 class TypeformSourceConfig(config.Config):
-    pass
+    auth_token: str
+    api_base_url: (
+        Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
+    ) = config.value(default="https://api.typeform.com")
 
 
 @config.config
@@ -850,6 +889,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.BREVO: BrevoSourceConfig,
+        ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
         ExternalDataSourceType.CALENDLY: CalendlySourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
@@ -861,6 +901,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
         ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,

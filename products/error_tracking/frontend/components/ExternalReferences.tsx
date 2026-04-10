@@ -8,9 +8,9 @@ import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -134,7 +134,7 @@ export const ExternalReferences = (): JSX.Element | null => {
 function SetupIntegrationsButton(): JSX.Element {
     return (
         <Link
-            to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}
+            to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
             buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
             tooltip="Go to integrations configuration"
             target="_blank"

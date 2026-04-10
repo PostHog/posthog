@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "checks_date_from": {
+            "description": "Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.",
+            "type": "string"
+        },
+        "checks_date_to": {
+            "description": "Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.",
+            "type": "string"
+        },
+        "checks_limit": {
+            "description": "Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
+            "type": "number"
+        },
+        "id": {
+            "description": "A UUID string identifying this alert configuration.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

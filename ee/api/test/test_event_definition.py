@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from django.utils import timezone
 
 import dateutil.parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_event_definition import EventData, capture_event
@@ -14,7 +15,8 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
-from posthog.models.event_definition import EventDefinition
+
+from products.event_definitions.backend.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
@@ -148,10 +150,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ["entered_free_trial", "enterprise event"],
         )
 
-        self.assertEqual(response_data["results"][1]["name"], "enterprise event")
-        self.assertEqual(response_data["results"][1]["description"], "")
-        self.assertEqual(response_data["results"][1]["tags"], ["deprecated"])
-        self.assertEqual(response_data["results"][1]["owner"]["id"], self.user.id)
+        enterprise_event = next((r for r in response_data["results"] if r["name"] == "enterprise event"), None)
+        assert enterprise_event is not None
+        assert enterprise_event["description"] == ""
+        assert enterprise_event["tags"] == ["deprecated"]
+        assert enterprise_event["owner"]["id"] == self.user.id
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -170,6 +173,34 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["entered_free_trial", "watched_movie"]),
+            ("unverified_only", "false", ["$pageview", "purchase"]),
+            ("all_when_not_specified", None, ["$pageview", "entered_free_trial", "purchase", "watched_movie"]),
+        ]
+    )
+    def test_filter_event_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
+            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
+                verified=event_definition["verified"] or False
+            )
+
+        url = "/api/projects/@current/event_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -384,9 +415,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="installed_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+        assert [row["name"] for row in response.json()["results"]] == ["rated_app", "installed_app"]
 
     def test_create_event_definition_with_description(self):
         """Test creating an event definition with enterprise fields"""

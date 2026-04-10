@@ -63,7 +63,6 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                 ],
             ),
             betaSource=True,
-            featureFlag="shopify-dwh",
         )
 
     def validate_credentials(
@@ -81,7 +80,9 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
         except Exception as e:
             return False, str(e)
 
-    def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
             endpoint_config = ENDPOINT_CONFIGS.get(obj.name)
@@ -95,6 +96,9 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                     incremental_fields=endpoint_config.fields,
                 )
             )
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
     def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:

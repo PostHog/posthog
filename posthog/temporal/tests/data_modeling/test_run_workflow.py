@@ -1,3 +1,4 @@
+import os
 import re
 import uuid
 import asyncio
@@ -752,12 +753,6 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
-    workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(
-        team_id=ateam.pk,
-        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
-    )
-
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
@@ -785,14 +780,21 @@ async def test_run_workflow_with_minio_bucket(
         ):
             # Ensure the team exists in the DB context before running workflow
             await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
-            await temporal_client.execute_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
+
+            for saved_query in saved_queries:
+                workflow_id = str(uuid.uuid4())
+                inputs = RunWorkflowInputs(
+                    team_id=ateam.pk,
+                    select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
+                )
+                await temporal_client.execute_workflow(
+                    RunWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
 
             tables_and_queries = {}
 
@@ -916,6 +918,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
 
 
 async def test_run_workflow_revert_materialization(
@@ -972,6 +975,7 @@ async def test_run_workflow_revert_materialization(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
 
     for query in saved_queries:
         await database_sync_to_async(query.refresh_from_db)()
@@ -1040,6 +1044,7 @@ async def test_run_workflow_timeout_exceeded(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
 
     for query in saved_queries:
         await database_sync_to_async(query.refresh_from_db)()
@@ -1125,6 +1130,66 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     assert len(child_ducklake_workflow_runs) == 1
     assert child_ducklake_workflow_runs[0]["team_id"] == 1
     assert child_ducklake_workflow_runs[0]["models"][0]["model_label"] == model_label
+
+
+async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
+    """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
+    # Query with CamelCase and PascalCase column names, not snake_case
+    query = """\
+    select
+      event as Event,
+      if(distinct_id != '0', distinct_id, null) as DistinctId,
+      timestamp as TimeStamp,
+      'example' as CamelCaseColumn
+    from events
+    where event = '$pageview'
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="camel_case_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    # Make sure we have pageview events for the query to work with
+    events, _ = pageview_events
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # Check that SCHEMA__NAMING is set to direct in the environment
+        assert os.environ.get("SCHEMA__NAMING") == "direct", "SCHEMA__NAMING should be 'direct'"
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+        )
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    assert saved_query.is_materialized is True
+
+    # Check that the column names maintain their original casing
+    table_columns = delta_table.to_pyarrow_table().column_names
+    # Verify the original capitalization is preserved
+    assert "Event" in table_columns, "Column 'Event' should maintain its original capitalization"
+    assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
+    assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
+    assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
 
 
 async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
@@ -1290,11 +1355,13 @@ async def test_cleanup_running_jobs_activity(activity_environment, ateam):
     await database_sync_to_async(completed_job.refresh_from_db)()
 
     assert old_job.status == DataModelingJob.Status.FAILED
+    assert old_job.rows_materialized == 0
     assert old_job.error is not None
-    assert "Job timed out" in old_job.error
+    assert "Preempted" in old_job.error
     assert recent_job.status == DataModelingJob.Status.FAILED
+    assert recent_job.rows_materialized == 0
     assert recent_job.error is not None
-    assert "Job timed out" in recent_job.error
+    assert "Preempted" in recent_job.error
     assert completed_job.status == DataModelingJob.Status.COMPLETED
 
 
@@ -1316,8 +1383,9 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
 
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
+    assert orphaned_job.rows_materialized == 0
     assert orphaned_job.error is not None
-    assert "Job timed out" in orphaned_job.error
+    assert "Preempted" in orphaned_job.error
 
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"

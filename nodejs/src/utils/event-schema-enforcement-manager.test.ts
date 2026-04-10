@@ -22,7 +22,7 @@ describe('EventSchemaEnforcementManager', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         schemaManager = new EventSchemaEnforcementManager(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         projectId = team.project_id
         fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas')
@@ -87,9 +87,9 @@ describe('EventSchemaEnforcementManager', () => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_schemapropertygroupproperty
-                (id, property_group_id, name, property_type, is_required, description, created_at, updated_at)
+                (id, property_group_id, name, property_type, is_required, is_optional_in_types, description, created_at, updated_at)
              VALUES
-                (gen_random_uuid(), $1, $2, $3, $4, '', NOW(), NOW())`,
+                (gen_random_uuid(), $1, $2, $3, $4, false, '', NOW(), NOW())`,
             [propertyGroupId, propertyName, propertyType, isRequired],
             'create-test-property'
         )

@@ -6,7 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::log::error;
+use tracing::error;
 
 use crate::api::CaptureError;
 use crate::prometheus::report_dropped_events;
@@ -62,7 +62,7 @@ impl Future for DeliveryAckFuture {
                     }
                     Ok(Err((err, _))) => {
                         metrics::counter!("capture_kafka_produce_errors_total").increment(1);
-                        error!("failed to produce to Kafka: {err}");
+                        error!("failed to produce to Kafka: {err:#}");
                         Err(CaptureError::RetryableSinkError)
                     }
                     Ok(Ok(_)) => {
@@ -114,7 +114,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
                 _ => {
                     // Use error counter, not dropped counter - this is retryable
                     counter!("capture_kafka_produce_errors_total").increment(1);
-                    error!("failed to produce event: {e}");
+                    error!("failed to produce event: {e:#}");
                     Err(CaptureError::RetryableSinkError)
                 }
             },

@@ -7,9 +7,6 @@ export enum PipelineResultType {
     REDIRECT,
 }
 
-/**
- * Generic result type for pipeline steps that can succeed, be dropped, or sent to DLQ
- */
 export type PipelineResultOk<T> = {
     type: PipelineResultType.OK
     value: T
@@ -29,16 +26,28 @@ export type PipelineResultDrop = {
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
 }
-export type PipelineResultRedirect = {
+export type PipelineResultRedirect<R extends string = never> = {
     type: PipelineResultType.REDIRECT
     reason: string
-    topic: string
+    output: R
     preserveKey?: boolean
     awaitAck?: boolean
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
 }
-export type PipelineResult<T> = PipelineResultOk<T> | PipelineResultDlq | PipelineResultDrop | PipelineResultRedirect
+/**
+ * Discriminated union of all possible step outcomes.
+ *
+ * @typeParam T - The value type for OK results.
+ * @typeParam R - Union of redirect output names this result can carry.
+ *   Defaults to `never` (no redirects). Steps that redirect specify the
+ *   output names they target (e.g. `PipelineResult<T, OverflowOutput>`).
+ */
+export type PipelineResult<T, R extends string = never> =
+    | PipelineResultOk<T>
+    | PipelineResultDlq
+    | PipelineResultDrop
+    | PipelineResultRedirect<R>
 
 /**
  * Helper functions for creating pipeline step results
@@ -68,18 +77,24 @@ export function drop<T>(
     return { type: PipelineResultType.DROP, reason, sideEffects, warnings }
 }
 
-export function redirect<T>(
+/**
+ * Create a redirect result targeting a named output.
+ *
+ * The output name is typed so the pipeline's result handler can verify at compile time
+ * that all redirect targets are present in the configured outputs.
+ */
+export function redirect<T, R extends string>(
     reason: string,
-    topic: string,
+    output: R,
     preserveKey: boolean = true,
     awaitAck: boolean = true,
     sideEffects: Promise<unknown>[] = [],
     warnings: PipelineWarning[] = []
-): PipelineResult<T> {
+): PipelineResult<T, R> {
     return {
         type: PipelineResultType.REDIRECT,
         reason,
-        topic,
+        output,
         preserveKey,
         awaitAck,
         sideEffects,
@@ -90,18 +105,20 @@ export function redirect<T>(
 /**
  * Type guard functions
  */
-export function isOkResult<T>(result: PipelineResult<T>): result is PipelineResultOk<T> {
+export function isOkResult<T, R extends string = never>(result: PipelineResult<T, R>): result is PipelineResultOk<T> {
     return result.type === PipelineResultType.OK
 }
 
-export function isDlqResult<T>(result: PipelineResult<T>): result is PipelineResultDlq {
+export function isDlqResult<T, R extends string = never>(result: PipelineResult<T, R>): result is PipelineResultDlq {
     return result.type === PipelineResultType.DLQ
 }
 
-export function isDropResult<T>(result: PipelineResult<T>): result is PipelineResultDrop {
+export function isDropResult<T, R extends string = never>(result: PipelineResult<T, R>): result is PipelineResultDrop {
     return result.type === PipelineResultType.DROP
 }
 
-export function isRedirectResult<T>(result: PipelineResult<T>): result is PipelineResultRedirect {
+export function isRedirectResult<T, R extends string = never>(
+    result: PipelineResult<T, R>
+): result is PipelineResultRedirect<R> {
     return result.type === PipelineResultType.REDIRECT
 }

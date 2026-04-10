@@ -4293,6 +4293,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 # Persons with higher value come first
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,
@@ -4305,6 +4306,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person1"],
                     "id": str(person1.uuid),
                     "is_identified": False,
@@ -4317,6 +4319,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person3"],
                     "id": str(person3.uuid),
                     "is_identified": False,
@@ -4336,6 +4339,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             assert people_value_2 == [
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,

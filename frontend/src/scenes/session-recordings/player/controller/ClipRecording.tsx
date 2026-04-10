@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
+import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'

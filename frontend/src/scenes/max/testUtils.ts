@@ -12,7 +12,7 @@ export const maxMocks: Mocks = {
         '/api/environments/:team_id/conversations/': { results: [] },
     },
     post: {
-        'api/environments/:team_id/query': { questions: ['Question'] },
+        '/api/environments/:team_id/query/': { questions: ['Question'] },
         '/api/environments/:team_id/conversations/': {},
     },
 }

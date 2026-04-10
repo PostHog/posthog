@@ -1,5 +1,8 @@
+import dataclasses
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
+
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -21,6 +24,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
@@ -67,7 +72,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
-    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property
@@ -112,6 +119,32 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         raise NotImplementedError()
 
 
+@dataclasses.dataclass
+class WebhookCreationResult:
+    success: bool
+    error: str | None = None
+    extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class WebhookDeletionResult:
+    success: bool
+    error: str | None = None
+
+
+@dataclasses.dataclass
+class ExternalWebhookInfo:
+    """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
+
+    exists: bool
+    url: str | None = None
+    enabled_events: list[str] | None = None
+    status: str | None = None
+    description: str | None = None
+    created_at: str | None = None
+    error: str | None = None
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -119,6 +152,44 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     @abstractmethod
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         raise NotImplementedError()
+
+    @abstractmethod
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        raise NotImplementedError()
+
+    def create_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        """Create a webhook on the external source pointing to our webhook_url.
+
+        Returns a WebhookCreationResult. If the source doesn't support automatic
+        webhook creation, returns a failed result so the user can set it up manually.
+        """
+        raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def webhook_resource_map(self) -> dict[str, str]:
+        """The schema mapping to use to be stored on the HogFunction for matching incoming webhooks with tables.
+        In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
+        table name mapped to the Stripe object type"""
+        raise NotImplementedError()
+
+    def get_external_webhook_info(
+        self, config: ConfigType, webhook_url: str, team_id: int
+    ) -> ExternalWebhookInfo | None:
+        """Check the external source for webhook status.
+
+        Returns None if the source doesn't support checking webhook info.
+        Sources should override this to query their API (e.g. list Stripe webhook endpoints).
+        """
+        return None
+
+    def delete_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        """Delete the webhook on the external source that matches webhook_url.
+
+        Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
+        Returns a WebhookDeletionResult indicating success or failure.
+        """
+        return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 
 
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]

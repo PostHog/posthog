@@ -6,7 +6,7 @@ from posthog.models import Team
 
 
 class Command(BaseCommand):
-    help = "Get project API keys through command line instead of having to go through settings"
+    help = "Get project tokens through command line instead of having to go through settings"
 
     def handle(self, *args, **options):
         for team in Team.objects.all():

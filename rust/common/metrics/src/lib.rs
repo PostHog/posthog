@@ -111,8 +111,9 @@ fn apply_label_filter(labels: &[(String, String)]) -> Vec<(String, String)> {
     }
 }
 
-pub fn gauge(name: &'static str, lables: &[(String, String)], value: f64) {
-    metrics::gauge!(name, lables).set(value);
+pub fn gauge(name: &'static str, labels: &[(String, String)], value: f64) {
+    let filtered_labels = apply_label_filter(labels);
+    metrics::gauge!(name, &filtered_labels).set(value);
 }
 
 pub fn histogram(name: &'static str, labels: &[(String, String)], value: f64) {
@@ -160,7 +161,9 @@ impl TimingGuard<'_> {
 impl Drop for TimingGuard<'_> {
     fn drop(&mut self) {
         let labels = self.labels.as_slice();
-        metrics::histogram!(self.name, labels).record(self.start.elapsed().as_millis() as f64);
+        let filtered_labels = apply_label_filter(labels);
+        metrics::histogram!(self.name, &filtered_labels)
+            .record(self.start.elapsed().as_millis() as f64);
     }
 }
 

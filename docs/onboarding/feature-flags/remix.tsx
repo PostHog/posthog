@@ -31,8 +31,8 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             content: (
                 <>
                     <Markdown>
-                        Use `posthog-node` to evaluate feature flags on the server. Initialize PostHog in your API
-                        route or loader:
+                        Use `posthog-node` to evaluate feature flags on the server. Initialize PostHog in your API route
+                        or loader:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -42,7 +42,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 code: dedent`
                                     import { PostHog } from 'posthog-node'
 
-                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                     })
                                 `,

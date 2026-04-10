@@ -17,11 +17,11 @@
 export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
 
 export const Platform9aaEnumApi = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
 } as const
 
 /**
@@ -34,11 +34,11 @@ export const Platform9aaEnumApi = {
 export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
 
 export const Status292EnumApi = {
-    recording: 'recording',
-    uploading: 'uploading',
-    processing: 'processing',
-    ready: 'ready',
-    error: 'error',
+    Recording: 'recording',
+    Uploading: 'uploading',
+    Processing: 'processing',
+    Ready: 'ready',
+    Error: 'error',
 } as const
 
 /**
@@ -156,11 +156,11 @@ export type CreateRecordingRequestPlatformEnumApi =
     (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
 
 export const CreateRecordingRequestPlatformEnumApi = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
 } as const
 
 /**

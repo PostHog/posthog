@@ -1,12 +1,11 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient } from '@/api/client'
-import { SessionManager } from '@/lib/SessionManager'
-import { StateManager } from '@/lib/StateManager'
-import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
+import { ApiClient, type GroupType } from '@/api/client'
+import { AnalyticsEvent, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -16,43 +15,42 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
+import { buildInstructionsV2 } from '@/lib/instructions'
+import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
+import { SessionManager } from '@/lib/SessionManager'
+import { StateManager } from '@/lib/StateManager'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
-import { getToolsFromContext } from '@/tools'
+import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
+import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const SHARED_PROMPT = `
-- If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
-- If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-`
-
-const INSTRUCTIONS_V1 = `
-- You are a helpful assistant that can query PostHog API.
-${SHARED_PROMPT}
-`.trim()
-
-const INSTRUCTIONS_V2 = `
-- IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- The \`posthog-query-data\` skill is the root skill for all data retrieval tasks in PostHog. Read it first and then use the \`posthog:execute-sql\` tool to execute SQL queries.
-${SHARED_PROMPT}
-`.trim()
+function buildInstructions(groupTypes?: GroupType[]): string {
+    return buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes)
+}
 
 export type RequestProperties = {
     userHash: string
     apiToken: string
     sessionId?: string
     features?: string[]
+    tools?: string[]
     region?: string
     version?: number
     organizationId?: string
     projectId?: string
+    clientUserAgent?: string
+    readOnly?: boolean
+    transport?: 'streamable-http' | 'sse'
+    requestStartTime?: number
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_TEMPLATE_V1 })
 
     initialState: State = {
         projectId: undefined,
@@ -60,6 +58,9 @@ export class MCP extends McpAgent<Env> {
         distinctId: undefined,
         region: undefined,
         apiKey: undefined,
+        clientName: undefined,
+        aiConsentGiven: undefined,
+        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -67,6 +68,11 @@ export class MCP extends McpAgent<Env> {
     _api: ApiClient | undefined
 
     _sessionManager: SessionManager | undefined
+
+    _clientInfoPromise: Promise<void> | undefined
+    _mcpClientName: string | undefined
+    _mcpClientVersion: string | undefined
+    _mcpProtocolVersion: string | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -90,6 +96,37 @@ export class MCP extends McpAgent<Env> {
         }
 
         return this._sessionManager
+    }
+
+    async resolveClientInfo(): Promise<void> {
+        if (!this._clientInfoPromise) {
+            this._clientInfoPromise = this._doResolveClientInfo()
+        }
+        return this._clientInfoPromise
+    }
+
+    private async _doResolveClientInfo(): Promise<void> {
+        try {
+            const initRequest = await this.getInitializeRequest()
+            if (!initRequest || !('params' in initRequest)) {
+                return
+            }
+
+            const params = (
+                initRequest as {
+                    params?: { clientInfo?: { name?: string; version?: string }; protocolVersion?: string }
+                }
+            ).params
+            if (!params) {
+                return
+            }
+
+            this._mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
+            this._mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
+            this._mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
+        } catch {
+            // skip
+        }
     }
 
     async detectRegion(): Promise<CloudRegion | undefined> {
@@ -141,9 +178,14 @@ export class MCP extends McpAgent<Env> {
     async api(): Promise<ApiClient> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
+            await this.resolveClientInfo()
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
+                clientUserAgent: this.requestProperties.clientUserAgent,
+                mcpClientName: this._mcpClientName,
+                mcpClientVersion: this._mcpClientVersion,
+                mcpProtocolVersion: this._mcpProtocolVersion,
             })
         }
 
@@ -171,6 +213,10 @@ export class MCP extends McpAgent<Env> {
 
             const client = getPostHogClient()
 
+            await this.resolveClientInfo()
+
+            const clientName = await this.cache.get('clientName')
+
             client.capture({
                 distinctId,
                 event,
@@ -180,6 +226,11 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
+                    ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
+                    ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
+                    ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...properties,
                 },
             })
@@ -188,35 +239,28 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    registerTool<TSchema extends z.ZodRawShape>(
-        tool: Tool<z.ZodObject<TSchema>>,
-        handler: (params: z.infer<z.ZodObject<TSchema>>) => Promise<any>
+    registerTool<TSchema extends z.ZodObject>(
+        tool: Tool<TSchema>,
+        handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
-        const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>): Promise<any> => {
+        const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                    tool: tool.name,
-                    valid_input: false,
-                    input: params,
-                })
-                return [
-                    {
-                        type: 'text',
-                        text: `Invalid input: ${validation.error.message}`,
-                    },
-                ]
-            }
+                const errorOutput = `Invalid input: ${validation.error.message}`
 
-            await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                tool: tool.name,
-                valid_input: true,
-            })
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: errorOutput,
+                        },
+                    ],
+                }
+            }
 
             try {
                 const result = await handler(params)
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -237,11 +281,14 @@ export class MCP extends McpAgent<Env> {
                     }
                 }
 
+                const useJson = tool._meta?.responseFormat === 'json'
+                const text = useJson ? JSON.stringify(result) : formatResponse(result)
+
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: formatResponse(result),
+                            text,
                         },
                     ],
                     // Include raw result as structuredContent for UI apps to consume
@@ -279,7 +326,7 @@ export class MCP extends McpAgent<Env> {
                 annotations: tool.annotations,
                 ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
-            wrappedHandler as unknown as ToolCallback<TSchema>
+            wrappedHandler as unknown as ToolCallback<TSchema['shape']>
         )
     }
 
@@ -295,17 +342,25 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache with org/project IDs from headers/query params
+        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
+        const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
+        const flagPromise = this.resolveVersionFlag()
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
         if (projectId) {
             await this.cache.set('projectId', projectId)
         }
+
+        // Resolve group types and feature flag (started above in parallel with cache seeding)
+        const groupTypes = await groupTypesPromise
+        const flagVersion = await flagPromise
+        const version = flagVersion ?? clientVersion ?? 1
+        const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
@@ -324,10 +379,109 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const allTools = await getToolsFromContext(context, { features, version, excludeTools })
+        const { getToolsFromContext } = await import('@/tools')
+        const allTools = await getToolsFromContext(context, {
+            features,
+            tools,
+            version,
+            excludeTools,
+            readOnly,
+        })
+
+        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
+        // so update the ApiClient with the verified OAuth client name for header forwarding.
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        if (oauthClientName && this._api) {
+            this._api.config.oauthClientName = oauthClientName
+        }
 
         for (const tool of allTools) {
-            this.registerTool(tool, async (params) => tool.handler(context, params))
+            const typedTool = tool as Tool<z.ZodObject>
+            this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
+
+        await initMcpCatObservability(this.server, {
+            getDistinctId: () => this.getDistinctId(),
+            getSessionUuid: async () =>
+                this.requestProperties.sessionId
+                    ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+                    : undefined,
+            getMcpClientName: () => this._mcpClientName,
+            getMcpClientVersion: () => this._mcpClientVersion,
+            getMcpProtocolVersion: () => this._mcpProtocolVersion,
+            getRegion: () => this.requestProperties.region,
+            getOrganizationId: () => this.requestProperties.organizationId,
+            getProjectId: () => this.requestProperties.projectId,
+            getClientUserAgent: () => this.requestProperties.clientUserAgent,
+            getVersion: () => this.requestProperties.version,
+        })
+
+        const initDurationMs = this.requestProperties.requestStartTime
+            ? Date.now() - this.requestProperties.requestStartTime
+            : undefined
+
+        this.ctx.waitUntil(
+            this.trackEvent(AnalyticsEvent.MCP_INIT, {
+                tool_count: allTools.length,
+                mcp_version: version,
+                has_organization_id: !!organizationId,
+                has_project_id: !!projectId,
+                read_only: !!readOnly,
+                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+            })
+        )
+    }
+
+    private async resolveVersionFlag(): Promise<number | undefined> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
+        } catch {
+            return undefined
+        }
+    }
+
+    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
+        const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+        try {
+            const cached = await this.cache.get(`groupTypes:${projectId}`)
+            const fetchedAt = await this.cache.get(`groupTypesFetchedAt:${projectId}`)
+            const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
+
+            if (cached !== undefined && !isStale) {
+                return cached
+            }
+
+            if (cached !== undefined) {
+                // Stale — revalidate in background, return cached immediately
+                this.ctx.waitUntil(
+                    this.fetchAndCacheGroupTypes(projectId).catch((error) => {
+                        getPostHogClient().captureException(error, undefined, {
+                            tag: 'max_ai',
+                            context: 'group_types_background_revalidation',
+                        })
+                    })
+                )
+                return cached
+            }
+
+            // No cache — fetch synchronously
+            return await this.fetchAndCacheGroupTypes(projectId)
+        } catch (error) {
+            getPostHogClient().captureException(error, undefined, {
+                tag: 'max_ai',
+                context: 'get_or_fetch_group_types',
+            })
+            return undefined
+        }
+    }
+
+    private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
+        const api = await this.api()
+        const groupTypes = await api.getGroupTypes(projectId)
+        await this.cache.set(`groupTypes:${projectId}`, groupTypes)
+        await this.cache.set(`groupTypesFetchedAt:${projectId}`, Date.now())
+        return groupTypes
     }
 }

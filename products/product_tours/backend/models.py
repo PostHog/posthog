@@ -46,13 +46,14 @@ class ProductTour(models.Model):
     )
 
     linked_surveys = models.ManyToManyField(
-        "posthog.Survey",
+        "surveys.Survey",
         blank=True,
         related_name="product_tours",
         related_query_name="product_tour",
     )
 
     content = models.JSONField(default=dict, blank=True)
+    draft_content = models.JSONField(null=True, blank=True, default=None)
 
     auto_launch = models.BooleanField(default=False)
 

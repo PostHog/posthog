@@ -37,7 +37,7 @@ type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
     onSelectColor?: never
 }
 
-type LemonColorPickerProps = LemonColorPickerColorProps | LemonColorPickerTokenProps
+export type LemonColorPickerProps = LemonColorPickerColorProps | LemonColorPickerTokenProps
 
 type LemonColorPickerOverlayProps = Omit<LemonColorPickerProps, 'hideDropdown'>
 

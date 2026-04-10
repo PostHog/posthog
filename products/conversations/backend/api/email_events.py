@@ -1,0 +1,297 @@
+"""Inbound email webhook endpoint for Mailgun routes."""
+
+import re
+from email.utils import parseaddr
+from typing import Any, cast
+
+from django.core.files.uploadedfile import UploadedFile
+from django.db import IntegrityError, transaction
+from django.db.models import F
+from django.http import HttpRequest, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+
+import structlog
+
+from posthog.models.comment import Comment
+from posthog.models.team import Team
+
+from products.conversations.backend.mailgun import validate_webhook_signature
+from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
+from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import save_file_to_uploaded_media
+from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+
+logger = structlog.get_logger(__name__)
+
+INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
+MAX_EMAIL_BODY_LENGTH = 50_000
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
+MAX_ATTACHMENTS = 20
+MAX_FILENAME_LENGTH = 255
+_FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip potentially dangerous characters from an email attachment filename."""
+    name = name.strip().replace("/", "_").replace("\\", "_")
+    name = _FILENAME_STRIP_RE.sub("", name)
+    if len(name) > MAX_FILENAME_LENGTH:
+        name = name[:MAX_FILENAME_LENGTH]
+    return name or "attachment"
+
+
+def _extract_inbound_token(recipient: str) -> str | None:
+    match = INBOUND_TOKEN_PATTERN.match(recipient)
+    return match.group(1) if match else None
+
+
+def _find_thread_ticket(
+    team_id: int,
+    in_reply_to: str | None,
+    references: str | None,
+) -> Ticket | None:
+    """Look up an existing ticket via email threading headers."""
+    # Try In-Reply-To first (most specific)
+    if in_reply_to:
+        mapping = (
+            EmailMessageMapping.objects.filter(
+                message_id=in_reply_to.strip(),
+                team_id=team_id,
+            )
+            .select_related("ticket")
+            .first()
+        )
+        if mapping:
+            return mapping.ticket
+
+    # Fall back to References (space-separated list of message-ids, newest last)
+    if references:
+        ref_ids = [r.strip() for r in references.strip().split()]
+        mapping_by_id = {
+            m.message_id: m
+            for m in EmailMessageMapping.objects.filter(
+                message_id__in=ref_ids,
+                team_id=team_id,
+            ).select_related("ticket")
+        }
+        for ref_id in reversed(ref_ids):
+            if ref_id in mapping_by_id:
+                return mapping_by_id[ref_id].ticket
+
+    return None
+
+
+def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any]]:
+    """Read file uploads from the Mailgun webhook and persist them."""
+    attachments: list[dict[str, Any]] = []
+    for _key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
+        uploaded_file = cast(UploadedFile, request.FILES[_key])
+        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
+            logger.warning(
+                "email_inbound_attachment_too_large",
+                team_id=team.id,
+                file_name=uploaded_file.name,
+                size=uploaded_file.size,
+            )
+            continue
+
+        file_bytes = uploaded_file.read()
+        safe_name = _sanitize_filename(uploaded_file.name or "attachment")
+        url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
+        if url:
+            attachments.append(
+                {
+                    "url": url,
+                    "name": safe_name,
+                    "content_type": uploaded_file.content_type or "",
+                    "size": uploaded_file.size,
+                }
+            )
+    return attachments
+
+
+def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
+    """Merge plain text and attachments into content + rich_content."""
+    if not attachments:
+        return text, None
+
+    image_md_parts: list[str] = []
+    file_md_parts: list[str] = []
+    rich_nodes: list[dict[str, Any]] = []
+
+    if text:
+        rich_nodes.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+
+    for att in attachments:
+        ct = att.get("content_type", "")
+        name = att.get("name", "attachment")
+        url = att["url"]
+
+        if ct.startswith("image/"):
+            image_md_parts.append(f"![{name}]({url})")
+            rich_nodes.append({"type": "image", "attrs": {"src": url, "alt": name}})
+        else:
+            file_md_parts.append(f"[{name}]({url})")
+            rich_nodes.append(
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": name,
+                            "marks": [{"type": "link", "attrs": {"href": url}}],
+                        }
+                    ],
+                }
+            )
+
+    parts = [text] if text else []
+    if image_md_parts:
+        parts.append("\n".join(image_md_parts))
+    if file_md_parts:
+        parts.append("\n".join(file_md_parts))
+    content = "\n\n".join(parts)
+
+    rich_content: dict[str, Any] = {"type": "doc", "content": rich_nodes}
+    return content, rich_content
+
+
+@csrf_exempt
+def email_inbound_handler(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    # 1. Authenticate webhook
+    token = request.POST.get("token", "")
+    timestamp = request.POST.get("timestamp", "")
+    signature = request.POST.get("signature", "")
+
+    if not validate_webhook_signature(token, timestamp, signature):
+        logger.warning("email_inbound_invalid_signature")
+        return HttpResponse("Invalid signature", status=403)
+
+    # 2. Route to team via recipient address
+    recipient = request.POST.get("recipient", "")
+    inbound_token = _extract_inbound_token(recipient)
+    if not inbound_token:
+        logger.warning("email_inbound_no_token", recipient=recipient)
+        return HttpResponse("Invalid recipient", status=400)
+
+    try:
+        config = EmailChannel.objects.select_related("team").get(inbound_token=inbound_token)
+    except EmailChannel.DoesNotExist:
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
+        logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
+        return HttpResponse("Unknown recipient", status=404)
+
+    team = config.team
+
+    # 3. Check email_enabled
+    settings_dict = team.conversations_settings or {}
+    if not settings_dict.get("email_enabled"):
+        logger.info("email_inbound_disabled", team_id=team.id)
+        return HttpResponse(status=200)
+
+    # 4. Deduplicate by Message-Id
+    email_message_id = request.POST.get("Message-Id", "").strip()
+    if not email_message_id:
+        logger.warning("email_inbound_no_message_id", team_id=team.id)
+        return HttpResponse(status=200)
+
+    if EmailMessageMapping.objects.filter(message_id=email_message_id, team=team).exists():
+        logger.info("email_inbound_duplicate", message_id=email_message_id)
+        return HttpResponse(status=200)
+
+    # 5. Thread matching
+    in_reply_to = request.POST.get("In-Reply-To")
+    references = request.POST.get("References")
+    existing_ticket = _find_thread_ticket(team.id, in_reply_to, references)
+
+    # 6. Parse sender
+    from_header = request.POST.get("from", "")
+    sender_name, sender_email = parseaddr(from_header)
+    if not sender_email:
+        sender_email = request.POST.get("sender", "")
+    if not sender_name:
+        sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
+
+    # 7. Get content (stripped by Mailgun to remove quotes/signatures)
+    content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
+    subject = request.POST.get("subject", "")
+
+    # 8. Create ticket/comment/mapping in a transaction
+    # Attachments are extracted inside the transaction so UploadedMedia rows roll back
+    # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
+    try:
+        with transaction.atomic():
+            attachments = _extract_attachments(request, team)
+            content, rich_content = _build_content_with_attachments(content, attachments)
+
+            ticket: Ticket | None = None
+            if existing_ticket:
+                ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
+                if not ticket:
+                    existing_ticket = None
+
+            if not ticket:
+                ticket = Ticket.objects.create_with_number(
+                    team=team,
+                    channel_source=Channel.EMAIL,
+                    email_config=config,
+                    widget_session_id="",
+                    distinct_id=sender_email,
+                    status=Status.NEW,
+                    anonymous_traits={
+                        "name": sender_name,
+                        "email": sender_email,
+                    },
+                    email_subject=subject,
+                    email_from=sender_email,
+                    unread_team_count=1,
+                )
+
+            assert ticket is not None
+
+            item_context = {
+                "author_type": "customer",
+                "is_private": False,
+                "email_from": sender_email,
+                "email_from_name": sender_name,
+                "email_message_id": email_message_id,
+                "email_attachments": attachments if attachments else None,
+            }
+
+            comment = Comment.objects.create(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                rich_content=rich_content,
+                item_context=item_context,
+            )
+
+            if existing_ticket:
+                Ticket.objects.filter(id=ticket.id, team=team).update(
+                    unread_team_count=F("unread_team_count") + 1,
+                )
+
+            EmailMessageMapping.objects.create(
+                message_id=email_message_id,
+                team=team,
+                ticket=ticket,
+                comment=comment,
+            )
+    except IntegrityError:
+        logger.info("email_inbound_duplicate_race", message_id=email_message_id)
+        return HttpResponse(status=200)
+
+    logger.info(
+        "email_inbound_processed",
+        team_id=team.id,
+        ticket_id=str(ticket.id),
+        is_reply=existing_ticket is not None,
+    )
+
+    return HttpResponse(status=200)

@@ -35,6 +35,7 @@ from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import Stats
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
+BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
@@ -140,6 +141,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=order_by,
+                having=self.outer_where_breakdown(),
             )
 
         return query
@@ -154,7 +156,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
-                    "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
                     "time_on_page_event_properties": self._event_properties_for_scroll(),
@@ -222,7 +223,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
-                    "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
                     "bounce_event_properties": self._event_properties_for_bounce_rate(),
@@ -254,11 +254,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 self._period_comparison_tuple("errors_count", "context.columns.errors", "sum"),
             ]
 
+            having_exprs = [self._frustration_metrics_having()]
+            outer_breakdown = self.outer_where_breakdown()
+            if outer_breakdown:
+                having_exprs.append(outer_breakdown)
+
             query = ast.SelectQuery(
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                having=self._frustration_metrics_having(),
+                having=ast.And(exprs=having_exprs),
                 order_by=self._frustration_metrics_order_by(),
             )
 
@@ -274,7 +279,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
                 ),
                 "all_properties": self._all_properties(),
-                "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
             },
         )
@@ -319,7 +323,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 "breakdown_value": breakdown,
                 "event_where": self.event_type_expr,
                 "all_properties": self._all_properties(),
-                "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
             },
         )
@@ -587,14 +590,35 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
+    def _prepend_host(self, host_expr: ast.Expr, path_expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(
+                    name="concat",
+                    args=[host_expr, path_expr],
+                ),
+                ast.Constant(value=""),
+            ],
+        )
+
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+                return path
             case WebStatsBreakdown.INITIAL_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$end_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.PREVIOUS_PAGE:
@@ -628,6 +652,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
+            case WebStatsBreakdown.INITIAL_REFERRING_URL:
+                return ast.Call(
+                    name="cutQueryStringAndFragment",
+                    args=[ast.Field(chain=["events", "properties", "$session_entry_referrer"])],
+                )
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["session", "$entry_utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -641,14 +670,40 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                # The source part uses a prefix so the frontend can distinguish
+                # whether the value came from $entry_utm_source or $entry_referring_domain
+                source_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["session", "$entry_utm_source"])],
+                        ),
+                        ast.Field(chain=["session", "$entry_utm_source"]),
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.Call(
+                                    name="isNotNull",
+                                    args=[ast.Field(chain=["session", "$entry_referring_domain"])],
+                                ),
+                                ast.Call(
+                                    name="concat",
+                                    args=[
+                                        ast.Constant(value=BREAKDOWN_REFERRER_PREFIX),
+                                        ast.Field(chain=["session", "$entry_referring_domain"]),
+                                    ],
+                                ),
+                                ast.Constant(value=BREAKDOWN_NULL_DISPLAY),
+                            ],
+                        ),
+                    ],
+                )
                 return ast.Call(
                     name="concatWithSeparator",
                     args=[
                         ast.Constant(value=" / "),
-                        coalesce_with_null_display(
-                            ast.Field(chain=["session", "$entry_utm_source"]),
-                            ast.Field(chain=["session", "$entry_referring_domain"]),
-                        ),
+                        source_expr,
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
                     ],
@@ -705,14 +760,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case _:
                 raise NotImplementedError("Aggregation value not exists")
 
-    def where_breakdown(self):
+    def outer_where_breakdown(self) -> ast.Expr | None:
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
+                return parse_expr("tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
-                    "tupleElement(breakdown_value, 1) IS NOT NULL AND tupleElement(breakdown_value, 2) IS NOT NULL AND "
-                    "tupleElement(breakdown_value, 1) != 0 AND tupleElement(breakdown_value, 2) != 0"
+                    "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
+                    "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
                 )
             case (
                 WebStatsBreakdown.INITIAL_UTM_SOURCE
@@ -721,19 +776,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 | WebStatsBreakdown.INITIAL_UTM_TERM
                 | WebStatsBreakdown.INITIAL_UTM_CONTENT
             ):
-                return parse_expr("TRUE")  # actually show null values
+                return None  # actually show null values
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(
-                    "breakdown_value IS NOT NULL AND breakdown_value != ''"
+                    "`context.columns.breakdown_value` IS NOT NULL AND `context.columns.breakdown_value` != ''"
                 )  # we need to check for empty strings as well due to how the left join works
             case _:
-                return parse_expr("breakdown_value IS NOT NULL")
+                return parse_expr("`context.columns.breakdown_value` IS NOT NULL")
 
     def _scroll_prev_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
 
     def _bounce_entry_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+        return path
 
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:

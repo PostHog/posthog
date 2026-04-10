@@ -34,8 +34,8 @@ import { createPortal } from 'react-dom'
 import { IconTrash } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
 const NOOP = (): void => {}
 export interface VDNDChildItem {

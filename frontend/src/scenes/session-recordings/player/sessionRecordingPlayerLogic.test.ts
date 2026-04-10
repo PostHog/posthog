@@ -1,24 +1,20 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
-import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { RecordingSegment } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     BLOB_SOURCE_V2,
@@ -28,8 +24,13 @@ import {
 } from './__mocks__/test-setup'
 import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
+jest.mock('./utils/playerUtils', () => ({
+    ...jest.requireActual('./utils/playerUtils'),
+    deleteRecording: jest.fn().mockResolvedValue(undefined),
+}))
 
 const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
     ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
@@ -201,6 +202,28 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('currentPlayerTime clamping', () => {
+        // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
+        const START = 1682952380877
+        const DURATION = 11868
+
+        it.each([
+            { description: 'before start', timestamp: START - 1000, expected: 0 },
+            { description: 'at start', timestamp: START, expected: 0 },
+            { description: 'at midpoint', timestamp: START + 5000, expected: 5000 },
+            { description: 'at end', timestamp: START + DURATION, expected: DURATION },
+            { description: 'beyond end', timestamp: START + DURATION + 5000, expected: DURATION },
+        ])('clamps to [$expected] when $description', async ({ timestamp, expected }) => {
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            logic.actions.setCurrentTimestamp(timestamp)
+
+            expect(logic.values.currentPlayerTime).toBe(expected)
+        })
+    })
+
     describe('loading session core', () => {
         it('loads metadata and snapshots by default', async () => {
             silenceKeaLoadersErrors()
@@ -302,9 +325,56 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
         })
+
+        // `t=999` against the ~12s mock recording lands seekToTime's clamp
+        // on exactly `end`, which previously tripped the `>= end` check in
+        // seekToTimestamp and fired endReached before tryInitReplayer could
+        // run. See the isPastEnd comment in sessionRecordingPlayerLogic.ts.
+        it('handles out-of-range ?t= parameter without leaving player in endReached state', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // A window segment (not buffer/gap) is required for tryInitReplayer
+            // to find snapshots and create the rrweb Replayer.
+            expect(logic.values.currentSegment?.kind).toBe('window')
+            expect(logic.values.currentSegment?.windowId).not.toBeUndefined()
+
+            // seekToTime clamps to [start, end] inclusive, so landing exactly
+            // on `end` is expected and valid.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            const end = logic.values.sessionPlayerData.end?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.currentTimestamp).toBeLessThanOrEqual(end)
+
+            // With isPastEnd using `> end`, landing on exactly `end` must NOT
+            // trip endReached — otherwise the player pauses before the rrweb
+            // wrapper is created and only appears after manual interaction.
+            expect(logic.values.endReached).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {
+        const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
+
+        beforeEach(() => {
+            mockedDeleteRecording.mockResolvedValue(undefined)
+        })
+
         it('calls onRecordingDeleted callback when provided', async () => {
             silenceKeaLoadersErrors()
             const onRecordingDeleted = jest.fn()
@@ -315,7 +385,6 @@ describe('sessionRecordingPlayerLogic', () => {
                 onRecordingDeleted,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -323,12 +392,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 .toDispatchActions(['deleteRecording'])
                 .toFinishAllListeners()
 
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
             expect(onRecordingDeleted).toHaveBeenCalled()
             resumeKeaLoadersErrors()
         })
 
-        it('on a single recording page', async () => {
+        it('does not navigate away after delete', async () => {
             silenceKeaLoadersErrors()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
@@ -336,46 +405,39 @@ describe('sessionRecordingPlayerLogic', () => {
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
             router.actions.push(urls.replaySingle('3'))
+            const pathBefore = router.values.location.pathname
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
                 .toFinishAllListeners()
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replay())
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(router.values.location.pathname).toEqual(pathBefore)
+            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
             resumeKeaLoadersErrors()
         })
 
-        it('on a single recording modal', async () => {
+        it('does not mark recording as deleted when API call fails', async () => {
             silenceKeaLoadersErrors()
+            mockedDeleteRecording.mockRejectedValue(new Error('API error'))
+
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
+            deletedRecordingsLogic.mount()
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual('/project/997')
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(deletedRecordingsLogic.values.deletedRecordingIds.has('3')).toBe(false)
             resumeKeaLoadersErrors()
         })
     })
@@ -445,11 +507,9 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('the logger override', () => {
-        it('captures replayer warnings', async () => {
-            jest.useFakeTimers()
-
-            let warningCounts = 0
-            const logger = makeLogger((x) => (warningCounts += x))
+        it('captures replayer warnings and logs to window stores', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
 
             logger.logger.warn('[replayer]', 'test')
             logger.logger.warn('[replayer]', 'test2')
@@ -460,14 +520,33 @@ describe('sessionRecordingPlayerLogic', () => {
                 ['[replayer]', 'test2'],
             ])
             expect((window as any).__posthog_player_logs).toEqual([['[replayer]', 'test3']])
+            expect(categories).toEqual(['test', 'test2'])
+        })
 
-            jest.runOnlyPendingTimers()
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
-            )
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
-            )
+        it('calls onWarning with categorized message per warning', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Mutation target not found')
+
+            expect(categories).toEqual([
+                'Unknown tag: custom-element',
+                'Unknown tag: custom-element',
+                'Mutation target not found',
+            ])
+        })
+
+        it('filters out ignored warnings', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Could not find node with id 42. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Could not find node with id 99. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+
+            expect(categories).toEqual(['Unknown tag: custom-element'])
         })
     })
 
@@ -631,7 +710,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
-                logic.actions.incrementWarningCount(2)
+                logic.cache.rrwebWarningCount = 2
                 logic.actions.incrementErrorCount()
 
                 logic.unmount()

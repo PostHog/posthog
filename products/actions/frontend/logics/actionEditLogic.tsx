@@ -2,12 +2,12 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,8 +16,17 @@ import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
+import type { ActionReferenceApi } from '../generated/api.schemas'
+import { deleteActionWithWarning } from '../utils/deleteAction'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
+
+export const REFERENCE_TYPE_LABELS: Record<string, string> = {
+    insight: 'Insight',
+    experiment: 'Experiment',
+    cohort: 'Cohort',
+    hog_function: 'Destination',
+}
 
 export interface SetActionProps {
     merge?: boolean
@@ -56,12 +65,19 @@ export const actionEditLogic = kea<actionEditLogicType>([
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
         migrateToHogFunction: true,
+        setReferencesSearch: (search: string) => ({ search }),
     }),
     reducers({
         createNew: [
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
+            },
+        ],
+        referencesSearch: [
+            '',
+            {
+                setReferencesSearch: (_, { search }) => search,
             },
         ],
     }),
@@ -113,6 +129,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             </>
                         )
 
+                        return { ...updatedAction }
+                    }
+                    if (response.code === 'blank' && response.attr === 'name') {
+                        lemonToast.error('Action name cannot be empty.')
                         return { ...updatedAction }
                     }
                     throw response
@@ -167,7 +187,41 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
+        references: [
+            [] as ActionReferenceApi[],
+            {
+                loadReferences: async () => {
+                    if (!props.id) {
+                        return []
+                    }
+                    const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
+                    return response
+                },
+            },
+        ],
     })),
+
+    selectors({
+        analyticsReferences: [
+            (s) => [s.references],
+            (references: ActionReferenceApi[]): ActionReferenceApi[] =>
+                references.filter((ref) => ref.type !== 'hog_function'),
+        ],
+        filteredReferences: [
+            (s) => [s.analyticsReferences, s.referencesSearch],
+            (references: ActionReferenceApi[], search: string): ActionReferenceApi[] => {
+                if (!search) {
+                    return references
+                }
+                const lower = search.toLowerCase()
+                return references.filter(
+                    (ref) =>
+                        ref.name.toLowerCase().includes(lower) ||
+                        (REFERENCE_TYPE_LABELS[ref.type] ?? ref.type).toLowerCase().includes(lower)
+                )
+            },
+        ],
+    }),
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
@@ -175,34 +229,30 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (!actionId) {
                 return
             }
-            try {
-                await deleteWithUndo({
-                    endpoint: api.actions.determineDeleteEndpoint(),
-                    object: values.action,
-                    callback: (undo: boolean) => {
-                        if (undo) {
-                            router.actions.push(urls.action(actionId))
-                            refreshTreeItem('action', String(actionId))
-                        } else {
-                            actions.resetAction()
-                            deleteFromTree('action', String(actionId))
-                            router.actions.push(urls.actions())
-                            actions.loadActions()
-                        }
-                    },
-                })
-            } catch (e: any) {
-                lemonToast.error(`Error deleting action: ${e.detail}`)
-            }
+
+            await deleteActionWithWarning(values.action, (undo: boolean) => {
+                if (undo) {
+                    router.actions.push(urls.action(actionId))
+                    refreshTreeItem('action', String(actionId))
+                } else {
+                    actions.resetAction()
+                    deleteFromTree('action', String(actionId))
+                    router.actions.push(urls.actions())
+                    actions.loadActions()
+                }
+            })
         },
     })),
 
     afterMount(({ actions, props }) => {
         if (!props.id) {
             actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
-        } else if (props.action) {
-            // Sync the prop action with the internal state when mounting with an existing action
-            actions.setAction(props.action, { merge: false })
+        } else {
+            if (props.action) {
+                // Sync the prop action with the internal state when mounting with an existing action
+                actions.setAction(props.action, { merge: false })
+            }
+            actions.loadReferences()
         }
     }),
 
@@ -234,7 +284,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
+        enabled: (newLocation?: CombinedLocation) => {
+            if (!logic.isMounted() || !logic.values.actionChanged) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
             logic.actions.resetAction()

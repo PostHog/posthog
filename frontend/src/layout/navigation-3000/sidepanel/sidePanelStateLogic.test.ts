@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -14,19 +13,8 @@ describe('sidePanelStateLogic - onSceneTabChanged', () => {
     beforeEach(() => {
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]: true })
         logic = sidePanelStateLogic.build()
         logic.mount()
-    })
-
-    it('does not run when UX_REMOVE_SIDEPANEL flag is disabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]: false })
-
-        logic.actions.openSidePanel(SidePanelTab.Max)
-        await expectLogic(logic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
-
-        logic.actions.onSceneTabChanged('tab-a', 'tab-b')
-        await expectLogic(logic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
     })
 
     it('does not crash when featureFlagLogic is not mounted', async () => {

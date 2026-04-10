@@ -9,8 +9,8 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
-import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     NodeKind,

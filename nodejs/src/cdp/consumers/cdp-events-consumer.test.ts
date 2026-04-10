@@ -2,6 +2,7 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/schema/hogflow'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -50,17 +51,17 @@ describe.each([
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+        team2 = (await getTeam(hub.postgres, team2Id))! // This team does NOT have data_pipelines
 
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new Consumer(hub)
+        processor = new Consumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -251,7 +252,7 @@ describe.each([
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 ).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -264,7 +265,7 @@ describe.each([
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -281,7 +282,7 @@ describe.each([
                         ? []
                         : [
                               {
-                                  key: expect.any(String),
+                                  key: null,
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
                                       app_source: 'hog_function',
@@ -534,7 +535,7 @@ describe.each([
                 await processor.processBatch([globals])
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -576,8 +577,8 @@ describe('hog flow processing', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
-        processor = new CdpEventsConsumer(hub)
+        team = await getFirstTeam(hub.postgres)
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -743,7 +744,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with email actions when team has email quota limit', async () => {
             // Mock quota limiting for email
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_emails'
@@ -789,11 +790,11 @@ describe('hog flow processing', () => {
             expect(invocations).toHaveLength(0)
 
             // Should have checked quota limits
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_emails'
             )
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -820,7 +821,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with destination actions when team has destination quota limit', async () => {
             // Mock quota limiting for destinations
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_destinations_dispatched'
@@ -863,7 +864,7 @@ describe('hog flow processing', () => {
             const invocations = await processor['createHogFlowInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -871,7 +872,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows without limited action types even when quotas exist', async () => {
             // Mock quota limiting for both
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
@@ -921,7 +922,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows when team has no quota limits', async () => {
             // No quota limits
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()

@@ -14,8 +14,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
-import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
+import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { TRACES_PER_PAGE } from './constants'
 import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
@@ -154,7 +154,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
             <div className="border rounded-lg overflow-hidden divide-y">
                 {traceSummariesLoading && paginatedTracesWithSummaries.length === 0 ? (
                     <div className="p-4 flex items-center justify-center">
-                        <Spinner className="mr-2" />
+                        <Spinner className="mr-2" captureTime />
                         <span className="text-muted">Loading traces...</span>
                     </div>
                 ) : (

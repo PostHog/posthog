@@ -1,0 +1,129 @@
+import { TeamForReplay } from '../../session-recording/teams/types'
+import { EventHeaders } from '../../types'
+import { PipelineResultType } from '../pipelines/results'
+import { TeamFilterStepInput, TeamTokenResolver, createTeamFilterStep } from './team-filter-step'
+
+describe('createTeamFilterStep', () => {
+    const createHeaders = (token?: string): EventHeaders => ({
+        token,
+        force_disable_person_processing: false,
+        historical_migration: false,
+    })
+
+    const createInput = (token?: string): TeamFilterStepInput => ({
+        headers: createHeaders(token),
+    })
+
+    const defaultTeam: TeamForReplay = {
+        teamId: 1,
+        consoleLogIngestionEnabled: false,
+    }
+
+    it('should enrich message with team context when team is valid', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput('test-token')
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.team.teamId).toBe(1)
+        }
+    })
+
+    it('should DLQ message when token is missing', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn(),
+            getRetentionPeriodByTeamId: jest.fn(),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput(undefined)
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('no_token_in_header')
+        }
+        expect(mockTeamService.getTeamByToken).not.toHaveBeenCalled()
+    })
+
+    it('should drop message when team is not found', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn().mockResolvedValue(null),
+            getRetentionPeriodByTeamId: jest.fn(),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput('test-token')
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DROP)
+        if (result.type === PipelineResultType.DROP) {
+            expect(result.reason).toBe('header_token_present_team_missing_or_disabled')
+        }
+        expect(mockTeamService.getRetentionPeriodByTeamId).not.toHaveBeenCalled()
+    })
+
+    it('should drop message when retention period is missing', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(null),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput('test-token')
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DROP)
+        if (result.type === PipelineResultType.DROP) {
+            expect(result.reason).toBe('team_missing_retention_period')
+        }
+    })
+
+    it('should call teamService methods with correct arguments', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput('my-token')
+
+        await step(input)
+
+        expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
+        expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('my-token')
+        expect(mockTeamService.getRetentionPeriodByTeamId).toHaveBeenCalledTimes(1)
+        expect(mockTeamService.getRetentionPeriodByTeamId).toHaveBeenCalledWith(1)
+    })
+
+    it('should preserve all input properties in the output (additive step)', async () => {
+        const mockTeamService: TeamTokenResolver = {
+            getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        }
+
+        const step = createTeamFilterStep(mockTeamService)
+        const input = createInput('my-token')
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            // Verify input is preserved
+            expect(result.value.headers).toBe(input.headers)
+            expect(result.value.headers.token).toBe('my-token')
+            // Verify team is added
+            expect(result.value.team).toBe(defaultTeam)
+        }
+    })
+})

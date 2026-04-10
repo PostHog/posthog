@@ -1,12 +1,16 @@
 {
     "name": "@posthog/products-experiments",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

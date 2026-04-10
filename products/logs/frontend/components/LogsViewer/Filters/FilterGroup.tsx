@@ -78,10 +78,10 @@ const UniversalSearch = (): JSX.Element => {
             filterGroup: logsFilters.filterGroup,
             serviceNames: logsFilters.serviceNames,
         },
-        onChange: (taxonomicGroup, value, item, originalQuery) => {
+        onChange: (taxonomicGroup, value, item) => {
             setVisible(false)
             if (item.value === undefined) {
-                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                addGroupFilter(taxonomicGroup, value, item)
                 return
             }
 
@@ -108,7 +108,6 @@ const UniversalSearch = (): JSX.Element => {
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                             popupAnchorElement={floatingRef.current}
-                            useVerticalLayout={true}
                         />
                     </div>
                 }

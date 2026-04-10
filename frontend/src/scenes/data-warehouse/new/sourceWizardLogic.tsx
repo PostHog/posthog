@@ -7,6 +7,8 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,6 +40,7 @@ import {
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { restoreSourceFormState, saveSourceFormState } from './sourceWizardFormStorage'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
@@ -219,6 +222,8 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
+    /** When set, only these tables will be pre-selected and they cannot be deselected */
+    requiredTables?: string[]
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -228,26 +233,37 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
+            source,
+            searchParams,
+        }),
+        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        clearReturnConfig: true,
         onClear: true,
         onBack: true,
         onNext: true,
         onSubmit: true,
-        setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
+        setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
+            schemas,
+        }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
             incrementalField: string | null,
-            incrementalFieldType: string | null
+            incrementalFieldType: string | null,
+            cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
         ) => ({
             schema,
             syncType,
             incrementalField,
             incrementalFieldType,
+            cdcTableMode,
         }),
         clearSource: true,
-        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
+        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({
+            source,
+        }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setSourceId: (id: string) => ({ sourceId: id }),
@@ -255,10 +271,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
-        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
+        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({
+            provider,
+        }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        saveFormStateBeforeRedirect: true,
+        createWebhook: true,
+        setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+            result,
+        }),
+        submitWebhookFields: true,
     }),
     connect(() => ({
         values: [
@@ -268,6 +292,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -320,21 +346,33 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                 },
-                updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
+                updateSchemaSyncType: (
+                    state,
+                    { schema, syncType, incrementalField, incrementalFieldType, cdcTableMode }
+                ) => {
                     return state.map((s) => ({
                         ...s,
                         sync_type: s.table === schema.table ? syncType : s.sync_type,
                         incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
                         incremental_field_type:
                             s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
+                        ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
+                            ? { cdc_table_mode: cdcTableMode }
+                            : {}),
                     }))
                 },
             },
         ],
         source: [
-            { payload: {}, prefix: '', description: '' } as {
+            {
+                payload: {},
+                prefix: '',
+                description: '',
+                access_method: 'warehouse',
+            } as {
                 prefix: string
                 description: string
+                access_method: 'warehouse' | 'direct'
                 payload: Record<string, any>
             },
             {
@@ -342,13 +380,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
+                        access_method: source.access_method ?? state.access_method,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '', description: '' }),
+                clearSource: () => ({
+                    payload: {},
+                    prefix: '',
+                    description: '',
+                    access_method: 'warehouse',
+                }),
             },
         ],
         isLoading: [
@@ -364,6 +408,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setSourceId: (_, { sourceId }) => sourceId,
             },
         ],
+        returnConfig: [
+            null as { returnUrl: string; returnLabel: string } | null,
+            {
+                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                clearReturnConfig: () => null,
+            },
+        ],
         syncMethodModalOpen: [
             false as boolean,
             {
@@ -376,17 +427,36 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 openSyncMethodModal: (_, { schema }) => schema,
                 cancelSyncMethodModal: () => null,
-                updateSchemaSyncType: (_, { schema, syncType, incrementalField, incrementalFieldType }) => ({
+                updateSchemaSyncType: (
+                    _,
+                    { schema, syncType, incrementalField, incrementalFieldType, cdcTableMode }
+                ) => ({
                     ...schema,
                     sync_type: syncType,
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
+                    ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
                 }),
+            },
+        ],
+        webhookResult: [
+            null as { success: boolean; webhook_url: string; error?: string } | null,
+            {
+                setWebhookResult: (_, { result }) => result,
+                onClear: () => null,
+            },
+        ],
+        webhookCreating: [
+            false,
+            {
+                createWebhook: () => true,
+                setWebhookResult: () => false,
             },
         ],
     }),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
+        requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
             (selectedConnector: SourceConfig | null): Record<string, string | null> => {
@@ -426,16 +496,49 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
 
+        hasWebhookSchemas: [
+            (s) => [s.databaseSchema],
+            (databaseSchema: ExternalDataSourceSyncSchema[]): boolean =>
+                databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync),
+        ],
+        webhookStepComplete: [
+            (s) => [s.webhookResult, s.selectedConnector],
+            (webhookResult: { success: boolean } | null, selectedConnector: SourceConfig | null): boolean => {
+                if (webhookResult?.success) {
+                    return true
+                }
+                if (!webhookResult) {
+                    return false
+                }
+
+                const webhookFields = selectedConnector?.webhookFields ?? []
+                const requiredFields = webhookFields.filter((f) => 'required' in f && f.required)
+                return requiredFields.length === 0
+            },
+        ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
+        isDirectQueryMode: [
+            (s) => [s.source, s.selectedConnector, s.featureFlags],
+            (source, selectedConnector, featureFlags): boolean =>
+                source.access_method === 'direct' &&
+                selectedConnector?.name === 'Postgres' &&
+                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+        ],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
-                return currentStep !== 4
+                return currentStep !== 4 && currentStep !== 5
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, s.databaseSchema],
-            (currentStep, isManualLinkingSelected, databaseSchema): boolean => {
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.databaseSchema,
+                s.isDirectQueryMode,
+                s.webhookStepComplete,
+            ],
+            (currentStep, isManualLinkingSelected, databaseSchema, isDirectQueryMode, webhookStepComplete): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
                 }
@@ -445,7 +548,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         return false
                     }
 
+                    if (isDirectQueryMode) {
+                        return true
+                    }
+
                     return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
+                }
+
+                if (currentStep === 4) {
+                    return webhookStepComplete
                 }
 
                 return true
@@ -454,23 +565,52 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         showSkipButton: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
-                return currentStep === 4
+                return currentStep === 5
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, (_, props) => props.onComplete],
-            (currentStep, isManualLinkingSelected, onComplete): string => {
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.isDirectQueryMode,
+                s.hasWebhookSchemas,
+                (_, props) => props.onComplete,
+                s.returnConfig,
+            ],
+            (
+                currentStep,
+                isManualLinkingSelected,
+                isDirectQueryMode,
+                hasWebhookSchemas,
+                onComplete,
+                returnConfig
+            ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
 
                 if (currentStep === 3) {
+                    if (isDirectQueryMode) {
+                        return 'Save tables'
+                    }
+
+                    if (hasWebhookSchemas) {
+                        return 'Set up webhook'
+                    }
+
                     return 'Import'
                 }
 
                 if (currentStep === 4) {
+                    return 'Next'
+                }
+
+                if (currentStep === 5) {
                     if (onComplete) {
                         return 'Next'
+                    }
+                    if (returnConfig) {
+                        return `Return to ${returnConfig.returnLabel}`
                     }
                     return 'Return to sources'
                 }
@@ -522,8 +662,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         modalTitle: [
-            (s) => [s.currentStep],
-            (currentStep) => {
+            (s) => [s.currentStep, s.isDirectQueryMode],
+            (currentStep, isDirectQueryMode) => {
                 if (currentStep === 1) {
                     return ''
                 }
@@ -532,11 +672,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 3) {
-                    return 'Select tables to import'
+                    return isDirectQueryMode ? 'Select tables to query' : 'Select tables to import'
                 }
 
                 if (currentStep === 4) {
-                    return 'Importing your data...'
+                    return 'Set up webhook'
+                }
+
+                if (currentStep === 5) {
+                    return isDirectQueryMode ? 'Tables ready to query' : 'Importing your data...'
                 }
 
                 return ''
@@ -546,6 +690,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
     listeners(({ actions, values, props }) => ({
+        saveFormStateBeforeRedirect: () => {
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            if (sourceKind) {
+                saveSourceFormState(sourceKind, values.sourceConnectionDetails as Record<string, unknown>)
+            }
+        },
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -573,8 +723,37 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
+                if (values.isDirectQueryMode) {
+                    actions.updateSource({
+                        payload: {
+                            schemas: values.databaseSchema.map((schema) => ({
+                                name: schema.table,
+                                should_sync: schema.should_sync,
+                                sync_type: null,
+                                incremental_field: null,
+                                incremental_field_type: null,
+                                sync_time_of_day: null,
+                            })),
+                        },
+                    })
+                    actions.setIsLoading(true)
+                    actions.createSource()
+                    if (values.selectedConnector) {
+                        posthog.capture('source created', {
+                            sourceType: values.selectedConnector.name,
+                        })
+                    }
+                    return
+                }
+
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
+                )
+                const cdcTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'cdc'
+                )
+                const webhookTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'webhook'
                 )
                 const appendOnlyTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'append'
@@ -588,6 +767,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 const confirmation = (
                     <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 mt-2">
+                        {/* CDC - Best */}
+                        {cdcTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">CDC</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(cdcTables.length)}</span> —
+                                    Real-time change capture via logical replication.
+                                </div>
+                            </>
+                        )}
+
+                        {/* Webhook - Best */}
+                        {webhookTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">Webhook</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(webhookTables.length)}</span> —
+                                    Real-time updates via webhooks.
+                                </div>
+                            </>
+                        )}
+
                         {/* Incremental - Good */}
                         <div className="font-bold text-success">Incremental</div>
                         <div>
@@ -612,7 +813,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         <div className="font-bold text-danger">Full refresh</div>
                         <div>
                             <span className="text-muted">
-                                {tableCountFormatter(fullRefreshTables.length, { none: 'None ✓' })}
+                                {tableCountFormatter(fullRefreshTables.length, {
+                                    none: 'None ✓',
+                                })}
                             </span>{' '}
                             — Re-syncs all rows every time. Can significantly increase costs.
                         </div>
@@ -642,13 +845,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         incremental_field: schema.incremental_field,
                                         incremental_field_type: schema.incremental_field_type,
                                         sync_time_of_day: schema.sync_time_of_day,
+                                        ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
+                                            ? { cdc_table_mode: schema.cdc_table_mode }
+                                            : {}),
                                     })),
                                 },
                             })
                             actions.setIsLoading(true)
                             actions.createSource()
                             if (values.selectedConnector) {
-                                posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                                posthog.capture('source created', {
+                                    sourceType: values.selectedConnector.name,
+                                })
                             }
                         },
                         size: 'small',
@@ -662,6 +870,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
+                if (values.webhookResult?.success) {
+                    actions.onNext()
+                } else {
+                    // Manual mode - submit webhook form (validates, then triggers submitWebhookFields)
+                    actions.submitWebhookFieldInputs()
+                }
+            }
+
+            if (values.currentStep === 5) {
                 if (props.onComplete) {
                     props.onComplete()
                 } else {
@@ -673,13 +890,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
         },
         closeWizard: () => {
+            const returnUrl = values.returnConfig?.returnUrl
             actions.cancelWizard()
-            router.actions.push(urls.sources())
+            router.actions.push(returnUrl ?? urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()
             actions.clearSource()
-            actions.loadSources(null)
+            actions.loadSources()
             actions.resetSourceConnectionDetails()
         },
         createSource: async () => {
@@ -694,18 +912,59 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
-                lemonToast.success('New data resource created')
-
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
-                actions.loadSources(null)
-                actions.markTaskAsCompleted(SetupTaskId.ConnectFirstSource)
-                actions.onNext()
+                actions.loadSources()
+                actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
+
+                // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
+                if (values.requiredTables && props.onComplete) {
+                    props.onComplete()
+                } else if (values.hasWebhookSchemas) {
+                    // Go to webhook setup step (4)
+                    actions.onNext()
+                } else {
+                    // Skip webhook step, go directly to progress (5)
+                    actions.setStep(5)
+                }
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
             } finally {
                 actions.setIsLoading(false)
             }
+        },
+        createWebhook: async () => {
+            if (!values.sourceId) {
+                return
+            }
+
+            try {
+                const result = await api.externalDataSources.createWebhook(values.sourceId)
+                actions.setWebhookResult(result)
+            } catch (e: any) {
+                actions.setWebhookResult({
+                    success: false,
+                    webhook_url: '',
+                    error: e.data?.message ?? e.message ?? 'Failed to create webhook',
+                })
+            }
+        },
+        submitWebhookFields: async () => {
+            if (!values.sourceId) {
+                return
+            }
+
+            const fieldValues = values.webhookFieldInputs
+            if (Object.keys(fieldValues).length > 0) {
+                try {
+                    await api.externalDataSources.updateWebhookInputs(values.sourceId, fieldValues)
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
+                    return
+                }
+            }
+
+            actions.onNext()
         },
         handleRedirect: async ({ source }) => {
             // By default, we assume the source is a valid external data source
@@ -736,12 +995,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 let showToast = false
 
                 for (const schema of schemas) {
+                    if (values.isDirectQueryMode) {
+                        schema.should_sync = true
+                        schema.sync_type = null
+                        continue
+                    }
+
                     if (schema.sync_type === null) {
                         showToast = true
-                        schema.should_sync = true
+                        schema.should_sync = schema.should_sync_default ?? true
 
-                        // Use incremental if available
-                        if (schema.incremental_available || schema.append_available) {
+                        const cdcEnabled = values.source.payload?.cdc_enabled
+                        if (cdcEnabled && schema.cdc_available) {
+                            schema.sync_type = 'cdc'
+                        } else if (schema.supports_webhooks) {
+                            schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
@@ -757,10 +1026,45 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                if (showToast) {
+                if (showToast && !values.requiredTables) {
                     lemonToast.info(
                         "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
                     )
+                }
+
+                // If required tables are specified (e.g. signals setup), skip the schema selection step
+                // entirely and create the source with only those tables, using their default sync settings
+                if (values.requiredTables) {
+                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
+                    if (requiredSchemas.length !== values.requiredTables.length) {
+                        const missingTables = values.requiredTables.filter(
+                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
+                        )
+                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
+                        actions.setIsLoading(false)
+                        return
+                    }
+
+                    actions.updateSource({
+                        payload: {
+                            schemas: requiredSchemas.map((schema) => ({
+                                name: schema.table,
+                                should_sync: true,
+                                sync_type: schema.sync_type,
+                                incremental_field: schema.incremental_field,
+                                incremental_field_type: schema.incremental_field_type,
+                                sync_time_of_day: schema.sync_time_of_day ?? null,
+                                ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
+                                    ? { cdc_table_mode: schema.cdc_table_mode }
+                                    : {}),
+                            })),
+                        },
+                    })
+                    // Jump to step 3 so that createSource's onNext() advances to step 4 (sync progress)
+                    actions.setStep(3)
+                    actions.setIsLoading(true)
+                    actions.createSource()
+                    return
                 }
 
                 actions.setDatabaseSchemas(schemas)
@@ -825,6 +1129,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
+            const returnUrl = searchParams.returnUrl
+            const returnLabel = searchParams.returnLabel
+            const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
+
+            if (returnUrl && returnLabel) {
+                actions.setReturnConfig(returnUrl, returnLabel)
+            } else {
+                actions.clearReturnConfig()
+            }
+
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
@@ -836,13 +1150,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (source) {
                 actions.selectConnector(source)
+                actions.updateSource({ access_method: accessMethod })
+                actions.setSourceConnectionDetailsValue('access_method', accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
+                // Restore form values saved before an OAuth redirect
+                const savedValues = restoreSourceFormState(source.name.toLowerCase())
+                if (savedValues) {
+                    actions.setSourceConnectionDetailsValues(savedValues)
+                }
                 return
             }
 
-            actions.selectConnector(null)
-            actions.setStep(1)
+            if (values.currentStep <= 1) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+            }
         }
 
         return {
@@ -854,7 +1177,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const selectedAccessMethod =
+                    (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
+                const normalizedValues = {
+                    ...(sourceValues as Record<string, any>),
+                    access_method: selectedAccessMethod,
+                }
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({
@@ -866,14 +1195,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
+                    const isDirectQueryMode =
+                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+                        values.selectedConnector.name === 'Postgres' &&
+                        sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
+                        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)
 
                     try {
-                        await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+                        if (!isDirectQueryMode) {
+                            await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+                        }
 
                         const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
                             name: n.name,
@@ -903,19 +1239,39 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             }
                         }
 
+                        // Include CDC configuration if present
+                        const cdcFields: Record<string, any> = {}
+                        const cdcKeys = [
+                            'cdc_enabled',
+                            'cdc_management_mode',
+                            'cdc_slot_name',
+                            'cdc_publication_name',
+                            'cdc_auto_drop_slot',
+                            'cdc_lag_warning_threshold_mb',
+                            'cdc_lag_critical_threshold_mb',
+                        ]
+                        for (const key of cdcKeys) {
+                            if (payload['payload']?.[key] !== undefined) {
+                                cdcFields[key] = payload['payload'][key]
+                            }
+                        }
+
                         // Only store the keys of the source type we're using
                         actions.updateSource({
                             ...payload,
                             payload: {
                                 source_type: values.selectedConnector.name,
                                 ...fieldPayload,
+                                ...cdcFields,
                             },
                         })
 
                         actions.setIsLoading(false)
                     } catch (e: any) {
                         if (e?.data?.message) {
-                            actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                            actions.setSourceConnectionDetailsManualErrors({
+                                prefix: e.data.message,
+                            })
                         }
                         actions.setIsLoading(false)
 
@@ -924,19 +1280,44 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             },
         },
+        webhookFieldInputs: {
+            defaults: {} as Record<string, any>,
+            errors: (sourceValues) => {
+                const webhookFields = values.selectedConnector?.webhookFields ?? []
+                return getErrorsForFields(webhookFields, {
+                    prefix: '',
+                    payload: sourceValues as Record<string, any>,
+                }).payload
+            },
+            submit: async () => {
+                actions.submitWebhookFields()
+            },
+        },
     })),
 ])
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any> } | undefined
+    values:
+        | {
+              prefix: string
+              payload: Record<string, any>
+              access_method?: 'warehouse' | 'direct'
+          }
+        | undefined,
+    options?: { allowBlankSensitiveFields?: boolean }
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
     }
 
-    // Prefix errors
-    if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
+    const isDirectMode = values?.access_method === 'direct'
+
+    if (isDirectMode) {
+        if (!values?.prefix?.trim()) {
+            errors['prefix'] = 'Please enter a name for this direct query source.'
+        }
+    } else if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
         errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
     }
 
@@ -974,6 +1355,19 @@ export const getErrorsForFields = (
         }
 
         // All other types - check if required property exists on this field type
+        if (
+            options?.allowBlankSensitiveFields &&
+            'type' in field &&
+            field.type === 'password' &&
+            !valueObj[field.name]
+        ) {
+            return
+        }
+
+        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
+            return
+        }
+
         if ('required' in field && field.required && !valueObj[field.name]) {
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }

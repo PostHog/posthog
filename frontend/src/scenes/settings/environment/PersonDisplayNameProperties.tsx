@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, TeamMembershipLevel } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +14,10 @@ export function PersonDisplayNameProperties(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [value, setValue] = useState([] as string[])
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useEffect(
         () => setValue(currentTeam?.person_display_name_properties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES),
@@ -32,6 +37,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
                     selectedProperties={value || []}
                     addText="Add"
                     sortable
+                    disabledReason={restrictedReason}
                 />
                 <LemonButton
                     type="primary"
@@ -40,6 +46,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
                             person_display_name_properties: value.map((s) => s.trim()).filter((a) => a) || [],
                         })
                     }
+                    disabledReason={restrictedReason}
                 >
                     Save
                 </LemonButton>

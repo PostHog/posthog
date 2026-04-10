@@ -6,21 +6,14 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
+import {
+    type EventTriggerConfig,
+    registerTriggerType,
+} from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 const SUPPORT_STATUS_VALUES = ['new', 'open', 'pending', 'on_hold', 'resolved'] as const
 type SupportStatusValue = (typeof SUPPORT_STATUS_VALUES)[number]
-
-type EventTriggerConfig = {
-    type: 'event'
-    filters: {
-        events?: any[]
-        properties?: any[]
-        actions?: any[]
-        filter_test_accounts?: boolean
-    }
-}
 
 function getEventId(config: EventTriggerConfig): string | null {
     const [firstEvent] = config.filters?.events ?? []
@@ -100,10 +93,27 @@ function StepTriggerConfigurationSupportMessage({ node }: { node: any }): JSX.El
 }
 
 registerTriggerType({
+    value: 'support_ticket_created',
+    label: 'New ticket created',
+    icon: <IconBolt />,
+    description: 'Trigger when a new support ticket is created',
+    group: 'Support',
+    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_created',
+    buildConfig: () => ({
+        type: 'event',
+        filters: {
+            events: [{ id: '$conversation_ticket_created', type: 'events', name: 'New ticket created' }],
+        },
+    }),
+})
+
+registerTriggerType({
     value: 'support_ticket_status_changed',
     label: 'Ticket status changed',
     icon: <IconBolt />,
     description: 'Trigger when a ticket status changes to a selected status',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_status_changed',
     buildConfig: () => ({
@@ -118,6 +128,7 @@ registerTriggerType({
     label: 'Ticket message sent',
     icon: <IconBolt />,
     description: 'Trigger when a teammate replies on a ticket',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_sent',
     buildConfig: () => ({
@@ -134,6 +145,7 @@ registerTriggerType({
     label: 'Ticket message received',
     icon: <IconBolt />,
     description: 'Trigger when a customer sends a message on a ticket',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_received',
     buildConfig: () => ({

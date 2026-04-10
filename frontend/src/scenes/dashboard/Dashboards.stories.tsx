@@ -109,76 +109,81 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const List: Story = {}
 
-export const New = (): JSX.Element => {
-    useAvailableFeatures([])
-    useDelayedOnMountEffect(() => {
-        newDashboardLogic.mount()
-        newDashboardLogic.actions.showNewDashboardModal()
-        dashboardTemplatesLogic.mount()
-    })
+export const New: Story = {
+    render: () => {
+        useAvailableFeatures([])
+        useDelayedOnMountEffect(() => {
+            newDashboardLogic.mount()
+            newDashboardLogic.actions.showNewDashboardModal()
+            dashboardTemplatesLogic.mount()
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const NewSelectVariables = (): JSX.Element => {
-    useAvailableFeatures([])
-    useDelayedOnMountEffect(() => {
-        newDashboardLogic.mount()
-        newDashboardLogic.actions.showNewDashboardModal()
-        newDashboardLogic.actions.setActiveDashboardTemplate({
-            id: BASE_DASHBOARD_ID.toString(),
-            template_name: 'Dashboard name',
-            dashboard_description: 'The dashboard description',
-            dashboard_filters: {},
-            tiles: [],
-            variables: [
-                {
-                    id: 'SIGN_UP',
-                    name: 'Sign up page viewed',
-                    type: 'event',
-                    default: {
-                        id: '$pageview',
-                        math: BaseMathType.UniqueUsers,
-                        type: EntityTypes.EVENTS,
+export const NewSelectVariables: Story = {
+    render: () => {
+        useAvailableFeatures([])
+        useDelayedOnMountEffect(() => {
+            newDashboardLogic.mount()
+            newDashboardLogic.actions.showNewDashboardModal()
+            newDashboardLogic.actions.setActiveDashboardTemplate({
+                id: BASE_DASHBOARD_ID.toString(),
+                template_name: 'Dashboard name',
+                dashboard_description: 'The dashboard description',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [
+                    {
+                        id: 'SIGN_UP',
+                        name: 'Sign up page viewed',
+                        type: 'event',
+                        default: {
+                            id: '$pageview',
+                            math: BaseMathType.UniqueUsers,
+                            type: EntityTypes.EVENTS,
+                        },
+                        required: true,
+                        description: 'Add the current_url filter that matches your sign up page',
                     },
-                    required: true,
-                    description: 'Add the current_url filter that matches your sign up page',
-                },
-                {
-                    id: 'ACTIVATED',
-                    name: 'Very very long event name very very long. Very very long event name very very long',
-                    type: 'event',
-                    default: {
-                        id: '$pageview',
-                        math: BaseMathType.UniqueUsers,
-                        type: EntityTypes.EVENTS,
+                    {
+                        id: 'ACTIVATED',
+                        name: 'Very very long event name very very long. Very very long event name very very long',
+                        type: 'event',
+                        default: {
+                            id: '$pageview',
+                            math: BaseMathType.UniqueUsers,
+                            type: EntityTypes.EVENTS,
+                        },
+                        required: true,
+                        description:
+                            'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
                     },
-                    required: true,
-                    description:
-                        'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
-                },
-                {
-                    id: 'ACTIVATED',
-                    name: 'Activated event',
-                    type: 'event',
-                    default: {
-                        id: '$pageview',
-                        math: BaseMathType.UniqueUsers,
-                        type: EntityTypes.EVENTS,
+                    {
+                        id: 'ACTIVATED',
+                        name: 'Activated event',
+                        type: 'event',
+                        default: {
+                            id: '$pageview',
+                            math: BaseMathType.UniqueUsers,
+                            type: EntityTypes.EVENTS,
+                        },
+                        required: false,
+                        description: 'Select the event which best represents when a user is activated',
                     },
-                    required: false,
-                    description: 'Select the event which best represents when a user is activated',
-                },
-            ],
-            tags: [],
-            image_url: 'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
+                ],
+                tags: [],
+                image_url:
+                    'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
+            })
         })
-    })
 
-    return <App />
+        return <App />
+    },
 }
 
 export const Show: Story = {
@@ -187,18 +192,20 @@ export const Show: Story = {
     },
 }
 
-export const Edit = (): JSX.Element => {
-    useDelayedOnMountEffect(() => {
-        dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
-        dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
-            DashboardMode.Edit,
-            DashboardEventSource.Browser
-        )
-    })
+export const Edit: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
+            dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
+                DashboardMode.Edit,
+                DashboardEventSource.Browser
+            )
+        })
 
-    return <App />
+        return <App />
+    },
+    parameters: { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) },
 }
-Edit.parameters = { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) }
 
 export const NotFound: Story = {
     parameters: {

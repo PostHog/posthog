@@ -9,13 +9,13 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { Node } from '~/queries/schema/schema-general'
+import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
@@ -23,17 +23,25 @@ import type { eventsSceneLogicType } from './eventsSceneLogicType'
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam],
-            (currentTeam) => {
+            (currentTeam): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
-                return defaultSourceForTeam ? { ...defaultForScene, source: defaultSourceForTeam } : defaultForScene
+                const base = defaultSourceForTeam
+                    ? { ...defaultForScene, source: defaultSourceForTeam }
+                    : defaultForScene
+                return {
+                    ...base,
+                    showPropertyFilter: true,
+                }
             },
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],

@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
@@ -281,3 +282,30 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             # This ensures any changes to the TypeScript generation are intentional and reviewed
             # Strip the dynamic timestamp so the snapshot is stable
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
+
+
+class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
+    def test_optional_in_types_generates_optional_marker(self):
+        generator = TypeScriptGenerator()
+        event = MagicMock()
+        event.id = "1"
+        event.name = "test_event"
+
+        required_prop = MagicMock()
+        required_prop.name = "always_required"
+        required_prop.property_type = "String"
+        required_prop.is_required = True
+        required_prop.is_optional_in_types = False
+
+        optional_in_types_prop = MagicMock()
+        optional_in_types_prop.name = "super_prop"
+        optional_in_types_prop.property_type = "String"
+        optional_in_types_prop.is_required = True
+        optional_in_types_prop.is_optional_in_types = True
+
+        schema_map = {"1": [required_prop, optional_in_types_prop]}
+        code = generator.generate([event], schema_map)  # type: ignore[arg-type]
+
+        self.assertIn('"always_required": string', code)
+        self.assertNotIn('"always_required"?: string', code)
+        self.assertIn('"super_prop"?: string', code)

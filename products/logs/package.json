@@ -5,10 +5,14 @@
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
@@ -20,20 +24,15 @@
         "@types/papaparse": "*",
         "@types/react": "*",
         "ansi-colors": "*",
-        "classnames": "*",
         "clsx": "*",
         "eslint": "*",
         "fast-deep-equal": "*",
         "jest": "*",
         "papaparse": "*",
-        "prettier": "*",
         "react": "*",
         "react-window": "*",
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
     }
 }

@@ -16,6 +16,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+// eslint-disable-next-line import/no-cycle
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
@@ -69,7 +70,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_, source) => <DataWarehouseSourceIcon type={source.source_type} />,
+                        render: (_, source) => (
+                            <DataWarehouseSourceIcon type={source.source_type} engine={source.engine} />
+                        ),
                     },
                     {
                         title: 'Source',
@@ -118,8 +121,10 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
-                            return source.latest_error && source.status === 'Error' ? (
-                                <Tooltip title={source.latest_error}>{tagContent}</Tooltip>
+                            return source.latest_error && source.status === 'Failed' ? (
+                                <Tooltip title={source.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )

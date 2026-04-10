@@ -1,10 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION } from '~/lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import api from '~/lib/api'
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext, OrganizationType } from '~/types'
 
 import {
     LanguageCode,
@@ -25,24 +27,19 @@ describe('messageActionsMenuLogic', () => {
         provider: 'openai',
     }
 
+    const aiApprovedOrg = {
+        ...MOCK_DEFAULT_ORGANIZATION,
+        is_ai_data_processing_approved: true,
+    } as OrganizationType
+
     beforeEach(() => {
-        jest.clearAllMocks()
+        jest.resetAllMocks()
         window.localStorage.clear()
+        window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
 
-        useMocks({
-            get: {
-                '/api/organizations/@current/': {
-                    id: 'test-org',
-                    is_ai_data_processing_approved: true,
-                },
-            },
-        })
+        jest.spyOn(mockApi.llmAnalytics, 'translate').mockResolvedValue(mockTranslationResponse)
 
-        mockApi.llmAnalytics = {
-            translate: jest.fn().mockResolvedValue(mockTranslationResponse),
-        } as any
-
-        initKeaTests()
+        initKeaTests(true, undefined, undefined, aiApprovedOrg)
     })
 
     describe('reducers', () => {
@@ -147,7 +144,7 @@ describe('messageActionsMenuLogic', () => {
                 logic.mount()
 
                 // Manually set an error state
-                mockApi.llmAnalytics.translate = jest.fn().mockRejectedValueOnce(new Error('API error'))
+                jest.spyOn(mockApi.llmAnalytics, 'translate').mockRejectedValueOnce(new Error('API error'))
 
                 await expectLogic(logic, () => {
                     logic.actions.translate()
@@ -171,7 +168,7 @@ describe('messageActionsMenuLogic', () => {
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
 
-                mockApi.llmAnalytics.translate = jest.fn().mockRejectedValue(new Error('Translation failed'))
+                jest.spyOn(mockApi.llmAnalytics, 'translate').mockRejectedValue(new Error('Translation failed'))
 
                 await expectLogic(logic, () => {
                     logic.actions.translate()
@@ -248,19 +245,7 @@ describe('messageActionsMenuLogic', () => {
 
         describe('dataProcessingAccepted', () => {
             it('returns true when organization has approved AI data processing', async () => {
-                useMocks({
-                    get: {
-                        '/api/organizations/@current/': {
-                            id: 'test-org',
-                            is_ai_data_processing_approved: true,
-                        },
-                    },
-                })
-
-                const orgLogic = organizationLogic()
-                orgLogic.mount()
-                await expectLogic(orgLogic).toFinishAllListeners()
-
+                // beforeEach already bootstraps with is_ai_data_processing_approved: true
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
 
@@ -268,19 +253,7 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('returns false when organization has not approved AI data processing', async () => {
-                useMocks({
-                    get: {
-                        '/api/organizations/@current/': {
-                            id: 'test-org',
-                            is_ai_data_processing_approved: false,
-                        },
-                    },
-                })
-
-                initKeaTests()
-                const orgLogic = organizationLogic()
-                orgLogic.mount()
-                await expectLogic(orgLogic).toFinishAllListeners()
+                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
@@ -355,19 +328,7 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('throws error when data processing not accepted', async () => {
-                useMocks({
-                    get: {
-                        '/api/organizations/@current/': {
-                            id: 'test-org',
-                            is_ai_data_processing_approved: false,
-                        },
-                    },
-                })
-
-                initKeaTests()
-                const orgLogic = organizationLogic()
-                orgLogic.mount()
-                await expectLogic(orgLogic).toFinishAllListeners()
+                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()

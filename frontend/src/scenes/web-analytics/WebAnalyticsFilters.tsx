@@ -19,9 +19,9 @@ import {
     isWebAnalyticsPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import MaxTool from 'scenes/max/MaxTool'
@@ -30,20 +30,20 @@ import { Scene } from 'scenes/sceneTypes'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
+import { ProductTab, faviconUrl } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
+import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-import { ProductTab, faviconUrl } from './common'
-import { webAnalyticsDateMapping } from './constants'
-import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {

@@ -16,7 +16,6 @@ describe('TeamService', () => {
                 'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
             },
             retentionMap: { 1: '30d', 2: '1y' },
-            encryptionMap: { 1: true, 2: false },
         })
     })
 
@@ -44,7 +43,6 @@ describe('TeamService', () => {
                     token: { teamId: null as any, consoleLogIngestionEnabled: true },
                 },
                 retentionMap: { 1: '30d', 2: '1y' },
-                encryptionMap: { 1: true, 2: false },
             })
             const team = await teamService.getTeamByToken('token')
             expect(team).toBeNull()
@@ -105,7 +103,6 @@ describe('TeamService', () => {
                     'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
                 },
                 retentionMap: { 1: '30d', 2: '1y' },
-                encryptionMap: { 1: true, 2: false },
             })
             fetchSpy.mockReturnValue(mockFetchPromise)
 
@@ -132,7 +129,6 @@ describe('TeamService', () => {
                     'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
                 },
                 retentionMap: { 2: '1y' },
-                encryptionMap: { 2: false },
             })
             fetchSpy.mockReturnValue(mockFetchPromise)
 
@@ -165,23 +161,6 @@ describe('TeamService', () => {
         it('should return null for unknown team', async () => {
             const retention = await teamService.getRetentionPeriodByTeamId(999)
             expect(retention).toBeNull()
-        })
-    })
-
-    describe('getEncryptionEnabledByTeamId', () => {
-        it('should return true for team with encryption enabled', async () => {
-            const enabled = await teamService.getEncryptionEnabledByTeamId(1)
-            expect(enabled).toBe(true)
-        })
-
-        it('should return false for team with encryption disabled', async () => {
-            const enabled = await teamService.getEncryptionEnabledByTeamId(2)
-            expect(enabled).toBe(false)
-        })
-
-        it('should return false for unknown team', async () => {
-            const enabled = await teamService.getEncryptionEnabledByTeamId(999)
-            expect(enabled).toBe(false)
         })
     })
 })

@@ -1,8 +1,9 @@
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
-from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
 from posthog.test.activity_log_utils import ActivityLogTestHelper
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestAnnotationActivityLogging(ActivityLogTestHelper):

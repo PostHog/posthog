@@ -87,7 +87,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     export function MyApp() {
                                         return (
                                             <PostHogProvider
-                                                apiKey="<ph_project_api_key>"
+                                                apiKey="<ph_project_token>"
                                                 options={{
                                                     host: "<ph_client_api_host>",
 
@@ -105,13 +105,27 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
 
                                                         // Capture logs automatically. Default is true.
                                                         // Android only (Native Logcat only)
+                                                        //
+                                                        // Support for remote configuration 
+                                                        // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                                                        // requires SDK version 4.35.0 or higher.
                                                         captureLog: true,
 
                                                         // Whether network requests are captured in recordings. Default is true
                                                         // Only metric-like data like speed, size, and response code are captured.
                                                         // No data is captured from the request or response body.
                                                         // iOS only
+                                                        //
+                                                        // Support for remote configuration 
+                                                        // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-network)
+                                                        // requires SDK version 4.35.0 or higher.
                                                         captureNetworkTelemetry: true,
+
+                                                        // Sample rate for session recordings. A value between 0.0 and 1.0.
+                                                        // 1.0 means 100% of sessions will be recorded. 0.5 means 50%, and so on.
+                                                        // Local config has precedence over remote config when both are set.
+                                                        // Default is undefined (all sessions are recorded).
+                                                        sampleRate: undefined,
 
                                                         // Throttling delay used to reduce the number of snapshots captured
                                                         // and reduce performance impact. Default is 1000ms

@@ -22,7 +22,9 @@ from posthog.schema import (
     EventsNode,
     FilterLogicalOperator,
     HogQLQueryModifiers,
+    InCohortVia,
     InsightActorsQuery,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
     TrendsQuery,
 )
@@ -33,9 +35,13 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.models import Cohort
+from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.person.util import create_person
+from posthog.models.utils import UUIDT
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
@@ -155,6 +161,87 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+
+
+class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
+    """Tests for the V2 argmax ORDER BY / LIMIT push-down into the inner subquery.
+
+    The optimization pushes ORDER BY + LIMIT into the inner deduplication
+    subquery so ClickHouse doesn't have to deduplicate every person.
+    It is only safe when there's no outer WHERE that would filter rows
+    after the inner query -- otherwise the LIMIT excludes valid rows
+    before the filter runs.
+    """
+
+    def _v2_modifiers(self) -> HogQLQueryModifiers:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        return modifiers
+
+    @snapshot_clickhouse_queries
+    def test_v2_order_by_and_limit_pushed_down(self):
+        """ORDER BY + LIMIT are pushed into the inner subquery when there's no WHERE."""
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$some_prop": "a"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$some_prop": "b"})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            parse_select("SELECT id, properties.$some_prop FROM persons ORDER BY created_at DESC LIMIT 2"),
+            self.team,
+            modifiers=self._v2_modifiers(),
+        )
+        assert response.clickhouse is not None
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        # LIMIT is pushed into the inner subquery
+        assert "LIMIT 3" in response.clickhouse
+        assert len(response.results) == 2
+
+    @snapshot_clickhouse_queries
+    def test_v2_cohort_where_does_not_push_limit_down(self):
+        """When there's an outer WHERE (e.g. a cohort filter), ORDER BY and LIMIT
+        must not be pushed into the inner subquery. Otherwise the inner LIMIT
+        restricts the person set before the cohort filter runs, and valid
+        cohort members get excluded."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        cohort_prop_value = f"cohort_match_{random_uuid}"
+        _create_person(
+            properties={"email": "cohort_member@example.com", "cohort_marker": cohort_prop_value},
+            team=self.team,
+            distinct_ids=[f"cohort_member_{random_uuid}"],
+            is_identified=True,
+        )
+        for i in range(10):
+            _create_person(
+                properties={"email": f"user{i}@example.com", "cohort_marker": "no_match"},
+                team=self.team,
+                distinct_ids=[f"non_cohort_{i}_{random_uuid}"],
+                is_identified=True,
+            )
+        sync_execute("OPTIMIZE TABLE person FINAL")
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "cohort_marker", "value": cohort_prop_value, "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+
+        modifiers = self._v2_modifiers()
+        modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
+
+        response = execute_hogql_query(
+            f"SELECT id, properties.email FROM persons WHERE id IN COHORT {cohort.pk} ORDER BY created_at DESC LIMIT 3",
+            self.team,
+            modifiers=modifiers,
+            pretty=False,
+        )
+        assert response.clickhouse is not None
+        # V2 path is used but LIMIT is NOT pushed into the inner subquery
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        # The inner GROUP BY subquery should have no LIMIT
+        assert "LIMIT 4" not in response.clickhouse
+        # The cohort member is correctly returned
+        assert len(response.results) == 1
+        assert response.results[0][1] == "cohort_member@example.com"
 
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):

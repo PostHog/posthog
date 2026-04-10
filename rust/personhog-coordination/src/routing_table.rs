@@ -7,8 +7,10 @@ use etcd_client::EventType;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+
 use crate::error::{Error, Result};
-use crate::store::{self, EtcdStore};
+use crate::store::{self, PersonhogStore};
 use crate::types::{
     HandoffPhase, HandoffState, PartitionAssignment, RegisteredRouter, RouterCutoverAck,
 };
@@ -49,22 +51,16 @@ impl Default for RoutingTableConfig {
 /// the `Ready` phase, calls the `CutoverHandler` to perform the traffic
 /// switch, then writes a `RouterCutoverAck` to etcd.
 pub struct RoutingTable {
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
-    handler: Arc<dyn CutoverHandler>,
     table: Arc<RwLock<HashMap<u32, String>>>,
 }
 
 impl RoutingTable {
-    pub fn new(
-        store: Arc<EtcdStore>,
-        config: RoutingTableConfig,
-        handler: Arc<dyn CutoverHandler>,
-    ) -> Self {
+    pub fn new(store: Arc<PersonhogStore>, config: RoutingTableConfig) -> Self {
         Self {
             store,
             config,
-            handler,
             table: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -89,12 +85,21 @@ impl RoutingTable {
 
     /// Run the routing table. Registers with etcd, loads the initial state,
     /// then watches for assignment changes and handoffs. Blocks until cancelled.
-    pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+    ///
+    /// The `handler` performs the actual traffic cutover when a handoff reaches
+    /// the Ready phase. Accepting it here (rather than in the constructor)
+    /// lets callers build the handler after the routing table, avoiding
+    /// circular-dependency workarounds like `OnceCell`.
+    pub async fn run(
+        &self,
+        cancel: CancellationToken,
+        handler: Arc<dyn CutoverHandler>,
+    ) -> Result<()> {
         // Register this router so the coordinator can count it for ack quorum
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        self.load_initial().await?;
+        self.load_initial(&handler).await?;
 
         // Run heartbeat, assignment watch, and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
@@ -117,7 +122,7 @@ impl RoutingTable {
 
         {
             let store = Arc::clone(&self.store);
-            let handler = Arc::clone(&self.handler);
+            let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
@@ -128,7 +133,7 @@ impl RoutingTable {
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
             Some(result) = tasks.join_next() => {
-                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
+                result.map_err(|e| Error::invalid_state(format!("task panicked: {e}")))?
             }
         };
 
@@ -148,7 +153,7 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    async fn load_initial(&self) -> Result<()> {
+    async fn load_initial(&self, handler: &Arc<dyn CutoverHandler>) -> Result<()> {
         let assignments = self.store.list_assignments().await?;
         let mut table = self.table.write().await;
         for a in assignments {
@@ -171,7 +176,7 @@ impl RoutingTable {
                     "catching up on in-progress handoff"
                 );
 
-                self.handler
+                handler
                     .execute_cutover(handoff.partition, &handoff.old_owner, &handoff.new_owner)
                     .await?;
 
@@ -188,7 +193,7 @@ impl RoutingTable {
     }
 
     async fn watch_assignments_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         table: Arc<RwLock<HashMap<u32, String>>>,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -198,11 +203,11 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("assignment watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("assignment watch stream ended".to_string()))?;
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
-                                let assignment: PartitionAssignment = store::parse_watch_value(event)?;
+                                let assignment: PartitionAssignment = parse_watch_value(event)?;
                                 table.write().await.insert(assignment.partition, assignment.owner);
                             }
                             EventType::Delete => {
@@ -222,7 +227,7 @@ impl RoutingTable {
     }
 
     async fn watch_handoffs_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         handler: Arc<dyn CutoverHandler>,
         router_name: String,
         cancel: CancellationToken,
@@ -233,10 +238,10 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("handoff watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) if handoff.phase == HandoffPhase::Ready => {
                                     tracing::info!(
                                         router = %router_name,

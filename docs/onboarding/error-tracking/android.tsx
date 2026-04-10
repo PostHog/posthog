@@ -16,9 +16,9 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <CalloutBox type="fyi" title="Client-side configuration only">
                     <Markdown>
                         {dedent`
-                            This configuration is client-side only. Support for remote configuration 
+                            Support for remote configuration 
                             in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture) 
-                            will be added in a future release.
+                            requires SDK version 3.32.0 or higher.
                         `}
                     </Markdown>
                 </CalloutBox>
@@ -36,7 +36,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             code: dedent`
                               import com.posthog.android.PostHogAndroidConfig
                               val config = PostHogAndroidConfig(
-                                  apiKey = POSTHOG_API_KEY,
+                                  apiKey = POSTHOG_PROJECT_TOKEN,
                                   host = POSTHOG_HOST
                               ).apply {
                                   ...
@@ -113,12 +113,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
 export const AndroidInstallation = createInstallation(getAndroidSteps)

@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { createFuse } from 'lib/utils/fuseSearch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
@@ -45,7 +46,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
 
         rolesFuse: [
             (s) => [s.roles],
-            (roles): RolesFuse => new Fuse<RoleType>(roles, { keys: ['name'], threshold: 0.3 }),
+            (roles): RolesFuse => createFuse<RoleType>(roles, { keys: ['name'], threshold: 0.3 }),
         ],
 
         filteredRoles: [

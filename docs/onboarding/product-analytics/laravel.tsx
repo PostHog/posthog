@@ -52,7 +52,7 @@ export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     public function boot(): void
                                     {
                                         PostHog::init(
-                                            '<ph_project_api_key>',
+                                            '<ph_project_token>',
                                             [
                                                 'host' => '<ph_client_api_host>'
                                             ]

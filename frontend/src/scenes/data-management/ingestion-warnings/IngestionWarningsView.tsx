@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,7 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
-const WARNING_TYPE_TO_DESCRIPTION = {
+export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
@@ -316,7 +316,10 @@ export function IngestionWarningsView(): JSX.Element {
                             title: 'Warning',
                             dataIndex: 'type',
                             render: function Render(_, summary: IngestionWarningSummary) {
-                                const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
+                                const type =
+                                    WARNING_TYPE_TO_DESCRIPTION[
+                                        summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
+                                    ] || summary.type
                                 return (
                                     <>
                                         {type} (
@@ -389,7 +392,7 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
                     title: 'Description',
                     key: 'description',
                     render: function Render(_, warning: IngestionWarning) {
-                        const renderer = WARNING_TYPE_RENDERER[warning.type]
+                        const renderer = WARNING_TYPE_RENDERER[warning.type as keyof typeof WARNING_TYPE_RENDERER]
                         return renderer ? renderer(warning) : <pre>{JSON.stringify(warning.details, null, 2)}</pre>
                     },
                 },

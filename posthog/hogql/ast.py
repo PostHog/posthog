@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     StringArrayDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     UnknownDatabaseField,
     VirtualTable,
@@ -28,10 +29,62 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
+VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
+VALID_JOIN_TYPES = frozenset(
+    {
+        "JOIN",
+        "INNER",
+        "INNER JOIN",
+        "LEFT JOIN",
+        "RIGHT JOIN",
+        "FULL JOIN",
+        "FULL OUTER JOIN",
+        "CROSS JOIN",
+        "LEFT OUTER JOIN",
+        "RIGHT OUTER JOIN",
+        "ANY INNER JOIN",
+        "ALL INNER JOIN",
+        "ASOF INNER JOIN",
+        "LEFT SEMI JOIN",
+        "LEFT ANTI JOIN",
+        "LEFT ANY JOIN",
+        "LEFT ALL JOIN",
+        "LEFT ASOF JOIN",
+        "RIGHT SEMI JOIN",
+        "RIGHT ANTI JOIN",
+        "RIGHT ANY JOIN",
+        "RIGHT ALL JOIN",
+        "RIGHT ASOF JOIN",
+        "FULL ANY JOIN",
+        "FULL ALL JOIN",
+        "FULL ASOF JOIN",
+        "ASOF FULL JOIN",
+        "ASOF LEFT JOIN",
+        "ASOF RIGHT JOIN",
+        "ASOF ANTI JOIN",
+        "ASOF SEMI JOIN",
+        "ASOF ANTI LEFT JOIN",
+        "ASOF ANTI RIGHT JOIN",
+        "ASOF SEMI LEFT JOIN",
+        "ASOF SEMI RIGHT JOIN",
+        "POSITIONAL JOIN",
+        "ANTI JOIN",
+        "SEMI JOIN",
+    }
+)
+
 
 @dataclass(kw_only=True)
 class TypeCast(Expr):
     """A type cast expression."""
+
+    expr: Expr
+    type_name: str
+
+
+@dataclass(kw_only=True)
+class TryCast(Expr):
+    """A try-cast expression."""
 
     expr: Expr
     type_name: str
@@ -229,6 +282,55 @@ class TableAliasType(BaseTableType):
 
 
 @dataclass(kw_only=True)
+class ColumnAliasedTableType(BaseTableType):
+    """Table binding with renamed columns, e.g. ``FROM events AS e(a, b, c)``.
+
+    ``alias_to_original`` maps visible (aliased) column names to the
+    underlying database column names.  Resolution uses the aliased names;
+    the printer decides which name to emit based on dialect.
+    """
+
+    alias: str
+    table_type: TableType | LazyTableType
+    alias_to_original: dict[str, str]
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        if name == "*":
+            return True
+        original = self.alias_to_original.get(name)
+        if original is None:
+            return False
+        return self.table_type.has_child(original, context)
+
+    def get_child(self, name: str, context: HogQLContext) -> "Type":
+        if name == "*":
+            return AsteriskType(table_type=self)
+        original = self.alias_to_original.get(name)
+        if original is None:
+            raise QueryError(f"Field not found: {name}")
+        # Delegate to the underlying table using the original column name,
+        # but keep *this* type as the table_type so the printer can detect
+        # the column-alias context.
+        child = self.table_type.get_child(original, context)
+        if isinstance(child, FieldType):
+            return FieldType(name=name, table_type=self)
+        if isinstance(child, ExpressionFieldType):
+            # Expression fields contain HogQL referencing original column names.
+            # Force isolate_scope so the expression resolves against the
+            # original table rather than the aliased scope.
+            return ExpressionFieldType(
+                table_type=child.table_type,
+                name=child.name,
+                expr=child.expr,
+                isolate_scope=True,
+            )
+        return child
+
+
+@dataclass(kw_only=True)
 class VirtualTableType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -305,6 +407,9 @@ class SelectSetQueryType(Type):
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         return self.types[0].resolve_column_constant_type(name, context)
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return self.types[0].resolve_constant_type(context)
 
 
 @dataclass(kw_only=True)
@@ -545,7 +650,11 @@ class FieldType(Type):
         if isinstance(self.table_type, BaseTableType):
             table = self.table_type.resolve_database_table(context)
             if table is not None:
-                return table.get_field(self.name)
+                field_name = self.name
+                # Map aliased name back to the original DB column name
+                if isinstance(self.table_type, ColumnAliasedTableType):
+                    field_name = self.table_type.alias_to_original.get(field_name, field_name)
+                return table.get_field(field_name)
         return None
 
     def is_nullable(self, context: HogQLContext) -> bool:
@@ -560,7 +669,10 @@ class FieldType(Type):
 
         table: Table = self.table_type.resolve_database_table(context)
 
-        database_field = table.get_field(self.name)
+        field_name = self.name
+        if isinstance(self.table_type, ColumnAliasedTableType):
+            field_name = self.table_type.alias_to_original.get(field_name, field_name)
+        database_field = table.get_field(field_name)
         if isinstance(database_field, DatabaseField):
             return database_field.get_constant_type()
 
@@ -571,10 +683,17 @@ class FieldType(Type):
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
         if database_field is None:
+            # For non-BaseTableType (e.g. subquery aliases), check the constant type
+            # to determine if this field supports property access (JSON / array).
+            constant_type = self.resolve_constant_type(context)
+            if isinstance(constant_type, (StringJSONType, StringArrayType)):
+                return PropertyType(chain=[name], field_type=self)
             raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
+            return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StructDatabaseField):
             return PropertyType(chain=[name], field_type=self)
 
         raise ResolutionError(
@@ -617,6 +736,26 @@ class PropertyType(Type):
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+
+        database_field = self.field_type.resolve_database_field(context)
+        if isinstance(database_field, StructDatabaseField):
+            nested_field: DatabaseField = database_field
+            nullable = self.field_type.resolve_constant_type(context).nullable
+
+            for link in self.chain:
+                if not isinstance(nested_field, StructDatabaseField):
+                    return UnknownType(nullable=True)
+
+                child_field = nested_field.fields.get(str(link))
+                if child_field is None:
+                    return UnknownType(nullable=True)
+
+                nullable = nullable or child_field.is_nullable()
+                nested_field = child_field
+
+            constant_type = nested_field.get_constant_type()
+            constant_type.nullable = nullable
+            return constant_type
 
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
@@ -711,12 +850,20 @@ class CompareOperation(Expr):
     right: Expr
     op: CompareOperationOp
     type: Optional[ConstantType] = None
+    is_null_comparison_style: Optional[bool] = None
 
 
 @dataclass(kw_only=True)
 class Not(Expr):
     expr: Expr
     type: Optional[ConstantType] = None
+
+
+@dataclass(kw_only=True)
+class IsDistinctFrom(Expr):
+    left: Expr
+    right: Expr
+    negated: bool = False
 
 
 @dataclass(kw_only=True)
@@ -733,12 +880,23 @@ class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
 
+    def __post_init__(self):
+        if self.order not in ("ASC", "DESC"):
+            raise ValueError(f"Invalid order direction: {self.order}")
+
 
 @dataclass(kw_only=True)
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
     nullish: bool = False
+
+
+@dataclass(kw_only=True)
+class ArraySlice(Expr):
+    array: Expr
+    start_expr: Optional[Expr] = None
+    end_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -775,9 +933,28 @@ class Constant(Expr):
 
 
 @dataclass(kw_only=True)
+class Keyword(Expr):
+    name: str
+
+
+@dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
     from_asterisk: bool = False
+
+
+@dataclass(kw_only=True)
+class ColumnsExpr(Expr):
+    regex: Optional[str] = None
+    columns: Optional[list[Expr]] = None
+    all_columns: bool = False
+    exclude: Optional[list[str]] = None
+    replace: Optional[dict[str, Expr]] = None
+
+
+@dataclass(kw_only=True)
+class SpreadExpr(Expr):
+    expr: Expr
 
 
 @dataclass(kw_only=True)
@@ -797,6 +974,17 @@ class Placeholder(Expr):
 
 
 @dataclass(kw_only=True)
+class NamedArgument(Expr):
+    name: str
+    value: Expr
+
+
+@dataclass(kw_only=True)
+class PositionalRef(Expr):
+    index: int
+
+
+@dataclass(kw_only=True)
 class Call(Expr):
     name: str
     """Function name"""
@@ -807,6 +995,9 @@ class Call(Expr):
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
     """
     distinct: bool = False
+    within_group: Optional[list["OrderExpr"]] = None
+    order_by: Optional[list["OrderExpr"]] = None
+    filter_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -820,6 +1011,38 @@ class JoinConstraint(Expr):
     expr: Expr
     constraint_type: Literal["ON", "USING"]
 
+    def __post_init__(self):
+        if self.constraint_type not in VALID_JOIN_CONSTRAINT_TYPES:
+            raise ValueError(f"Invalid join constraint type: {self.constraint_type}")
+
+
+@dataclass(kw_only=True)
+class UnpivotColumn(Expr):
+    value_columns: Expr
+    name_columns: Expr
+    unpivot_values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class UnpivotExpr(Expr):
+    table: Expr
+    columns: list[UnpivotColumn]
+    include_nulls: bool = False
+
+
+@dataclass(kw_only=True)
+class PivotColumn(Expr):
+    column: Expr
+    values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class PivotExpr(Expr):
+    table: Expr
+    aggregates: list[Expr]
+    columns: list[PivotColumn]
+    group_by: Optional[list[Expr]] = None
+
 
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
@@ -827,19 +1050,41 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[
+        Union[
+            "SelectQuery",
+            "SelectSetQuery",
+            "ValuesQuery",
+            "UnpivotExpr",
+            "PivotExpr",
+            "Placeholder",
+            "HogQLXTag",
+            "Field",
+        ]
+    ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
+    column_aliases: Optional[list[str]] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 
+    def __post_init__(self):
+        if self.join_type is None:
+            return
+
+        if self.join_type.startswith("GLOBAL ") and self.join_type.removeprefix("GLOBAL ") in VALID_JOIN_TYPES:
+            return
+
+        if self.join_type not in VALID_JOIN_TYPES:
+            raise ValueError(f"Invalid join type: {self.join_type}")
+
 
 @dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
     frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
+    frame_value: Optional[Union[int, Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -868,6 +1113,11 @@ class LimitByExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class GroupingSet(Expr):
+    exprs: list[Expr]
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -881,11 +1131,14 @@ class SelectQuery(Expr):
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
+    qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
+    group_by_mode: Optional[str] = None  # None, "all", "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
+    limit_percent: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
@@ -914,7 +1167,28 @@ class SelectQuery(Expr):
         )
 
 
-SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
+@dataclass(kw_only=True)
+class ValuesQuery(Expr):
+    type: Optional[SelectQueryType] = None
+    rows: list[list[Expr]]
+
+
+SetOperator = Literal[
+    "UNION ALL",
+    "UNION DISTINCT",
+    "UNION ALL BY NAME",
+    "UNION DISTINCT BY NAME",
+    "INTERSECT",
+    "INTERSECT ALL",
+    "INTERSECT DISTINCT",
+    "INTERSECT BY NAME",
+    "INTERSECT ALL BY NAME",
+    "INTERSECT DISTINCT BY NAME",
+    "EXCEPT",
+    "EXCEPT ALL",
+    "EXCEPT BY NAME",
+    "EXCEPT ALL BY NAME",
+]
 
 
 @dataclass(kw_only=True)
@@ -936,6 +1210,10 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+    limit: Optional[Expr] = None
+    offset: Optional[Expr] = None
+    limit_percent: Optional[bool] = None
+    limit_with_ties: Optional[bool] = None
 
     def select_queries(self):
         return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]

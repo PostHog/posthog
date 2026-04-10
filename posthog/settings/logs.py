@@ -93,6 +93,7 @@ LOGGING = {
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
         "posthog.caching.warming": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.alerts": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.tasks.split_person": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.exports": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.llm_analytics_usage_report": {"level": "INFO", "handlers": ["console"], "propagate": False},
@@ -101,6 +102,11 @@ LOGGING = {
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "posthog.models.resource_transfer.inter_project_transferer": {
+            "level": "INFO",
             "handlers": ["console"],
             "propagate": False,
         },

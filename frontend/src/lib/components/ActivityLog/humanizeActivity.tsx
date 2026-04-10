@@ -6,7 +6,7 @@ import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/type
 
 export interface ActivityChange {
     type: ActivityScope
-    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
     field?: string
     before?: string | number | any[] | Record<string, any> | boolean | null
     after?: string | number | any[] | Record<string, any> | boolean | null
@@ -36,6 +36,7 @@ export interface ActivityLogDetail {
 }
 
 export type ActivityLogItem = {
+    id?: string
     user?: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'>
     activity: string
     created_at: string
@@ -64,6 +65,7 @@ export type ChangeMapping = {
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
 export type HumanizedActivityLogItem = {
+    id?: string
     email?: string | null
     name?: string
     isSystem?: boolean
@@ -108,6 +110,7 @@ export function humanize(
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
+                id: logItem.id,
                 email: logItem.was_impersonated ? undefined : logItem.user?.email,
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
@@ -146,6 +149,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
+    [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -212,6 +216,17 @@ export function defaultDescriber(
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'copied_to_project') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
+                    another project
                 </>
             ),
         }

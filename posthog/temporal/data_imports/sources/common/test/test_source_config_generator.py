@@ -5,7 +5,6 @@ from posthog.test.base import ClickhouseTestMixin
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -13,6 +12,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
@@ -75,7 +75,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                     SourceFieldSelectConfig(
                         name="select_with_fields",
@@ -83,7 +86,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -99,7 +102,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -313,7 +316,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="option_1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -329,7 +332,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -370,7 +373,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                 ],
             ),

@@ -33,10 +33,14 @@ from posthog.schema import (
     RetentionEntity,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
@@ -45,15 +49,16 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -126,11 +131,14 @@ def semver_range_compare(
 
 
 def _tilde_bounds(value: str) -> tuple[str, str]:
-    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    """
+    ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+    ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
+    """
+    major, minor, patch = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        raise ValueError("Tilde operator requires at least major.minor version")
-    major, minor, patch = parse_semver(value)
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
     next_minor = str(int(minor) + 1)
     return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
 
@@ -226,6 +234,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     if value != "true" and value != "false":
         return value
+
+    # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
+    # records, so we check the taxonomy directly for boolean type
+    if property.key and property.key.startswith("$virt_"):
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
+            prop_def = group_defs.get(property.key)
+            if prop_def and prop_def.get("type") == "Boolean":
+                return value == "true"
+        return value
+
     if property.type == "person":
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -275,6 +295,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             if value == "false":
                 value = False
 
+        return value
+
+    elif property.type == "session":
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        if isinstance(field_definition, BooleanDatabaseField):
+            if value == "true":
+                return True
+            if value == "false":
+                return False
         return value
 
     else:
@@ -540,6 +569,8 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -663,6 +694,9 @@ def property_to_expr(
         or property.type == "log"
         or property.type == "log_attribute"
         or property.type == "log_resource_attribute"
+        or property.type == "span"
+        or property.type == "span_attribute"
+        or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
         or property.type == "workflow_variable"
     ):
@@ -737,6 +771,10 @@ def property_to_expr(
         elif property.type == "log_attribute":
             chain = ["attributes"]
         elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
+        elif property.type == "span_attribute":
+            chain = ["attributes"]
+        elif property.type == "span_resource_attribute":
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
@@ -998,9 +1036,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    steps = action.steps
-
+def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1104,7 +1140,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties, action.team))
+            exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -1117,6 +1153,10 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
         return or_queries[0]
     else:
         return ast.Or(exprs=or_queries)
+
+
+def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+    return steps_to_expr(action.steps, action.team, events_alias)
 
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:

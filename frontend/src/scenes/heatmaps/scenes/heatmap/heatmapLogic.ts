@@ -3,8 +3,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
@@ -13,6 +13,8 @@ import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsScen
 import { HeatmapStatus, HeatmapType } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
+
+const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
@@ -57,6 +59,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        regenerateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
     }),
@@ -161,14 +164,29 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
 
             if (attempts >= maxAttempts) {
+                actions.setGeneratingScreenshot(false)
                 actions.setScreenshotError('Screenshot generation timed out')
+            }
+        },
+        regenerateScreenshot: async () => {
+            if (!props.id || !values.heatmapId) {
+                return
+            }
+            actions.setScreenshotError(null)
+            actions.setScreenshotUrl(null)
+            actions.setScreenshotLoaded(false)
+            try {
+                await api.savedHeatmaps.regenerate(props.id)
+                actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
+            } catch (error: any) {
+                actions.setScreenshotError(error.detail || 'Failed to regenerate screenshot')
             }
         },
         createHeatmap: async () => {
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
@@ -187,7 +205,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
@@ -212,7 +230,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                 common_filters: values.commonFilters,
                 heatmap_filters: values.heatmapFilters,
-                filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                filename: `heatmap-${values.name || DEFAULT_HEATMAP_NAME}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
     })),

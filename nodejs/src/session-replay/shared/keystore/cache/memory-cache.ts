@@ -43,10 +43,10 @@ export class MemoryCachedKeyStore implements KeyStore {
         return key
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
+    async deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult> {
         // Clear cache first to ensure stale data isn't served
         this.cache.delete(this.cacheKey(sessionId, teamId))
-        return this.delegate.deleteKey(sessionId, teamId)
+        return this.delegate.deleteKey(sessionId, teamId, deletedBy)
     }
 
     stop(): void {

@@ -38,7 +38,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
             {/* Show full URLs toggle - outside paywall */}
             <div>
                 <LemonSwitch
-                    checked={showFullUrls || false}
+                    checked={!!showFullUrls}
                     onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
                     label="Show full URLs"
                     bordered
@@ -114,7 +114,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
 
                 <div className="mt-2">
                     <LemonSwitch
-                        checked={showFullUrls || false}
+                        checked={!!showFullUrls}
                         onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
                         label="Show full URLs"
                         bordered

@@ -34,7 +34,7 @@ GET_PARENTS_TEST_CASES = [
           ) num on 1 = 1
         )
         """,
-        {"events", "numbers"},
+        {"events"},
     ),
     ("select * from (select * from (select * from (select * from events)))", {"events"}),
     (
@@ -46,8 +46,10 @@ GET_PARENTS_TEST_CASES = [
           select event from events
         )
         """,
-        {"numbers", "events"},
+        {"events"},
     ),
+    # Table function as the only source
+    ("select number from numbers(10)", set()),
     # CTE with UNION ALL at top level - the CTE should not be treated as a parent
     (
         """
@@ -57,6 +59,64 @@ GET_PARENTS_TEST_CASES = [
             SELECT * FROM cte
             """,
         {"events"},
+    ),
+    # CTE used in a JOIN - should resolve through the CTE to find actual parents
+    (
+        """
+            WITH cte AS (SELECT event, person_id FROM events GROUP BY event, person_id)
+            SELECT p.id, c.event
+            FROM persons p
+            JOIN cte c ON p.id = c.person_id
+            """,
+        {"events", "persons"},
+    ),
+    # nested CTEs: a top-level CTE whose inner query defines its own CTEs used in a JOIN
+    (
+        """
+            WITH outer_cte AS (
+                WITH inner_data AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                inner_agg AS (
+                    SELECT person_id, count() AS cnt FROM inner_data GROUP BY person_id
+                )
+                SELECT p.id, ia.cnt
+                FROM persons p
+                JOIN inner_agg ia ON p.id = ia.person_id
+            )
+            SELECT * FROM outer_cte
+        """,
+        {"events", "persons"},
+    ),
+    # nested CTEs where an inner CTE shadows an outer CTE name
+    (
+        """
+            WITH cte AS (
+                WITH cte AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                agg AS (
+                    SELECT person_id, count() AS cnt FROM cte GROUP BY person_id
+                )
+                SELECT p.id, a.cnt
+                FROM persons p
+                JOIN agg a ON p.id = a.person_id
+            )
+            SELECT * FROM cte
+        """,
+        {"events", "persons"},
+    ),
+    # recursive CTE: self-referencing CTE should not cause infinite loop
+    (
+        """
+            WITH RECURSIVE cte AS (
+                SELECT 1 AS n
+                UNION ALL
+                SELECT n + 1 FROM cte WHERE n < 10
+            )
+            SELECT * FROM cte
+        """,
+        set(),
     ),
 ]
 
@@ -157,6 +217,7 @@ class TestModelPath(BaseTest):
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
 
     def test_create_from_table_functions_root_nodes_query(self):
+        """Table functions like numbers() are not real parents — they produce root nodes."""
         query = "select * from numbers(10)"
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -168,7 +229,7 @@ class TestModelPath(BaseTest):
         paths = [model_path.path for model_path in model_paths]
 
         self.assertEqual(len(paths), 1)
-        self.assertIn(["numbers", saved_query.id.hex], paths)
+        self.assertIn([saved_query.id.hex], paths)
 
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""

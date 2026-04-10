@@ -178,7 +178,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    is_member_join_email_enabled = models.BooleanField(default=True)
+
+    is_member_join_email_enabled = models.BooleanField(
+        default=True
+    )  # DEPRECATED in favor of User.partial_notification_settings
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
@@ -627,6 +630,22 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
             organization_id=str(instance.organization_id),
             deleted_count=deleted_count,
         )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

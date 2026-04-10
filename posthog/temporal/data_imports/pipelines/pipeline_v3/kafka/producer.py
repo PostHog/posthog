@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
@@ -10,6 +11,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     SyncTypeLiteral,
     get_warpstream_kafka_producer,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import get_kafka_flush_failures_metric
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 
@@ -34,6 +36,9 @@ class KafkaBatchProducer:
     _partition_mode: PartitionMode | None
     # Partial data loading fields
     _is_first_ever_sync: bool
+    # CDC write mode fields
+    _cdc_write_mode: str | None
+    _cdc_table_mode: str | None
 
     def __init__(
         self,
@@ -53,6 +58,8 @@ class KafkaBatchProducer:
         partition_format: PartitionFormat | None = None,
         partition_mode: PartitionMode | None = None,
         is_first_ever_sync: bool = False,
+        cdc_write_mode: str | None = None,
+        cdc_table_mode: str | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -74,6 +81,21 @@ class KafkaBatchProducer:
         self._partition_mode = partition_mode
         # Partial data loading fields
         self._is_first_ever_sync = is_first_ever_sync
+        # CDC write mode fields
+        self._cdc_write_mode = cdc_write_mode
+        self._cdc_table_mode = cdc_table_mode
+
+    @property
+    def sync_type(self) -> SyncTypeLiteral:
+        return self._sync_type
+
+    @property
+    def is_first_ever_sync(self) -> bool:
+        return self._is_first_ever_sync
+
+    @is_first_ever_sync.setter
+    def is_first_ever_sync(self, value: bool) -> None:
+        self._is_first_ever_sync = value
 
     def _get_key(self) -> str:
         return f"{self._team_id}:{self._schema_id}"  # we want ordering across multiple runs for the same schema
@@ -115,6 +137,8 @@ class KafkaBatchProducer:
             partition_mode=self._partition_mode,
             is_first_ever_sync=self._is_first_ever_sync,
             cumulative_row_count=cumulative_row_count,
+            cdc_write_mode=self._cdc_write_mode,
+            cdc_table_mode=self._cdc_table_mode,
         )
 
         self._logger.debug(
@@ -146,6 +170,8 @@ class KafkaBatchProducer:
         self._pending_futures = []
 
         if errors:
+            if activity.in_activity():
+                get_kafka_flush_failures_metric().add(len(errors))
             raise Exception(f"Failed to deliver {len(errors)}/{flushed_count} Kafka messages: {errors[0]}")
 
         self._logger.debug(f"Successfully flushed {flushed_count} messages")

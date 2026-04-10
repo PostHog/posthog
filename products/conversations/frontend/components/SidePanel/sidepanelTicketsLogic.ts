@@ -1,4 +1,5 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -8,10 +9,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
+import type {
+    ChatMessage,
+    ConversationMessage,
+    ConversationTicket,
+    RestoreFlowState,
+    SidePanelViewState,
+} from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
 const POLL_INTERVAL = 60 * 1000 // 60 seconds
+
+function removeRestoreTokenFromUrl(): void {
+    if ('ph_conv_restore' in router.values.searchParams) {
+        const { ph_conv_restore: _, ...rest } = router.values.searchParams
+        router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+    }
+}
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
@@ -19,6 +33,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
+        initTickets: true,
         loadTickets: true,
         startPolling: true,
         stopPolling: true,
@@ -33,6 +48,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
+        requestRestoreLink: (email: string) => ({ email }),
+        restoreFromUrlToken: (token: string) => ({ token }),
+        setRestoreState: (state: RestoreFlowState) => ({ state }),
+        setRestoreError: (error: string | null) => ({ error }),
     }),
     reducers({
         view: [
@@ -83,6 +102,20 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        restoreState: [
+            'idle' as RestoreFlowState,
+            {
+                setRestoreState: (_, { state }) => state,
+                setView: () => 'idle' as RestoreFlowState,
+            },
+        ],
+        restoreError: [
+            null as string | null,
+            {
+                setRestoreError: (_, { error }) => error,
+                setRestoreState: () => null,
+            },
+        ],
     }),
     selectors({
         isEnabled: [
@@ -92,16 +125,52 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
     }),
     listeners(({ actions, values, cache }) => ({
-        loadTickets: async () => {
-            if (!values.isEnabled || !posthog.conversations) {
+        initTickets: () => {
+            if (cache.initialized) {
                 return
             }
+            cache.initialized = true
+
+            const restoreToken = router.values.searchParams['ph_conv_restore']
+            if (restoreToken) {
+                actions.restoreFromUrlToken(restoreToken)
+            } else {
+                actions.loadTickets()
+            }
+
+            if (!cache.onVisibilityChange) {
+                cache.onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadTickets()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }
+                document.addEventListener('visibilitychange', cache.onVisibilityChange)
+            }
+        },
+        loadTickets: async () => {
+            if (!values.isEnabled) {
+                return
+            }
+            if (cache.conversationsRetryTimer) {
+                clearTimeout(cache.conversationsRetryTimer)
+                cache.conversationsRetryTimer = null
+            }
+            if (!posthog.conversations) {
+                // Conversations extension loads lazily — retry until it's ready
+                if ((cache.conversationsRetries ?? 0) < 20) {
+                    cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
+                }
+                return
+            }
+            cache.conversationsRetries = 0
             actions.setTicketsLoading(true)
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
-                    // Start polling only if user has tickets
                     if (response.results.length > 0) {
                         actions.startPolling()
                     }
@@ -227,36 +296,87 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.loadMessages(ticket.id)
             actions.markAsRead(ticket.id)
         },
-    })),
-    subscriptions(({ actions, values }) => ({
-        sidePanelOpen: (open: boolean) => {
-            if (values.isEnabled && open) {
+        requestRestoreLink: async ({ email }) => {
+            const conversations = posthog.conversations as any
+            if (!conversations?.requestRestoreLink) {
+                return
+            }
+            actions.setRestoreState('sending')
+            try {
+                await conversations.requestRestoreLink(email)
+                actions.setRestoreState('sent')
+            } catch (e: any) {
+                const message =
+                    e?.status === 429
+                        ? 'Too many requests. Please try again later.'
+                        : 'Something went wrong. Please try again.'
+                actions.setRestoreError(message)
+                actions.setRestoreState('error')
+            }
+        },
+        restoreFromUrlToken: async ({ token }) => {
+            const conversations = posthog.conversations as any
+            if (!conversations?.restoreFromToken) {
+                if ((cache.restoreRetries ?? 0) < 20) {
+                    cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
+                    cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
+                } else {
+                    removeRestoreTokenFromUrl()
+                    actions.loadTickets()
+                }
+                return
+            }
+            try {
+                // Use restoreFromToken(token) directly instead of restoreFromUrlToken()
+                // because posthog-js clears the token from the URL during its own
+                // initialization, causing restoreFromUrlToken() to return null.
+                const result = await conversations.restoreFromToken(token)
+                if (result?.status === 'success') {
+                    const count = result.migrated_ticket_ids?.length ?? 0
+                    if (count > 0) {
+                        lemonToast.success(
+                            `Restored ${count} ticket${count === 1 ? '' : 's'} from your previous session.`
+                        )
+                    }
+                }
+            } catch (e) {
+                // Token may have been consumed by posthog-js already — that's OK,
+                // the migration still happened so loadTickets will see them.
+                console.error('Failed to restore from URL token:', e)
+            } finally {
+                removeRestoreTokenFromUrl()
                 actions.loadTickets()
             }
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        // Only load if feature is enabled
-        if (values.isEnabled) {
-            actions.loadTickets()
-        }
-
-        // Set up visibility change listener (only if feature is enabled)
-        if (values.isEnabled) {
-            cache.onVisibilityChange = (): void => {
-                if (document.visibilityState === 'visible') {
-                    actions.loadTickets()
-                } else {
-                    actions.stopPolling()
-                }
+    subscriptions(({ actions, values }) => ({
+        isEnabled: (enabled: boolean) => {
+            if (!enabled) {
+                return
             }
-            document.addEventListener('visibilitychange', cache.onVisibilityChange)
-        }
-    }),
+            actions.initTickets()
+        },
+        sidePanelOpen: () => {
+            if (values.isEnabled) {
+                actions.loadTickets()
+            }
+        },
+    })),
     beforeUnmount(({ actions, cache }) => {
         actions.stopPolling()
+        if (cache.conversationsRetryTimer) {
+            clearTimeout(cache.conversationsRetryTimer)
+        }
+        if (cache.restoreRetryTimer) {
+            clearTimeout(cache.restoreRetryTimer)
+        }
         if (cache.onVisibilityChange) {
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+    }),
+    afterMount(({ values, actions }) => {
+        if (values.isEnabled) {
+            actions.initTickets()
         }
     }),
 ])

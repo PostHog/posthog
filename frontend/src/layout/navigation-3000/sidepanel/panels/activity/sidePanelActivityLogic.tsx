@@ -67,7 +67,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     }),
     reducers({
         activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            SidePanelActivityTab.All as SidePanelActivityTab,
             { persist: true },
             {
                 setActiveTab: (_, { tab }) => tab,

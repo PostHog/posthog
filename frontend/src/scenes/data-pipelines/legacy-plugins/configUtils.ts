@@ -1,5 +1,4 @@
-import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-
+import { PluginConfigChoice, PluginConfigSchema } from '~/legacy-plugin-scaffold'
 import { PluginType } from '~/types'
 
 // Keep this in sync with: posthog/api/plugin.py

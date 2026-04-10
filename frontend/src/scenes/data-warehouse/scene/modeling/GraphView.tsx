@@ -33,6 +33,7 @@ const NODE_TYPE_COLORS: Record<DataModelingNodeType, string> = {
     table: 'var(--muted)',
     view: 'var(--primary-3000)',
     matview: 'var(--success)',
+    endpoint: 'var(--purple)',
 }
 
 const NODES_TO_SHOW: CreateModelNodeType[] = [
@@ -45,6 +46,11 @@ const NODES_TO_SHOW: CreateModelNodeType[] = [
         type: 'matview',
         name: 'Materialized view',
         description: 'A persisted view with improved query performance',
+    },
+    {
+        type: 'endpoint',
+        name: 'Endpoint',
+        description: 'A materialized endpoint for API access',
     },
 ]
 

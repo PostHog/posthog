@@ -7,12 +7,12 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_SCOPES } from 'lib/scopes'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, isKeyOf } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -53,6 +53,7 @@ function ScopesList({
     return (
         <div>
             {visibleScopes.map(({ key, disabledActions, warnings, info }) => {
+                const radioValue = formScopeRadioValues[key]
                 return (
                     <Fragment key={key}>
                         <div className="flex items-center justify-between gap-2 min-h-8">
@@ -67,7 +68,7 @@ function ScopesList({
                             </div>
                             <LemonSegmentedButton
                                 onChange={(value) => setScopeRadioValue(key, value)}
-                                value={formScopeRadioValues[key] ?? 'none'}
+                                value={radioValue ?? 'none'}
                                 options={[
                                     { label: 'No access', value: 'none' },
                                     {
@@ -88,10 +89,10 @@ function ScopesList({
                                 size="xsmall"
                             />
                         </div>
-                        {warnings?.[formScopeRadioValues[key]] && (
+                        {warnings && isKeyOf(radioValue, warnings) && (
                             <div className="flex items-start gap-2 text-xs italic pb-2">
                                 <IconWarning className="text-base text-secondary mt-0.5" />
-                                <span>{warnings[formScopeRadioValues[key]]}</span>
+                                <span>{warnings[radioValue]}</span>
                             </div>
                         )}
                     </Fragment>
@@ -105,6 +106,7 @@ export function CLIAuthorize(): JSX.Element {
     const {
         authorize,
         isSuccess,
+        organizations,
         projects,
         projectsLoading,
         isAuthorizeSubmitting,
@@ -183,12 +185,25 @@ export function CLIAuthorize(): JSX.Element {
                                 spellCheck={false}
                             />
                         </LemonField>
+                        <LemonField name="organizationId" label="Organization">
+                            <LemonSelect
+                                data-attr="cli-organization-select"
+                                placeholder="Select an organization"
+                                value={authorize.organizationId}
+                                onChange={(value) => setAuthorizeValue('organizationId', value)}
+                                options={organizations.map((organization) => ({
+                                    label: organization.name,
+                                    value: organization.id,
+                                }))}
+                            />
+                        </LemonField>
                         <LemonField name="projectId" label="Project">
                             <LemonSelect
                                 data-attr="cli-project-select"
                                 placeholder="Select a project"
                                 value={authorize.projectId}
                                 onChange={(value) => setAuthorizeValue('projectId', value)}
+                                disabled={!authorize.organizationId}
                                 options={projects.map((project: { id: number; name: string }) => ({
                                     label: project.name,
                                     value: project.id,

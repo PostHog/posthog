@@ -5,8 +5,13 @@ use std::time::Duration;
 use etcd_client::EventType;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+use assignment_coordination::util::compute_required_handoffs;
+use k8s_awareness::types::ControllerKind;
+use k8s_awareness::{DepartureReason, K8sAwareness};
+
 use crate::error::{Error, Result};
-use crate::store::{self, EtcdStore};
+use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
     AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
@@ -37,21 +42,24 @@ impl Default for CoordinatorConfig {
 }
 
 pub struct Coordinator {
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     config: CoordinatorConfig,
     strategy: Arc<dyn AssignmentStrategy>,
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl Coordinator {
     pub fn new(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         config: CoordinatorConfig,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             store,
             config,
             strategy,
+            k8s_awareness,
         }
     }
 
@@ -117,6 +125,10 @@ impl Coordinator {
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
+        // Reconcile any handoffs that already have full ack quorum.
+        // This handles acks that arrived before this coordinator took leadership.
+        self.reconcile_pending_handoffs().await?;
+
         // Compute initial assignments for any pods that are already registered
         self.handle_pod_change().await?;
 
@@ -126,18 +138,23 @@ impl Coordinator {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s_awareness = self.k8s_awareness.clone();
             let debounce_interval = self.config.rebalance_debounce_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_pods_loop(store, strategy, debounce_interval, token).await
+                Self::watch_pods_loop(store, strategy, k8s_awareness, debounce_interval, token)
+                    .await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s_awareness = self.k8s_awareness.clone();
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_handoffs_loop(store, strategy, token).await });
+            tasks.spawn(async move {
+                Self::watch_handoffs_loop(store, strategy, k8s_awareness, token).await
+            });
         }
 
         {
@@ -149,7 +166,7 @@ impl Coordinator {
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
             Some(result) = tasks.join_next() => {
-                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
+                result.map_err(|e| Error::invalid_state(format!("task panicked: {e}")))?
             }
         };
 
@@ -160,8 +177,9 @@ impl Coordinator {
     }
 
     async fn watch_pods_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -172,7 +190,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                     Self::log_pod_events(&resp);
                 }
             }
@@ -184,13 +202,14 @@ impl Coordinator {
                     _ = cancel.cancelled() => return Ok(()),
                     _ = tokio::time::sleep_until(deadline) => break,
                     msg = stream.message() => {
-                        let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
+                        let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                         Self::log_pod_events(&resp);
                     }
                 }
             }
 
-            Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+            Self::handle_pod_change_static(&store, strategy.as_ref(), k8s_awareness.as_deref())
+                .await?;
         }
     }
 
@@ -204,8 +223,9 @@ impl Coordinator {
     }
 
     async fn watch_handoffs_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
@@ -214,10 +234,10 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("handoff watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) => {
                                     Self::handle_handoff_update_static(&store, &handoff).await?;
                                 }
@@ -232,7 +252,12 @@ impl Coordinator {
                     // handoffs have completed. If so, re-trigger rebalancing to
                     // pick up any pod changes that were deferred.
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+                        Self::handle_pod_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -242,7 +267,7 @@ impl Coordinator {
     /// Watch for router cutover acks. When all registered routers have acked
     /// a partition's handoff, complete the handoff (update assignment + phase).
     async fn watch_handoff_acks_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoff_acks().await?;
@@ -251,7 +276,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("ack watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("ack watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             // Extract partition from the ack key
@@ -272,7 +297,7 @@ impl Coordinator {
 
     /// Check if all routers have acked a partition handoff.
     /// If so, atomically complete the handoff.
-    async fn check_ack_completion(store: &EtcdStore, partition: u32) -> Result<()> {
+    async fn check_ack_completion(store: &PersonhogStore, partition: u32) -> Result<()> {
         let routers = store.list_routers().await?;
         if routers.is_empty() {
             tracing::warn!(partition, "no routers registered, cannot complete handoff");
@@ -303,14 +328,43 @@ impl Coordinator {
         Ok(())
     }
 
+    /// Check all in-flight handoffs for completed ack quorum. Completes any
+    /// handoffs where all routers have already acked, which can happen when the
+    /// coordinator restarts or a new leader is elected after acks were written.
+    async fn reconcile_pending_handoffs(&self) -> Result<()> {
+        let handoffs = self.store.list_handoffs().await?;
+        if handoffs.is_empty() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            count = handoffs.len(),
+            "reconciling existing handoffs on startup"
+        );
+
+        for handoff in &handoffs {
+            if handoff.phase == HandoffPhase::Ready {
+                Self::check_ack_completion(&self.store, handoff.partition).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Handle a pod registration/deletion by recomputing assignments.
     async fn handle_pod_change(&self) -> Result<()> {
-        Self::handle_pod_change_static(&self.store, self.strategy.as_ref()).await
+        Self::handle_pod_change_static(
+            &self.store,
+            self.strategy.as_ref(),
+            self.k8s_awareness.as_deref(),
+        )
+        .await
     }
 
     async fn handle_pod_change_static(
-        store: &EtcdStore,
+        store: &PersonhogStore,
         strategy: &dyn AssignmentStrategy,
+        k8s_awareness: Option<&K8sAwareness>,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
         let total_partitions = match store.get_total_partitions().await {
@@ -322,7 +376,12 @@ impl Coordinator {
             Err(e) => return Err(e),
         };
 
-        let active_pods = active_pod_names(&pods);
+        let mut active_pods = active_pod_names(&pods);
+
+        // K8s-aware pod filtering for smarter rebalancing
+        if let Some(k8s) = k8s_awareness {
+            active_pods = filter_pods_for_k8s(k8s, &pods, active_pods).await;
+        }
 
         // Clean up any in-flight handoffs targeting pods that are no longer active.
         // This happens when a pod crashes during the Warming phase before it can
@@ -413,7 +472,7 @@ impl Coordinator {
     }
 
     /// Delete handoffs whose `new_owner` is no longer an active pod.
-    async fn cleanup_stale_handoffs(store: &EtcdStore, active_pods: &[String]) -> Result<()> {
+    async fn cleanup_stale_handoffs(store: &PersonhogStore, active_pods: &[String]) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
         let active_set: std::collections::HashSet<&str> =
             active_pods.iter().map(|s| s.as_str()).collect();
@@ -434,7 +493,10 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn handle_handoff_update_static(store: &EtcdStore, handoff: &HandoffState) -> Result<()> {
+    async fn handle_handoff_update_static(
+        store: &PersonhogStore,
+        handoff: &HandoffState,
+    ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
             tracing::info!(
                 partition = handoff.partition,
@@ -459,25 +521,64 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
-/// Compare current and desired assignments to find needed handoffs.
+/// Adjust the active pod list based on K8s controller intent.
 ///
-/// Returns `(partition, old_owner, new_owner)` for each partition that needs
-/// to move.
-pub fn compute_required_handoffs(
-    current: &HashMap<u32, String>,
-    new: &HashMap<u32, String>,
-) -> Vec<(u32, String, String)> {
-    let mut handoffs = Vec::new();
+/// Two adjustments during rollouts:
+///
+/// 1. **Deployment rollout** — old-gen Ready pods are excluded from the
+///    active list so the strategy never assigns partitions to them. Existing
+///    assignments move to new-gen pods via handoff.
+///
+/// 2. **StatefulSet rollout** — Draining pods are *added back* to the
+///    active list so their assignments are held. In a StatefulSet rollout the
+///    same pod name comes back with a new revision, so there's no point
+///    handing off to a different pod.
+async fn filter_pods_for_k8s(
+    k8s: &K8sAwareness,
+    pods: &[RegisteredPod],
+    mut active: Vec<String>,
+) -> Vec<String> {
+    for pod in pods {
+        let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
+            continue;
+        };
 
-    for (partition, new_owner) in new {
-        if let Some(old_owner) = current.get(partition) {
-            if old_owner != new_owner {
-                handoffs.push((*partition, old_owner.clone(), new_owner.clone()));
+        if generation.is_empty() {
+            continue;
+        }
+
+        let reason = k8s.classify_departure(controller, generation).await;
+
+        match (&controller.kind, pod.status, reason) {
+            // Deployment rollout: old-gen Ready pod → exclude
+            (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
+                tracing::info!(
+                    pod = %pod.pod_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "excluding old-gen deployment pod from active list"
+                );
+                active.retain(|name| name != &pod.pod_name);
             }
+            // StatefulSet rollout: Draining pod → add back (hold assignment)
+            (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
+                tracing::info!(
+                    pod = %pod.pod_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "holding assignment for statefulset pod during rollout"
+                );
+                if !active.contains(&pod.pod_name) {
+                    active.push(pod.pod_name.clone());
+                }
+            }
+            _ => {}
         }
     }
 
-    handoffs
+    active.sort();
+    active.dedup();
+    active
 }
 
 #[cfg(test)]
@@ -487,10 +588,11 @@ mod tests {
     fn make_pod(name: &str) -> RegisteredPod {
         RegisteredPod {
             pod_name: name.to_string(),
-            generation: "blue".to_string(),
+            generation: String::new(),
             status: PodStatus::Ready,
             registered_at: 0,
             last_heartbeat: 0,
+            controller: None,
         }
     }
 
@@ -501,37 +603,5 @@ mod tests {
         let pods = vec![make_pod("pod-2"), draining, make_pod("pod-1")];
         let names = active_pod_names(&pods);
         assert_eq!(names, vec!["pod-1", "pod-2"]);
-    }
-
-    #[test]
-    fn compute_required_handoffs_no_change() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-1".to_string());
-        let new = current.clone();
-        assert!(compute_required_handoffs(&current, &new).is_empty());
-    }
-
-    #[test]
-    fn compute_required_handoffs_detects_moves() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-0".to_string());
-
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        new.insert(1, "pod-1".to_string());
-
-        let handoffs = compute_required_handoffs(&current, &new);
-        assert_eq!(handoffs.len(), 1);
-        assert_eq!(handoffs[0], (1, "pod-0".to_string(), "pod-1".to_string()));
-    }
-
-    #[test]
-    fn compute_required_handoffs_new_partitions_ignored() {
-        let current = HashMap::new();
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        assert!(compute_required_handoffs(&current, &new).is_empty());
     }
 }

@@ -1,12 +1,12 @@
 import './SessionRecordingPreview.scss'
 
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconCursorClick, IconKeyboard } from '@posthog/icons'
 
 import { PropertyIcons, PropertyIconsProps } from './SessionRecordingPreview'
 
-const meta: Meta<typeof PropertyIcons> = {
+const meta: Meta<PropertyIconsProps> = {
     title: 'Replay/Components/PropertyIcons',
     component: PropertyIcons,
     parameters: {
@@ -17,13 +17,7 @@ const meta: Meta<typeof PropertyIcons> = {
 }
 export default meta
 
-const Template: StoryFn<typeof PropertyIcons> = (args: PropertyIconsProps) => {
-    return (
-        <div className="border rounded px-4 py-2 w-fit">
-            <PropertyIcons {...args} />
-        </div>
-    )
-}
+type Story = StoryObj<PropertyIconsProps>
 
 const webRecordingProperties = [
     { label: 'Mac OS X', value: 'Mac OS X', property: '$os' },
@@ -32,31 +26,49 @@ const webRecordingProperties = [
     { label: 'Desktop', value: 'Desktop', property: '$device_type' },
 ]
 
-export const WebRecording = Template.bind({})
-WebRecording.args = {
-    loading: false,
-    recordingProperties: webRecordingProperties,
+export const WebRecording: Story = {
+    render: (args) => (
+        <div className="border rounded px-4 py-2 w-fit">
+            <PropertyIcons {...args} />
+        </div>
+    ),
+    args: {
+        loading: false,
+        recordingProperties: webRecordingProperties,
+    },
 }
 
-export const AndroidRecording = Template.bind({})
-AndroidRecording.args = {
-    loading: false,
-    recordingProperties: [
-        { label: 'Android', value: 'Android', property: '$os_name' },
-        { label: 'Awesome Fun App', value: 'Awesome Fun App', property: '$app_name' },
-        { label: 'United States', value: 'US', property: '$geoip_country_code' },
-        { label: 'Mobile', value: 'Mobile', property: '$device_type' },
-    ],
+export const AndroidRecording: Story = {
+    render: (args) => (
+        <div className="border rounded px-4 py-2 w-fit">
+            <PropertyIcons {...args} />
+        </div>
+    ),
+    args: {
+        loading: false,
+        recordingProperties: [
+            { label: 'Android', value: 'Android', property: '$os_name' },
+            { label: 'Awesome Fun App', value: 'Awesome Fun App', property: '$app_name' },
+            { label: 'United States', value: 'US', property: '$geoip_country_code' },
+            { label: 'Mobile', value: 'Mobile', property: '$device_type' },
+        ],
+    },
 }
 
-export const Loading = Template.bind({})
-Loading.args = {
-    loading: true,
-    recordingProperties: [],
-}
-Loading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+export const Loading: Story = {
+    render: (args) => (
+        <div className="border rounded px-4 py-2 w-fit">
+            <PropertyIcons {...args} />
+        </div>
+    ),
+    args: {
+        loading: true,
+        recordingProperties: [],
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
 }
 
@@ -77,56 +89,56 @@ const ActivityCounts = (): JSX.Element => (
     </div>
 )
 
-export const NarrowWidth: StoryFn<typeof PropertyIcons> = () => {
-    return (
+export const NarrowWidth: Story = {
+    render: () => (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '200px' }}>
             <div className="flex gap-x-4 text-secondary text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>
         </div>
-    )
-}
-NarrowWidth.parameters = {
-    docs: {
-        description: {
-            story: 'At narrow widths (< 30rem), property and activity labels are hidden.',
+    ),
+    parameters: {
+        docs: {
+            description: {
+                story: 'At narrow widths (< 30rem), property and activity labels are hidden.',
+            },
         },
     },
 }
 
-export const MediumWidth: StoryFn<typeof PropertyIcons> = () => {
-    return (
+export const MediumWidth: Story = {
+    render: () => (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '30rem' }}>
             <div className="flex gap-x-4 text-secondary text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>
         </div>
-    )
-}
-MediumWidth.parameters = {
-    docs: {
-        description: {
-            story: 'At medium widths (>= 30rem), property labels become visible.',
+    ),
+    parameters: {
+        docs: {
+            description: {
+                story: 'At medium widths (>= 30rem), property labels become visible.',
+            },
         },
     },
 }
 
-export const WideWidth: StoryFn<typeof PropertyIcons> = () => {
-    return (
+export const WideWidth: Story = {
+    render: () => (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '40rem' }}>
             <div className="flex gap-x-4 text-secondary text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>
         </div>
-    )
-}
-WideWidth.parameters = {
-    docs: {
-        description: {
-            story: 'At wide widths (>= 35rem), both property and activity labels are visible.',
+    ),
+    parameters: {
+        docs: {
+            description: {
+                story: 'At wide widths (>= 35rem), both property and activity labels are visible.',
+            },
         },
     },
 }

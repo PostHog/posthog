@@ -6,7 +6,8 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import extend_schema
+import structlog
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -24,6 +25,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -38,7 +40,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
@@ -46,6 +48,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -62,7 +65,11 @@ from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.signals.backend.models import SignalSourceConfig
+
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+logger = structlog.get_logger(__name__)
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
@@ -80,6 +87,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -152,6 +160,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_recording_masking_config",  # Compat with TeamSerializer
+            "session_recording_url_trigger_config",  # Compat with TeamSerializer
+            "session_recording_url_blocklist_config",  # Compat with TeamSerializer
+            "session_recording_event_trigger_config",  # Compat with TeamSerializer
+            "session_recording_trigger_match_type_config",  # Compat with TeamSerializer
+            "session_recording_trigger_groups",  # Compat with TeamSerializer
+            "session_recording_retention_period",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
             "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
@@ -176,6 +190,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",  # Compat with TeamSerializer
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
+            "proactive_tasks_enabled",  # Compat with TeamSerializer
+            "available_setup_task_ids",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -194,6 +210,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "available_setup_task_ids",
         )
 
         team_passthrough_fields = {
@@ -226,6 +243,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_masking_config",
+            "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
+            "session_recording_trigger_groups",
+            "session_recording_retention_period",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -249,6 +272,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",
             "conversations_settings",
             "logs_settings",
+            "proactive_tasks_enabled",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -256,21 +280,41 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
+        return bool(get_group_types_for_project(project.id))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=project.id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-        )
+        return get_group_types_for_project(project.id)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
+        request = self.context.get("request")
+        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
+        claims = {
+            "team_id": team.id,
+            "api_token": team.api_token,
+            "user_id": user_id,
+            "organization_id": str(team.organization_id),
+        }
         return encode_jwt(
-            {"team_id": team.id, "api_token": team.api_token},
+            claims,
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
 
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "product_type": {"type": "string"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "onboarding_completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                },
+            },
+        }
+    )
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
@@ -278,6 +322,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
 
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
@@ -293,6 +343,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_masking_config(value)
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
@@ -311,6 +365,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
+
+    def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
+        return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -460,6 +517,21 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         if should_team_be_saved_too:
             team.save()
 
+        if "proactive_tasks_enabled" in validated_data:
+            if validated_data["proactive_tasks_enabled"]:
+                SignalSourceConfig.objects.get_or_create(
+                    team=team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
+                )
+            else:
+                SignalSourceConfig.objects.filter(
+                    team=team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).delete()
+
         team_after_update = team.__dict__.copy()
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
@@ -600,11 +672,34 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Projects contain teams, so we need to block project deletion too
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
+            )
+
+        # Block deletion of the last project in an org with an active subscription (cloud only).
+        # Fail open if the billing service is unreachable — a 500 here would create a worse stuck state.
+        is_last_project = project.organization.projects.count() == 1
+        license = get_cached_instance_license()
+        try:
+            has_active_subscription = (
+                settings.EE_AVAILABLE
+                and is_cloud()
+                and license
+                and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
+            )
+        except Exception:
+            logger.exception("Failed to check billing status before project deletion; allowing deletion to proceed")
+            has_active_subscription = False
+
+        if is_last_project and has_active_subscription:
+            raise exceptions.ValidationError(
+                "Cannot delete the last project in an organization with an active subscription. "
+                "Please cancel your subscription first in the billing page."
             )
 
         project_id = project.pk
@@ -636,7 +731,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 activity="deleted",
                 detail=Detail(name=str(team.name)),
             )
-            report_user_action(user, f"team deleted", team=team)
+            report_user_action(user, "team deleted", team=team, request=self.request)
         log_activity(
             organization_id=cast(UUIDT, organization_id),
             team_id=project_id,
@@ -649,9 +744,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         )
         report_user_action(
             user,
-            f"project deleted",
+            "project deleted",
             {"project_name": project_name},
             team=teams[0],
+            request=self.request,
         )
 
     @action(
@@ -797,14 +893,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "product onboarding completed",
                 {
                     "product_key": product_type,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                     "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
                 },
                 team=team,
+                request=request,
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
@@ -874,7 +969,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         report_user_action(
             user,
-            f"project moved to another organization",
+            "project moved to another organization",
             {
                 "project_id": project.id,
                 "project_name": project.name,
@@ -884,6 +979,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "new_organization_name": target_organization.name,
             },
             team=teams[0],
+            request=request,
         )
 
         return response.Response(

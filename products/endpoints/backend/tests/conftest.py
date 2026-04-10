@@ -47,4 +47,4 @@ async def endpoint(ateam, auser):  # noqa: F811
         is_active=True,
     )
     yield endpoint
-    await sync_to_async(endpoint.delete)()
+    await sync_to_async(Endpoint.objects.filter(pk=endpoint.pk).delete)()

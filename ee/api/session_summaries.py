@@ -28,9 +28,9 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import SessionSummaryStreamUpdate
 from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
@@ -128,7 +128,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
         results: list[tuple[SessionSummaryStreamUpdate, tuple[EnrichedSessionGroupSummaryPatternsList, str] | str]] = []
-        async for update in execute_summarize_session_group(
+        async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user=user,
             team=team,
@@ -138,7 +138,10 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             video_validation_enabled=video_validation_enabled,
             extra_summary_context=extra_summary_context,
         ):
-            results.append(update)
+            if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
+                continue  # The old consumers of this API don't expect this update type, as it's a PostHog AI chat feature
+            assert not isinstance(data, dict)
+            results.append((update_type, data))
         if not results:
             error_message = f"No summaries were generated for the provided sessions (session ids: {logging_session_ids(session_ids)})"
             logger.exception(error_message)

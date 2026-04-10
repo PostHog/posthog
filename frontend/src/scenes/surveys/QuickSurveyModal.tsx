@@ -13,11 +13,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyEnableToggle } from 'scenes/surveys/SurveySettings'
-import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
-import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
+import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Survey } from '~/types'

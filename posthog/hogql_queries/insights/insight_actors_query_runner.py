@@ -1,9 +1,12 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    ExperimentActorsQuery,
+    FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -19,6 +22,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -101,6 +105,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             day = query.day
             status = query.status
             return lifecycle_runner.to_actors_query(day=str(day) if day else None, status=status)
+        elif isinstance(self.source_runner, ExperimentQueryRunner):
+            experiment_runner = cast(ExperimentQueryRunner, self.source_runner)
+            experiment_runner.actors_query = cast(ExperimentActorsQuery, self.query)
+            return experiment_runner.to_actors_query()
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 
@@ -152,6 +160,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             assert isinstance(self.query.source, LifecycleQuery)
             return self.query.source.aggregation_group_type_index
 
+        if isinstance(self.source_runner, ExperimentQueryRunner):
+            # Get group_type_index from experiment runner
+            return cast(ExperimentQueryRunner, self.source_runner).group_type_index
+
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)
         ) or (isinstance(self.source_runner, TrendsQueryRunner) and isinstance(self.query.source, TrendsQuery)):
@@ -163,13 +175,21 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         return None
 
+    @property
+    def is_session_aggregation(self) -> bool:
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query.source, FunnelsQuery)
+            funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
+            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
+        return False
+
     def _calculate(self) -> HogQLQueryResponse:
         settings = None
 
         # Funnel queries require the experimental analyzer to run correctly
         # Can remove once clickhouse moves to version 24.3 or above
         if isinstance(self.source_runner, FunnelsQueryRunner):
-            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+            settings = HogQLGlobalSettings(enable_analyzer=True)
 
         return execute_hogql_query(
             query_type="InsightActorsQuery",

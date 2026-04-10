@@ -253,6 +253,13 @@ describe('lib/utils', () => {
     })
 
     describe('dateFilterToText()', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2026-06-15T12:00:00.000Z'))
+        })
+        afterEach(() => {
+            tk.reset()
+        })
+
         describe('not formatted', () => {
             it('handles dayjs dates', () => {
                 const from = dayjs('2018-04-04T16:00:00.000Z')
@@ -853,6 +860,19 @@ describe('lib/utils', () => {
                     true
                 )
             ).toEqual('clicked "hello"')
+        })
+
+        it.each([
+            ['with a flag key', { $feature_flag: 'my-flag-key' }, 'my-flag-key'],
+            ['without the flag key property', {}, '$feature_flag_called'],
+        ])('handles feature flag called events %s', (_, properties, expected) => {
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$feature_flag_called',
+                    properties,
+                })
+            ).toEqual(expected)
         })
 
         it('handles unknown event/action', () => {

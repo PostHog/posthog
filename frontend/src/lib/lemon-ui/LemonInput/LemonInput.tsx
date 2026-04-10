@@ -7,32 +7,31 @@ import React, { useRef, useState } from 'react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { RawInputAutosize } from './RawInputAutosize'
 
-interface LemonInputPropsBase
-    extends Pick<
-        // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
-        React.InputHTMLAttributes<HTMLInputElement>,
-        | 'className'
-        | 'onClick'
-        | 'onFocus'
-        | 'onBlur'
-        | 'autoFocus'
-        | 'maxLength'
-        | 'onKeyDown'
-        | 'onKeyUp'
-        | 'onKeyPress'
-        | 'autoComplete'
-        | 'autoCorrect'
-        | 'autoCapitalize'
-        | 'spellCheck'
-        | 'inputMode'
-        | 'pattern'
-    > {
+interface LemonInputPropsBase extends Pick<
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
+    React.InputHTMLAttributes<HTMLInputElement>,
+    | 'className'
+    | 'onClick'
+    | 'onFocus'
+    | 'onBlur'
+    | 'autoFocus'
+    | 'maxLength'
+    | 'onKeyDown'
+    | 'onKeyUp'
+    | 'onKeyPress'
+    | 'autoComplete'
+    | 'autoCorrect'
+    | 'autoCapitalize'
+    | 'spellCheck'
+    | 'inputMode'
+    | 'pattern'
+> {
     inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
@@ -72,11 +71,12 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
+    /** Seconds between valid values; mainly for `type="time"` (passed to native `<input>`). */
+    step?: number
 }
 
 export interface LemonInputPropsNumber
-    extends LemonInputPropsBase,
-        Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
+    extends LemonInputPropsBase, Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
     type: 'number'
     value?: number
     defaultValue?: number
@@ -254,7 +254,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter') {
+                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
                             onPressEnter(event)
                         }
                     }}

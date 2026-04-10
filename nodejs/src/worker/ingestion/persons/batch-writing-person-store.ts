@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '@posthog/plugin-scaffold'
-
+import { Properties } from '~/plugin-scaffold'
 import { NoRowsUpdatedError } from '~/utils/utils'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import {
     InternalPerson,
     PersonBatchWritingDbWriteMode,
@@ -17,7 +18,6 @@ import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
-import { captureIngestionWarning } from '../utils'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -41,7 +41,7 @@ import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
-import { PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
+import { PersonMessage, PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 type MethodName =
@@ -66,7 +66,7 @@ type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
 
 interface PersonUpdateResult {
     success: boolean
-    messages: TopicMessage[]
+    messages: PersonMessage[]
     // If there's a updated person update, it will be returned here.
     // This is useful for the optimistic update case, where we need to update the cache with the latest version.
     personUpdate?: PersonUpdate
@@ -131,7 +131,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     constructor(
         private personRepository: PersonRepository,
-        private kafkaProducer: KafkaProducerWrapper,
+        private ingestionWarningsOutputs: IngestionOutputs<IngestionWarningsOutput>,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -338,7 +338,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             const result = batchResults.get(update.uuid)
             if (result?.success && result.kafkaMessage) {
                 allKafkaMessages.push({
-                    topicMessage: result.kafkaMessage,
+                    messages: [result.kafkaMessage],
                     teamId: update.team_id,
                     uuid: update.uuid,
                     distinctId: update.distinct_id,
@@ -351,8 +351,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             } else {
                 // Handle specific error types
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await captureIngestionWarning(
-                        this.kafkaProducer,
+                    await emitIngestionWarning(
+                        this.ingestionWarningsOutputs,
                         update.team_id,
                         'person_properties_size_violation',
                         {
@@ -405,12 +405,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                                 method: 'fallback',
                                 outcome: 'success',
                             })
-                            return result.messages.map((message) => ({
-                                topicMessage: message,
-                                teamId: update.team_id,
-                                uuid: update.uuid,
-                                distinctId: update.distinct_id,
-                            }))
+                            return [
+                                {
+                                    messages: result.messages,
+                                    teamId: update.team_id,
+                                    uuid: update.uuid,
+                                    distinctId: update.distinct_id,
+                                },
+                            ]
                         } catch (error) {
                             return this.handleIndividualUpdateError(error, update)
                         }
@@ -454,12 +456,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                             outcome: 'success',
                         })
 
-                        return result.messages.map((message) => ({
-                            topicMessage: message,
-                            teamId: update.team_id,
-                            uuid: update.uuid,
-                            distinctId: update.distinct_id,
-                        }))
+                        return [
+                            {
+                                messages: result.messages,
+                                teamId: update.team_id,
+                                uuid: update.uuid,
+                                distinctId: update.distinct_id,
+                            },
+                        ]
                     } catch (error) {
                         logger.error('Failed to update person after max retries', {
                             error,
@@ -516,12 +520,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                             outcome: 'success',
                         })
 
-                        return result.messages.map((message) => ({
-                            topicMessage: message,
-                            teamId: update.team_id,
-                            uuid: update.uuid,
-                            distinctId: update.distinct_id,
-                        }))
+                        return [
+                            {
+                                messages: result.messages,
+                                teamId: update.team_id,
+                                uuid: update.uuid,
+                                distinctId: update.distinct_id,
+                            },
+                        ]
                     } catch (error) {
                         return this.handleIndividualUpdateError(error, update)
                     }
@@ -556,10 +562,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async handleIndividualUpdateError(error: unknown, update: PersonUpdate): Promise<FlushResult[]> {
         // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_upsert_message_size_too_large', {
-                personId: update.id,
-                distinctId: update.distinct_id,
-            })
+            await emitIngestionWarning(
+                this.ingestionWarningsOutputs,
+                update.team_id,
+                'person_upsert_message_size_too_large',
+                {
+                    personId: update.id,
+                    distinctId: update.distinct_id,
+                }
+            )
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
@@ -569,12 +580,17 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         if (error instanceof PersonPropertiesSizeViolationError) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_properties_size_violation', {
-                personId: update.id,
-                distinctId: update.distinct_id,
-                teamId: update.team_id,
-                message: 'Person properties exceeds size limit and was rejected',
-            })
+            await emitIngestionWarning(
+                this.ingestionWarningsOutputs,
+                update.team_id,
+                'person_properties_size_violation',
+                {
+                    personId: update.id,
+                    distinctId: update.distinct_id,
+                    teamId: update.team_id,
+                    message: 'Person properties exceeds size limit and was rejected',
+                }
+            )
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
@@ -605,12 +621,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 outcome: 'success',
             })
 
-            return fallbackMessages.map((message) => ({
-                topicMessage: message,
-                teamId: error.latestPersonUpdate.team_id,
-                uuid: error.latestPersonUpdate.uuid,
-                distinctId: error.latestPersonUpdate.distinct_id,
-            }))
+            return [
+                {
+                    messages: fallbackMessages,
+                    teamId: error.latestPersonUpdate.team_id,
+                    uuid: error.latestPersonUpdate.uuid,
+                    distinctId: error.latestPersonUpdate.distinct_id,
+                },
+            ]
         }
 
         // Re-throw any other errors
@@ -814,7 +832,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         update: Partial<InternalPerson>,
         distinctId: string,
         _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         this.incrementCount('updatePersonForMerge', distinctId)
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
     }
@@ -827,7 +845,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         distinctId: string,
         forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
             person,
             propertiesToSet,
@@ -843,7 +861,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         person: InternalPerson,
         distinctId: string,
         tx?: PersonRepositoryTransaction
-    ): Promise<TopicMessage[]> {
+    ): Promise<PersonMessage[]> {
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
@@ -864,7 +882,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         distinctId: string,
         version: number,
         tx?: PersonRepositoryTransaction
-    ): Promise<TopicMessage[]> {
+    ): Promise<PersonMessage[]> {
         this.incrementCount('addDistinctId', distinctId)
         this.incrementDatabaseOperation('addDistinctId', distinctId)
         const start = performance.now()
@@ -1267,7 +1285,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string
-    ): [InternalPerson, TopicMessage[], boolean] {
+    ): [InternalPerson, PersonMessage[], boolean] {
         const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
         let personUpdate: PersonUpdate
@@ -1348,7 +1366,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         forceUpdate?: boolean
-    ): [InternalPerson, TopicMessage[]] {
+    ): [InternalPerson, PersonMessage[]] {
         const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
         let personUpdate: PersonUpdate

@@ -23,7 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.models import Team
 
@@ -43,9 +43,10 @@ logger = structlog.get_logger(__name__)
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
-def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) -> str:
+def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team) -> tuple[str, str]:
     """
-    Generate raw SQL for debugging from experiment query AST
+    Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
+    Returns (hogql, clickhouse_sql) tuple.
     """
     executor = HogQLQueryExecutor(
         query=experiment_query_ast,
@@ -53,9 +54,9 @@ def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) 
         modifiers=create_default_modifiers_for_team(team),
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
-
-    # Substitute the parameters to get the final executable query
-    return substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    clickhouse_sql = substitute_params_for_display(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    assert executor.hogql is not None
+    return (executor.hogql, clickhouse_sql)
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
@@ -101,14 +102,15 @@ def get_experiment_stats_method(experiment) -> str:
 
 def split_baseline_and_test_variants(
     variants: list[V],
+    baseline_key: str = CONTROL_VARIANT_KEY,
 ) -> tuple[V, list[V]]:
-    control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+    control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
         raise ValueError("No control variant found")
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
-    test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
+    test_variants = [variant for variant in variants if variant.key != baseline_key]
 
     return control_variant, test_variants
 

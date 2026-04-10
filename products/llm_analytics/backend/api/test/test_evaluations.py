@@ -1,12 +1,16 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
+from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
+from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 
 def _setup_team():
@@ -346,3 +350,153 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], 50)
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
+
+
+class TestTestHogEndpoint(APIBaseTest):
+    def _mock_hogql_response(self, count=1):
+        from posthog.hogql.query import HogQLQueryResponse
+
+        rows = [
+            (
+                str(uuid4()),
+                "$ai_generation",
+                {"$ai_input": "What is 2+2?", "$ai_output": "4"},
+                "user-1",
+            )
+            for _ in range(count)
+        ]
+        return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_compiles_and_executes(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(2)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return length(output) > 0", "sample_count": 2},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        for r in results:
+            self.assertIn("event_uuid", r)
+            self.assertIn("result", r)
+            self.assertIn("reasoning", r)
+            self.assertIn("error", r)
+            self.assertTrue(r["result"])
+            self.assertIsNone(r["error"])
+
+    def test_test_hog_compilation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "this is not valid hog {{{{"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Compilation error", response.json()["error"])
+
+    def test_test_hog_empty_source_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_no_events(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(0)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertIn("message", response.json())
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_handles_runtime_error(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(1)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return 42"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["result"])
+        self.assertIn("Must return boolean", results[0]["error"])
+
+
+class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
+    def _create_trial_eval(self, enabled=False):
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Trial Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=enabled,
+        )
+
+    def test_blocks_enabling_trial_eval_when_limit_reached(self):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+        eval_obj = self._create_trial_eval(enabled=False)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Trial evaluation limit reached", str(response.data))
+
+    def test_allows_enabling_trial_eval_when_limit_not_reached(self):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+        eval_obj = self._create_trial_eval(enabled=False)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+
+    def test_allows_enabling_byok_eval_when_limit_reached(self):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="BYOK Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)

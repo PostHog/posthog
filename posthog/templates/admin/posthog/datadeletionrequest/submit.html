@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Submit deletion request{% endblock %}
+
+{% block content %}
+<h1>Submit deletion request</h1>
+
+<table style="margin: 20px 0; border-collapse: collapse; width: 100%;">
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Team ID</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.team_id }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Request type</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.get_request_type_display }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Time range</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.start_time }} &ndash; {{ obj.end_time }}</td></tr>
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Events</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            <ul style="margin: 0; padding-left: 20px;">
+                {% for event in obj.events %}
+                    <li><code>{{ event }}</code></li>
+                {% empty %}
+                    <li><em>None</em></li>
+                {% endfor %}
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Properties</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            {% if obj.properties %}
+                <ul style="margin: 0; padding-left: 20px;">
+                    {% for prop in obj.properties %}
+                        <li><code>{{ prop }}</code></li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <em>None</em>
+            {% endif %}
+        </td>
+    </tr>
+    {% if obj.notes %}
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Notes</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.notes }}</td></tr>
+    {% endif %}
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created by</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_by|default:"—" }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created at</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_at }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px;">Requires approval</th><td style="padding: 8px;">{{ obj.requires_approval|yesno:"Yes,No" }}</td></tr>
+</table>
+
+<fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
+    <legend style="font-weight: bold; padding: 0 8px;">ClickHouse stats</legend>
+    {% if obj.stats_calculated_at %}
+        <table style="border-collapse: collapse; width: 100%;">
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Matching events</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.count|default:"0" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Part count</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.part_count|default:"0" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Parts size</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.parts_size|default:"0" }} bytes</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Total rows in affected parts</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ obj.parts_row_count|default:"0" }}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px;">Calculated at</th><td style="padding: 6px 8px;">{{ obj.stats_calculated_at }}</td></tr>
+        </table>
+    {% else %}
+        <p style="color: #666; margin: 4px 0;">No stats have been fetched yet.</p>
+    {% endif %}
+    <form method="post" action="{{ fetch_stats_url }}" style="margin-top: 12px;">
+        {% csrf_token %}
+        <input type="submit" value="{% if obj.stats_calculated_at %}Refresh stats{% else %}Fetch stats{% endif %}" style="padding: 8px 14px;" />
+    </form>
+</fieldset>
+
+{% if missing_properties %}
+<div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #dc3545; border-radius: 4px; background: #f8d7da; color: #721c24;">
+    <strong>Cannot submit:</strong> This is a property removal request but no properties are specified. Go back and add properties before submitting.
+</div>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
+        <input type="submit" value="Confirm &amp; Submit" class="default" style="padding: 10px 15px;"{% if not can_submit %} disabled{% endif %} />
+        <a href="{% url 'admin:posthog_datadeletionrequest_change' obj.pk %}" style="padding: 10px 15px;">Back</a>
+    </div>
+</form>
+{% endblock %}

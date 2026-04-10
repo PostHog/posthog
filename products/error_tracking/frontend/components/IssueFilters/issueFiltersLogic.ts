@@ -13,12 +13,12 @@ import { updateSearchParams } from '../../utils'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import type { issueFiltersLogicType } from './issueFiltersLogicType'
 
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
-const DEFAULT_FILTER_GROUP = {
+export const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
+export const DEFAULT_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
-const DEFAULT_TEST_ACCOUNT = false
+export const DEFAULT_TEST_ACCOUNT = false
 const DEFAULT_SEARCH_QUERY = ''
 
 export interface IssueFiltersLogicProps {
@@ -30,9 +30,12 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     props({} as IssueFiltersLogicProps),
     key(({ logicKey }) => logicKey),
 
-    connect(() => ({
+    connect((props: IssueFiltersLogicProps) => ({
         values: [
-            quickFiltersSectionLogic({ context: QuickFilterContext.ErrorTrackingIssueFilters }),
+            quickFiltersSectionLogic({
+                context: QuickFilterContext.ErrorTrackingIssueFilters,
+                logicKey: props.logicKey,
+            }),
             ['selectedQuickFilters'],
         ],
         actions: [

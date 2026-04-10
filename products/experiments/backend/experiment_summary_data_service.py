@@ -27,12 +27,16 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Experiment
 from posthog.sync import database_sync_to_async
+
+from products.experiments.backend.metric_utils import get_default_metric_title
+from products.experiments.backend.models.experiment import Experiment
 
 
 @dataclass
@@ -128,28 +132,6 @@ def transform_variant_for_max(
     )
 
 
-def get_default_metric_title(metric_dict: dict) -> str:
-    """Generate a default title for a metric based on its configuration."""
-    metric_type = metric_dict.get("metric_type", "")
-    if metric_type == "funnel":
-        series = metric_dict.get("series", [])
-        if series:
-            first_event = series[0].get("event") or series[0].get("name") or "Event"
-            last_event = series[-1].get("event") or series[-1].get("name") or "Event"
-            if len(series) == 1:
-                return f"{first_event} conversion"
-            return f"{first_event} to {last_event}"
-    elif metric_type == "mean":
-        source = metric_dict.get("source", {})
-        event = source.get("event") or source.get("name") or "Event"
-        return f"Mean {event}"
-    elif metric_type == "ratio":
-        return "Ratio metric"
-    elif metric_type == "retention":
-        return "Retention metric"
-    return "Metric"
-
-
 def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:
     """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
@@ -180,7 +162,7 @@ class ExperimentSummaryDataService:
         except Experiment.DoesNotExist:
             raise ValueError(f"Experiment {experiment_id} not found or access denied")
 
-        if not experiment.start_date:
+        if experiment.is_draft:
             raise ValueError(f"Experiment {experiment_id} has not been started yet")
 
         feature_flag = experiment.feature_flag
@@ -205,12 +187,18 @@ class ExperimentSummaryDataService:
                     experiment_id=experiment_id,
                     metric=metric_obj,
                 )
-                query_runner = ExperimentQueryRunner(
-                    query=experiment_query,
-                    team=experiment.team,
-                    workload=Workload.ONLINE,
-                )
-                result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+                with tags_context(
+                    product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
+                ):
+                    query_runner = ExperimentQueryRunner(
+                        query=experiment_query,
+                        team=experiment.team,
+                        workload=Workload.ONLINE,
+                    )
+                    result = query_runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    )
                 refresh_time = getattr(result, "last_refresh", None)
 
                 if is_incomplete_response(result):
@@ -251,13 +239,17 @@ class ExperimentSummaryDataService:
                         exposure_criteria=experiment.exposure_criteria,
                         holdout=experiment.holdout,
                     )
-                    exposure_runner = ExperimentExposuresQueryRunner(
-                        query=exposure_query,
-                        team=experiment.team,
-                    )
-                    exposure_result = exposure_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                    )
+                    with tags_context(
+                        product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
+                    ):
+                        exposure_runner = ExperimentExposuresQueryRunner(
+                            query=exposure_query,
+                            team=experiment.team,
+                        )
+                        exposure_result = exposure_runner.run(
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            analytics_props={"source": EventSource.POSTHOG_AI},
+                        )
 
                     if is_incomplete_response(exposure_result):
                         return ExposureQueryResult(exposures=None, refresh_time=None, pending=True)

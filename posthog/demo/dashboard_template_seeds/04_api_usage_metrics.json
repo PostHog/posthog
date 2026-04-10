@@ -1,0 +1,198 @@
+{
+    "template_name": "API usage metrics",
+    "dashboard_description": "Monitor programmatic API usage of data",
+    "dashboard_filters": {},
+    "tags": ["api", "monitoring"],
+    "tiles": [
+        {
+            "name": "API - number of queries",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "name": null,
+                    "tags": null,
+                    "query": "select event_date, count(1) as number_of_queries\nfrom query_log\nwhere is_personal_api_key_request and event_date >= today() - interval 21 day\ngroup by event_date\norder by event_date asc",
+                    "values": null,
+                    "explain": null,
+                    "filters": {
+                        "dateRange": null,
+                        "properties": null,
+                        "filterTestAccounts": null
+                    },
+                    "version": null,
+                    "response": null,
+                    "modifiers": null,
+                    "variables": {}
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "event_date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "number_of_queries",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        }
+                    ],
+                    "showLegend": true,
+                    "seriesBreakdownColumn": null
+                },
+                "tableSettings": {
+                    "conditionalFormatting": []
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "2643681",
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 1,
+                    "minW": 1,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "2643681",
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        },
+        {
+            "name": "API - last 20 queries",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "name": null,
+                    "tags": null,
+                    "query": "select event_time as finished_at, query_duration_ms, query, created_by \nfrom query_log\nwhere is_personal_api_key_request\n    and event_date = today()\norder by event_time desc\nlimit 20",
+                    "values": null,
+                    "explain": null,
+                    "filters": {
+                        "dateRange": null,
+                        "properties": null,
+                        "filterTestAccounts": null
+                    },
+                    "version": null,
+                    "response": null,
+                    "modifiers": null,
+                    "variables": {}
+                },
+                "display": "ActionsTable",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "query_start_time"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "query_duration_ms",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "created_by",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        }
+                    ],
+                    "seriesBreakdownColumn": null
+                },
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "finished_at",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "query_duration_ms",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "query",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "created_by",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        }
+                    ],
+                    "conditionalFormatting": []
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "2643705",
+                    "w": 12,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 1,
+                    "minW": 1,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "2643705",
+                    "w": 1,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 1,
+                    "minW": 1
+                }
+            },
+            "description": ""
+        }
+    ],
+    "variables": [],
+    "image_url": null,
+    "scope": "global",
+    "availability_contexts": []
+}

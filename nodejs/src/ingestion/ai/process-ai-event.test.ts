@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { CostModelSource } from './costs/cost-model-matching'
@@ -178,14 +178,17 @@ describe('processAiEvent()', () => {
     })
 
     describe('event matching', () => {
-        it.each(['$ai_generation', '$ai_embedding'])('processes cost calculation for %s events', (eventType) => {
-            event.event = eventType
-            const result = processAiEvent(event)
-            // With gpt-4 model and openai provider from primaryCostsList: 0.2 per token
-            expect(result.properties!.$ai_input_cost_usd).toBe(20) // 100 * 0.2
-            expect(result.properties!.$ai_output_cost_usd).toBe(10) // 50 * 0.2
-            expect(result.properties!.$ai_total_cost_usd).toBe(30)
-        })
+        it.each(['$ai_generation', '$ai_embedding', '$ai_evaluation'])(
+            'processes cost calculation for %s events',
+            (eventType) => {
+                event.event = eventType
+                const result = processAiEvent(event)
+                // With gpt-4 model and openai provider from primaryCostsList: 0.2 per token
+                expect(result.properties!.$ai_input_cost_usd).toBe(20) // 100 * 0.2
+                expect(result.properties!.$ai_output_cost_usd).toBe(10) // 50 * 0.2
+                expect(result.properties!.$ai_total_cost_usd).toBe(30)
+            }
+        )
 
         it('does not process cost for other AI events', () => {
             event.event = '$ai_span'
@@ -470,6 +473,8 @@ describe('processAiEvent()', () => {
             // Should not set model_cost_used when bypassing
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            // Should mark as passthrough so we know costs were not calculated by the pipeline
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('calculates total when input/output exist but total is missing', () => {
@@ -592,6 +597,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(9)
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
         it('treats object cost values as unset and falls through to model calculation', () => {
