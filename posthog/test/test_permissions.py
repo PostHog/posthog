@@ -19,7 +19,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.test.factories import create_issue as create_error_tracking_issue
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -627,7 +627,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         """OAuth token can access custom error tracking write actions via scope_object_write_actions"""
         self.access_token.scope = "error_tracking:write"
         self.access_token.save()
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        issue = create_error_tracking_issue(team=self.team)
 
         response = self.client.generic(
             "PATCH",
