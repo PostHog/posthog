@@ -498,7 +498,7 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
     if (!survey.enable_partial_responses) {
         return `AND (
         NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-        OR properties.${SurveyEventProperties.SURVEY_COMPLETED} = true
+        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
     )`
     }
 
