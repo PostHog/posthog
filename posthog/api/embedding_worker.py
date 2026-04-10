@@ -13,7 +13,7 @@ from posthog.models.team.team import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client, internal_requests
 from posthog.settings.data_stores import EMBEDDING_API_URL
 
-from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.error_tracking.backend.infra.embedding import EMBEDDING_TABLES
 
 logger = structlog.get_logger(__name__)
 

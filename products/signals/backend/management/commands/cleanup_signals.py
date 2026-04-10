@@ -6,8 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 
-from products.error_tracking.backend.embedding import PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS
-from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.error_tracking.backend.infra.embedding import EMBEDDING_TABLES, PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
