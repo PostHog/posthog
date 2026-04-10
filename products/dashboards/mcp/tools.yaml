@@ -65,6 +65,14 @@ tools:
         description: >
             Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
             from a template or duplicate an existing dashboard.
+        response:
+            exclude:
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -102,7 +110,16 @@ tools:
         title: Get dashboard
         description: >
             Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
-            layout information.
+            layout information. Insight results are omitted to save context — use dashboard-insights-run to fetch
+            the actual data for each insight.
+        response:
+            exclude:
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
     dashboards-update:
         operation: dashboards_update
         enabled: false
@@ -120,6 +137,14 @@ tools:
         description: >
             Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
             restriction level.
+        response:
+            exclude:
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -145,6 +170,22 @@ tools:
         description: |
             Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.
         soft_delete: true
+    dashboard-insights-run:
+        operation: dashboards_run_insights_retrieve
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Run dashboard insights
+        description: >
+            Run all insights on a dashboard and return their results. Uses cached results by default (may be
+            stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for
+            LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see
+            the actual data behind each insight tile.
     dashboards-analyze-refresh-result-create:
         operation: dashboards_analyze_refresh_result_create
         enabled: false
