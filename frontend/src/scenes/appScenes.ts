@@ -30,6 +30,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
     [Scene.DataOps]: () => import('./data-warehouse/DataWarehouseScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
+    [Scene.QueryPerformance]: () => import('./instance/QueryPerformance/QueryPerformance'),
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),

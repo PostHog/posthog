@@ -45,4 +45,5 @@ service PersonHogReplica {
 
   // Person deletes (temporary: should move to leader once it supports deletes)
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
+  rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
 }

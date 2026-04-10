@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = z.object({
-    evaluationId: z.string().uuid().describe('The UUID of the evaluation to delete.'),
+    evaluationId: z.string().describe('The UUID of the evaluation to delete.'),
 })
 
 type Params = z.infer<typeof schema>

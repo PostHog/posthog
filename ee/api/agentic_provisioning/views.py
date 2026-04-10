@@ -90,6 +90,15 @@ _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 _FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
 
+_PAY_AS_YOU_GO_PRICING_SUMMARY = (
+    "$0/mo base. Usage-based: "
+    "1M free events then $0.00005/event, "
+    "5K free recordings then $0.005/recording, "
+    "1M free feature flag requests then $0.0001/request, "
+    "and more. See posthog.com/pricing for full details."
+)
+
+
 def _build_free_plan_service() -> dict[str, Any]:
     return {
         "id": FREE_PLAN_SERVICE_ID,
@@ -97,6 +106,7 @@ def _build_free_plan_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {"type": "free"},
         "kind": "plan",
+        "allowed_updates": [PAY_AS_YOU_GO_SERVICE_ID],
     }
 
 
@@ -107,9 +117,10 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {
             "type": "paid",
-            "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+            "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
         },
         "kind": "plan",
+        "allowed_updates": [FREE_PLAN_SERVICE_ID],
     }
 
 
@@ -126,7 +137,7 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
                     {
                         "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
                         "type": "paid",
-                        "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+                        "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
                     },
                 ]
             },

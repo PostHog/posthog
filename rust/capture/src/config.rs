@@ -249,6 +249,12 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
+    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Empty string means the v1 sink layer is disabled.
+    #[envconfig(default = "")]
+    pub capture_v1_sinks: String,
 }
 
 #[derive(Envconfig, Clone)]
