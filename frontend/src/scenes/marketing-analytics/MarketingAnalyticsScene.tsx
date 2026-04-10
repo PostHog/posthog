@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +13,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
+import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -22,7 +23,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
-import { marketingAnalyticsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    MarketingAnalyticsTab,
+    marketingAnalyticsLogic,
+} from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -158,14 +162,66 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     )
 }
 
+const MarketingAnalyticsContent = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+    const { setActiveTab } = useActions(marketingAnalyticsLogic)
+
+    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+
+    return (
+        <>
+            {showIntegrationHealth ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+                    tabs={[
+                        {
+                            key: MarketingAnalyticsTab.DASHBOARD,
+                            label: 'Dashboard',
+                            content: (
+                                <>
+                                    <MarketingAnalyticsFilters tabs={<></>} />
+                                    <MarketingAnalyticsDashboard />
+                                </>
+                            ),
+                        },
+                        {
+                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                            label: 'Integration health',
+                            content: <UtmAuditTab />,
+                        },
+                    ]}
+                />
+            ) : (
+                <>
+                    <MarketingAnalyticsFilters tabs={<></>} />
+                    <MarketingAnalyticsDashboard />
+                </>
+            )}
+        </>
+    )
+}
+
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.DASHBOARD]:
+        'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
+        'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+}
+
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+
     return (
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <SceneContent className="MarketingAnalyticsDashboard">
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.MarketingAnalytics]?.name || 'Marketing analytics'}
-                        description={sceneConfigurations[Scene.MarketingAnalytics]?.description}
+                        description={
+                            TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.MarketingAnalytics]?.description
+                        }
                         resourceType={{
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}
@@ -192,8 +248,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             </>
                         }
                     />
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
+                    <MarketingAnalyticsContent />
                 </SceneContent>
             </BindLogic>
         </BindLogic>

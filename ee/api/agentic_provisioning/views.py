@@ -42,7 +42,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
@@ -66,12 +66,16 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — a single free deployable (analytics) that provisions a
-# PostHog project. Paid plan (pay_as_you_go with SPT) will be re-added once
-# billing integration is complete.
+# Service catalog — three services:
+#   1. free (plan) — generous free tier, no credit card required
+#   2. pay_as_you_go (plan) — usage-based pricing, no minimum commitment
+#   3. analytics (deployable) — provisions a PostHog project, pricing varies
+#      by parent plan via component pricing
 # ---------------------------------------------------------------------------
 
 ANALYTICS_SERVICE_ID = "analytics"
+FREE_PLAN_SERVICE_ID = "free"
+PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
 
@@ -86,13 +90,72 @@ _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 _FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
 
+_PAY_AS_YOU_GO_PRICING_SUMMARY = (
+    "$0/mo base. Usage-based: "
+    "1M free events then $0.00005/event, "
+    "5K free recordings then $0.005/recording, "
+    "1M free feature flag requests then $0.0001/request, "
+    "and more. See posthog.com/pricing for full details."
+)
+
+
+def _build_free_plan_service() -> dict[str, Any]:
+    return {
+        "id": FREE_PLAN_SERVICE_ID,
+        "description": "Free - generous free tier across all PostHog products, no credit card required.",
+        "categories": ALL_CATEGORIES,
+        "pricing": {"type": "free"},
+        "kind": "plan",
+        "allowed_updates": [PAY_AS_YOU_GO_SERVICE_ID],
+    }
+
+
+def _build_pay_as_you_go_service() -> dict[str, Any]:
+    return {
+        "id": PAY_AS_YOU_GO_SERVICE_ID,
+        "description": "Pay-as-you-go - usage-based pricing across all PostHog products with no minimum commitment.",
+        "categories": ALL_CATEGORIES,
+        "pricing": {
+            "type": "paid",
+            "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
+        },
+        "kind": "plan",
+        "allowed_updates": [FREE_PLAN_SERVICE_ID],
+    }
+
+
 def _build_analytics_service(description: str) -> dict[str, Any]:
     return {
         "id": ANALYTICS_SERVICE_ID,
         "description": description,
         "categories": ALL_CATEGORIES,
-        "pricing": {"type": "free"},
+        "configuration_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Name for the PostHog project",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "pricing": {
+            "type": "component",
+            "component": {
+                "options": [
+                    {"parent_service_ids": [FREE_PLAN_SERVICE_ID], "type": "free"},
+                    {
+                        "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
+                        "type": "paid",
+                        "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
+                    },
+                ]
+            },
+        },
         "kind": "deployable",
+        # Stripe validates allowed_updates client-side before calling update_service.
+        # Without this, `stripe projects update` rejects plan changes.
+        "allowed_updates": ["service_ref"],
     }
 
 
@@ -116,7 +179,7 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
     ]
     description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
 
-    return [_build_analytics_service(description)]
+    return [_build_free_plan_service(), _build_pay_as_you_go_service(), _build_analytics_service(description)]
 
 
 def _get_services() -> list[dict[str, Any]]:
@@ -139,13 +202,17 @@ def _get_services() -> list[dict[str, Any]]:
         return cached
 
     logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [_build_analytics_service(_FALLBACK_DESCRIPTION)]
+    fallback = [
+        _build_free_plan_service(),
+        _build_pay_as_you_go_service(),
+        _build_analytics_service(_FALLBACK_DESCRIPTION),
+    ]
     cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
     cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
     return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {ANALYTICS_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +248,7 @@ def provisioning_services(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
-    return Response({"data": _get_services(), "next_cursor": ""})
+    return Response({"data": _get_services()})
 
 
 # ---------------------------------------------------------------------------
@@ -291,9 +358,14 @@ def _handle_new_user(
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    org_name = configuration.get("organization_name") or f"Stripe ({email})"
+
     try:
         organization, team, user = User.objects.bootstrap(
-            organization_name=f"Stripe ({email})",
+            organization_name=org_name,
             email=email,
             password=None,
             first_name=first_name,
@@ -560,7 +632,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
             "account": {
                 "id": account_id,
-                "payment_credentials": "provider",
+                "payment_credentials": "orchestrator",
             },
         }
     )
@@ -621,6 +693,64 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
+    """Call the billing service to activate a subscription with a Stripe Shared Payment Token.
+
+    Returns True if activation succeeded, False otherwise.
+    """
+    try:
+        from posthog.cloud_utils import get_cached_instance_license
+
+        from ee.billing.billing_manager import build_billing_token
+
+        license = get_cached_instance_license()
+        if not license:
+            capture_exception(Exception("No license found for SPT billing activation"))
+            return False
+
+        organization = team.organization
+        billing_token = build_billing_token(license, organization, user)
+
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers={"Authorization": f"Bearer {billing_token}"},
+            json={"shared_payment_token": spt_token},
+            timeout=30,
+        )
+
+        if res.status_code not in (200, 201):
+            capture_exception(
+                Exception(f"Billing SPT activation failed: {res.status_code}"),
+                {"team_id": team.id, "org_id": str(organization.id), "status": res.status_code},
+            )
+            return False
+
+        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(organization.id))
+        return True
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
+        return False
+
+
+def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
+    """Try to activate billing with an SPT from payment_credentials.
+
+    Returns True if succeeded, False if failed, None if no SPT was present.
+    """
+    payment_credentials = request.data.get("payment_credentials")
+    if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
+        spt_token = payment_credentials.get("stripe_payment_token")
+        if spt_token:
+            return _activate_billing_with_spt(team, user, spt_token)
+    logger.info(
+        "stripe_app.spt_not_received",
+        team_id=team.id,
+        has_payment_credentials=payment_credentials is not None,
+        payment_credentials_type=payment_credentials.get("type") if isinstance(payment_credentials, dict) else None,
+    )
+    return None
+
+
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a Stripe-provisioned user and return the raw key value."""
     try:
@@ -639,6 +769,100 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
         return None
+
+
+def _resolve_or_create_team(
+    user: User,
+    access_token: OAuthAccessToken,
+    scoped_teams: list[int],
+    project_id: str,
+    project_name: str | None,
+) -> Team | None:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    if project_id:
+        existing = (
+            TeamProvisioningConfig.objects.filter(
+                stripe_project_id=project_id,
+                team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+            )
+            .select_related("team")
+            .first()
+        )
+        if existing:
+            return existing.team
+
+    if not project_id:
+        team_id = scoped_teams[0]
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return None
+        if project_name:
+            team.name = project_name
+            team.save(update_fields=["name"])
+        return team
+
+    first_team = Team.objects.filter(id=scoped_teams[0]).first()
+    if not first_team:
+        return None
+
+    team = Team.objects.create_with_data(
+        initiating_user=user,
+        organization=first_team.organization,
+        name=project_name or "Default project",
+    )
+
+    try:
+        TeamProvisioningConfig.objects.update_or_create(
+            team=team,
+            defaults={"stripe_project_id": project_id},
+        )
+    except IntegrityError:
+        team.delete()
+        existing = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        if existing:
+            return existing.team
+        return None
+
+    _add_team_to_token_scopes(access_token, team.id)
+
+    return team
+
+
+def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    teams = list(access_token.scoped_teams or [])
+    if team_id not in teams:
+        teams.append(team_id)
+        access_token.scoped_teams = teams
+        access_token.save(update_fields=["scoped_teams"])
+
+    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+    for rt in refresh_tokens:
+        rt_teams = list(rt.scoped_teams or [])
+        if team_id not in rt_teams:
+            rt_teams.append(team_id)
+            rt.scoped_teams = rt_teams
+            rt.save(update_fields=["scoped_teams"])
+
+
+def _get_provisioning_service_id(team: Team) -> str:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        config = TeamProvisioningConfig.objects.get(team=team)
+        return config.service_id
+    except TeamProvisioningConfig.DoesNotExist:
+        return ANALYTICS_SERVICE_ID
+
+
+def _set_provisioning_service_id(team: Team, service_id: str) -> None:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    TeamProvisioningConfig.objects.update_or_create(
+        team=team,
+        defaults={"service_id": service_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -671,15 +895,34 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event("resource_created", "error", error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
-    team_id = scoped_teams[0]
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
-        return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+    project_id = request.data.get("project_id", "")
+    configuration = request.data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    project_name = configuration.get("project_name")
 
+    team = _resolve_or_create_team(user, access_token, scoped_teams, project_id, project_name)
+    if team is None:
+        _capture_provisioning_event("resource_created", "error", error_code="team_not_found")
+        return _error_response("team_not_found", "Team not found", status=404)
+
+    team_id = team.id
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+    _set_provisioning_service_id(team, resolved_service_id)
+
+    billing_result = _try_activate_billing_with_spt(request, team, user)
+    if billing_result is False:
+        return Response(
+            {
+                "status": "error",
+                "id": str(team_id),
+                "error": {
+                    "code": "requires_payment_credentials",
+                    "message": "Billing activation failed",
+                },
+            },
+            status=400,
+        )
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -764,7 +1007,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -774,6 +1017,80 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     }
     if personal_api_key := _create_provisioned_pat(user, team):
         access_configuration["personal_api_key"] = personal_api_key
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "service_id": service_id,
+            "complete": {
+                "access_configuration": access_configuration,
+            },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/update_service
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_update_service(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in scoped_teams:
+        return _error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    service_id = request.data.get("service_id", "")
+    if not service_id:
+        return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
+    if service_id not in VALID_SERVICE_IDS:
+        return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
+
+    billing_result = _try_activate_billing_with_spt(request, team, user)
+    if billing_result is False:
+        return _error_response(
+            "billing_activation_failed",
+            "Failed to activate billing with payment credentials",
+            resource_id=resource_id,
+        )
+
+    _set_provisioning_service_id(team, service_id)
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    _capture_provisioning_event("update_service", "success", service_id=service_id, team_id=team_id)
+
+    access_configuration: dict[str, str] = {
+        "api_key": team.api_token,
+        "host": host,
+    }
 
     return Response(
         {
@@ -830,7 +1147,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 

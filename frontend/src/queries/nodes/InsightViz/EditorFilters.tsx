@@ -25,12 +25,20 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebAnalyticsInsightQuery } from '~/queries/utils'
-import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    EditorFilterProps,
+    FunnelVizType as FunnelVizTypeEnum,
+    InsightEditorFilterGroup,
+    PathType,
+} from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
@@ -128,9 +136,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: [{ key: 'retention-options', component: RetentionOptions }],
         },
         {
-            title: 'General',
+            title: editorPanelsEnabled && isFunnels ? 'Steps' : 'General',
             show: !(editorPanelsEnabled && isRetention),
             defaultExpanded: editorPanelsEnabled ? true : undefined,
+            headerExtra:
+                editorPanelsEnabled &&
+                isFunnels &&
+                (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
+                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                        <FunnelVizType insightProps={insightProps} />
+                    </Tooltip>
+                ) : null,
             editorFilters: visibleFilters([
                 {
                     key: 'retention-condition',

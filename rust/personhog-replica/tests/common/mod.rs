@@ -14,7 +14,7 @@ fn random_person_id() -> i64 {
 
 /// Test context that manages database connections and provides test data helpers.
 pub struct TestContext {
-    pool: PgPool,
+    pub pool: PgPool,
     pub storage: Arc<dyn FullStorage>,
     pub team_id: i64,
 }

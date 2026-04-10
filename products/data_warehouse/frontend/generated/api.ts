@@ -9,11 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CheckDatabaseNameResponseApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
+    DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DeprovisionWarehouseResponseApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
@@ -34,14 +37,18 @@ import type {
     PatchedDataWarehouseSavedQueryFolderApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
+    ProvisionWarehouseRequestApi,
+    ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    ResetPasswordResponseApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
+    WarehouseStatusResponseApi,
     WarehouseTablesListParams,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -334,6 +341,39 @@ export const dataModelingJobsRunningRetrieve = async (
 }
 
 /**
+ * Check if a database name is available.
+ */
+export const getDataWarehouseCheckDatabaseNameRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseCheckDatabaseNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/check-database-name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/check-database-name/`
+}
+
+export const dataWarehouseCheckDatabaseNameRetrieve = async (
+    projectId: string,
+    params: DataWarehouseCheckDatabaseNameRetrieveParams,
+    options?: RequestInit
+): Promise<CheckDatabaseNameResponseApi> => {
+    return apiMutator<CheckDatabaseNameResponseApi>(getDataWarehouseCheckDatabaseNameRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Returns completed/non-running activities (jobs with status 'Completed').
 Supports pagination and cutoff time filtering.
  */
@@ -387,6 +427,23 @@ export const dataWarehouseDataOpsDashboardRetrieve = async (
 }
 
 /**
+ * Start deprovisioning the managed warehouse for this team.
+ */
+export const getDataWarehouseDeprovisionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/deprovision/`
+}
+
+export const dataWarehouseDeprovisionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DeprovisionWarehouseResponseApi> => {
+    return apiMutator<DeprovisionWarehouseResponseApi>(getDataWarehouseDeprovisionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Returns success and failed job statistics for the last 1, 7, or 30 days.
 Query parameter 'days' can be 1, 7, or 30 (default: 7).
  */
@@ -416,6 +473,43 @@ export const dataWarehousePropertyValuesRetrieve = async (projectId: string, opt
 }
 
 /**
+ * Start provisioning a managed warehouse for this team.
+ */
+export const getDataWarehouseProvisionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/provision/`
+}
+
+export const dataWarehouseProvisionCreate = async (
+    projectId: string,
+    provisionWarehouseRequestApi: ProvisionWarehouseRequestApi,
+    options?: RequestInit
+): Promise<ProvisionWarehouseResponseApi> => {
+    return apiMutator<ProvisionWarehouseResponseApi>(getDataWarehouseProvisionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(provisionWarehouseRequestApi),
+    })
+}
+
+/**
+ * Reset the root password for the managed warehouse.
+ */
+export const getDataWarehouseResetPasswordCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/reset-password/`
+}
+
+export const dataWarehouseResetPasswordCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ResetPasswordResponseApi> => {
+    return apiMutator<ResetPasswordResponseApi>(getDataWarehouseResetPasswordCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Returns currently running activities (jobs with status 'Running').
 Supports pagination and cutoff time filtering.
  */
@@ -440,6 +534,23 @@ export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => 
 
 export const dataWarehouseTotalRowsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataWarehouseTotalRowsStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get the current provisioning status of the managed warehouse.
+ */
+export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/warehouse_status/`
+}
+
+export const dataWarehouseWarehouseStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseStatusResponseApi> => {
+    return apiMutator<WarehouseStatusResponseApi>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
