@@ -235,8 +235,7 @@ class UserSerializer(serializers.ModelSerializer):
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
-        # Use all() to hit the prefetch cache from get_queryset
-        return bool(instance.social_auth.all())
+        return instance.social_auth.exists()
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
