@@ -98,38 +98,58 @@ class EmitConversationsSignalsWorkflow(PostHogWorkflow):
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class CoordinatorState:
+    """Resumable state for continue-as-new across batches."""
+
+    remaining_team_ids: list[int] = dataclasses.field(default_factory=list)
+    teams_succeeded: int = 0
+    teams_failed: int = 0
+    total_signals_emitted: int = 0
+
+
+_DEFAULT_STATE = CoordinatorState()
+
+
 @workflow.defn(name="conversations-signals-coordinator")
 class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> None:
-        return None
+    def parse_inputs(inputs: list[str]) -> CoordinatorState:
+        if not inputs:
+            return CoordinatorState()
+        loaded = json.loads(inputs[0])
+        return CoordinatorState(**loaded)
 
     @workflow.run
-    async def run(self) -> dict[str, Any]:
-        # Pick teams to emit new conversations from
-        enabled_team_ids: list[int] = await workflow.execute_activity(
-            get_conversations_signals_enabled_teams_activity,
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=1),
-                maximum_interval=timedelta(seconds=10),
-            ),
-        )
-        if not enabled_team_ids:
+    async def run(self, state: CoordinatorState = _DEFAULT_STATE) -> dict[str, Any]:
+        remaining = list(state.remaining_team_ids)
+        teams_succeeded = state.teams_succeeded
+        teams_failed = state.teams_failed
+        total_signals_emitted = state.total_signals_emitted
+        # Discover teams unless resuming from continue-as-new
+        if not remaining:
+            remaining = await workflow.execute_activity(
+                get_conversations_signals_enabled_teams_activity,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                ),
+            )
+        if not remaining:
             workflow.logger.debug("No teams with conversations signals enabled")
             return {
-                "teams_processed": 0,
-                "teams_succeeded": 0,
-                "teams_failed": 0,
-                "total_signals_emitted": 0,
+                "teams_processed": teams_succeeded + teams_failed,
+                "teams_succeeded": teams_succeeded,
+                "teams_failed": teams_failed,
+                "total_signals_emitted": total_signals_emitted,
             }
-        workflow.logger.debug(f"Processing {len(enabled_team_ids)} teams with conversations signals enabled")
-        total_signals_emitted = 0
-        failed_teams: set[int] = set()
-        successful_teams: set[int] = set()
-        for batch_start in range(0, len(enabled_team_ids), DEFAULT_MAX_CONCURRENT_TEAMS):
-            batch = enabled_team_ids[batch_start : batch_start + DEFAULT_MAX_CONCURRENT_TEAMS]
+        workflow.logger.debug(f"Processing {len(remaining)} teams with conversations signals enabled")
+        # Process teams in batches to avoid overwhelming Temporal with too many concurrent child workflows
+        while remaining:
+            batch = remaining[:DEFAULT_MAX_CONCURRENT_TEAMS]
+            remaining = remaining[DEFAULT_MAX_CONCURRENT_TEAMS:]
             workflow_handles: dict[int, Any] = {}
             for team_id in batch:
                 try:
@@ -151,20 +171,29 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                     continue
                 except Exception:
                     workflow.logger.exception(f"Failed to start conversations signal emission for team {team_id}")
-                    failed_teams.add(team_id)
+                    teams_failed += 1
             for team_id, handle in workflow_handles.items():
                 try:
                     result = await handle
                     if isinstance(result, dict):
                         total_signals_emitted += result.get("signals_emitted", 0)
-                    successful_teams.add(team_id)
+                    teams_succeeded += 1
                 except Exception:
                     workflow.logger.exception(f"Conversations signal emission errored for team {team_id}")
-                    failed_teams.add(team_id)
+                    teams_failed += 1
+            # Avoid exceeding Temporal history limits on large rollouts
+            if remaining and workflow.info().is_continue_as_new_suggested():
+                workflow.continue_as_new(
+                    CoordinatorState(
+                        remaining_team_ids=remaining,
+                        teams_succeeded=teams_succeeded,
+                        teams_failed=teams_failed,
+                        total_signals_emitted=total_signals_emitted,
+                    )
+                )
         return {
-            "teams_processed": len(enabled_team_ids),
-            "teams_succeeded": len(successful_teams),
-            "teams_failed": len(failed_teams),
-            "failed_team_ids": list(failed_teams),
+            "teams_processed": teams_succeeded + teams_failed,
+            "teams_succeeded": teams_succeeded,
+            "teams_failed": teams_failed,
             "total_signals_emitted": total_signals_emitted,
         }
