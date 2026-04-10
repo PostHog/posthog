@@ -41,10 +41,26 @@ def _try_connect(host_env, host_default, port_env, port_default):
 
 @pytest.fixture(scope="module")
 def ch_main():
-    """Main cluster node (keeper-main, shard 01, data role)."""
+    """Main cluster node (keeper-main, shard 01, data role).
+
+    Also skips the module when the multi-node dev stack isn't present.
+    Detects this by counting shards in the posthog_migrations cluster —
+    single-node CI has only one shard, multi-node dev has two.
+    """
     client = _try_connect("CLICKHOUSE_HOST", "localhost", "CLICKHOUSE_PORT", 9000)
     if client is None:
         pytest.skip("clickhouse node not reachable on localhost:9000")
+    try:
+        shards = client.execute("SELECT uniq(shard_num) FROM system.clusters WHERE cluster = 'posthog_migrations'")[0][
+            0
+        ]
+    except Exception:
+        shards = 0
+    if shards < 2:
+        pytest.skip(
+            f"multi-node dev stack not detected (posthog_migrations has {shards} shard(s)); "
+            "run `docker compose -f docker-compose.dev.yml -f docker-compose.dev-coordinator.yml up -d` first"
+        )
     return client
 
 
@@ -293,13 +309,17 @@ class TestReplicatedMergeTree:
             f"ORDER BY id"
         )
         try:
+            # system.replicas.zookeeper_path has the *resolved* shard macro,
+            # whereas system.tables.engine_full shows the original DDL text
+            # with `{shard}` still a literal.
             rows = ch_main.execute(
-                f"SELECT engine_full FROM system.tables WHERE database = '{test_db}' AND name = 'rmt_path_test'"
+                f"SELECT zookeeper_path, replica_name FROM system.replicas "
+                f"WHERE database = '{test_db}' AND table = 'rmt_path_test'"
             )
-            engine_full = rows[0][0]
-            # Macros should be resolved: shard=01, replica=ch1
-            assert "/01/" in engine_full, f"shard macro not resolved in ZK path: {engine_full}"
-            assert "'ch1'" in engine_full, f"replica macro not resolved: {engine_full}"
+            assert rows, "replica row not found in system.replicas"
+            zookeeper_path, replica_name = rows[0]
+            assert "/01/" in zookeeper_path, f"shard macro not resolved in ZK path: {zookeeper_path}"
+            assert replica_name == "ch1", f"replica macro not resolved: {replica_name}"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} SYNC")
 
