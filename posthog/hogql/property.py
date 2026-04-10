@@ -330,17 +330,10 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     - Relative dates (e.g. "-7d", "-10m"): resolved to absolute datetime using team timezone
     - ISO 8601 dates (e.g. "2026-03-19T14:00:00Z"): normalized to MySQL format ("2026-03-19 14:00:00")
 
-    Returns a normalized date string that ClickHouse can implicitly convert
-    for comparison against both String and DateTime columns.
-
-    We normalize the string rather than wrapping in toDateTime() because
-    PropertySwapper may or may not wrap the LHS depending on whether the
-    property has a DateTime type definition. When it doesn't, the LHS is a
-    raw String from JSON extraction, and comparing String against DateTime
-    fails in ClickHouse ("no supertype"). A MySQL-format string works on
-    both sides: ClickHouse can implicitly parse it when the LHS is DateTime,
-    and it preserves chronological ordering in lexicographic comparison when
-    the LHS is String.
+    Callers pair this with `_force_datetime` to coerce both sides of the
+    comparison. Normalization to MySQL format is kept so the printer can
+    apply its fast-path optimization that rewrites `parseDateTime64BestEffortOrNull`
+    on a string constant into `toDateTime` / `toDateTime64`.
     """
     if not isinstance(value, str):
         return value
@@ -352,13 +345,43 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
         resolved = relative_date_parse(value, team.timezone_info)
         return resolved.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Strip ISO 8601 separators that ClickHouse can't implicitly convert.
-    # Timezone-less strings are safe: ClickHouse interprets them using the
-    # comparison column's timezone (UTC from PropertySwapper).
     normalized = re.sub(r"(\d)T(\d)", r"\1 \2", value)
     if normalized.endswith("Z"):
         normalized = normalized[:-1]
     return normalized
+
+
+def _force_datetime(expr: ast.Expr) -> ast.Expr:
+    """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
+
+    PropertySwapper only wraps the LHS of a comparison in ``toDateTime()``
+    when a DateTime PropertyDefinition exists for the property. Without one,
+    the LHS stays as a raw JSON-extracted String, and a String-vs-String
+    comparison becomes lexicographic — which silently diverges from
+    chronological order when one side uses the ISO 8601 ``T``/``Z`` form and
+    the other the normalized MySQL form (``'T'`` = 0x54 sorts after
+    ``' '`` = 0x20).
+
+    Wrapping both sides in HogQL's ``toDateTime`` forces ClickHouse to parse
+    and compare as DateTime regardless of the underlying column type.
+
+    The ``toString`` hop on non-constant expressions is load-bearing: when
+    PropertySwapper *does* wrap the LHS (DateTime PropertyDefinition exists),
+    HogQL's overload resolution for the outer ``toDateTime`` cannot see
+    through PropertySwapper's freshly created Call node and falls back to
+    the default ``parseDateTime64BestEffortOrNull`` mapping. That function
+    rejects DateTime64 input (``ILLEGAL_TYPE_OF_ARGUMENT``), so we must
+    stringify first. String constants already skip the hop because
+    ``toString('x')`` is pointless and omitting it lets the printer apply
+    its ``parseDateTime64BestEffortOrNull`` → ``toDateTime`` constant
+    folding optimization.
+    """
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return ast.Call(name="toDateTime", args=[expr])
+    return ast.Call(
+        name="toDateTime",
+        args=[ast.Call(name="toString", args=[expr])],
+    )
 
 
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
@@ -477,8 +500,8 @@ def _expr_to_compare_op(
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=expr,
-            right=ast.Constant(value=_resolve_date_value(value, team)),
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -492,8 +515,8 @@ def _expr_to_compare_op(
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
-            left=expr,
-            right=ast.Constant(value=_resolve_date_value(value, team)),
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
@@ -501,8 +524,8 @@ def _expr_to_compare_op(
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
-            left=expr,
-            right=ast.Constant(value=_resolve_date_value(value, team)),
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))

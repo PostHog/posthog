@@ -335,8 +335,11 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": prop_type, "key": key, "value": value, "operator": operator}),
             ast.CompareOperation(
                 op=op,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=expected_rhs),
+                left=ast.Call(
+                    name="toDateTime",
+                    args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])],
+                ),
+                right=ast.Call(name="toDateTime", args=[ast.Constant(value=expected_rhs)]),
             ),
         )
 
@@ -362,8 +365,11 @@ class TestProperty(BaseTest):
         result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
         assert isinstance(result, ast.CompareOperation)
         assert result.op == op
-        assert isinstance(result.right, ast.Constant)
-        assert result.right.value == expected_rhs
+        assert isinstance(result.right, ast.Call)
+        assert result.right.name == "toDateTime"
+        assert len(result.right.args) == 1
+        assert isinstance(result.right.args[0], ast.Constant)
+        assert result.right.args[0].value == expected_rhs
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -1764,3 +1770,71 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         results = dict(zip(result.columns, row))
 
         assert results == self._expected_is_not_set_values(is_materialized)
+
+
+class TestPropertyDateOperatorsWithData(APIBaseTest):
+    """End-to-end tests for IS_DATE_* operators that actually execute the generated SQL.
+
+    Unit tests only assert AST shape, which cannot catch cases where the rendered
+    ClickHouse SQL is syntactically valid but rejected at runtime. In particular,
+    PropertySwapper wraps DateTime-typed properties with ``parseDateTime64BestEffortOrNull``,
+    and our outer ``toDateTime`` wrap must not produce a nested parse on a DateTime64
+    column — ``parseDateTime64BestEffortOrNull`` only accepts String input.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="signup_dt",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Datetime,
+        )
+        _create_event(
+            team=cls.team,
+            event="signup",
+            distinct_id="u1",
+            properties={"signup_dt": "2026-03-19T10:00:00Z"},
+        )
+        _create_event(
+            team=cls.team,
+            event="signup",
+            distinct_id="u2",
+            properties={"signup_dt": "2026-03-19T18:00:00Z"},
+        )
+
+    def _run(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="signup"),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        return result.results[0][0]
+
+    @parameterized.expand(
+        [
+            ("is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
+            ("is_date_before_mysql", "2026-03-19 14:00:00", "is_date_before", 1),
+            ("is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
+            ("is_date_after_mysql", "2026-03-19 14:00:00", "is_date_after", 1),
+            ("is_date_before_date_only", "2026-03-20", "is_date_before", 2),
+            ("is_date_after_date_only", "2026-03-18", "is_date_after", 2),
+        ]
+    )
+    def test_is_date_operator_on_datetime_event_property(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
+        assert count == expected_count
