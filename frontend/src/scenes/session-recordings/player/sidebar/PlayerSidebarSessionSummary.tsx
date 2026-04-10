@@ -655,7 +655,7 @@ export const SessionSummaryComponent = {
     Subtitle: SessionSummarySubtitle,
 }
 
-function SessionSummary(): JSX.Element {
+export function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummary } = useValues(playerMetaLogic(logicProps))
 

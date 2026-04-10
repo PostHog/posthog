@@ -1,24 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconCamera, IconChevronDown, IconMagicWand, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconGhost, IconSanta, IconSkipEnd, IconSkipStart } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import {
     CommentOnRecordingButton,
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import {
     ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionSummary } from 'scenes/session-recordings/player/sidebar/PlayerSidebarSessionSummary'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
@@ -202,6 +208,78 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
+function AIChaptersButton(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
+    const { summarizeSession } = useActions(playerMetaLogic(logicProps))
+    const [dropupVisible, setDropupVisible] = useState(false)
+
+    if (!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] && !featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]) {
+        return null
+    }
+
+    const hasSummary = !!sessionSummary
+
+    const handleClick = (): void => {
+        if (!hasSummary && !sessionSummaryLoading) {
+            summarizeSession()
+        } else {
+            setDropupVisible(!dropupVisible)
+        }
+    }
+
+    if (!hasSummary && !sessionSummaryLoading) {
+        return (
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconMagicWand />}
+                onClick={handleClick}
+                data-attr="ai-chapters-button"
+                className="whitespace-nowrap"
+            >
+                <span className="text-xs font-medium">AI chapters</span>
+            </LemonButton>
+        )
+    }
+
+    return (
+        <Popover
+            visible={dropupVisible}
+            onClickOutside={() => setDropupVisible(false)}
+            placement="top-end"
+            padded={false}
+            overlay={
+                <div className="w-[36rem] max-h-[70vh] overflow-y-auto p-2">
+                    {sessionSummaryLoading && !hasSummary ? (
+                        <div className="flex items-center gap-2 px-3 py-4">
+                            <Spinner textColored />
+                            <span className="text-sm text-secondary">Generating chapters...</span>
+                        </div>
+                    ) : hasSummary ? (
+                        <SessionSummary />
+                    ) : (
+                        <div className="px-3 py-4 text-sm text-secondary text-center">No chapters available</div>
+                    )}
+                </div>
+            }
+        >
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={sessionSummaryLoading ? <Spinner textColored /> : <IconMagicWand />}
+                sideIcon={<IconChevronDown className="rotate-180" />}
+                onClick={handleClick}
+                data-attr="ai-chapters-button"
+                className="whitespace-nowrap"
+            >
+                <span className="text-xs font-medium">AI chapters</span>
+            </LemonButton>
+        </Popover>
+    )
+}
+
 export function PlayerController(): JSX.Element {
     const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
 
@@ -237,6 +315,7 @@ export function PlayerController(): JSX.Element {
                 <div className="flex gap-0.5 justify-end items-center">
                     {ModesWithInteractions.includes(playerMode) && (
                         <>
+                            <AIChaptersButton />
                             <CommentOnRecordingButton />
                             <EmojiCommentOnRecordingButton />
                             <Screenshot />

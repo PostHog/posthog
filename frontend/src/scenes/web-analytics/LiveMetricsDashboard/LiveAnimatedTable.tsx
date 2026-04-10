@@ -110,7 +110,7 @@ export function LiveAnimatedTable<T>({
 
     useLayoutEffect(() => {
         prevPositionsRef.current = new Map(items.map((item, index) => [keyExtractor(item), index]))
-    }, [items])
+    }, [items, keyExtractor])
 
     return (
         <div className={clsx('bg-bg-light rounded-lg border p-4', className)}>
