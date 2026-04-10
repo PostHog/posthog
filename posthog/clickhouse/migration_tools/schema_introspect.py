@@ -195,22 +195,32 @@ def build_ecosystems_from_schema(
 
 
 def detect_drift(cluster: ClickhouseCluster, database: str) -> list[SchemaDiff]:
-    """Dump schema from all hosts and compare each against the first (reference)."""
+    """Dump schema from all hosts and compare within each role group.
+
+    Hosts with the same host_cluster_role should have identical schemas,
+    but hosts with different roles (e.g. DATA vs COORDINATOR) legitimately differ.
+    """
     all_schemas = dump_schema_all_hosts(cluster, database)
 
     if len(all_schemas) < 2:
         return []
 
-    hosts = list(all_schemas.keys())
-    reference_host = hosts[0]
-    reference_schema = all_schemas[reference_host]
+    # Group hosts by role so we only compare like-for-like
+    by_role: dict[str | None, list[tuple[HostInfo, dict[str, TableSchema]]]] = {}
+    for host, schema in all_schemas.items():
+        role = host.host_cluster_role
+        by_role.setdefault(role, []).append((host, schema))
 
     diffs: list[SchemaDiff] = []
-    for host in hosts[1:]:
-        host_schema = all_schemas[host]
-        host_diffs = compare_schemas(reference_schema, host_schema)
-        for diff in host_diffs:
-            diff.host = f"{host.connection_info.host} (vs {reference_host.connection_info.host})"
-        diffs.extend(host_diffs)
+    for role, group in by_role.items():
+        if len(group) < 2:
+            continue
+        ref_host, ref_schema = group[0]
+        for host, host_schema in group[1:]:
+            host_diffs = compare_schemas(ref_schema, host_schema)
+            role_label = f" (role={role})" if role else ""
+            for diff in host_diffs:
+                diff.host = f"{host.connection_info.host} (vs {ref_host.connection_info.host}){role_label}"
+            diffs.extend(host_diffs)
 
     return diffs

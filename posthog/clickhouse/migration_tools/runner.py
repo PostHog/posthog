@@ -100,12 +100,12 @@ def get_pending_migrations() -> list[str]:
 
         # Check what's been recorded in the infi tracking system
         rows = client.execute(
-            "SELECT name FROM system.tables WHERE database = 'default' AND name = 'clickhouseorm_migrations'"
+            "SELECT name FROM system.tables WHERE database = 'default' AND name = 'infi_clickhouse_orm_migrations'"
         )
         if not rows:
             return all_migrations  # no tracking table = everything is pending
 
-        applied_rows = client.execute("SELECT package_name FROM default.clickhouseorm_migrations")
+        applied_rows = client.execute("SELECT package_name FROM default.infi_clickhouse_orm_migrations")
         applied = {row[0] for row in applied_rows}
 
         return [m for m in all_migrations if m not in applied]

@@ -1038,3 +1038,45 @@ class TestMvSelectNormalization(unittest.TestCase):
         e = "SELECT a FROM t -- comment\nWHERE 1=1"
         f = "SELECT a FROM t WHERE 1=1"
         self.assertEqual(_normalize_mv_select(e), _normalize_mv_select(f))
+
+
+class TestCheckLegacyMigrations(unittest.TestCase):
+    def test_check_queries_correct_legacy_table(self) -> None:
+        import inspect
+
+        from posthog.clickhouse.migration_tools import runner
+
+        source = inspect.getsource(runner)
+        assert "infi_clickhouse_orm_migrations" in source
+        assert "name = 'clickhouseorm_migrations'" not in source
+
+
+class TestTemplates(unittest.TestCase):
+    def test_ingestion_pipeline_uses_database_placeholder(self) -> None:
+        from posthog.clickhouse.migration_tools.templates import generate_schema_yaml
+
+        result = generate_schema_yaml("ingestion_pipeline", "my_events", "main")
+        assert result is not None
+        mv_table = result["tables"]["my_events_mv"]
+        assert "posthog.kafka_" not in mv_table["select"]
+        assert "{{ database }}" in mv_table["select"]
+
+    def test_materialized_view_uses_database_placeholder(self) -> None:
+        from posthog.clickhouse.migration_tools.templates import generate_schema_yaml
+
+        result = generate_schema_yaml("materialized_view", "my_events", "main")
+        assert result is not None
+        mv_table = result["tables"]["my_events_mv"]
+        assert "posthog.kafka_" not in mv_table["select"]
+        assert "{{ database }}" in mv_table["select"]
+
+
+class TestDetectDrift(unittest.TestCase):
+    def test_drift_groups_by_role(self) -> None:
+        """detect_drift should compare hosts within the same role, not across roles."""
+        import inspect
+
+        from posthog.clickhouse.migration_tools import schema_introspect
+
+        source = inspect.getsource(schema_introspect.detect_drift)
+        assert "host_cluster_role" in source, "detect_drift must group hosts by role"
