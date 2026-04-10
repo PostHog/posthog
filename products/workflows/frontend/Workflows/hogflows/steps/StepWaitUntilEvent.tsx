@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -60,11 +60,12 @@ export function StepWaitUntilEventConfiguration({ node }: { node: Node<WaitUntil
                         />
                     </div>
 
-                    <HogFlowPropertyFilters
+                    <HogFlowEventFilters
                         filtersKey={`wait-until-event-${action.id}-${index}`}
                         filters={eventConfig.filters ?? {}}
                         setFilters={(filters) => updateEvent(index, { filters: filters ?? {} })}
                         typeKey={`workflow-wait-until-event-${index}`}
+                        buttonCopy="Select event"
                     />
 
                     <LemonField.Pure label="Subscription name (optional)">
