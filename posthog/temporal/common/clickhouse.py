@@ -826,6 +826,7 @@ class ClickHouseClient:
             return sock
 
         self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
+        # nosemgrep: aiohttp-missing-trust-env (internal ClickHouse connection, must bypass HTTP proxy)
         self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout, trust_env=False)
         return self
 

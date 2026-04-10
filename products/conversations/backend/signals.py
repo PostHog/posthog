@@ -257,8 +257,10 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 return
 
             author_name = ""
+            author_email = ""
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+                author_email = created_by.email
 
             cast(Any, post_reply_to_slack).delay(
                 ticket_id=str(ticket.id),
@@ -266,6 +268,7 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 content=content,
                 rich_content=rich_content,
                 author_name=author_name,
+                author_email=author_email,
                 slack_channel_id=ticket.slack_channel_id,
                 slack_thread_ts=ticket.slack_thread_ts,
             )
