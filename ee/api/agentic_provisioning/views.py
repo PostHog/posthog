@@ -90,6 +90,15 @@ _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 _FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
 
+_PAY_AS_YOU_GO_PRICING_SUMMARY = (
+    "$0/mo base. Usage-based: "
+    "1M free events then $0.00005/event, "
+    "5K free recordings then $0.005/recording, "
+    "1M free feature flag requests then $0.0001/request, "
+    "and more. See posthog.com/pricing for full details."
+)
+
+
 def _build_free_plan_service() -> dict[str, Any]:
     return {
         "id": FREE_PLAN_SERVICE_ID,
@@ -97,6 +106,7 @@ def _build_free_plan_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {"type": "free"},
         "kind": "plan",
+        "allowed_updates": [PAY_AS_YOU_GO_SERVICE_ID],
     }
 
 
@@ -107,9 +117,10 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {
             "type": "paid",
-            "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+            "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
         },
         "kind": "plan",
+        "allowed_updates": [FREE_PLAN_SERVICE_ID],
     }
 
 
@@ -118,6 +129,16 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
         "id": ANALYTICS_SERVICE_ID,
         "description": description,
         "categories": ALL_CATEGORIES,
+        "configuration_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Name for the PostHog project",
+                },
+            },
+            "additionalProperties": False,
+        },
         "pricing": {
             "type": "component",
             "component": {
@@ -126,12 +147,15 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
                     {
                         "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
                         "type": "paid",
-                        "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+                        "paid": {"type": "freeform", "freeform": _PAY_AS_YOU_GO_PRICING_SUMMARY},
                     },
                 ]
             },
         },
         "kind": "deployable",
+        # Stripe validates allowed_updates client-side before calling update_service.
+        # Without this, `stripe projects update` rejects plan changes.
+        "allowed_updates": ["service_ref"],
     }
 
 
@@ -387,9 +411,14 @@ def _handle_new_user(
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    org_name = configuration.get("organization_name") or f"Stripe ({email})"
+
     try:
         organization, team, user = User.objects.bootstrap(
-            organization_name=f"Stripe ({email})",
+            organization_name=org_name,
             email=email,
             password=None,
             first_name=first_name,
@@ -769,6 +798,12 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
         spt_token = payment_credentials.get("stripe_payment_token")
         if spt_token:
             return _activate_billing_with_spt(team, user, spt_token)
+    logger.info(
+        "stripe_app.spt_not_received",
+        team_id=team.id,
+        has_payment_credentials=payment_credentials is not None,
+        payment_credentials_type=payment_credentials.get("type") if isinstance(payment_credentials, dict) else None,
+    )
     return None
 
 
@@ -828,6 +863,14 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+
+    configuration = request.data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    project_name = configuration.get("project_name")
+    if project_name:
+        team.name = project_name
+        team.save(update_fields=["name"])
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)

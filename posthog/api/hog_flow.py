@@ -47,6 +47,18 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 logger = structlog.get_logger(__name__)
 
 
+class BlastRadiusRequestSerializer(serializers.Serializer):
+    filters = serializers.DictField(help_text="Property filters to apply")
+    group_type_index = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Group type index for group-based targeting"
+    )
+
+
+class BlastRadiusSerializer(serializers.Serializer):
+    affected = serializers.IntegerField(help_text="Number of users matching the filters")
+    total = serializers.IntegerField(help_text="Total number of users")
+
+
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
@@ -516,6 +528,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         return Response(res.json())
 
+    @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
         if "filters" not in request.data:
@@ -526,12 +539,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(
-            {
-                "affected": result.affected,
-                "total": result.total,
-            }
-        )
+        return Response(BlastRadiusSerializer(result).data)
 
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
@@ -638,12 +646,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             result = get_user_blast_radius(team, filters, group_type_index)
-            return Response(
-                {
-                    "affected": result.affected,
-                    "total": result.total,
-                }
-            )
+            return Response(BlastRadiusSerializer(result).data)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)

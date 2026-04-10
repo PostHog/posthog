@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '../../session-recording/sessions/session-batch-recorder'
 import { TeamForReplay } from '../../session-recording/teams/types'
@@ -15,11 +14,7 @@ import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../eve
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { drop, ok, redirect } from '../pipelines/results'
-import {
-    SessionReplayPipelineConfig,
-    createSessionReplayPipeline,
-    runSessionReplayPipeline,
-} from './session-replay-pipeline'
+import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 
 jest.mock('../event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -41,16 +36,6 @@ function createMockSessionBatchManager(): jest.Mocked<SessionBatchManager> {
 
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
-
-function createMockKafkaProducer(): jest.Mocked<KafkaProducerWrapper> {
-    // Cast through unknown because KafkaProducerWrapper has private properties we don't need to mock
-    return {
-        produce: jest.fn().mockResolvedValue(undefined),
-        flush: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        queueMessages: jest.fn().mockResolvedValue(undefined),
-    } as unknown as jest.Mocked<KafkaProducerWrapper>
-}
 
 interface MockRecorder {
     record: jest.Mock
@@ -90,14 +75,14 @@ function createMockTopHog(): MockTopHogRegistry {
 }
 
 describe('session-replay-pipeline', () => {
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
-    let mockIngestionWarningProducer: jest.Mocked<KafkaProducerWrapper>
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
     let mockSessionBatchManager: jest.Mocked<SessionBatchManager>
     let promiseScheduler: PromiseScheduler
     let topHog: MockTopHogRegistry
-    let outputs: SessionReplayPipelineConfig['outputs']
+    let outputs: jest.Mocked<
+        IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
+    >
 
     // Debug logging disabled by default in tests
     const isDebugLoggingEnabled = () => false
@@ -151,15 +136,9 @@ describe('session-replay-pipeline', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockKafkaProducer = createMockKafkaProducer()
-        mockIngestionWarningProducer = createMockKafkaProducer()
-        outputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: [
-                { topic: KAFKA_INGESTION_WARNINGS, producer: mockIngestionWarningProducer, producerName: 'test' },
-            ],
-            [DLQ_OUTPUT]: [{ topic: 'dlq-topic', producer: mockKafkaProducer, producerName: 'test' }],
-            [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockKafkaProducer, producerName: 'test' }],
-        })
+        outputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         // The restriction manager is not actually used since we mock createApplyEventRestrictionsStep
         mockRestrictionManager = {} as unknown as EventIngestionRestrictionManager
@@ -376,10 +355,10 @@ describe('session-replay-pipeline', () => {
             // Wait for side effects to complete
             await promiseScheduler.waitForAll()
 
-            // Verify the message was sent to the DLQ topic
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            // Verify the message was sent to the DLQ output
+            expect(outputs.produce).toHaveBeenCalledWith(
+                DLQ_OUTPUT,
                 expect.objectContaining({
-                    topic: 'dlq-topic',
                     value: invalidMessage.value,
                 })
             )
@@ -422,11 +401,7 @@ describe('session-replay-pipeline', () => {
             expect(result[1].parsedMessage.session_id).toBe('session-3')
 
             // Verify the overflow message was produced
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    topic: 'overflow-topic',
-                })
-            )
+            expect(outputs.produce).toHaveBeenCalledWith(OVERFLOW_OUTPUT, expect.anything())
         })
 
         it('returns empty array for empty input', async () => {
@@ -631,12 +606,18 @@ describe('session-replay-pipeline', () => {
             const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(1)
-            expect(mockIngestionWarningProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const callArg = mockIngestionWarningProducer.queueMessages.mock.calls[0][0]
-            const call = Array.isArray(callArg) ? callArg[0] : callArg
-            expect(call.topic).toMatch(/^clickhouse_ingestion_warnings/)
-            const messageValue = parseJSON(call.messages[0].value as string)
+            expect(outputs.queueMessages).toHaveBeenCalledWith(
+                INGESTION_WARNINGS_OUTPUT,
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        value: expect.any(Buffer),
+                    }),
+                ])
+            )
+            const warningMessages = outputs.queueMessages.mock.calls[0][1]
+            const messageValue = parseJSON(warningMessages[0].value!.toString())
             expect(messageValue.team_id).toBe(1)
             expect(messageValue.type).toBe('replay_lib_version_too_old')
             expect(parseJSON(messageValue.details)).toEqual({
@@ -662,7 +643,7 @@ describe('session-replay-pipeline', () => {
             const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(1)
-            expect(mockIngestionWarningProducer.queueMessages).not.toHaveBeenCalled()
+            expect(outputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('does not send ingestion warning when no lib version header', async () => {
@@ -682,7 +663,7 @@ describe('session-replay-pipeline', () => {
             const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(1)
-            expect(mockIngestionWarningProducer.queueMessages).not.toHaveBeenCalled()
+            expect(outputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('sends ingestion warning when message timestamps are too old', async () => {
@@ -704,12 +685,18 @@ describe('session-replay-pipeline', () => {
 
             // Message should be dropped but warning should be sent
             expect(result).toHaveLength(0)
-            expect(mockIngestionWarningProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const callArg = mockIngestionWarningProducer.queueMessages.mock.calls[0][0]
-            const call = Array.isArray(callArg) ? callArg[0] : callArg
-            expect(call.topic).toMatch(/^clickhouse_ingestion_warnings/)
-            const messageValue = parseJSON(call.messages[0].value as string)
+            expect(outputs.queueMessages).toHaveBeenCalledWith(
+                INGESTION_WARNINGS_OUTPUT,
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        value: expect.any(Buffer),
+                    }),
+                ])
+            )
+            const warningMessages = outputs.queueMessages.mock.calls[0][1]
+            const messageValue = parseJSON(warningMessages[0].value!.toString())
             expect(messageValue.team_id).toBe(1)
             expect(messageValue.type).toBe('message_timestamp_diff_too_large')
         })

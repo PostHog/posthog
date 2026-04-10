@@ -18,6 +18,7 @@ from posthog.schema import (
     ExperimentStatsBase,
     IntervalType,
     MultipleVariantHandling,
+    PrecomputationMode,
 )
 
 from posthog.hogql import ast
@@ -48,6 +49,7 @@ from posthog.hogql_queries.experiments.utils import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -56,6 +58,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -82,14 +85,12 @@ class ExperimentQueryRunner(QueryRunner):
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
-        force_precomputation: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
-        self.force_precomputation = force_precomputation
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -189,6 +190,16 @@ class ExperimentQueryRunner(QueryRunner):
             placeholders=placeholders,
         )
 
+    def _should_precompute(self) -> bool:
+        """Resolve whether to use precomputation: query-level override > team-level default."""
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return True
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return False
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        return config.experiment_precomputation_enabled
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -205,6 +216,8 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
+        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag.key,
@@ -216,13 +229,15 @@ class ExperimentQueryRunner(QueryRunner):
             entity_key=self.entity_key,
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
-            force_precomputation=self.force_precomputation,
             only_count_matured_users=self.experiment.only_count_matured_users,
+            funnel_steps_data_disabled=funnel_steps_data_disabled,
         )
+
+        should_precompute = self._should_precompute()
 
         # Skip precomputation for data warehouse metrics because the precomputed table
         # doesn't include the join keys needed to link exposures to data warehouse tables
-        if self.experiment.exposure_preaggregation_enabled and not self.is_data_warehouse_query:
+        if should_precompute and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
@@ -434,6 +449,25 @@ class ExperimentQueryRunner(QueryRunner):
 
         This ensures we get the same behavior as regular funnel actors queries,
         including proper conversion/dropoff filtering and recording support.
+
+        IMPORTANT: Exposure step exclusion
+        --------------------------------------
+        The actors query funnel does NOT include the exposure step, only metric events.
+
+        Main experiment query (calculates conversion rates):
+            - Structure: Exposure (step 0) → Metric 1 (step 1) → Metric 2 (step 2)
+            - Includes exposure to enforce temporal ordering (only count events AFTER exposure)
+            - Returns highest step reached for each exposed user
+
+        Actors query (retrieves individual users):
+            - Structure: Metric 1 (step 1) → Metric 2 (step 2) - NO exposure
+            - Queries WITHIN the already-filtered exposed population
+            - Exposure filtering is inherited through variant breakdown
+
+        Frontend-to-backend step mapping:
+            - Frontend shows: Step 0 (Exposure), Step 1 (Metric 1), Step 2 (Metric 2)
+            - Backend actors query: Step 1 (Metric 1), Step 2 (Metric 2)
+            - Frontend step index maps directly to backend step number (stepIndex = backendStepNo)
         """
         # Ensure actors_query is set (should be set by InsightActorsQueryRunner before calling this)
         if self.actors_query is None:
@@ -442,6 +476,61 @@ class ExperimentQueryRunner(QueryRunner):
         # Only support funnel metrics for now
         if not isinstance(self.metric, ExperimentFunnelMetric):
             raise ValidationError("Actors query only supported for funnel experiment metrics")
+
+        # Validate funnelStep for experiment funnels
+        # Experiment funnels have a unique structure: Exposure → Metric Events
+        # The actors query excludes exposure and only queries metric events
+        funnel_step = self.actors_query.funnelStep
+        if funnel_step is None:
+            raise ValidationError("funnelStep is required for experiment actors query")
+
+        num_metric_steps = len(self.metric.series)
+
+        if funnel_step == -1:
+            # -1 would mean "dropped before first metric step" which is invalid
+            # because we only query exposed users who are already past the exposure checkpoint
+            # Build event names string (handle both EventsNode and ActionsNode)
+            from posthog.schema import EventsNode
+
+            event_names: list[str] = []
+            for step in self.metric.series[:2]:  # Show first 2 for brevity
+                if isinstance(step, EventsNode):
+                    event_names.append(step.event or "All events")
+                else:  # ActionsNode
+                    event_names.append(f"Action {step.id}")
+
+            metric_events_str = " → ".join(event_names)
+            if len(self.metric.series) > 2:
+                metric_events_str += " → ..."
+
+            raise ValidationError(
+                f"Cannot query drop-offs before the first metric step in experiment funnels. "
+                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
+                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
+                f"which cannot be queried through the actors API. "
+                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
+            )
+
+        if funnel_step == 0:
+            raise ValidationError(
+                "Funnel steps are 1-indexed. Step 0 does not exist. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
+
+        if funnel_step < -1:
+            # Check if drop-off step is out of range
+            max_drop_off = -(num_metric_steps + 1)
+            if funnel_step < max_drop_off:
+                raise ValidationError(
+                    f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                )
+
+        if funnel_step > num_metric_steps:
+            raise ValidationError(
+                f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
 
         # Import here to avoid circular dependencies
         from posthog.schema import BreakdownFilter, BreakdownType, FunnelsActorsQuery, FunnelsFilter, FunnelsQuery

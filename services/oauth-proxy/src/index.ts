@@ -33,43 +33,43 @@ function normalizePath(path: string): string {
 const routes: Route[] = [
     {
         paths: ['/.well-known/oauth-authorization-server'],
-        handler: (req) => handleMetadata(req),
+        handler: handleMetadata,
     },
     {
         paths: ['/.well-known/jwks.json'],
-        handler: (req) => handleJwks(req),
+        handler: handleJwks,
     },
     {
         paths: ['/oauth/register', '/register'],
         method: 'POST',
-        handler: (req, kv) => handleRegister(req, kv),
+        handler: handleRegister,
     },
     {
         paths: ['/oauth/authorize', '/authorize'],
-        handler: (req, kv) => handleAuthorize(req, kv),
+        handler: handleAuthorize,
     },
     {
         paths: ['/oauth/callback'],
-        handler: (req, kv) => handleCallback(req, kv),
+        handler: handleCallback,
     },
     {
         paths: ['/oauth/token', '/token'],
         method: 'POST',
-        handler: (req, kv) => handleToken(req, kv),
+        handler: handleToken,
     },
     {
         paths: ['/oauth/revoke'],
         method: 'POST',
-        handler: (req, kv) => handleRevoke(req, kv),
+        handler: handleRevoke,
     },
     {
         paths: ['/oauth/introspect'],
         method: 'POST',
-        handler: (req) => handleIntrospect(req),
+        handler: handleIntrospect,
     },
     {
         paths: ['/oauth/userinfo'],
-        handler: (req) => handleUserInfo(req),
+        handler: handleUserInfo,
     },
 ]
 

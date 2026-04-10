@@ -9,7 +9,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-from products.tasks.backend.services.sandbox import Sandbox, SandboxProtocol
+from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -20,7 +20,7 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 
-def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
         result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -32,7 +32,7 @@ def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol)
         emit_agent_log(ctx.run_id, "debug", f"agentsh log tail:\n{log_tail}")
 
 
-def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
         result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
     except Exception:
@@ -44,7 +44,7 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxProt
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
 
 
-def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxProtocol) -> None:
+def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     """Emit diagnostic info about env vars and network connectivity.
 
     When allowed_domains is set, runs the checks inside the agentsh exec
