@@ -4338,6 +4338,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type PrecomputationMode = typeof PrecomputationMode[keyof typeof PrecomputationMode];
+
+
+    export const PrecomputationMode = {
+      Precomputed: 'precomputed',
+      Direct: 'direct',
+    } as const;
+
     export interface SessionData {
       event_uuid: string;
       person_id: string;
@@ -4543,6 +4551,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
       name?: string | null;
+      precomputation_mode?: PrecomputationMode | null;
       response?: ExperimentQueryResponse | null;
       tags?: QueryLogTags | null;
       /**
