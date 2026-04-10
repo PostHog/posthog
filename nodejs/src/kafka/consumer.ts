@@ -812,20 +812,27 @@ export class KafkaConsumer {
                         }
                     })
 
-                    // At first we just add the background work to the queue with metadata
+                    // Capture the oldest task to await BEFORE pushing the new one.
+                    // This prevents a race condition where .finally() microtasks from
+                    // resolving tasks splice the array, causing us to await the task
+                    // we just pushed (deadlock — it can never resolve while we're blocked).
+                    // We use length + 1 to account for the task we're about to push.
+                    const taskToAwait =
+                        this.backgroundTask.length + 1 >= this.maxBackgroundTasks
+                            ? this.backgroundTask[0]?.promise
+                            : null
+
                     this.backgroundTask.push({
                         promise: backgroundTask,
                         createdAt: taskCreatedAt,
                     })
 
-                    // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
-                    if (this.backgroundTask.length >= this.maxBackgroundTasks) {
+                    if (taskToAwait) {
                         const stopTimer = consumedBatchBackpressureDuration.startTimer({
                             topic: this.config.topic,
                             groupId: this.config.groupId,
                         })
-                        // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await taskToAwait
                         stopTimer()
                     }
                 }

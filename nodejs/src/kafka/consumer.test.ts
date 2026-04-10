@@ -408,6 +408,56 @@ describe('consumer', () => {
             p3.resolve()
             await delay(100)
         })
+
+        it('should not deadlock when previous background tasks resolve before backpressure check', async () => {
+            // Regression test: when all previous background tasks resolve between
+            // pushing the new task and the backpressure await, the array gets spliced
+            // and this.backgroundTask[0] becomes the task we just pushed — awaiting
+            // itself is a deadlock.
+            //
+            // The fix captures the promise to await BEFORE pushing the new task,
+            // so even if microtasks splice the array, we never await ourselves.
+
+            const consumeCountBefore = mockRdKafkaConsumer.consume.mock.calls.length
+
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+
+            const p2 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+
+            const p3 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 3, partition: 0 })], p3.promise)
+            await delay(1)
+
+            expect(consumer['backgroundTask'].length).toBe(3)
+
+            // Resolve all 3 tasks before the next batch arrives.
+            // Their .finally() microtasks will splice them out of the array.
+            p1.resolve()
+            p2.resolve()
+            p3.resolve()
+            await delay(1)
+
+            // Now simulate the 4th batch. With the bug, the consumer would push task4,
+            // then await this.backgroundTask[0] which IS task4 — deadlock.
+            // With the fix, the taskToAwait was captured before pushing, so it's either
+            // null (no backpressure needed) or a previous task that already resolved.
+            const p4 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 4, partition: 0 })], p4.promise)
+
+            // If we reach here without timing out, the deadlock is fixed.
+            await delay(10)
+
+            // Consumer should have advanced — the exact count depends on timing,
+            // but it must be at least 4 (one per batch).
+            expect(mockRdKafkaConsumer.consume.mock.calls.length).toBeGreaterThanOrEqual(consumeCountBefore + 4)
+
+            p4.resolve()
+            await delay(10)
+
+            expect(consumer['backgroundTask']).toEqual([])
+        })
     })
 
     describe('background task timeout', () => {
