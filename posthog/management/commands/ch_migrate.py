@@ -535,6 +535,14 @@ class Command(BaseCommand):
         from posthog.clickhouse.migration_tools.tracking import _ensure_tracking_table
 
         cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+
+        # Create the database itself before the tracking table. On a fresh
+        # stack the database doesn't exist yet, and `CREATE TABLE {db}.{tbl}`
+        # inside `_ensure_tracking_table` fails with "Database <db> does not
+        # exist" (CH error code 81). Legacy `migrate_clickhouse` does this
+        # implicitly; `ch_migrate bootstrap` must do it explicitly.
+        client.execute(f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster_name}")
+
         _ensure_tracking_table(client, database, cluster_name)
         print(f"Tracking table ensured in database '{database}' on cluster '{cluster_name}'.")
 
