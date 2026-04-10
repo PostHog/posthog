@@ -72,6 +72,28 @@ ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
+def _capture_browser_diagnostics(driver: webdriver.Chrome) -> dict:
+    """Best-effort snapshot of the browser state for a stuck/timed-out export."""
+    diagnostics: dict = {}
+    try:
+        diagnostics["current_url"] = driver.current_url
+    except Exception:
+        pass
+    try:
+        diagnostics["title"] = driver.title
+    except Exception:
+        pass
+    try:
+        # `get_log('browser')` requires `goog:loggingPrefs` capability (see get_driver).
+        # It returns up to the last ~1000 entries; we keep the tail to bound output size.
+        logs = driver.get_log("browser") or []
+        diagnostics["browser_log_count"] = len(logs)
+        diagnostics["browser_logs_tail"] = logs[-20:]
+    except Exception as e:
+        diagnostics["browser_log_error"] = str(e)
+    return diagnostics
+
+
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
@@ -90,6 +112,8 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+    # Enable browser console log capture so we can surface JS errors on timeout
+    options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
     # Create a unique prefix for the temporary directory
     pid = os.getpid()
@@ -205,9 +229,15 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            # URL-encode the page and data URLs so their own query strings (e.g.
+            # `?width=1024` on screenshot content URLs) don't corrupt the `/exporter`
+            # query string. Without `quote()`, a second `?` in `heatmap_url` makes the
+            # parser drop everything after it, the screenshot fetch 404s, and the
+            # exported PNG renders a broken `<img alt="Heatmap">` placeholder.
+            encoded_page_url = quote(exported_asset.export_context.get("heatmap_url") or "", safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
@@ -278,8 +308,17 @@ def _screenshot_asset(
                 lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector)
             )
         except TimeoutException as e:
+            diagnostics = _capture_browser_diagnostics(driver)
+            logger.warning(
+                "image_exporter.page_load_timeout",
+                url=url_to_render,
+                css_selector=wait_for_css_selector,
+                timeout_seconds=page_load_timeout,
+                **diagnostics,
+            )
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
+                posthoganalytics.tag("page_load_timeout_diagnostics", diagnostics)
                 try:
                     driver.save_screenshot(image_path)
                     posthoganalytics.tag("image_path", image_path)
@@ -287,7 +326,17 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise TimeoutException(f"Timeout while waiting for the page to load")
+            # Summarise browser log severities + first JS error so the user-facing
+            # exception field is actually useful when triaging stuck heatmap exports.
+            browser_logs = diagnostics.get("browser_logs_tail") or []
+            first_error = next(
+                (entry.get("message") for entry in browser_logs if entry.get("level") in {"SEVERE", "ERROR"}),
+                None,
+            )
+            detail_parts = [f"selector={wait_for_css_selector}", f"timeout={page_load_timeout}s"]
+            if first_error:
+                detail_parts.append(f"browser_error={first_error[:200]}")
+            raise TimeoutException(f"Timeout while waiting for the page to load ({', '.join(detail_parts)})")
 
         try:
             # Also wait until nothing is loading
