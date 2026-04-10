@@ -105,7 +105,6 @@ MOCK_CONVERSATIONS_TICKET_RECORD: dict = {
     "priority": "high",
     "created_at": "2025-06-10T14:30:00Z",
     "email_subject": None,
-    "email_from": None,
     "messages": [
         (
             "customer",

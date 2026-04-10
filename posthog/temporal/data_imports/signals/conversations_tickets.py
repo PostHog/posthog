@@ -56,7 +56,6 @@ EXTRA_FIELDS = (
     "priority",
     "created_at",
     "email_subject",
-    "email_from",
 )
 
 
