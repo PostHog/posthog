@@ -39,6 +39,50 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
 }
 
 
+def _get_image_source_label(
+    *,
+    has_repo: bool,
+    provider: str | None,
+    resume_snapshot_external_id: str | None,
+    snapshot: SandboxSnapshot | None,
+) -> str:
+    if resume_snapshot_external_id:
+        return f"resume snapshot {resume_snapshot_external_id}"
+
+    if snapshot is not None:
+        external_id = snapshot.external_id or str(snapshot.id)
+        return f"repository snapshot {external_id}"
+
+    if provider == "docker":
+        return "local Docker sandbox image"
+
+    if provider and provider.upper() == "MODAL_DOCKER":
+        return "local Modal Dockerfile build"
+
+    if settings.DEBUG and not has_repo:
+        return "local debug sandbox image"
+
+    return "published sandbox base image"
+
+
+def _emit_provisioning_diagnostics(ctx: TaskProcessingContext, sandbox: object) -> None:
+    diagnostics = getattr(sandbox, "provision_diagnostics", None)
+    if diagnostics is None:
+        return
+
+    summary_lines = getattr(diagnostics, "summary_lines", None) or []
+    if summary_lines:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "Sandbox image build summary:\n" + "\n".join(f"- {line}" for line in summary_lines),
+        )
+
+    raw_excerpt = getattr(diagnostics, "raw_excerpt", None)
+    if raw_excerpt:
+        emit_agent_log(ctx.run_id, "debug", f"Sandbox image build logs:\n{raw_excerpt}")
+
+
 @dataclass
 class GetSandboxForRepositoryInput:
     context: TaskProcessingContext
@@ -171,12 +215,22 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if resume_snapshot_ext_id:
             used_snapshot = True
 
+        provider = getattr(settings, "SANDBOX_PROVIDER", None)
+        image_source_label = _get_image_source_label(
+            has_repo=has_repo,
+            provider=provider,
+            resume_snapshot_external_id=resume_snapshot_ext_id,
+            snapshot=snapshot if not resume_snapshot_ext_id else None,
+        )
+
         if resume_snapshot_ext_id:
             emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {repository}")
         elif has_repo and used_snapshot:
             emit_agent_log(ctx.run_id, "info", f"Found existing environment for {repository}")
         elif has_repo:
-            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {repository}")
+            emit_agent_log(ctx.run_id, "debug", f"Creating environment from {image_source_label} for {repository}")
+        else:
+            emit_agent_log(ctx.run_id, "debug", f"Creating environment from {image_source_label}")
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
@@ -187,9 +241,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             metadata={"task_id": ctx.task_id},
         )
 
-        emit_agent_log(ctx.run_id, "debug", "Provisioning sandbox (image build may take a few minutes on first run)")
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            f"Provisioning sandbox from {image_source_label} (image build may take a few minutes on first run)",
+        )
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot):
             sandbox = Sandbox.create(config)
+        _emit_provisioning_diagnostics(ctx, sandbox)
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
 
         if has_repo and not used_snapshot:

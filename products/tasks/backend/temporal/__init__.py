@@ -8,13 +8,17 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
+    checkout_branch_in_sandbox,
     cleanup_sandbox,
+    clone_repository_in_sandbox,
     create_resume_snapshot,
+    create_sandbox_for_repository,
     execute_task_in_sandbox,
     forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
+    prepare_sandbox_for_repository,
     read_sandbox_logs,
     relay_sandbox_events,
     send_followup_to_sandbox,
@@ -34,6 +38,10 @@ WORKFLOWS = [
 ACTIVITIES = [
     # process_task activities
     get_task_processing_context,
+    prepare_sandbox_for_repository,
+    create_sandbox_for_repository,
+    clone_repository_in_sandbox,
+    checkout_branch_in_sandbox,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
     forward_pending_user_message,
