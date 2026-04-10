@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { logger } from '../../../../utils/logger'
@@ -17,8 +19,8 @@ type WaitUntilEventAction = Extract<HogFlowAction, { type: 'wait_until_event' }>
  *
  * On the second invocation (after wake or timeout), the handler distinguishes
  * the two paths by checking whether the subscriptions for this job still exist:
- *   - No subscriptions left -> consumer wiped them on a match -> continue edge.
- *   - Subscriptions still present -> timeout fired -> branch edge (delete + take it).
+ *   - No subscriptions left -> consumer wiped them on a match -> branch edge.
+ *   - Subscriptions still present -> timeout fired -> continue edge.
  *
  * The `waitingForEvent` flag on `currentAction` distinguishes the first visit
  * (subscriptions don't exist yet because we haven't created them) from a
@@ -27,10 +29,12 @@ type WaitUntilEventAction = Extract<HogFlowAction, { type: 'wait_until_event' }>
 export class WaitUntilEventHandler implements ActionHandler {
     constructor(private subscriptions: EventSubscriptionsService | null) {}
 
-    async execute({ invocation, action }: ActionHandlerOptions<WaitUntilEventAction>): Promise<ActionHandlerResult> {
+    async execute({
+        invocation,
+        action,
+        result,
+    }: ActionHandlerOptions<WaitUntilEventAction>): Promise<ActionHandlerResult> {
         if (!this.subscriptions) {
-            // Service not wired up (tests, or env without CYCLOTRON_NODE_DATABASE_URL).
-            // Degrade gracefully so workflows don't hang.
             logger.warn(
                 'WaitUntilEventHandler: subscriptions service not configured, falling through to continue edge',
                 { actionId: action.id }
@@ -51,7 +55,7 @@ export class WaitUntilEventHandler implements ActionHandler {
 
         // First visit: create subscriptions, mark as waiting, schedule the timeout.
         if (!isReentry) {
-            return this.createAndPark(invocation, action, String(personId))
+            return this.createAndPark(invocation, action, String(personId), result)
         }
 
         // Re-entry: figure out which path was taken by checking the subscriptions table.
@@ -64,10 +68,21 @@ export class WaitUntilEventHandler implements ActionHandler {
 
         if (remaining.length === 0) {
             // Consumer wiped them on a match -> branch edge (index 0 = "matched" path).
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Event matched - taking the matched path`,
+            })
             return { nextAction: findNextAction(invocation.hogFlow, action.id, 0) }
         }
 
         // Subscriptions still present -> timeout fired -> continue edge (= "no match" path).
+        const eventNames = remaining.map((s) => s.eventName).join(', ')
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Timed out waiting for event${remaining.length > 1 ? 's' : ''} (${eventNames}) - taking the timeout path`,
+        })
         await this.subscriptions.deleteForJob(invocation.id)
         return { nextAction: findContinueAction(invocation) }
     }
@@ -75,7 +90,8 @@ export class WaitUntilEventHandler implements ActionHandler {
     private async createAndPark(
         invocation: ActionHandlerOptions<WaitUntilEventAction>['invocation'],
         action: WaitUntilEventAction,
-        personId: string
+        personId: string,
+        result: ActionHandlerOptions<WaitUntilEventAction>['result']
     ): Promise<ActionHandlerResult> {
         const expiresAt = calculatedScheduledAt(
             action.config.max_wait_duration,
@@ -83,14 +99,11 @@ export class WaitUntilEventHandler implements ActionHandler {
         )
 
         if (!expiresAt) {
-            // max_wait_duration was zero or already in the past - just continue.
             return { nextAction: findContinueAction(invocation) }
         }
 
         const subs = action.config.events.map((eventConfig) => {
             const eventName = extractEventName(eventConfig.filters)
-            // Bytecode is compiled at workflow save time and lives nested inside filters,
-            // matching the convention used by trigger and conditional_branch filters.
             const bytecode = extractBytecode(eventConfig.filters)
             return {
                 jobId: invocation.id,
@@ -110,6 +123,16 @@ export class WaitUntilEventHandler implements ActionHandler {
             invocation.state.currentAction.waitingForEvent = true
         }
 
+        const eventNames = subs
+            .map((s) => s.eventName)
+            .filter(Boolean)
+            .join(', ')
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Waiting for event${subs.length > 1 ? 's' : ''}: ${eventNames || '(any)'} (timeout: ${expiresAt.toUTC().toISO()})`,
+        })
+
         return { scheduledAt: expiresAt }
     }
 }
@@ -117,7 +140,6 @@ export class WaitUntilEventHandler implements ActionHandler {
 /**
  * Extract the event name from the action filters config. The filters shape is
  * the standard PostHog filter envelope (`{ events: [{ id, name, type }, ...] }`).
- * For the prototype we take the first event in the list per subscription entry.
  */
 function extractEventName(filters: any): string | null {
     if (!filters || typeof filters !== 'object') {
