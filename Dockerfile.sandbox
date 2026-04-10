@@ -90,7 +90,9 @@ RUN mkdir -p /cache/uv /cache/pnpm /cache/python /run/sshd \
 
 WORKDIR /workspace
 
-# --- Changes often: entrypoint ---
+# --- Changes often: entrypoint + sandbox tmux / claude wait shims ---
+COPY --chmod=755 bin/sandbox-shims/claude-wait.sh /usr/local/bin/claude-wait.sh
+COPY bin/sandbox-shims/tmux.sandbox.conf /etc/tmux.sandbox.conf
 COPY --chmod=755 bin/sandbox-entrypoint.py /usr/local/bin/sandbox-entrypoint.py
 
 ENTRYPOINT ["python3", "/usr/local/bin/sandbox-entrypoint.py"]

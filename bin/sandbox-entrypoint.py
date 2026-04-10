@@ -2,16 +2,26 @@
 """
 Sandbox container entrypoint.
 
-Two-phase startup:
+Startup modes, all dispatched from the bottom of this file:
+
   1. Root phase (UID 0): create sandbox user, configure system, bind-mount
      node_modules onto the cache volume, then re-exec as the sandbox user.
-  2. User phase: install dependencies and launch mprocs inside tmux.
+  2. User phase (default): launch a detached tmux server with a claude window
+     (spinner → real claude once Python deps are ready) and a setup window
+     (runs run_setup() via SANDBOX_MODE=setup); PID 1 blocks on a has-session
+     poll loop until the session dies.
+  3. Setup phase (SANDBOX_MODE=setup): runs inside the tmux setup window.
+     Installs deps, migrates, seeds demo data, spawns the phrocs window, and
+     exec's into bash -l so the window stays usable.
+  4. Cache-init phase (SANDBOX_MODE=cache-init): install all deps, run
+     migrations, generate demo data, pre-build the Rust workspace, then exit.
+     Used by `bin/sandbox create` to populate shared cache volumes before
+     snapshotting the databases. Skips sshd/claude-auth/node_modules bind
+     mount in the root phase since they're not needed for a one-off build.
 
-Alternate user-phase mode (SANDBOX_MODE=cache-init): install all dependencies,
-run migrations, generate demo data, pre-build the Rust workspace, then exit.
-Used by `bin/sandbox create` to populate shared cache volumes before snapshotting
-the databases. Skips sshd/claude-auth/node_modules bind mount in the root phase
-since they're not needed for a one-off cache build.
+The SANDBOX_LEGACY_BOOT=1 env var reverts user phase to the pre-claude-in-tmux
+flow (dependency install → exec tmux running phrocs) as an in-place escape
+hatch while the new boot sequence bakes.
 """
 
 from __future__ import annotations
@@ -28,6 +38,13 @@ from textwrap import dedent
 WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
+
+# Gate file that claude-wait.sh polls before exec'ing claude — touched once
+# Python deps are installed and the hogli symlink is in place.
+PYTHON_READY = Path("/tmp/sandbox-python-ready")
+
+# Coarse phase label surfaced in the tmux status line (polled every 2s).
+STATUS_FILE = Path("/tmp/sandbox-status")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,6 +85,20 @@ def write_file(path: Path, content: str, mode: int | None = None) -> None:
 def write_file_if_missing(path: Path, content: str) -> None:
     if not path.exists():
         write_file(path, content)
+
+
+def _write_status(step: str) -> None:
+    """Write a coarse label to the tmux status-right file.
+
+    Never a percentage — it would be fabricated. Just the current phase so
+    users know what the sandbox is doing while waiting for claude to start.
+    Swallows OSError because the status line is a pure UX signal; a tmpfs
+    write failing must not crash setup.
+    """
+    try:
+        STATUS_FILE.write_text(step)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +259,7 @@ def root_phase() -> None:
 
 def install_python_deps() -> None:
     info("Started: uv sync...")
+    _write_status("installing python deps")
     result = subprocess.run(["uv", "sync", "--no-editable"], capture_output=True, text=True)
     if result.returncode != 0:
         info("ERROR: uv sync failed:")
@@ -244,10 +276,13 @@ def install_python_deps() -> None:
     phrocs_link = WORKSPACE / "bin/phrocs"
     if not phrocs_link.exists():
         phrocs_link.symlink_to("/usr/local/bin/phrocs")
+    # Signal claude-wait.sh that Python-family tools are usable.
+    PYTHON_READY.touch()
 
 
 def install_node_deps() -> None:
     info("Started: pnpm install...")
+    _write_status("installing node deps")
     # CI=1 suppresses interactive prompts. --no-frozen-lockfile is needed
     # because the sandbox branch may have different dependencies than the cache.
     run(
@@ -260,6 +295,7 @@ def install_node_deps() -> None:
 def fetch_rust_crates() -> None:
     """Pre-fetch Rust crate sources so concurrent cargo builds don't race."""
     info("Started: cargo fetch...")
+    _write_status("fetching rust crates")
     run(["cargo", "fetch"], cwd=str(WORKSPACE / "rust"))
     info("Finished: cargo fetch.")
 
@@ -355,7 +391,15 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
-    # Child process — runs in background
+    # Child process — runs in background.
+    # Redirect stdio to a log file so the child's late writes don't scribble
+    # over the setup tmux window's bash prompt after setup completes.
+    log_path = "/tmp/sandbox-jetbrains.log"
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(log_fd)
+
     os.environ["JAVA_TOOL_OPTIONS"] = f"-Duser.home={SANDBOX_HOME}"
 
     info(f"Registering {data_dir_name} for Gateway (background)...")
@@ -466,7 +510,13 @@ def _setup_user_env() -> None:
     run(["git", "config", "--global", "--add", "safe.directory", str(WORKSPACE)])
 
 
-def user_phase() -> None:
+def legacy_user_phase() -> None:
+    """Pre-claude-in-tmux boot path, preserved behind SANDBOX_LEGACY_BOOT=1.
+
+    Install deps, migrate, generate demo data, and exec tmux running phrocs in
+    a single-window session. Kept for one release cycle as an in-place revert
+    for the new two-window boot; will be removed in a follow-up once stable.
+    """
     _setup_user_env()
 
     install_geoip()
@@ -511,6 +561,150 @@ def user_phase() -> None:
     lock.unlink(missing_ok=True)
 
     os.execvp("tmux", ["tmux", "-L", "sandbox", "new-session", "-s", "posthog", "bin/start --phrocs"])
+
+
+def user_phase() -> None:
+    """PID 1 of the app container.
+
+    Lean: set up env, install the GeoIP symlink, launch a detached tmux server
+    with a claude window (spinner → real claude once Python is ready) and a
+    setup window (runs run_setup() and then spawns phrocs), then block on a
+    has-session poll loop to keep PID 1 alive.
+    """
+    if os.environ.get("SANDBOX_LEGACY_BOOT") == "1":
+        legacy_user_phase()
+        return
+
+    _setup_user_env()
+    install_geoip()
+
+    # Clear stale PYTHON_READY from a prior boot so claude-wait.sh spins on
+    # the fresh one instead of immediately exec'ing claude against a
+    # still-installing environment. STATUS_FILE is overwritten below.
+    PYTHON_READY.unlink(missing_ok=True)
+    _write_status("booting")
+
+    # Window 0: claude (via the spinner launcher)
+    # Window 1: setup (runs run_setup(); spawns phrocs window on completion)
+    # Both use the sandbox-scoped tmux server + conf file.
+    tmux = ["tmux", "-L", "sandbox"]
+    run(
+        [
+            *tmux,
+            "-f",
+            "/etc/tmux.sandbox.conf",
+            "new-session",
+            "-d",
+            "-s",
+            "posthog",
+            "-n",
+            "claude",
+            "/usr/local/bin/claude-wait.sh",
+        ]
+    )
+    # Keep the claude pane alive across claude crashes (pairs with the
+    # pane-died respawn hook in tmux.sandbox.conf). Scoped to this window so
+    # the setup/phrocs windows still close normally when their shells exit.
+    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
+
+    run(
+        [
+            *tmux,
+            "new-window",
+            "-t",
+            "posthog:",
+            "-n",
+            "setup",
+            "-e",
+            "SANDBOX_MODE=setup",
+            f"{sys.executable} {__file__}",
+        ]
+    )
+    run([*tmux, "select-window", "-t", "posthog:claude"])
+
+    # Block PID 1 on the tmux session. If the user runs `tmux kill-server`
+    # inside the container, the loop exits and we terminate non-zero so
+    # compose's `restart: on-failure` brings the container back up with a
+    # fresh tmux + claude window. `docker compose stop` sends SIGTERM, which
+    # Docker classifies as a manual stop and will not auto-restart regardless
+    # of exit code, so this is safe.
+    while (
+        subprocess.run(
+            [*tmux, "has-session", "-t", "posthog"],
+            capture_output=True,
+        ).returncode
+        == 0
+    ):
+        time.sleep(2)
+    sys.exit(1)
+
+
+def run_setup() -> None:
+    """Run inside the tmux setup window (dispatched via SANDBOX_MODE=setup).
+
+    Installs deps, runs migrations, seeds demo data, generates the mprocs
+    config, kicks off JetBrains registration in the background, spawns the
+    phrocs window, and then exec's into an interactive login shell so the
+    window stays usable with full scrollback.
+    """
+    _setup_user_env()
+    _write_status("setup starting")
+
+    # Kafka is health-gated by compose so this is safe to run synchronously
+    # early. ~700ms on a warm broker.
+    create_kafka_topics()
+
+    def install_python_and_migrate() -> None:
+        install_python_deps()
+        _write_status("running migrations")
+        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+        _write_status("seeding demo data")
+        ensure_demo_data()
+
+    with ThreadPoolExecutor() as pool:
+        futures = {
+            pool.submit(install_python_and_migrate): "python deps + migrations",
+            pool.submit(install_node_deps): "node deps",
+            pool.submit(fetch_rust_crates): "rust crates",
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
+                raise
+
+    # generate_mprocs_config needs the hogli symlink created by install_python_deps.
+    generate_mprocs_config()
+
+    # setup_jetbrains_background os.fork()s internally, so it runs after the
+    # ThreadPoolExecutor is closed. Its child redirects stdio to a log file
+    # so late writes don't scribble over this window's bash prompt.
+    try:
+        setup_jetbrains_background()
+    except Exception as e:
+        # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
+        print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
+
+    lock = WORKSPACE / "bin/start.lock"
+    lock.unlink(missing_ok=True)
+
+    _write_status("sandbox ready")
+
+    # Hand off to phrocs in its own window. Creating the window from inside
+    # the setup window (rather than the claude window or a detached tmux call)
+    # keeps the tmux command chain simple and predictable.
+    run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+
+    print(  # noqa: T201
+        "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+        flush=True,
+    )
+
+    # Leave this window as a usable login shell with full scrollback so the
+    # user can inspect the setup logs or run ad-hoc commands.
+    os.execvp("bash", ["bash", "-l"])
 
 
 # ---------------------------------------------------------------------------
@@ -572,10 +766,13 @@ def cache_init_phase() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    mode = os.environ.get("SANDBOX_MODE")
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     if os.getuid() == 0 and uid != 0:
         root_phase()
-    elif os.environ.get("SANDBOX_MODE") == "cache-init":
+    elif mode == "cache-init":
         cache_init_phase()
+    elif mode == "setup":
+        run_setup()
     else:
         user_phase()

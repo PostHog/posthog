@@ -1011,10 +1011,11 @@ def cmd_start(branch: str) -> None:
         info(f"Docker profiles: {', '.join(profiles)}")
     compose(project, entry.port, entry.worktree, "up", "-d", capture=True, profiles=profiles)
 
-    # Clear stale progress from the previous boot
+    # Don't clear entrypoint sentinels here — user_phase clears them on every
+    # real boot, and `up -d` is a no-op on an already-running container, so
+    # wiping /tmp/sandbox-python-ready out from under a live claude would be
+    # a correctness bug.
     container = f"{project}-app-1"
-    run(["docker", "exec", container, "rm", "-f", "/tmp/sandbox-progress"], check=False, capture=True)
-
     health_url = f"http://localhost:{entry.port}/_health"
     _attach_with_health_poll(container, health_url)
 
@@ -1167,8 +1168,13 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str) -> None:
-    """Exec into the tmux session — replaces the current process."""
+def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
+    """Exec into the tmux session — replaces the current process.
+
+    `target` selects which window to land on (window lookup is by name,
+    so reordering doesn't break it). Default is `claude` so `sandbox create`
+    and `sandbox shell` always drop the user into the Claude TUI.
+    """
     os.execvp(
         "docker",
         [
@@ -1183,7 +1189,7 @@ def _attach_tmux(container: str) -> None:
             "sandbox",
             "attach-session",
             "-t",
-            "posthog",
+            target,
         ],
     )
 
@@ -1213,10 +1219,11 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
     )
 
     # Wait for tmux then attach (replaces this process).
-    # The entrypoint installs deps before starting tmux, so there's a
-    # brief window where the container is running but tmux isn't ready.
-    # Show entrypoint progress while waiting so the user knows what's happening.
-    info("Waiting for phrocs... (showing entrypoint progress)")
+    # The entrypoint now starts tmux within a couple of seconds of container
+    # boot (the claude window runs a spinner until Python deps are ready),
+    # so this loop typically fires once or twice rather than for the whole
+    # ~90s dependency install.
+    info("Waiting for tmux... (showing entrypoint progress)")
     seen_steps: set[str] = set()
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
@@ -1241,8 +1248,8 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
 
         time.sleep(2)
     else:
-        fatal("Timed out waiting for phrocs. Run `sandbox logs <branch>` to investigate.")
-    info("Attaching to phrocs... (detach with Ctrl-b d)")
+        fatal("Timed out waiting for tmux. Run `sandbox logs <branch>` to investigate.")
+    info("Attaching to Claude... (detach with Ctrl-b d, Ctrl-b 1 for setup log, Ctrl-b 2 for phrocs)")
     _attach_tmux(container)
 
 
@@ -1251,8 +1258,18 @@ def cmd_shell(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d)")
+    info(f"Attaching to Claude in {container}... (detach with Ctrl-b d, Ctrl-b 2 for phrocs)")
     _attach_tmux(container)
+
+
+def cmd_phrocs(branch: str) -> None:
+    """Attach directly to the phrocs tmux window."""
+    registry = Registry()
+    entry = _require_registered(registry, branch)
+    container = f"sandbox-{entry.slug}-app-1"
+
+    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 0 for Claude)")
+    _attach_tmux(container, target="posthog:phrocs")
 
 
 def cmd_logs(branch: str) -> None:
@@ -1313,6 +1330,7 @@ examples:
   sandbox create aspicer/bugfix main
   sandbox ls
   sandbox shell aspicer/cool-feature
+  sandbox phrocs aspicer/cool-feature
   sandbox stop aspicer/cool-feature
   sandbox start aspicer/cool-feature
   sandbox rm aspicer/cool-feature""",
@@ -1331,7 +1349,8 @@ examples:
     for name, help_text in [
         ("start", "Start a stopped sandbox"),
         ("stop", "Stop a sandbox (preserves state)"),
-        ("shell", "Attach to the phrocs UI"),
+        ("shell", "Attach to the Claude window"),
+        ("phrocs", "Attach to the phrocs window"),
         ("code", "Open VSCode attached to the sandbox container"),
         ("idea", "Open JetBrains Gateway for the sandbox"),
         ("logs", "Tail logs from a sandbox"),
@@ -1370,6 +1389,7 @@ def main() -> None:
         "list": cmd_list,
         "ls": cmd_list,
         "shell": lambda: cmd_shell(args.branch),
+        "phrocs": lambda: cmd_phrocs(args.branch),
         "code": lambda: cmd_code(args.branch),
         "idea": lambda: cmd_idea(args.branch),
         "logs": lambda: cmd_logs(args.branch),
