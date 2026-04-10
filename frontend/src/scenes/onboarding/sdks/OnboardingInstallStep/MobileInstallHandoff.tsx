@@ -194,7 +194,7 @@ export function MobileInstallHandoff({
                                     type="primary"
                                     size="large"
                                     icon={<IconArrowUpRight />}
-                                    onClick={handleCopy}
+                                    onClick={() => handleCopy()}
                                     fullWidth
                                     data-attr="mobile-install-handoff-copy"
                                 >
