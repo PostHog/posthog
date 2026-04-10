@@ -10,10 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActionApi,
+    ActionReferenceApi,
     ActionsCreateParams,
     ActionsDestroyParams,
     ActionsListParams,
     ActionsPartialUpdateParams,
+    ActionsReferencesListParams,
     ActionsRetrieveParams,
     ActionsUpdateParams,
     PaginatedActionListApi,
@@ -212,5 +214,33 @@ export const actionsDestroy = async (
     return apiMutator<unknown>(getActionsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getActionsReferencesListUrl = (projectId: string, id: number, params?: ActionsReferencesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/${id}/references/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/${id}/references/`
+}
+
+export const actionsReferencesList = async (
+    projectId: string,
+    id: number,
+    params?: ActionsReferencesListParams,
+    options?: RequestInit
+): Promise<ActionReferenceApi[]> => {
+    return apiMutator<ActionReferenceApi[]>(getActionsReferencesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }

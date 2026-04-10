@@ -4,12 +4,12 @@ import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tool
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNumeric, pluralize } from 'lib/utils'
-import { TriggerGroupsEditor } from 'scenes/settings/environment/replayTriggers/TriggerGroupsEditor'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -416,7 +416,9 @@ export function ReplayTriggers(): JSX.Element {
                     </div>
 
                     <div>
-                        <h3 className="text-sm font-semibold mb-2">Recording exclusions</h3>
+                        <h3 className="text-base font-semibold mb-2">
+                            Recording exclusions <Since web={{ version: '1.171.0' }} />
+                        </h3>
                         <LemonCollapse
                             multiple
                             panels={[

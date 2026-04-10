@@ -92,7 +92,14 @@ func (m Model) renderContainerSidebar() string {
 			name = truncate(c.Service, innerW-3)
 			iconColor = docker.ContainerStateColor(c.State)
 		}
-		rows = append(rows, renderSidebarRow(icon, name, iconColor, i == m.containerCursor, innerW, m.isDark))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      icon,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.containerCursor,
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	for i := end - start; i < h; i++ {

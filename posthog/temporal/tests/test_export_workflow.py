@@ -41,18 +41,35 @@ async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
             ExportAssetWorkflowInputs(
                 exported_asset_id=asset.id,
                 team_id=team.id,
-                export_format=EXPORT_FORMAT,
                 slo=SloConfig(
                     operation=SloOperation.EXPORT,
                     area=SloArea.ANALYTIC_PLATFORM,
                     team_id=team.id,
                     resource_id=str(asset.id),
                     distinct_id=str(team.id),
+                    start_properties={
+                        "export_format": EXPORT_FORMAT,
+                        "export_type": "insight",
+                        "source": "insight",
+                    },
+                    completion_properties={
+                        "export_format": EXPORT_FORMAT,
+                        "export_type": "insight",
+                        "source": "insight",
+                    },
                 ),
             ),
             id=f"export-asset-{asset.id}",
             task_queue=settings.TEMPORAL_TASK_QUEUE,
         )
+
+
+def _get_slo_started_props(mock_analytics) -> dict:
+    started_calls = [
+        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+    ]
+    assert len(started_calls) == 1
+    return started_calls[0].kwargs["properties"]
 
 
 def _get_slo_completed_props(mock_analytics) -> dict:
@@ -83,11 +100,19 @@ async def test_successful_export(
     await sync_to_async(asset.refresh_from_db)()
     assert asset.has_content
 
+    started_props = _get_slo_started_props(mock_analytics)
+    assert started_props["operation"] == "export"
+    assert started_props["export_format"] == EXPORT_FORMAT
+    assert started_props["export_type"] == "insight"
+    assert started_props["source"] == "insight"
+
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS
     assert props["operation"] == "export"
     assert props["resource_id"] == str(asset.id)
     assert props["export_format"] == EXPORT_FORMAT
+    assert props["export_type"] == "insight"
+    assert props["source"] == "insight"
     assert "error" not in props
 
 
@@ -123,23 +148,24 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error_factory,expected_exception_class,expected_call_count",
+    "error_factory,expected_exception_class,expected_call_count,expected_outcome",
     [
-        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1),
-        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10),
+        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1, SloOutcome.SUCCESS),
+        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1, SloOutcome.FAILURE),
+        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10, SloOutcome.FAILURE),
     ],
     ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_failure_emits_slo_failure(
+async def test_export_failure_emits_slo_outcome(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
     error_factory,
     expected_exception_class: str,
     expected_call_count: int,
+    expected_outcome: SloOutcome,
 ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
@@ -157,6 +183,6 @@ async def test_export_failure_emits_slo_failure(
     assert call_count == expected_call_count
 
     props = _get_slo_completed_props(mock_analytics)
-    assert props["outcome"] == SloOutcome.FAILURE
+    assert props["outcome"] == expected_outcome
     assert props["error"] is not None
     assert expected_exception_class in str(props["error"])

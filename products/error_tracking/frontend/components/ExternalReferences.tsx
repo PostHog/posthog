@@ -134,7 +134,7 @@ export const ExternalReferences = (): JSX.Element | null => {
 function SetupIntegrationsButton(): JSX.Element {
     return (
         <Link
-            to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}
+            to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
             buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
             tooltip="Go to integrations configuration"
             target="_blank"

@@ -6,7 +6,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from stripe_mock.config import mock_config, reload_mock_config, settings
+from stripe_mock.config import config_source, mock_config, reload_mock_config, settings
 from stripe_mock.data.store import store
 from stripe_mock.routes.list_endpoints import router as list_router
 from stripe_mock.routes.nested_endpoints import router as nested_router
@@ -19,8 +19,9 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     reload_mock_config()
+    log.info("Config loaded", source=config_source)
     log.info(
-        "Config loaded",
+        "Config values",
         start_date=str(mock_config.start_date),
         end_date=str(mock_config.end_date),
         seed=mock_config.seed,

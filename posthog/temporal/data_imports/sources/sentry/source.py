@@ -2,11 +2,11 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -74,9 +74,11 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         required=False,
                         defaultValue=DEFAULT_SENTRY_API_BASE_URL,
                         options=[
-                            Option(label=DEFAULT_SENTRY_API_BASE_URL, value=DEFAULT_SENTRY_API_BASE_URL),
-                            Option(label="https://us.sentry.io", value="https://us.sentry.io"),
-                            Option(label="https://de.sentry.io", value="https://de.sentry.io"),
+                            SourceFieldSelectConfigOption(
+                                label=DEFAULT_SENTRY_API_BASE_URL, value=DEFAULT_SENTRY_API_BASE_URL
+                            ),
+                            SourceFieldSelectConfigOption(label="https://us.sentry.io", value="https://us.sentry.io"),
+                            SourceFieldSelectConfigOption(label="https://de.sentry.io", value="https://de.sentry.io"),
                         ],
                     ),
                 ],

@@ -57,7 +57,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR')
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 

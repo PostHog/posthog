@@ -24,7 +24,6 @@
         "@types/papaparse": "*",
         "@types/react": "*",
         "ansi-colors": "*",
-        "classnames": "*",
         "clsx": "*",
         "eslint": "*",
         "fast-deep-equal": "*",

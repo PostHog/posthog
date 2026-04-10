@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_stream
 
 from ee.hogai.session_summaries.session.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
@@ -35,9 +35,9 @@ class TestSummarizeSession:
         # Mock DB/LLM dependencies
         with (
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream"
+                "posthog.temporal.session_replay.session_summary.summarize_session._start_single_session_summary_workflow_stream"
             ) as mock_workflow,
-            patch("posthog.temporal.ai.session_summary.summarize_session.asyncio.run") as mock_asyncio_run,
+            patch("posthog.temporal.session_replay.session_summary.summarize_session.asyncio.run") as mock_asyncio_run,
         ):
             # Mock workflow handle
             mock_handle = MagicMock()

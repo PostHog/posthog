@@ -5,7 +5,7 @@ import type { Context, ToolBase } from '@/tools/types'
 const ModelConfigurationSchema = z.object({
     provider: z.enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks']).describe('LLM provider to use.'),
     model: z.string().describe('Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514").'),
-    provider_key_id: z.string().uuid().optional().describe('UUID of a stored provider key. Omit to use trial credits.'),
+    provider_key_id: z.string().optional().describe('UUID of a stored provider key. Omit to use trial credits.'),
 })
 
 const schema = z

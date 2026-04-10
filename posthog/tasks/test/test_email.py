@@ -103,6 +103,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_member_join_skips_users_who_disabled_org_notifications(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, admin_user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        admin_user.partial_notification_settings = {"organization_member_join_email_disabled": {str(org.id): True}}
+        admin_user.save()
+
+        new_member = User.objects.create_and_join(
+            organization=org,
+            email="new-user@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        send_member_join(new_member.uuid, org.id)
+
+        assert len(mocked_email_messages) == 0
+
     def test_send_password_reset(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")

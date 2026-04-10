@@ -40,7 +40,13 @@ pub async fn start_consumer(config: &Config, context: Arc<AppContext>) {
                     offsets.push(offset);
                 }
                 Err(RecvErr::Kafka(e)) => {
-                    panic!("Kafka error: {e}")
+                    // Kafka-level errors (broker disconnect, rebalance, coordinator change)
+                    // don't correspond to a specific message — no offset was created, so no
+                    // data is skipped. librdkafka handles reconnection internally, and the
+                    // next loop iteration will retry from the same position.
+                    metrics::counter!(ERRORS, "cause" => "kafka_error").increment(1);
+                    error!("Kafka error receiving message: {:?}", e);
+                    continue;
                 }
                 Err(err) => {
                     // If we failed to parse the message, or it was empty, just log and continue, our

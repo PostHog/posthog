@@ -30,6 +30,7 @@ export interface Filters {
     event_type: EventDefinitionType
     ordering?: string
     tags?: string[]
+    verified?: boolean
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -38,6 +39,7 @@ const DEFAULT_FILTERS: Filters = {
     event_type: EventDefinitionType.Event,
     ordering: 'event',
     tags: undefined,
+    verified: undefined,
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -283,6 +285,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     selectors(() => ({
+        showVerifiedFilter: [
+            (s) => [s.eventDefinitions],
+            (eventDefinitions: EventDefinitionsPaginatedResponse): boolean =>
+                eventDefinitions.results.length > 0 && 'verified' in eventDefinitions.results[0],
+        ],
         // Convert filters to API params
         paramsFromFilters: [
             (s) => [s.filters],
@@ -294,6 +301,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 }
                 if (filters.tags && filters.tags.length > 0) {
                     params.tags = JSON.stringify(filters.tags)
+                }
+                if (filters.verified !== undefined) {
+                    params.verified = filters.verified
                 }
                 return params
             },
@@ -349,7 +359,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags } = searchParams
+            const { event, event_type, ordering, tags, verified } = searchParams
 
             const filtersFromUrl: Filters = {
                 ...DEFAULT_FILTERS,
@@ -357,6 +367,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ...(event_type !== undefined && { event_type }),
                 ...(ordering !== undefined && { ordering }),
                 ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+                ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
             }
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {

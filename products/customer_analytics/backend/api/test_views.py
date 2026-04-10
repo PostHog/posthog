@@ -1,11 +1,15 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight import Insight
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
 
@@ -379,3 +383,205 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             with self.subTest(method):
                 response = getattr(self.client, method.lower())(url, format="json")
                 self.assertEqual(expected_status_code, response.status_code)
+
+
+@pytest.mark.ee
+class TestCustomerAnalyticsAccessControl(APIBaseTest):
+    """Resource-level access control tests for customer journeys.
+
+    Note: CustomerProfileConfig is a settings resource and uses project-level
+    admin permissions, not resource-level RBAC. See TestCustomerProfileConfigViewSet
+    for those tests.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+            {
+                "key": AvailableFeature.ROLE_BASED_ACCESS,
+                "name": AvailableFeature.ROLE_BASED_ACCESS,
+            },
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
+        self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
+
+        self.insight = Insight.objects.create(team=self.team)
+        self.journey = CustomerJourney.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="Test Journey",
+        )
+
+        self.journeys_url = f"/api/environments/{self.team.id}/customer_journeys/"
+
+    def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
+        try:
+            from ee.models.rbac.access_control import AccessControl
+
+            membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=None,
+                access_level=access_level,
+                organization_member=membership,
+            )
+        except:
+            pass
+
+    # -- Viewer can list and retrieve journeys --
+
+    def test_viewer_can_list_journeys(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self.journeys_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_viewer_can_retrieve_journey(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self.journeys_url}{self.journey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # -- Viewer cannot create/update/delete journeys --
+
+    def test_viewer_cannot_create_journey(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        insight2 = Insight.objects.create(team=self.team)
+        response = self.client.post(
+            self.journeys_url,
+            {"insight": insight2.id, "name": "New Journey"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_update_journey(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.patch(
+            f"{self.journeys_url}{self.journey.id}/",
+            {"name": "Updated"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_delete_journey(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- Editor can create/update/delete journeys --
+
+    def test_editor_can_create_journey(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        insight2 = Insight.objects.create(team=self.team)
+        response = self.client.post(
+            self.journeys_url,
+            {"insight": insight2.id, "name": "Editor Journey"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_editor_can_update_journey(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.patch(
+            f"{self.journeys_url}{self.journey.id}/",
+            {"name": "Updated by editor"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_editor_can_delete_journey(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    # -- None access blocks everything --
+
+    def test_none_access_blocks_journey_list(self):
+        self._set_access_level(self.no_access_user, access_level="none")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(self.journeys_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- Resource inheritance: customer_analytics access cascades to journeys --
+
+    def test_customer_analytics_viewer_can_list_journeys(self):
+        self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self.journeys_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_customer_analytics_none_blocks_journey_list(self):
+        self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(self.journeys_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_customer_analytics_editor_can_create_journey(self):
+        self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        insight2 = Insight.objects.create(team=self.team)
+        response = self.client.post(
+            self.journeys_url,
+            {"insight": insight2.id, "name": "Child Journey"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_customer_analytics_viewer_cannot_create_journey(self):
+        self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        insight2 = Insight.objects.create(team=self.team)
+        response = self.client.post(
+            self.journeys_url,
+            {"insight": insight2.id, "name": "Should Fail"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- Org admin has full access without explicit permissions --
+
+    def test_org_admin_has_full_access(self):
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        self.client.force_login(self.editor_user)
+
+        insight2 = Insight.objects.create(team=self.team)
+        response = self.client.post(
+            self.journeys_url,
+            {"insight": insight2.id, "name": "Admin Journey"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

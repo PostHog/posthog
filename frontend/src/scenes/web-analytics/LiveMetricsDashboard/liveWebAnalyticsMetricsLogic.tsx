@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
@@ -58,6 +59,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         tickCurrentMinute: true,
         pauseStream: true,
         resumeStream: true,
+        clearRecentEvents: true,
     })),
     reducers({
         slidingWindow: [
@@ -147,6 +149,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        recentEvents: [
+            [] as LiveEvent[],
+            {
+                addEvents: (state, { events }) => deduplicateEvents(state, events, 50),
+                clearRecentEvents: () => [],
             },
         ],
     }),
@@ -299,7 +308,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
             url.searchParams.append(
                 'columns',
-                '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+                '$pathname,$current_url,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
             )
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])

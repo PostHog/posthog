@@ -44,6 +44,7 @@ class Consumer:
         self.total_records_count = 0
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
+        self.records_failed_count = 0
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -60,6 +61,7 @@ class Consumer:
         self.total_records_count = 0
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
+        self.records_failed_count = 0
 
     async def start(
         self,
@@ -116,6 +118,22 @@ class Consumer:
             f"Total file MiB: {self.total_file_bytes_count / 1024**2:.2f}"
         )
         return BatchExportResult(self.total_records_count, self.total_file_bytes_count)
+
+    def collect_result(self) -> BatchExportResult:
+        """Collect the result of the consumer.
+
+        A little bit of a hack that can be used by callers to collect the result of the consumer after we're sure all
+        remaining asyncio tasks have completed.
+
+        Currently only used by the Workflows batch export destination.
+
+        TODO: Refactor the consumer to work as a context manager to avoid this.
+        """
+        return BatchExportResult(
+            records_completed=self.total_records_count - self.records_failed_count,
+            bytes_exported=self.total_file_bytes_count,
+            records_failed=self.records_failed_count,
+        )
 
     async def generate_record_batches_from_queue(
         self,

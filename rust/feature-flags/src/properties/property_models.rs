@@ -35,9 +35,10 @@ pub enum OperatorType {
     FlagEvaluatesTo,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyType {
+    #[default]
     #[serde(rename = "person")]
     Person,
     #[serde(rename = "cohort")]
@@ -69,7 +70,7 @@ impl std::fmt::Debug for CompiledRegex {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
@@ -85,4 +86,22 @@ pub struct PropertyFilter {
     /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
     #[serde(skip)]
     pub compiled_regex: Option<CompiledRegex>,
+}
+
+#[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::Mock;
+
+    impl Mock for PropertyFilter {
+        fn mock() -> Self {
+            PropertyFilter {
+                key: "test_prop".to_string(),
+                value: Some(serde_json::json!("test_value")),
+                operator: Some(OperatorType::Exact),
+                ..Default::default()
+            }
+        }
+    }
 }

@@ -4,11 +4,11 @@ from snowflake.connector.errors import DatabaseError, ForbiddenError, Programmin
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -78,7 +78,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         required=True,
                         defaultValue="password",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Password",
                                 value="password",
                                 fields=cast(
@@ -101,7 +101,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Key pair",
                                 value="keypair",
                                 fields=cast(

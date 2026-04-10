@@ -8,6 +8,7 @@ import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewer
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
     timestamp: dayjs.tz(timestamp, 'UTC'),
+    rawTimestamp: timestamp,
     level,
     message: `msg-${instanceId}-${timestamp}`,
 })
@@ -106,10 +107,10 @@ describe('logsViewerLogic', () => {
         })
 
         it.each([
-            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'ERROR' },
-            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'LOG' },
             { levels: ['INFO', 'INFO', 'INFO'] as LogEntryLevel[], expected: 'INFO' },
-        ])('escalates log level to $expected', ({ levels, expected }) => {
+        ])('uses log level from most recent entry: $expected', ({ levels, expected }) => {
             const entries = levels.map((level, i) => makeEntry('a', `2024-01-15 10:0${i}:00`, level))
             const groups = groupLogs(entries)
             expect(groups[0].logLevel).toBe(expected)

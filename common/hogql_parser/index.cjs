@@ -1,5 +1,7 @@
-// CommonJS wrapper for the ES module WASM build
-// This allows Jest and other CommonJS environments to import the module
+// CommonJS wrapper using the CJS WASM build directly.
+// This avoids import.meta.url and dynamic import() issues in Jest and other CJS environments.
 
-module.exports = () => import('./hogql_parser_wasm.js').then((m) => m.default)
-module.exports.default = module.exports
+const factory = require('./hogql_parser_wasm.cjs')
+
+module.exports = factory
+module.exports.default = factory

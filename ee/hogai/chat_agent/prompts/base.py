@@ -221,6 +221,7 @@ TOOL_USAGE_POLICY_PROMPT = """
 - You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
 - The only tool you can't invoke with others at the same time is `web_search`. Only invoke it alone.
 - Retry failed tool calls only if the error proposes retrying, or suggests how to fix tool arguments
+- Before describing PostHog support capabilities, data management operations (such as deleting or modifying events), or directing users to contact support, you must search the documentation first using the `search` tool with kind="docs" to verify what is currently offered.
 </tool_usage_policy>
 """.strip()
 

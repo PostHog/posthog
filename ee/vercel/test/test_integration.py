@@ -215,6 +215,23 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_blocked_by_open_invoices(self, mock_license, mock_billing_manager):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_manager_instance.deauthorize.side_effect = BillingServiceOpenInvoicesError(
+            "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first."
+        )
+        mock_billing_manager.return_value = mock_manager_instance
+
+        with self.assertRaises(BillingServiceOpenInvoicesError):
+            VercelIntegration.delete_installation(self.installation_id)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.delete_installation(self.NONEXISTENT_INSTALLATION_ID)

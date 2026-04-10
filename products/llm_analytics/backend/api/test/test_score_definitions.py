@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -142,6 +142,41 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(response.data["attr"], "archived")
         self.assertEqual(response.data["detail"], "New scorers must be created as active.")
 
+    @patch("products.llm_analytics.backend.api.score_definitions.report_user_action")
+    def test_create_reports_user_action(self, mock_report_user_action):
+        response = self.client.post(
+            self._endpoint(),
+            {
+                "name": "Quality",
+                "kind": "categorical",
+                "config": {
+                    "options": [
+                        {"key": "good", "label": "Good"},
+                        {"key": "bad", "label": "Bad"},
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        definition = ScoreDefinition.objects.get(pk=response.data["id"])
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "llma scorer created",
+            {
+                "scorer_id": str(definition.id),
+                "scorer_name": "Quality",
+                "scorer_kind": "categorical",
+                "has_description": False,
+                "archived": False,
+                "version": 1,
+            },
+            team=self.team,
+            request=ANY,
+        )
+
     def test_new_version_creates_immutable_snapshot_and_advances_current_version(self):
         definition = self._create_definition()
         original_config = self._current_version(definition).config
@@ -204,6 +239,73 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([result["id"] for result in response.data["results"]], [str(archived.id)])
         self.assertNotIn(str(active.id), [result["id"] for result in response.data["results"]])
+
+    @patch("products.llm_analytics.backend.api.score_definitions.report_user_action")
+    def test_patch_reports_user_action(self, mock_report_user_action):
+        definition = self._create_definition()
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"{self._endpoint()}{definition.id}/",
+            {"name": "Updated quality", "description": "Updated description", "archived": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        definition.refresh_from_db()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "llma scorer updated",
+            {
+                "scorer_id": str(definition.id),
+                "scorer_name": "Updated quality",
+                "scorer_kind": "categorical",
+                "has_description": True,
+                "archived": True,
+                "version": 1,
+                "changed_fields": ["name", "description", "archived"],
+                "archived_new_value": True,
+            },
+            team=self.team,
+            request=ANY,
+        )
+
+    @patch("products.llm_analytics.backend.api.score_definitions.report_user_action")
+    def test_new_version_reports_user_action(self, mock_report_user_action):
+        definition = self._create_definition()
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"{self._endpoint()}{definition.id}/new_version/",
+            {
+                "config": {
+                    "options": [
+                        {"key": "pass", "label": "Pass"},
+                        {"key": "fail", "label": "Fail"},
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        definition.refresh_from_db()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "llma scorer version created",
+            {
+                "scorer_id": str(definition.id),
+                "scorer_name": definition.name,
+                "scorer_kind": definition.kind,
+                "has_description": False,
+                "archived": False,
+                "version": 2,
+            },
+            team=self.team,
+            request=ANY,
+        )
 
     def _create_definition(
         self,

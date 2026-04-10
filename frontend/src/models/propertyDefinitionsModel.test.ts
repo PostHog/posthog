@@ -466,6 +466,61 @@ describe('the property definitions model', () => {
         })
     })
 
+    describe('log_entry property values', () => {
+        it('returns local options for log_entry/level without a network request', async () => {
+            let networkCalled = false
+
+            useMocks({
+                get: {
+                    '/api/log_entry/values': () => {
+                        networkCalled = true
+                        return [200, { results: [], refreshing: false }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.LogEntry,
+                    propertyKey: 'level',
+                    newInput: undefined,
+                })
+            }).toFinishAllListeners()
+
+            expect(networkCalled).toBe(false)
+            expect(logic.values.options['level'].values).toEqual([
+                { id: 0, name: 'info' },
+                { id: 1, name: 'warn' },
+                { id: 2, name: 'error' },
+            ])
+        })
+
+        it('does not fetch from a nonexistent endpoint for log_entry properties without local options', async () => {
+            let networkCalled = false
+
+            useMocks({
+                get: {
+                    '/api/log_entry/values': () => {
+                        networkCalled = true
+                        return [200, { results: [], refreshing: false }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.LogEntry,
+                    propertyKey: 'message',
+                    newInput: undefined,
+                })
+            }).toFinishAllListeners()
+
+            expect(networkCalled).toBe(false)
+        })
+    })
+
     describe('loadPropertyValues', () => {
         it('includes refresh=force_cache in the URL when polling', async () => {
             let capturedUrl: string | undefined

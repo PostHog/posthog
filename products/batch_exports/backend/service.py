@@ -41,6 +41,78 @@ from posthog.temporal.common.schedule import (
 logger = structlog.get_logger(__name__)
 
 
+def align_timestamp_to_interval(timestamp: dt.datetime, batch_export: BatchExport) -> dt.datetime:
+    """Align a timestamp to the batch export's interval boundary.
+
+    For batch exports, intervals can have an offset from the default start time,
+    specified in the batch export's timezone. For example, a daily export might
+    run at 5am US/Pacific instead of midnight UTC.
+
+    Args:
+        timestamp: The timestamp to align (must be timezone-aware, typically UTC).
+        batch_export: The batch export configuration with interval, offset, and timezone.
+
+    Returns:
+        The start of the interval containing the timestamp (in UTC).
+
+    Examples:
+        Daily interval at 5am UTC:
+        - 2021-01-15 10:30:00 UTC aligns to 2021-01-15 05:00:00 UTC
+        - 2021-01-15 04:30:00 UTC aligns to 2021-01-14 05:00:00 UTC
+
+        Daily interval at 1am US/Pacific (PST = UTC-8 in winter):
+        - 2021-01-15 10:00:00 UTC (= 02:00 PST) aligns to 2021-01-15 09:00:00 UTC (= 01:00 PST)
+        - 2021-01-15 08:30:00 UTC (= 00:30 PST) aligns to 2021-01-14 09:00:00 UTC (= 01:00 PST prev day)
+    """
+    interval = batch_export.interval
+    interval_seconds = int(batch_export.interval_time_delta.total_seconds())
+
+    # For hourly or sub-hourly intervals, timezone doesn't matter
+    if interval == "hour" or interval.startswith("every"):
+        ts = timestamp.timestamp()
+        aligned = (ts // interval_seconds) * interval_seconds
+        return dt.datetime.fromtimestamp(aligned, tz=dt.UTC)
+
+    # Convert timestamp to the batch export's timezone for alignment
+    tz = batch_export.timezone_info
+    local_timestamp = timestamp.astimezone(tz)
+    offset_hour = batch_export.offset_hour or 0
+
+    if interval == "day":
+        # Find the start of the current "day" (which starts at offset_hour in local time)
+        day_start = local_timestamp.replace(hour=offset_hour, minute=0, second=0, microsecond=0)
+        if day_start > local_timestamp:
+            day_start -= dt.timedelta(days=1)
+        return day_start.astimezone(dt.UTC)
+
+    elif interval == "week":
+        offset_day = batch_export.offset_day or 0
+
+        # Get current day of week (Monday=0, Sunday=6 in Python)
+        # But batch exports use Sunday=0, so we need to convert
+        python_weekday = local_timestamp.weekday()  # Monday=0
+        batch_export_weekday = (python_weekday + 1) % 7  # Sunday=0
+
+        # Calculate days since the start of the week (at offset_day)
+        days_since_week_start = (batch_export_weekday - offset_day) % 7
+
+        # Find the start of the current "week"
+        week_start_date = local_timestamp.date() - dt.timedelta(days=days_since_week_start)
+        week_start = dt.datetime.combine(
+            week_start_date,
+            dt.time(hour=offset_hour, minute=0, second=0),
+            tzinfo=tz,
+        )
+
+        if week_start > local_timestamp:
+            week_start -= dt.timedelta(weeks=1)
+
+        return week_start.astimezone(dt.UTC)
+
+    else:
+        raise ValueError(f"Unknown interval: {interval}")
+
+
 class BatchExportField(typing.TypedDict):
     """A field to be queried from ClickHouse.
 

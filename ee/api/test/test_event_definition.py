@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from django.utils import timezone
 
 import dateutil.parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_event_definition import EventData, capture_event
@@ -172,6 +173,34 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["entered_free_trial", "watched_movie"]),
+            ("unverified_only", "false", ["$pageview", "purchase"]),
+            ("all_when_not_specified", None, ["$pageview", "entered_free_trial", "purchase", "watched_movie"]),
+        ]
+    )
+    def test_filter_event_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
+            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
+                verified=event_definition["verified"] or False
+            )
+
+        url = "/api/projects/@current/event_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

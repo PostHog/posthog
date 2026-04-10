@@ -84,6 +84,16 @@ impl SingleTopicConsumer {
             );
         }
 
+        if let Some(v) = consumer_config.kafka_consumer_fetch_wait_max_ms {
+            client_config.set("fetch.wait.max.ms", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_min_bytes {
+            client_config.set("fetch.min.bytes", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_max_bytes {
+            client_config.set("fetch.max.bytes", v.to_string());
+        }
+
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[consumer_config.kafka_consumer_topic.as_str()])?;
 

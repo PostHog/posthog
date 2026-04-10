@@ -298,32 +298,17 @@ pub async fn evaluate_for_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flags::flag_models::{FeatureFlag, FlagFilters};
+    use crate::flags::flag_models::FeatureFlag;
+    use crate::mock;
+    use crate::utils::mock::MockInto;
 
-    fn create_test_flag(id: i32, key: &str, evaluation_runtime: Option<String>) -> FeatureFlag {
-        create_test_flag_with_tags(id, key, evaluation_runtime, None)
-    }
-
-    fn create_test_flag_with_tags(
-        id: i32,
-        key: &str,
-        evaluation_runtime: Option<String>,
-        evaluation_tags: Option<Vec<String>>,
-    ) -> FeatureFlag {
-        FeatureFlag {
-            id,
-            team_id: 1,
-            name: Some(format!("Test Flag {id}")),
-            key: key.to_string(),
-            filters: FlagFilters::default(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: None,
-            version: None,
-            evaluation_runtime,
-            evaluation_tags,
-            bucketing_identifier: None,
-        }
+    fn flag(id: i32, key: &str, runtime: Option<&str>, tags: Option<Vec<String>>) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: id,
+            key: key.mock_into(),
+            evaluation_runtime: runtime.map(String::from),
+            evaluation_tags: tags
+        )
     }
 
     fn assert_filtered(filtered: &HashSet<i32>, flags: &[FeatureFlag], key: &str, expected: bool) {
@@ -342,10 +327,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_runtime_with_no_runtime() {
         let flags = vec![
-            create_test_flag(1, "flag1", None),
-            create_test_flag(2, "flag2", Some("client".to_string())),
-            create_test_flag(3, "flag3", Some("server".to_string())),
-            create_test_flag(4, "flag4", Some("all".to_string())),
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", Some("client"), None),
+            flag(3, "flag3", Some("server"), None),
+            flag(4, "flag4", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, None);
@@ -360,10 +345,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_runtime_with_client() {
         let flags = vec![
-            create_test_flag(1, "flag1", None),
-            create_test_flag(2, "flag2", Some("client".to_string())),
-            create_test_flag(3, "flag3", Some("server".to_string())),
-            create_test_flag(4, "flag4", Some("all".to_string())),
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", Some("client"), None),
+            flag(3, "flag3", Some("server"), None),
+            flag(4, "flag4", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
@@ -378,10 +363,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_runtime_with_server() {
         let flags = vec![
-            create_test_flag(1, "flag1", None),
-            create_test_flag(2, "flag2", Some("client".to_string())),
-            create_test_flag(3, "flag3", Some("server".to_string())),
-            create_test_flag(4, "flag4", Some("all".to_string())),
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", Some("client"), None),
+            flag(3, "flag3", Some("server"), None),
+            flag(4, "flag4", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Server));
@@ -396,10 +381,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_runtime_with_all() {
         let flags = vec![
-            create_test_flag(1, "flag1", None),
-            create_test_flag(2, "flag2", Some("client".to_string())),
-            create_test_flag(3, "flag3", Some("server".to_string())),
-            create_test_flag(4, "flag4", Some("all".to_string())),
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", Some("client"), None),
+            flag(3, "flag3", Some("server"), None),
+            flag(4, "flag4", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::All));
@@ -411,10 +396,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_runtime_with_unknown_value() {
         let flags = vec![
-            create_test_flag(1, "flag1", None),
-            create_test_flag(2, "flag2", Some("client".to_string())),
-            create_test_flag(3, "flag3", Some("unknown_runtime".to_string())),
-            create_test_flag(4, "flag4", Some("all".to_string())),
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", Some("client"), None),
+            flag(3, "flag3", Some("unknown_runtime"), None),
+            flag(4, "flag4", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
@@ -589,9 +574,9 @@ mod tests {
     #[test]
     fn test_filter_flags_with_explicit_flag_keys_should_respect_runtime() {
         let flags = vec![
-            create_test_flag(1, "client-flag", Some("client".to_string())),
-            create_test_flag(2, "server-flag", Some("server".to_string())),
-            create_test_flag(3, "all-flag", Some("all".to_string())),
+            flag(1, "client-flag", Some("client"), None),
+            flag(2, "server-flag", Some("server"), None),
+            flag(3, "all-flag", Some("all"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Client));
@@ -603,10 +588,10 @@ mod tests {
     #[test]
     fn test_runtime_filtering_takes_precedence_over_flag_keys() {
         let all_flags = vec![
-            create_test_flag(1, "client-only-flag", Some("client".to_string())),
-            create_test_flag(2, "server-only-flag", Some("server".to_string())),
-            create_test_flag(3, "all-flag", Some("all".to_string())),
-            create_test_flag(4, "no-runtime-flag", None),
+            flag(1, "client-only-flag", Some("client"), None),
+            flag(2, "server-only-flag", Some("server"), None),
+            flag(3, "all-flag", Some("all"), None),
+            flag(4, "no-runtime-flag", None, None),
         ];
 
         let client_filtered =
@@ -627,9 +612,9 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_tags_no_environment_tags() {
         let flags = vec![
-            create_test_flag_with_tags(1, "flag1", None, None),
-            create_test_flag_with_tags(2, "flag2", None, Some(vec!["app".to_string()])),
-            create_test_flag_with_tags(
+            flag(1, "flag1", None, None),
+            flag(2, "flag2", None, Some(vec!["app".to_string()])),
+            flag(
                 3,
                 "flag3",
                 None,
@@ -644,10 +629,10 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_tags_with_matching_tags() {
         let flags = vec![
-            create_test_flag_with_tags(1, "no-tags", None, None),
-            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
-            create_test_flag_with_tags(3, "docs-only", None, Some(vec!["docs".to_string()])),
-            create_test_flag_with_tags(
+            flag(1, "no-tags", None, None),
+            flag(2, "app-only", None, Some(vec!["app".to_string()])),
+            flag(3, "docs-only", None, Some(vec!["docs".to_string()])),
+            flag(
                 4,
                 "multi-env",
                 None,
@@ -675,8 +660,8 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_tags_no_matching_tags() {
         let flags = vec![
-            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
-            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
+            flag(1, "app-only", None, Some(vec!["app".to_string()])),
+            flag(2, "docs-only", None, Some(vec!["docs".to_string()])),
         ];
 
         let marketing_env = vec!["marketing".to_string()];
@@ -688,8 +673,8 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_tags_empty_flag_tags() {
         let flags = vec![
-            create_test_flag_with_tags(1, "empty-tags", None, Some(vec![])),
-            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
+            flag(1, "empty-tags", None, Some(vec![])),
+            flag(2, "app-only", None, Some(vec!["app".to_string()])),
         ];
 
         let app_env = vec!["app".to_string()];
@@ -701,15 +686,15 @@ mod tests {
     #[test]
     fn test_collect_excluded_by_tags_multiple_environment_tags() {
         let flags = vec![
-            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
-            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
-            create_test_flag_with_tags(
+            flag(1, "app-only", None, Some(vec!["app".to_string()])),
+            flag(2, "docs-only", None, Some(vec!["docs".to_string()])),
+            flag(
                 3,
                 "marketing-only",
                 None,
                 Some(vec!["marketing".to_string()]),
             ),
-            create_test_flag_with_tags(4, "no-tags", None, None),
+            flag(4, "no-tags", None, None),
         ];
 
         let multi_env = vec!["app".to_string(), "docs".to_string()];
@@ -723,22 +708,22 @@ mod tests {
     #[test]
     fn test_runtime_and_tag_filtering_stacks() {
         let flags = vec![
-            create_test_flag_with_tags(
+            flag(
                 1,
                 "server-app",
-                Some("server".to_string()),
+                Some("server"),
                 Some(vec!["app".to_string()]),
             ),
-            create_test_flag_with_tags(
+            flag(
                 2,
                 "client-app",
-                Some("client".to_string()),
+                Some("client"),
                 Some(vec!["app".to_string()]),
             ),
-            create_test_flag_with_tags(
+            flag(
                 3,
                 "server-docs",
-                Some("server".to_string()),
+                Some("server"),
                 Some(vec!["docs".to_string()]),
             ),
         ];
@@ -755,8 +740,8 @@ mod tests {
     #[test]
     fn test_all_flags_filtered_after_runtime_mismatch() {
         let flags = vec![
-            create_test_flag(1, "client-only", Some("client".to_string())),
-            create_test_flag(2, "also-client", Some("client".to_string())),
+            flag(1, "client-only", Some("client"), None),
+            flag(2, "also-client", Some("client"), None),
         ];
 
         let filtered = collect_excluded_by_runtime(&flags, Some(EvaluationRuntime::Server));

@@ -57,10 +57,7 @@ describe('the feature flag release conditions logic', () => {
 
         useMocks({
             post: {
-                '/api/projects/:team/feature_flags/user_blast_radius': () => [
-                    200,
-                    { users_affected: 120, total_users: 2000 },
-                ],
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 120, total: 2000 }],
             },
         })
     })
@@ -90,10 +87,11 @@ describe('the feature flag release conditions logic', () => {
             await expectLogic(logic, () => {
                 logic.mount()
             })
-                .toDispatchActions(['calculateBlastRadius', 'setAffectedUsers', 'setTotalUsers'])
+                .toDispatchActions(['calculateBlastRadius', 'setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 120 },
-                    totalUsers: 2000,
+                    affectedCounts: { A: 120 },
+                    totalCounts: { A: 2000 },
                 })
         })
 
@@ -147,46 +145,60 @@ describe('the feature flag release conditions logic', () => {
             })
             await expectLogic(logic, () => {
                 jest.spyOn(api, 'create')
-                    .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
-                    .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2002 }))
-                    .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 2000 }))
-                    .mockReturnValueOnce(Promise.resolve({ users_affected: 750, total_users: 2001 }))
+                    .mockReturnValueOnce(Promise.resolve({ affected: 140, total: 2000 }))
+                    .mockReturnValueOnce(Promise.resolve({ affected: 240, total: 2002 }))
+                    .mockReturnValueOnce(Promise.resolve({ affected: 500, total: 2000 }))
+                    .mockReturnValueOnce(Promise.resolve({ affected: 750, total: 2001 }))
 
                 logic.mount()
             })
-                .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers'])
+                .toDispatchActions([
+                    'setAffectedCount',
+                    'setTotalCount',
+                    'setAffectedCount',
+                    'setTotalCount',
+                    'setAffectedCount',
+                    'setTotalCount',
+                    'setAffectedCount',
+                    'setTotalCount',
+                ])
                 .toMatchValues({
-                    affectedUsers: { A: undefined, B: undefined, C: undefined, D: undefined },
-                    totalUsers: null,
+                    affectedCounts: { A: undefined, B: undefined, C: undefined, D: undefined },
+                    totalCounts: { A: undefined, B: undefined, C: undefined, D: undefined },
                 })
-                .toDispatchActions(['setAffectedUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 140, B: undefined, C: undefined, D: undefined },
-                    totalUsers: null,
+                    affectedCounts: { A: 140, B: undefined, C: undefined, D: undefined },
+                    totalCounts: { A: 2000, B: undefined, C: undefined, D: undefined },
                 })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 140, B: 240 },
-                    totalUsers: 2002,
+                    affectedCounts: { A: 140, B: 240, C: undefined, D: undefined },
+                    totalCounts: { A: 2000, B: 2002, C: undefined, D: undefined },
                 })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 140, B: 240, C: 500 },
-                    totalUsers: 2000,
+                    affectedCounts: { A: 140, B: 240, C: 500, D: undefined },
+                    totalCounts: { A: 2000, B: 2002, C: 2000, D: undefined },
                 })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 140, B: 240, C: 500, D: 750 },
-                    totalUsers: 2001,
+                    affectedCounts: { A: 140, B: 240, C: 500, D: 750 },
+                    totalCounts: { A: 2000, B: 2002, C: 2000, D: 2001 },
                 })
         })
 
         it('updates when adding conditions to a flag', async () => {
             jest.spyOn(api, 'create')
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 124, total_users: 2000 }))
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 248, total_users: 2000 }))
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 120, total_users: 2000 }))
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 496, total_users: 2000 }))
+                // Mount: calculateBlastRadiusForCondition('A', []) makes an API call
+                // because [].some(isEmptyProperty) is false (no elements to test)
+                .mockReturnValueOnce(Promise.resolve({ affected: 2000, total: 2000 }))
+                // updateConditionSet for A with complete properties
+                .mockReturnValueOnce(Promise.resolve({ affected: 124, total: 2000 }))
+                // addConditionSet: calculateBlastRadiusForCondition('B', []) makes an API call
+                .mockReturnValueOnce(Promise.resolve({ affected: 2000, total: 2000 }))
+                // updateConditionSet for B with complete properties
+                .mockReturnValueOnce(Promise.resolve({ affected: 248, total: 2000 }))
 
             logic = featureFlagReleaseConditionsLogic({
                 id: '5678',
@@ -199,8 +211,16 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ]),
             })
-            logic.mount()
 
+            // Mount triggers calculateBlastRadiusForCondition for condition A (empty props → API call).
+            // Use toDispatchActions (not toFinishAllListeners) to advance historyIndex past mount's actions.
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+
+            // Update with incomplete property — clears counts but no API call
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
                     {
@@ -210,16 +230,9 @@ describe('the feature flag release conditions logic', () => {
                         value: null,
                     },
                 ])
-            })
-                // first call is to clear the affected users on mount
-                // second call is to set the affected users for mount logic conditions
-                // third call is to set the affected users for the updateConditionSet action
-                .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers', 'setTotalUsers'])
-                .toMatchValues({
-                    affectedUsers: { A: 124 },
-                    totalUsers: 2000,
-                })
+            }).toDispatchActions(['setAffectedCount', 'setTotalCount'])
 
+            // Update with complete property — triggers API call after debounce
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
                     {
@@ -230,54 +243,22 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
-                .toDispatchActions(['setAffectedUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: undefined },
-                    totalUsers: 2000,
-                })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
-                .toMatchValues({
-                    affectedUsers: { A: 248 },
-                    totalUsers: 2000,
+                    affectedCounts: { A: 124 },
+                    totalCounts: { A: 2000 },
                 })
 
-            // Add another condition set (auto-generated sortKey)
+            // Add condition B — triggers calculateBlastRadiusForCondition('B', []) → API call
             await expectLogic(logic, () => {
                 nextUuid = 'B'
                 logic.actions.addConditionSet()
             })
-                .toDispatchActions(['setAffectedUsers'])
-                .toMatchValues({
-                    // first setAffectedUsers clears to undefined (loading state)
-                    affectedUsers: { A: 248, B: undefined },
-                    totalUsers: 2000,
-                })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
-                .toMatchValues({
-                    // then the API response sets the actual blast radius
-                    affectedUsers: { A: 248, B: 120 },
-                    totalUsers: 2000,
-                })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
 
-            // update newly added condition set
-            await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(1, 20, [
-                    {
-                        key: 'aloha',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Exact,
-                        value: null,
-                    },
-                ])
-            })
-                .toDispatchActions(['setAffectedUsers'])
-                .toMatchValues({
-                    affectedUsers: { A: 248, B: undefined },
-                    totalUsers: 2000,
-                })
-                .toNotHaveDispatchedActions(['setTotalUsers'])
-
-            // select its value
+            // Update condition B with complete property
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(1, 20, [
                     {
@@ -288,31 +269,27 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
-                .toDispatchActions(['setAffectedUsers'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 248, B: undefined },
-                    totalUsers: 2000,
-                })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
-                .toMatchValues({
-                    affectedUsers: { A: 248, B: 496 },
-                    totalUsers: 2000,
+                    affectedCounts: { A: 124, B: 248 },
+                    totalCounts: { A: 2000, B: 2000 },
                 })
 
-            // Remove a condition set
+            // Remove condition A — no blast radius recalculation
             await expectLogic(logic, () => {
                 logic.actions.removeConditionSet(0)
             })
-                .toNotHaveDispatchedActions(['setAffectedUsers'])
+                .toNotHaveDispatchedActions(['setAffectedCount'])
                 .toMatchValues({
-                    affectedUsers: { A: 248, B: 496 },
+                    affectedCounts: { A: 124, B: 248 },
                 })
         })
 
         it('uses explicit sortKey when provided to addConditionSet', async () => {
             jest.spyOn(api, 'create')
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+                .mockReturnValueOnce(Promise.resolve({ affected: 500, total: 1000 }))
+                .mockReturnValueOnce(Promise.resolve({ affected: 500, total: 1000 }))
 
             const testLogic = featureFlagReleaseConditionsLogic({
                 id: 'sortkey-test',
@@ -330,7 +307,7 @@ describe('the feature flag release conditions logic', () => {
             const explicitSortKey = 'my-custom-sort-key'
             await expectLogic(testLogic, () => {
                 testLogic.actions.addConditionSet(explicitSortKey)
-            }).toDispatchActions(['setAffectedUsers'])
+            }).toDispatchActions(['setAffectedCount'])
 
             // Verify the new condition set has the explicit sortKey
             expect(testLogic.values.filterGroups[1].sort_key).toBe(explicitSortKey)
@@ -339,10 +316,12 @@ describe('the feature flag release conditions logic', () => {
         })
 
         it('computes blast radius percentages accurately', async () => {
-            logic.actions.setAffectedUsers('A', 100)
-            logic.actions.setAffectedUsers('B', 200)
-            logic.actions.setAffectedUsers('C', 346)
-            logic.actions.setTotalUsers(1000)
+            logic.actions.setAffectedCount('A', 100)
+            logic.actions.setAffectedCount('B', 200)
+            logic.actions.setAffectedCount('C', 346)
+            logic.actions.setTotalCount('A', 1000)
+            logic.actions.setTotalCount('B', 1000)
+            logic.actions.setTotalCount('C', 1000)
 
             expect(logic.values.computeBlastRadiusPercentage(20, 'A')).toBeCloseTo(2, 2)
             expect(logic.values.computeBlastRadiusPercentage(33, 'A')).toBeCloseTo(3.3, 2)
@@ -355,9 +334,9 @@ describe('the feature flag release conditions logic', () => {
         })
 
         it('computes blast radius percentages accurately with missing information', async () => {
-            logic.actions.setAffectedUsers('A', -1)
-            logic.actions.setAffectedUsers('B', undefined)
-            logic.actions.setAffectedUsers('C', 25)
+            logic.actions.setAffectedCount('A', -1)
+            logic.actions.setAffectedCount('B', undefined)
+            logic.actions.setAffectedCount('C', 25)
             // total users is null as well
 
             expect(logic.values.computeBlastRadiusPercentage(20, 'A')).toBeCloseTo(20, 2)
@@ -369,17 +348,138 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.computeBlastRadiusPercentage(100, 'C')).toBeCloseTo(100, 2)
             expect(logic.values.computeBlastRadiusPercentage(10, 'C')).toBeCloseTo(10, 2)
 
-            logic.actions.setTotalUsers(100)
+            logic.actions.setTotalCount('A', 100)
+            logic.actions.setTotalCount('B', 100)
+            logic.actions.setTotalCount('C', 100)
             expect(logic.values.computeBlastRadiusPercentage(67, 'A')).toBeCloseTo(67, 2)
-            // total users is defined but affected users is not. UI side should handle not showing the result in this case
+            // total is defined but affected is not. UI side should handle not showing the result in this case
             // and computation resolves to rollout percentage
             expect(logic.values.computeBlastRadiusPercentage(75, 'B')).toEqual(75)
             expect(logic.values.computeBlastRadiusPercentage(100, 'C')).toBeCloseTo(25, 2)
 
-            logic.actions.setTotalUsers(500_000_000)
-            logic.actions.setAffectedUsers('A', 249_999_000)
+            logic.actions.setTotalCount('A', 500_000_000)
+            logic.actions.setTotalCount('C', 500_000_000)
+            logic.actions.setAffectedCount('A', 249_999_000)
             expect(logic.values.computeBlastRadiusPercentage(100, 'A')).toEqual(49.9998)
             expect(logic.values.computeBlastRadiusPercentage(5, 'C')).toEqual(0)
+        })
+
+        it('sends condition-level aggregation_group_type_index to blast radius API', async () => {
+            logic?.unmount()
+
+            const createSpy = jest.spyOn(api, 'create').mockImplementation((_url, data: any) => {
+                if (data?.group_type_index != null) {
+                    return Promise.resolve({
+                        affected: 10,
+                        total: 100,
+                    })
+                }
+                return Promise.resolve({
+                    affected: 50,
+                    total: 500,
+                })
+            })
+
+            try {
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'condition-agg-test',
+                    filters: {
+                        ...generateFeatureFlagFilters([
+                            {
+                                properties: [
+                                    {
+                                        key: 'plan',
+                                        value: 'pro',
+                                        type: PropertyFilterType.Group,
+                                        operator: PropertyOperator.Exact,
+                                        group_type_index: 1,
+                                    },
+                                ],
+                                rollout_percentage: 100,
+                                variant: null,
+                                sort_key: 'A',
+                                aggregation_group_type_index: 1,
+                            },
+                            {
+                                properties: [
+                                    {
+                                        key: 'email',
+                                        value: 'test',
+                                        type: PropertyFilterType.Group,
+                                        operator: PropertyOperator.Exact,
+                                        group_type_index: 0,
+                                    },
+                                ],
+                                rollout_percentage: 50,
+                                variant: null,
+                                sort_key: 'B',
+                            },
+                        ]),
+                        aggregation_group_type_index: 0,
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                }).toFinishAllListeners()
+
+                // Condition A has its own aggregation_group_type_index=1, should override flag-level 0
+                expect(createSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('user_blast_radius'),
+                    expect.objectContaining({ group_type_index: 1 })
+                )
+                // Condition B has no condition-level override, should fall back to flag-level 0
+                expect(createSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('user_blast_radius'),
+                    expect.objectContaining({ group_type_index: 0 })
+                )
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
+        it('stores counts from group-aggregated blast radius response', async () => {
+            logic?.unmount()
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                affected: 15,
+                total: 80,
+            })
+
+            try {
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'group-counts-test',
+                    filters: {
+                        ...generateFeatureFlagFilters([
+                            {
+                                properties: [
+                                    {
+                                        key: 'plan',
+                                        value: 'pro',
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                rollout_percentage: 100,
+                                variant: null,
+                                sort_key: 'A',
+                            },
+                        ]),
+                        aggregation_group_type_index: 0,
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.affectedCounts).toEqual({ A: 15 })
+                expect(logic.values.totalCounts).toEqual({ A: 80 })
+            } finally {
+                createSpy.mockRestore()
+            }
         })
 
         describe('API calls', () => {
@@ -426,8 +526,8 @@ describe('the feature flag release conditions logic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 // Verify final state - all conditions have their blast radius calculated
-                expect(logic.values.affectedUsers).toEqual({ A: 120, B: 120, C: 120 })
-                expect(logic.values.totalUsers).toEqual(2000)
+                expect(logic.values.affectedCounts).toEqual({ A: 120, B: 120, C: 120 })
+                expect(logic.values.totalCounts).toEqual({ A: 2000, B: 2000, C: 2000 })
 
                 // 3 API calls made (one for each condition)
                 expect(api.create).toHaveBeenCalledTimes(3)

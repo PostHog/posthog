@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { LiveEvent } from '~/types'
 
+import { deduplicateEvents } from './deduplicateEvents'
 import type { liveEventsLogicType } from './liveEventsLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
@@ -36,19 +37,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         events: [
             [] as LiveEvent[],
             {
-                addEvents: (state, { events }) => {
-                    const seen = new Set(state.map((e) => e.uuid).filter(Boolean))
-                    const dedupedIncoming: LiveEvent[] = []
-
-                    for (const event of events) {
-                        if (!seen.has(event.uuid)) {
-                            dedupedIncoming.push(event)
-                            seen.add(event.uuid)
-                        }
-                    }
-
-                    return [...dedupedIncoming, ...state].slice(0, 100)
-                },
+                addEvents: (state, { events }) => deduplicateEvents(state, events, 100),
                 clearEvents: () => [],
             },
         ],

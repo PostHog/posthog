@@ -235,6 +235,29 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(heavy.id)) < ids.index(str(light.id))
 
+    def test_ordering_by_priority_sorts_p0_first(self):
+        """priority ordering: P0 > P1 > P2 > P3 > P4 > null."""
+        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p1 = self._create_report(title="P1 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p0 = self._create_report(title="P0 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p2 = self._create_report(title="P2 report", summary="s", signal_count=1, total_weight=1.0)
+        r_none = self._create_report(title="No priority", summary="s", signal_count=1, total_weight=1.0)
+        r_p4 = self._create_report(title="P4 report", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p3, priority="P3")
+        self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p2, priority="P2")
+        self._priority_artefact(r_p4, priority="P4")
+
+        response = self.client.get(self._list_url(status="ready", ordering="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_p0.id)) < ids.index(str(r_p1.id))
+        assert ids.index(str(r_p1.id)) < ids.index(str(r_p2.id))
+        assert ids.index(str(r_p2.id)) < ids.index(str(r_p3.id))
+        assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
+        assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
+
     def test_ordering_by_total_weight_only_crosses_status_rank(self):
         """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(

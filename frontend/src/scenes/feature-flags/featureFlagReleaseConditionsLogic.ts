@@ -27,6 +27,7 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
@@ -108,21 +109,37 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
-        setAffectedUsers: (sortKey: string, count?: number) => ({
+        setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
+            index,
+            groupTypeIndex,
+        }),
+        setAffectedCount: (sortKey: string, count?: number) => ({
             sortKey,
             count,
         }),
-        setTotalUsers: (count: number) => ({ count }),
+        setTotalCount: (sortKey: string, count?: number) => ({
+            sortKey,
+            count,
+        }),
         calculateBlastRadius: true,
-        calculateBlastRadiusForCondition: (sortKey: string, properties: AnyPropertyFilter[] | undefined) => ({
+        calculateBlastRadiusForCondition: (
+            sortKey: string,
+            properties: AnyPropertyFilter[] | undefined,
+            groupTypeIndex: number | null
+        ) => ({
             sortKey,
             properties,
+            groupTypeIndex,
         }),
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
+        setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
+        setMixedGroupTypeIndex: (mixedGroupTypeIndex: number) => ({ mixedGroupTypeIndex }),
+        setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
+        setDraggedGroup: (draggedGroup: FeatureFlagGroupType | null) => ({ draggedGroup }),
     }),
     defaults(({ props }) => ({
         filters: ensureSortKeys(props.filters),
@@ -211,6 +228,20 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 return { ...state, groups }
             },
+            setConditionAggregation: (state, { index, groupTypeIndex }) => {
+                if (!state) {
+                    return state
+                }
+                const groups = [...state.groups]
+                groups[index] = {
+                    ...groups[index],
+                    aggregation_group_type_index: groupTypeIndex,
+                    // Reset properties when changing aggregation type to avoid
+                    // stale property filters from the previous aggregation scope
+                    properties: [],
+                }
+                return { ...state, groups }
+            },
             removeConditionSet: (state, { index }) => {
                 if (!state) {
                     return state
@@ -266,19 +297,22 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
             },
         },
-        affectedUsers: [
+        affectedCounts: [
             {} as Record<string, number | undefined>,
             {
-                setAffectedUsers: (state, { sortKey, count }) => ({
+                setAffectedCount: (state, { sortKey, count }) => ({
                     ...state,
                     [sortKey]: count,
                 }),
             },
         ],
-        totalUsers: [
-            null as number | null,
+        totalCounts: [
+            {} as Record<string, number | undefined>,
             {
-                setTotalUsers: (_, { count }) => count,
+                setTotalCount: (state, { sortKey, count }) => ({
+                    ...state,
+                    [sortKey]: count,
+                }),
             },
         ],
         flagKeyCache: [
@@ -304,6 +338,30 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     state.includes(`condition-${sortKey}`) ? state : [...state, `condition-${sortKey}`],
             },
         ],
+        isMixedTargeting: [
+            false as boolean,
+            {
+                setIsMixedTargeting: (_, { isMixedTargeting }) => isMixedTargeting,
+            },
+        ],
+        mixedGroupTypeIndex: [
+            0 as number,
+            {
+                setMixedGroupTypeIndex: (_, { mixedGroupTypeIndex }) => mixedGroupTypeIndex,
+            },
+        ],
+        isAnyItemDragging: [
+            false as boolean,
+            {
+                setIsAnyItemDragging: (_, { isAnyItemDragging }) => isAnyItemDragging,
+            },
+        ],
+        draggedGroup: [
+            null as FeatureFlagGroupType | null,
+            {
+                setDraggedGroup: (_, { draggedGroup }) => draggedGroup,
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         setFilters: async () => {
@@ -323,8 +381,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
             await breakpoint(1000) // in ms
             const sourceSortKey = values.filters.groups[index]?.sort_key
-            const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
-            actions.setAffectedUsers(newGroup.sort_key, valueForSourceCondition)
+            const valueForSourceCondition = sourceSortKey ? values.affectedCounts[sourceSortKey] : undefined
+            actions.setAffectedCount(newGroup.sort_key, valueForSourceCondition)
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             const group: FeatureFlagGroupTypeWithSortKey | undefined = values.filters.groups[index]
@@ -336,8 +394,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             const { sort_key: sortKey } = group
 
             if (newProperties) {
-                // properties have changed, so we'll have to re-fetch affected users
-                actions.setAffectedUsers(sortKey, undefined)
+                // properties have changed, so we'll have to re-fetch affected counts
+                actions.setAffectedCount(sortKey, undefined)
+                actions.setTotalCount(sortKey, undefined)
 
                 // Add any new flag IDs from the updated properties
                 const newFlagIds = newProperties.flatMap((property) =>
@@ -355,22 +414,34 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            const response = await api.create(
+            const groupTypeIndex =
+                group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+            const response: UserBlastRadiusType = await api.create(
                 `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                 {
                     condition: { properties: newProperties },
-                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                    group_type_index: groupTypeIndex,
                 }
             )
 
-            actions.setAffectedUsers(sortKey, response.users_affected)
-            actions.setTotalUsers(response.total_users)
+            actions.setAffectedCount(sortKey, response.affected)
+            actions.setTotalCount(sortKey, response.total)
+        },
+        setConditionAggregation: ({ index }) => {
+            const group = values.filters.groups[index]
+            if (group?.sort_key) {
+                const groupTypeIndex =
+                    group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(group.sort_key, group.properties, groupTypeIndex)
+            }
         },
         addConditionSet: async () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
                 actions.openCondition(newGroup.sort_key)
-                actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties)
+                const groupTypeIndex =
+                    newGroup.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties, groupTypeIndex)
             }
         },
         removeConditionSet: () => {
@@ -405,35 +476,36 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setOpenConditions(newOpenConditions)
             }
         },
-        calculateBlastRadiusForCondition: async ({ sortKey, properties }) => {
-            actions.setAffectedUsers(sortKey, undefined)
+        calculateBlastRadiusForCondition: async ({ sortKey, properties, groupTypeIndex }) => {
+            actions.setAffectedCount(sortKey, undefined)
+            actions.setTotalCount(sortKey, undefined)
 
             let response: UserBlastRadiusType
             if (!properties || properties.some(isEmptyProperty)) {
                 // don't compute for incomplete conditions
-                response = { users_affected: -1, total_users: -1 }
+                response = { affected: -1, total: -1 }
             } else {
                 try {
                     response = await api.create(
                         `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                         {
                             condition: { properties },
-                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                            group_type_index: groupTypeIndex,
                         }
                     )
                 } catch {
-                    response = { users_affected: -1, total_users: -1 }
+                    response = { affected: -1, total: -1 }
                 }
             }
 
-            actions.setAffectedUsers(sortKey, response.users_affected)
-            if (response.total_users !== -1) {
-                actions.setTotalUsers(response.total_users)
-            }
+            actions.setAffectedCount(sortKey, response.affected)
+            actions.setTotalCount(sortKey, response.total)
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
-                actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties)
+                const groupTypeIndex =
+                    condition.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties, groupTypeIndex)
             })
         },
         loadAllFlagKeys: async ({ flagIds }) => {
@@ -540,12 +612,44 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
         aggregationTargetName: [
             (s) => [s.filters, s.aggregationLabel],
-            (filters, aggregationLabel): string => {
-                if (filters.aggregation_group_type_index != null) {
-                    return aggregationLabel(filters.aggregation_group_type_index).plural
-                }
-                return 'users'
-            },
+            (filters, aggregationLabel) =>
+                (conditionGroupTypeIndex?: number | null): string => {
+                    const effectiveIndex = conditionGroupTypeIndex ?? filters.aggregation_group_type_index
+                    if (effectiveIndex != null) {
+                        return aggregationLabel(effectiveIndex).plural
+                    }
+                    return 'users'
+                },
+        ],
+        taxonomicGroupTypesForCondition: [
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes) =>
+                (conditionGroupTypeIndex: number | null | undefined): TaxonomicFilterGroupType[] => {
+                    const effectiveIndex = conditionGroupTypeIndex ?? filters?.aggregation_group_type_index
+                    const targetGroupTypes: TaxonomicFilterGroupType[] = []
+
+                    if (effectiveIndex != null) {
+                        // Group-aggregated condition: only show group properties
+                        // for the target group type. Condition sets are homogeneous.
+                        const targetGroup = groupTypes.get(effectiveIndex as GroupTypeIndex)
+                        if (targetGroup) {
+                            targetGroupTypes.push(
+                                `${TaxonomicFilterGroupType.GroupsPrefix}_${targetGroup.group_type_index}` as unknown as TaxonomicFilterGroupType
+                            )
+                            targetGroupTypes.push(
+                                `${TaxonomicFilterGroupType.GroupNamesPrefix}_${effectiveIndex}` as unknown as TaxonomicFilterGroupType
+                            )
+                        }
+                    } else {
+                        // Person-aggregated condition: show person, cohort, flag, and metadata properties
+                        targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
+                        targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
+                    }
+
+                    return targetGroupTypes
+                },
         ],
         filtersTaxonomicOptions: [
             (s) => [s.filters],
@@ -585,8 +689,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
         computeBlastRadiusPercentage: [
-            (s) => [s.affectedUsers, s.totalUsers],
-            (affectedUsers, totalUsers) => (rolloutPercentage, sortKey) => {
+            (s) => [s.affectedCounts, s.totalCounts],
+            (affectedCounts, totalCounts) => (rolloutPercentage, sortKey) => {
                 let effectiveRolloutPercentage = rolloutPercentage
                 if (
                     rolloutPercentage === undefined ||
@@ -596,25 +700,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     effectiveRolloutPercentage = 100
                 }
 
-                if (
-                    affectedUsers[sortKey] === -1 ||
-                    totalUsers === -1 ||
-                    !totalUsers ||
-                    affectedUsers[sortKey] === undefined
-                ) {
+                const affected = affectedCounts[sortKey]
+                const total = totalCounts[sortKey]
+
+                if (affected === -1 || total === -1 || !total || affected === undefined) {
                     return effectiveRolloutPercentage
                 }
 
-                let effectiveTotalUsers = totalUsers
-                if (effectiveTotalUsers === 0) {
-                    effectiveTotalUsers = 1
+                let effectiveTotal = total
+                if (effectiveTotal === 0) {
+                    effectiveTotal = 1
                 }
 
-                return (
-                    Math.round(
-                        effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers) * 1000000
-                    ) / 1000000
-                )
+                return Math.round(effectiveRolloutPercentage * ((affected ?? 0) / effectiveTotal) * 1000000) / 1000000
             },
         ],
         getFlagKey: [
@@ -638,6 +736,24 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filterGroups],
             (filterGroups: FeatureFlagGroupType[]) => {
                 return filterGroups?.flatMap((g) => g.properties ?? []) ?? []
+            },
+        ],
+        hasMixedAggregations: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]) => {
+                const aggregations = filterGroups.map((g) => g.aggregation_group_type_index ?? null)
+                return aggregations.length > 1 && !aggregations.every((a) => a === aggregations[0])
+            },
+        ],
+        defaultMixedGroupTypeIndex: [
+            (s) => [s.filterGroups, s.groupTypes],
+            (filterGroups: FeatureFlagGroupType[], groupTypes: Map<GroupTypeIndex, GroupType>) => {
+                const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
+                return (
+                    filterGroups.find((g) => g.aggregation_group_type_index != null)?.aggregation_group_type_index ??
+                    groupTypeValues[0]?.group_type_index ??
+                    0
+                )
             },
         ],
     }),
@@ -674,5 +790,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         if (values.filters.groups.length === 1 && values.filters.groups[0]?.sort_key) {
             actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
         }
+
+        // Initialize mixed targeting state from existing filter groups
+        if (values.hasMixedAggregations) {
+            actions.setIsMixedTargeting(true)
+        }
+        actions.setMixedGroupTypeIndex(values.defaultMixedGroupTypeIndex)
     }),
 ])
