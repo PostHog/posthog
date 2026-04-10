@@ -615,10 +615,6 @@ def emit_trace_events(
         }
         if gen.output_content:
             gen_properties["$ai_output_choices"] = [{"message": {"role": "assistant", "content": gen.output_content}}]
-        if gen.token_usage:
-            gen_properties["$ai_input_tokens"] = gen.token_usage.get("inputTokens", 0)
-            gen_properties["$ai_output_tokens"] = gen.token_usage.get("outputTokens", 0)
-            gen_properties["$ai_cache_read_input_tokens"] = gen.token_usage.get("cachedReadTokens", 0)
 
         capture_kwargs: dict[str, Any] = {}
         gen_ts = _parse_iso_timestamp(gen.timestamp)
@@ -672,8 +668,13 @@ def emit_trace_root(
     last_message: str = "",
     artifacts_summary: dict[str, Any] | None = None,
     scores: dict[str, float | None] | None = None,
+    token_usage: dict[str, int] | None = None,
 ) -> None:
-    """Emit the ``$ai_trace`` root event after scoring so output includes scores."""
+    """Emit the ``$ai_trace`` root event after scoring so output includes scores.
+
+    Token usage is placed here (not on individual generations) because the ACP
+    log only reports aggregate totals at ``end_turn``, not per sub-generation.
+    """
     formatted_exp_name = f"sandboxed-agent/{experiment_name}"
     prompt_preview = prompt[:20].replace("\n", " ") if prompt else ""
     trace_name = f"{case_name}: {prompt_preview}" if prompt_preview else case_name
@@ -698,6 +699,10 @@ def emit_trace_root(
         trace_properties["$ai_input_state"] = {"prompt": prompt}
     if output_state:
         trace_properties["$ai_output_state"] = output_state
+    if token_usage:
+        trace_properties["$ai_input_tokens"] = token_usage.get("inputTokens", 0)
+        trace_properties["$ai_output_tokens"] = token_usage.get("outputTokens", 0)
+        trace_properties["$ai_cache_read_input_tokens"] = token_usage.get("cachedReadTokens", 0)
 
     capture_kwargs: dict[str, Any] = {}
     ts = _parse_iso_timestamp(first_timestamp)

@@ -194,6 +194,7 @@ async def SandboxedEval(
                             "first_timestamp": parsed.first_timestamp,
                             "last_message": last_message,
                             "artifacts_summary": result.artifacts.model_dump(),
+                            "token_usage": parsed.total_token_usage,
                         }
                     except Exception:
                         logger.exception("Failed to emit trace events for '%s'", eval_case.name)
@@ -249,6 +250,7 @@ async def SandboxedEval(
                         last_message=meta.get("last_message", ""),
                         artifacts_summary=meta.get("artifacts_summary"),
                         scores=eval_result.scores,
+                        token_usage=meta.get("token_usage"),
                     )
             posthog_client.flush()
             print(  # noqa: T201
