@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+/**
+ * Pre-compiles the Tailwind entry point at src/index.css into a flat
+ * stylesheet at dist/quill.css. Consumers import the compiled output via
+ * `@posthog/quill/styles.css` and need zero Tailwind setup of their own.
+ *
+ * Runs `@tailwindcss/cli` as a child process so we don't have to pin
+ * against its programmatic API (which is unstable across minor versions).
+ */
+
+import { spawnSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const packageRoot = resolve(__dirname, '..')
+
+const input = resolve(packageRoot, 'src/index.css')
+const output = resolve(packageRoot, 'dist/quill.css')
+
+mkdirSync(dirname(output), { recursive: true })
+
+// @tailwindcss/cli exposes its binary as `tailwindcss`
+const result = spawnSync('pnpm', ['exec', 'tailwindcss', '--input', input, '--output', output, '--minify'], {
+    cwd: packageRoot,
+    stdio: 'inherit',
+})
+
+if (result.status !== 0) {
+    process.exit(result.status ?? 1)
+}
