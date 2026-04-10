@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconList } from '@posthog/icons'
+import { IconInfo, IconList, IconWarning } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -63,7 +63,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                             <Tooltip
                                 title={
                                     isSecondary
-                                        ? 'Secondary metrics are exploratory and help you understand broader impacts beyond the primary goal. Each additional metric increases the chance of a false positive, so use primary metrics for decision-making.'
+                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
                                         : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
                                 }
                             >
@@ -77,7 +77,12 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto">
                         {metrics.length > 0 && (
-                            <div className="mb-2 mt-4 justify-end flex gap-2">
+                            <div className="mb-2 mt-4 justify-end flex items-center gap-2">
+                                {metrics.length >= 3 && (
+                                    <Tooltip title="More metrics means more comparisons. Make sure each metric has a clear hypothesis so you can tell real effects from noise.">
+                                        <IconWarning className="text-warning text-lg" />
+                                    </Tooltip>
+                                )}
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />
