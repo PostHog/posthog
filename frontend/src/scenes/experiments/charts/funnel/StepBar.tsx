@@ -116,12 +116,19 @@ function openExperimentPersonsModalForSeries({
     })
 }
 
-export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
+export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useTooltip()
     const { experimentResult, experiment, experimentQuery } = useFunnelChartData()
     const { openModal } = useActions(sampledSessionsModalLogic)
     const hasActorsQueryFeature = useFeatureFlag('EXPERIMENT_FUNNEL_ACTORS_QUERY')
+
+    /**
+     * bail if the experiment is not loaded. also, this serves as type guard for the experiment.
+     */
+    if (!experiment) {
+        return null
+    }
 
     const variantKey = Array.isArray(step.breakdown_value)
         ? step.breakdown_value[0]?.toString() || ''
