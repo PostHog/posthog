@@ -9,46 +9,32 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from posthog.schema import AlertState
 
 from posthog.slo.types import SloArea, SloConfig, SloOperation
-from posthog.temporal.alerts.activities import (
-    enumerate_due_alerts_activity,
-    evaluate_alert_activity,
-    notify_alert_activity,
-    prepare_alert_activity,
+from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, retrieve_due_alerts
+from posthog.temporal.alerts.retry_policy import (
+    ALERT_EVALUATE_RETRY_POLICY,
+    ALERT_NOTIFY_RETRY_POLICY,
+    ALERT_PREPARE_RETRY_POLICY,
 )
-from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY, ALERT_NOTIFY_RETRY_POLICY
 from posthog.temporal.alerts.types import (
     CheckAlertWorkflowInputs,
-    EnumerateDueAlertsActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
+    PrepareAction,
     PrepareAlertActivityInputs,
-    ScheduleAllAlertChecksWorkflowInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
 
-@temporalio.workflow.defn(name="schedule-all-alert-checks")
-class ScheduleAllAlertChecksWorkflow(PostHogWorkflow):
-    """Coordinator workflow — runs every 2 minutes via a Temporal Schedule.
-
-    Mirrors ScheduleAllSubscriptionsWorkflow at
-    posthog/temporal/subscriptions/workflows.py:67. No SLO instrumentation
-    — coordinator is pure dispatch and shouldn't show up in alert SLO
-    metrics.
-    """
-
+@temporalio.workflow.defn(name="schedule-due-alert-checks")
+class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> ScheduleAllAlertChecksWorkflowInputs:
-        if not inputs:
-            return ScheduleAllAlertChecksWorkflowInputs()
-        loaded = json.loads(inputs[0])
-        return ScheduleAllAlertChecksWorkflowInputs(**loaded)
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
 
     @temporalio.workflow.run
-    async def run(self, inputs: ScheduleAllAlertChecksWorkflowInputs) -> None:
+    async def run(self) -> None:
         alerts = await temporalio.workflow.execute_activity(
-            enumerate_due_alerts_activity,
-            EnumerateDueAlertsActivityInputs(),
+            retrieve_due_alerts,
             start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
@@ -78,6 +64,10 @@ class ScheduleAllAlertChecksWorkflow(PostHogWorkflow):
                         resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
                         start_properties={
+                            "calculation_interval": alert.calculation_interval,
+                            "insight_id": alert.insight_id,
+                        },
+                        completion_properties={
                             "calculation_interval": alert.calculation_interval,
                             "insight_id": alert.insight_id,
                         },
@@ -117,13 +107,6 @@ class ScheduleAllAlertChecksWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="check-alert")
 class CheckAlertWorkflow(PostHogWorkflow):
-    """One alert check, three phases.
-
-    SLO instrumented automatically by slo_interceptor via the `slo` field on
-    inputs. Mirrors ProcessSubscriptionWorkflow at
-    posthog/temporal/subscriptions/workflows.py:147.
-    """
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CheckAlertWorkflowInputs:
         loaded = json.loads(inputs[0])
@@ -138,19 +121,19 @@ class CheckAlertWorkflow(PostHogWorkflow):
         try:
             # Phase 1 — prepare: load alert, validate config, check should-skip
             prepare_result = await temporalio.workflow.execute_activity(
-                prepare_alert_activity,
+                prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )
 
-            if prepare_result.action != "evaluate":
+            if prepare_result.action != PrepareAction.EVALUATE:
                 skip_reason = prepare_result.reason
-                return  # exit cleanly; finally block still runs
+                return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
             evaluation = await temporalio.workflow.execute_activity(
-                evaluate_alert_activity,
+                evaluate_alert,
                 EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 heartbeat_timeout=dt.timedelta(minutes=2),
@@ -161,7 +144,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
             # Phase 3 — notify (optional)
             if evaluation.should_notify:
                 await temporalio.workflow.execute_activity(
-                    notify_alert_activity,
+                    notify_alert,
                     NotifyAlertActivityInputs(
                         alert_id=inputs.alert_id,
                         alert_check_id=evaluation.alert_check_id,
@@ -171,25 +154,19 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 )
 
         except Exception as e:
-            # Workflow-level failure: the SLO interceptor populates
-            # error_type / error_message / error_trace when we re-raise.
             caught_error = e
 
         finally:
-            # Enrich SLO completion context with alert-specific details.
-            # Mirrors ProcessSubscriptionWorkflow at
-            # posthog/temporal/subscriptions/workflows.py:262-271.
             if inputs.slo:
                 completion_props: dict = {}
                 if new_state is not None:
                     completion_props["alert_state"] = new_state
                 if skip_reason is not None:
                     completion_props["skip_reason"] = skip_reason
+
                 if completion_props:
                     inputs.slo.completion_properties.update(completion_props)
 
-        # Re-raise after cleanup completes. Same Temporal SDK quirk as
-        # ProcessSubscriptionWorkflow — re-raising inside `except` blocks
-        # new activity scheduling in `finally`.
+        # Re-raise after cleanup completes. Same Temporal SDK quirk as ProcessSubscriptionWorkflow
         if caught_error:
             raise caught_error

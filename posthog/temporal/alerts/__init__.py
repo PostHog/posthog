@@ -1,16 +1,11 @@
-from posthog.temporal.alerts.activities import (
-    enumerate_due_alerts_activity,
-    evaluate_alert_activity,
-    notify_alert_activity,
-    prepare_alert_activity,
-)
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleAllAlertChecksWorkflow
+from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, retrieve_due_alerts
+from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 
-WORKFLOWS = [ScheduleAllAlertChecksWorkflow, CheckAlertWorkflow]
+WORKFLOWS = [ScheduleDueAlertChecksWorkflow, CheckAlertWorkflow]
 
 ACTIVITIES = [
-    enumerate_due_alerts_activity,
-    prepare_alert_activity,
-    evaluate_alert_activity,
-    notify_alert_activity,
+    retrieve_due_alerts,
+    prepare_alert,
+    evaluate_alert,
+    notify_alert,
 ]
