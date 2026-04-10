@@ -69,7 +69,7 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
                     WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                     GROUP BY {breakdown_field}, time
                 ) AS ac ON am.time_bucket = ac.time
-                ORDER BY time asc, {breakdown_field} desc
+                ORDER BY time asc, count desc
                 LIMIT 10 BY time LIMIT 10000
         """,
             placeholders={

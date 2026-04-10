@@ -40,7 +40,7 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.services.sandbox import wait_for_health_check
+from products.tasks.backend.services.sandbox import WORKING_DIR, SandboxBase, wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -54,7 +54,6 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
@@ -219,7 +218,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox:
+class ModalSandbox(SandboxBase):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.
@@ -498,31 +497,6 @@ class ModalSandbox:
                 cause=e,
             )
 
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
-        )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
-
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
@@ -745,12 +719,6 @@ class ModalSandbox:
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

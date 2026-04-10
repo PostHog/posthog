@@ -83,7 +83,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.secondary_metrics == []
         assert experiment.filters == {}
         assert experiment.scheduling_config is None
-        assert experiment.exposure_preaggregation_enabled is False
         assert experiment.archived is False
         assert experiment.deleted is False
         assert experiment.conclusion is None
@@ -530,7 +529,6 @@ class TestExperimentService(APIBaseTest):
             create_in_folder="Test/Experiments",
             filters={"events": [], "actions": [], "properties": []},
             scheduling_config={"timeseries": True},
-            exposure_preaggregation_enabled=True,
             archived=True,
             deleted=True,
             conclusion="won",
@@ -544,7 +542,6 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.active is True
         assert experiment.holdout_id == holdout.id
         assert experiment.secondary_metrics == secondary_metrics
-        assert experiment.exposure_preaggregation_enabled is True
         assert experiment.archived is True
         assert experiment.deleted is True
         assert experiment.conclusion == "won"

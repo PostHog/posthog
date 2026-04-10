@@ -76,7 +76,7 @@ async def resolve_single_repository(issue) -> list[RepositoryContext]:
     if not org or not repo:
         # If not configured, use the first available repository
         github = GitHubIntegration(integration)
-        repositories = github.list_repositories()
+        repositories = github.list_all_repositories()
         if repositories:
             org = github.organization()
             repo = repositories[0]
@@ -125,7 +125,7 @@ async def resolve_smart_select_repositories(issue) -> list[RepositoryContext]:
     for integration in allowed_integrations:
         github = GitHubIntegration(integration)
         try:
-            repos = github.list_repositories()
+            repos = github.list_all_repositories()
             org = github.organization()
 
             for repo in repos:
