@@ -387,6 +387,7 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
+        file_path = file_path.rstrip("/")
         skill_file = LLMSkillFile.objects.filter(skill=skill, path=file_path).first()
         if skill_file is None:
             return Response(
