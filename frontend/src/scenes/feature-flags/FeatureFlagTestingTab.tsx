@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import {
     LemonButton,
@@ -40,6 +41,14 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         clearTestForm,
         testFlagEvaluation,
     } = useActions(featureFlagsLogic)
+
+    // Clear testing state when feature flag changes
+    useEffect(() => {
+        clearTestForm()
+        setTestError(null)
+        setTestResult(null)
+        setShowAllProperties(false)
+    }, [featureFlag.id])
 
     const formatPropertyKey = (key: string): string => {
         return key
