@@ -9,9 +9,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Phase 1: remove field from Django state only; keep the DB column so old code
-        # still running during deploy doesn't crash reading a missing column.
-        # A follow-up migration will drop the column for real after a full deploy cycle.
+        # Stage 1 of a two-stage column drop.
+        #
+        # Remove the field from Django state but keep the physical column for one
+        # full deploy cycle so rolling deploys and rollbacks don't crash on a
+        # missing column. Because the column was added via `AddField(..., default=False)`
+        # it is NOT NULL with no Postgres-level default — once Django stops sending
+        # the value on INSERT, every write to posthog_experiment would fail the
+        # NOT NULL constraint. Drop NOT NULL here so new inserts succeed while the
+        # column is still physically present.
+        #
+        # Stage 2 (follow-up migration, after this ships) will physically DROP COLUMN.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.RemoveField(
@@ -19,6 +27,11 @@ class Migration(migrations.Migration):
                     name="exposure_preaggregation_enabled",
                 ),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql='ALTER TABLE "posthog_experiment" ALTER COLUMN "exposure_preaggregation_enabled" DROP NOT NULL;',
+                    reverse_sql='ALTER TABLE "posthog_experiment" ALTER COLUMN "exposure_preaggregation_enabled" SET NOT NULL;',
+                ),
+            ],
         ),
     ]
