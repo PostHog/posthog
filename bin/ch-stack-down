@@ -7,6 +7,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 docker compose \
-    -f docker-compose.dev.yml \
     -f docker-compose.dev-coordinator.yml \
     down -v
