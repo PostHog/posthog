@@ -631,18 +631,15 @@ class TestPrinter(BaseTest):
             "events.mat_nullable_property",
         )
 
-    def test_json_extract_string_uses_materialized_column_non_nullable(self):
-        with materialized("events", "$browser") as mat_col:
+    @parameterized.expand([
+        ("non_nullable", False, lambda n: f"events.`{n}`"),
+        ("nullable", True, lambda n: f"ifNull(events.`{n}`, '')"),
+    ])
+    def test_json_extract_string_uses_materialized_column(self, _name, is_nullable, expected_fn):
+        with materialized("events", "$browser", is_nullable=is_nullable) as mat_col:
             self.assertEqual(
                 self._expr("JSONExtractString(properties, '$browser')"),
-                f"events.`{mat_col.name}`",
-            )
-
-    def test_json_extract_string_uses_materialized_column_nullable(self):
-        with materialized("events", "$browser", is_nullable=True) as mat_col:
-            self.assertEqual(
-                self._expr("JSONExtractString(properties, '$browser')"),
-                f"ifNull(events.`{mat_col.name}`, '')",
+                expected_fn(mat_col.name),
             )
 
     def test_json_extract_string_nested_uses_materialized_column(self):
@@ -659,24 +656,19 @@ class TestPrinter(BaseTest):
             result = self._expr("JSONExtractString(properties, 'withmat', 'nested')")
             self.assertIn("JSONExtractString(events.properties", result)
 
-    def test_json_extract_string_no_materialized_column(self):
-        result = self._expr("JSONExtractString(properties, '$nonexistent')")
-        self.assertIn("JSONExtractString(events.properties", result)
-        self.assertNotIn("mat_", result)
-
-    def test_json_extract_string_non_field_first_arg_not_optimized(self):
-        with materialized("events", "$browser"):
-            result = self._expr("JSONExtractString(toString(properties), '$browser')")
-            self.assertNotIn("mat_", result)
-
-    def test_json_extract_string_non_constant_property_not_optimized(self):
-        with materialized("events", "$browser"):
-            result = self._expr("JSONExtractString(properties, event)")
-            self.assertNotIn("mat_", result)
-
-    def test_json_extract_int_not_rewritten_to_materialized(self):
-        with materialized("events", "$browser"):
-            result = self._expr("JSONExtractInt(properties, '$browser')")
+    @parameterized.expand([
+        ("no_materialized_column", None, "JSONExtractString(properties, '$nonexistent')"),
+        ("non_field_first_arg", "$browser", "JSONExtractString(toString(properties), '$browser')"),
+        ("non_constant_property", "$browser", "JSONExtractString(properties, event)"),
+        ("wrong_function", "$browser", "JSONExtractInt(properties, '$browser')"),
+    ])
+    def test_json_extract_string_not_optimized(self, _name, mat_prop, hogql_expr):
+        if mat_prop:
+            with materialized("events", mat_prop):
+                result = self._expr(hogql_expr)
+                self.assertNotIn("mat_", result)
+        else:
+            result = self._expr(hogql_expr)
             self.assertNotIn("mat_", result)
 
     def test_json_extract_string_materialization_disabled(self):
