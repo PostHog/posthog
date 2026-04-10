@@ -529,19 +529,30 @@ class Command(BaseCommand):
 
     def handle_bootstrap(self, options: dict[str, Any]) -> None:
         database: str = settings.CLICKHOUSE_DATABASE
-        cluster = get_cluster_by_name("main")
-        client = _any_client(cluster)
 
+        from posthog.clickhouse.client.connection import default_client
         from posthog.clickhouse.migration_tools.tracking import _ensure_tracking_table
 
         cluster_name = getattr(settings, "CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
 
-        # Create the database itself before the tracking table. On a fresh
-        # stack the database doesn't exist yet, and `CREATE TABLE {db}.{tbl}`
-        # inside `_ensure_tracking_table` fails with "Database <db> does not
-        # exist" (CH error code 81). Legacy `migrate_clickhouse` does this
-        # implicitly; `ch_migrate bootstrap` must do it explicitly.
-        client.execute(f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster_name}")
+        # Create the database itself before anything else tries to connect to it.
+        # On a fresh stack `posthog_test` doesn't exist, and the ClickHouse native
+        # driver sends the target database in its "Hello" frame on connect. If the
+        # database doesn't exist, CH rejects the connection with "Database
+        # posthog_test does not exist" before any query runs — so we can't use a
+        # cluster client that was constructed with `database=posthog_test`.
+        #
+        # `default_client` connects to the `system` database (see its docstring)
+        # which always exists, so it can run the CREATE DATABASE statement.
+        with default_client() as bootstrap_client:
+            bootstrap_client.execute(
+                f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster_name}"
+            )
+
+        # Now that the database exists, build the cluster client and create the
+        # tracking table on every migrations node via ON CLUSTER.
+        cluster = get_cluster_by_name("main")
+        client = _any_client(cluster)
 
         _ensure_tracking_table(client, database, cluster_name)
         print(f"Tracking table ensured in database '{database}' on cluster '{cluster_name}'.")
