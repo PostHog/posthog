@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
 
@@ -22,17 +22,6 @@ def _build_event_filter(obj) -> tuple[str, dict]:
     }
 
 
-def _jsonhas_expr(prop: str, param_prefix: str) -> str:
-    """Build a JSONHas expression for a property path.
-
-    Splits dotted names so ``"sub.prop"`` becomes
-    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
-    """
-    parts = prop.split(".")
-    args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
-    return f"JSONHas(properties, {args})"
-
-
 def _build_property_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause addition and params for matching properties."""
     params: dict = {
@@ -43,9 +32,9 @@ def _build_property_filter(obj) -> tuple[str, dict]:
     }
     properties = obj.properties
     if len(properties) == 1:
-        filter_clause = f"AND {_jsonhas_expr(properties[0], 'fp_0')}"
+        filter_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
     else:
-        exprs = [_jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+        exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
         filter_clause = f"AND ({' OR '.join(exprs)})"
 
     for i, prop in enumerate(properties):

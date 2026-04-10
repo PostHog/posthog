@@ -5,6 +5,17 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
+def jsonhas_expr(prop: str, param_prefix: str) -> str:
+    """Build a ClickHouse ``JSONHas`` expression for a (possibly nested) property path.
+
+    Splits dotted names so ``"sub.prop"`` becomes
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
+    """
+    parts = prop.split(".")
+    args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
+    return f"JSONHas(properties, {args})"
+
+
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"

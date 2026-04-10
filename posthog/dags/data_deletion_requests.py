@@ -15,7 +15,7 @@ from posthog.clickhouse.cluster import (
     Query,
 )
 from posthog.dags.common import JobOwners
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 OWNER_TAG = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
@@ -44,21 +44,10 @@ def _temp_table_name(team_id: int, request_id: str) -> str:
     return f"tmp_dag_team_{team_id}_prop_rm_{request_id[:8]}"
 
 
-def _jsonhas_expr(prop: str, param_prefix: str) -> str:
-    """Build a JSONHas expression for a property path.
-
-    Splits dotted names so ``"sub.prop"`` becomes
-    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
-    """
-    parts = prop.split(".")
-    args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
-    return f"JSONHas(properties, {args})"
-
-
 def _property_filter_clause(properties: list[str]) -> str:
     if len(properties) == 1:
-        return _jsonhas_expr(properties[0], "fp_0")
-    exprs = [_jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+        return jsonhas_expr(properties[0], "fp_0")
+    exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
     return f"({' OR '.join(exprs)})"
 
 
