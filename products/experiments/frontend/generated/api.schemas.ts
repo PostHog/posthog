@@ -319,7 +319,6 @@ export interface ExperimentApi {
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
-    exposure_preaggregation_enabled?: boolean
     only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
@@ -385,7 +384,6 @@ export interface PatchedExperimentApi {
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
-    exposure_preaggregation_enabled?: boolean
     only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
