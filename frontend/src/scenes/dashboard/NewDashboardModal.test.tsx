@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -33,6 +33,10 @@ jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic', () =>
     dashboardTemplatesLogic: jest.fn(),
 }))
 
+jest.mock('./dashboards/templates/dashboardTemplateChooserLogic', () => ({
+    dashboardTemplateChooserLogic: jest.fn(),
+}))
+
 jest.mock('scenes/dashboard/dashboardTemplateVariablesLogic', () => ({
     dashboardTemplateVariablesLogic: { __mock: 'dashboardTemplateVariablesLogic' },
 }))
@@ -62,53 +66,105 @@ const mockedDashboardTemplatesLogic = jest.requireMock<{
     dashboardTemplatesLogic: jest.Mock
 }>('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
 
-const mockTemplatesLogic = { __mock: 'dashboardTemplatesLogic' }
+const mockedDashboardTemplateChooserLogic = jest.requireMock<{
+    dashboardTemplateChooserLogic: jest.Mock
+}>('./dashboards/templates/dashboardTemplateChooserLogic').dashboardTemplateChooserLogic
+
+const mockTemplatesLogic = { __mock: 'dashboardTemplatesLogic' as const }
+const mockChooserLogic = { __mock: 'dashboardTemplateChooserLogic' as const }
+
+function logicPath(logic: unknown): string | undefined {
+    return (logic as { pathString?: string } | null | undefined)?.pathString
+}
+
+function isNewDashboardLogicRef(logic: unknown): boolean {
+    const tag = (logic as { __mock?: string } | null | undefined)?.__mock
+    return logic === newDashboardLogic || tag === 'newDashboardLogic'
+}
+
+function isDashboardTemplateVariablesLogicRef(logic: unknown): boolean {
+    const tag = (logic as { __mock?: string } | null | undefined)?.__mock
+    return logic === dashboardTemplateVariablesLogic || tag === 'dashboardTemplateVariablesLogic'
+}
+
+function isFeatureFlagLogicRef(logic: unknown): boolean {
+    return (
+        logic === featureFlagLogic ||
+        // Duplicate module instances (different resolver paths) still share the Kea path
+        logicPath(logic)?.includes('featureFlagLogic') === true
+    )
+}
+
+function isMockTemplatesLogicRef(logic: unknown): boolean {
+    const tag = (logic as { __mock?: string } | null | undefined)?.__mock
+    return logic === mockTemplatesLogic || tag === 'dashboardTemplatesLogic'
+}
+
+function isMockChooserLogicRef(logic: unknown): boolean {
+    const tag = (logic as { __mock?: string } | null | undefined)?.__mock
+    return logic === mockChooserLogic || tag === 'dashboardTemplateChooserLogic'
+}
+
+const Z_INDEX_CLASS = 'z-[calc(var(--z-popover)-1)]'
 
 describe('NewDashboardModal', () => {
+    let newDashboardValues: Record<string, unknown>
+
     beforeEach(() => {
         jest.clearAllMocks()
+        mockedUseValues.mockReset()
+        mockedUseActions.mockReset()
+
+        newDashboardValues = {
+            newDashboardModalVisible: true,
+            activeDashboardTemplate: {
+                template_name: 'Product analytics',
+                variables: [
+                    {
+                        id: 'VARIABLE_1',
+                        name: 'Daily active user event',
+                        default: { id: '$pageview' },
+                        description: 'Event used for DAU',
+                        required: true,
+                        type: 'event',
+                    },
+                ],
+            },
+            variableSelectModalVisible: false,
+        }
 
         mockedUseMountedLogic.mockReturnValue({ props: {} })
         mockedDashboardTemplatesLogic.mockReturnValue(mockTemplatesLogic)
+        mockedDashboardTemplateChooserLogic.mockReturnValue(mockChooserLogic)
 
-        mockedUseValues.mockImplementation((logic) => {
-            if (logic === featureFlagLogic) {
+        mockedUseValues.mockImplementation((logic: unknown) => {
+            if (isFeatureFlagLogicRef(logic)) {
                 return { featureFlags: {} }
             }
 
-            if (logic === newDashboardLogic) {
-                return {
-                    newDashboardModalVisible: true,
-                    activeDashboardTemplate: {
-                        template_name: 'Product analytics',
-                        variables: [
-                            {
-                                id: 'VARIABLE_1',
-                                name: 'Daily active user event',
-                                default: { id: '$pageview' },
-                                description: 'Event used for DAU',
-                                required: true,
-                                type: 'event',
-                            },
-                        ],
-                    },
-                    variableSelectModalVisible: false,
-                }
+            if (isNewDashboardLogicRef(logic)) {
+                return newDashboardValues
             }
 
-            if (logic === dashboardTemplateVariablesLogic) {
+            if (isDashboardTemplateVariablesLogicRef(logic)) {
                 return { variables: [] }
             }
 
-            if (logic === mockTemplatesLogic) {
+            if (isMockTemplatesLogicRef(logic)) {
                 return { templateFilter: '' }
             }
 
-            return {}
+            if (isMockChooserLogicRef(logic)) {
+                return { allTemplates: [], allTemplatesLoading: false, templateFilter: '' }
+            }
+
+            throw new Error(
+                `NewDashboardModal.test: unhandled useValues(${logicPath(logic) ?? (logic as { __mock?: string })?.__mock ?? typeof logic}). Extend is*Ref helpers or add a branch.`
+            )
         })
 
-        mockedUseActions.mockImplementation((logic) => {
-            if (logic === newDashboardLogic) {
+        mockedUseActions.mockImplementation((logic: unknown) => {
+            if (isNewDashboardLogicRef(logic)) {
                 return {
                     hideNewDashboardModal: jest.fn(),
                     clearActiveDashboardTemplate: jest.fn(),
@@ -116,21 +172,52 @@ describe('NewDashboardModal', () => {
                 }
             }
 
-            if (logic === mockTemplatesLogic) {
+            if (isMockTemplatesLogicRef(logic)) {
                 return {
                     setTemplateFilter: jest.fn(),
                 }
             }
 
-            return {}
+            if (isMockChooserLogicRef(logic)) {
+                return {
+                    templateTileClicked: jest.fn(),
+                    blankTileClicked: jest.fn(),
+                    setTemplateFilter: jest.fn(),
+                }
+            }
+
+            throw new Error(
+                `NewDashboardModal.test: unhandled useActions(${logicPath(logic) ?? (logic as { __mock?: string })?.__mock ?? typeof logic}). Extend is*Ref helpers or add a branch.`
+            )
         })
     })
 
-    it('uses a modal z-index below popovers for variable selection step', () => {
-        render(<NewDashboardModal />)
+    afterEach(() => {
+        cleanup()
+    })
 
+    const expectDialogZIndex = (): void => {
         const dialogPrimitive = document.querySelector('[data-attr="dialog-primitive"]')
         expect(dialogPrimitive).toBeInTheDocument()
-        expect(dialogPrimitive?.getAttribute('data-class-name')).toContain('z-[calc(var(--z-popover)-1)]')
+        const className = dialogPrimitive?.getAttribute('data-class-name') ?? ''
+        expect(className).toContain(Z_INDEX_CLASS)
+    }
+
+    it('uses a modal z-index below popovers for variable selection step', () => {
+        render(<NewDashboardModal />)
+        expectDialogZIndex()
+        expect(document.querySelector('[data-attr="dashboard-template-variables"]')).toBeInTheDocument()
+    })
+
+    it('uses the same modal z-index on the template picker step', () => {
+        newDashboardValues = {
+            newDashboardModalVisible: true,
+            activeDashboardTemplate: null,
+            variableSelectModalVisible: false,
+        }
+
+        render(<NewDashboardModal />)
+        expectDialogZIndex()
+        expect(document.querySelector('[data-attr="dashboard-template-chooser"]')).toBeInTheDocument()
     })
 })
