@@ -28,6 +28,8 @@ interface UseShortcutOptionsBase {
     disabled?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** If true, register the shortcut but hide it from the shortcut menu */
+    hidden?: boolean
 }
 
 interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
@@ -107,7 +109,7 @@ export interface UseShortcutReturn<T extends HTMLElement> {
  * ```
  */
 export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseShortcutOptions): UseShortcutReturn<T> {
-    const { name, keybind, intent, interaction, scope = 'global', disabled = false, priority } = options
+    const { name, keybind, intent, interaction, scope = 'global', disabled = false, priority, hidden } = options
 
     const internalRef = useRef<T>(null)
     const [isRefReady, setIsRefReady] = useState(false)
@@ -144,6 +146,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 interaction: 'function',
                 scope,
                 priority,
+                hidden,
             })
         } else if (isRefReady && ref.current && interaction !== 'function') {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
@@ -155,6 +158,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 interaction,
                 scope,
                 priority,
+                hidden,
             })
         }
 
