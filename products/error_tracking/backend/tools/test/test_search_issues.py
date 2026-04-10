@@ -23,7 +23,7 @@ from posthog.schema import (
 )
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
+from products.error_tracking.backend.tools import SearchErrorTrackingIssuesTool
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.utils.types import AssistantState

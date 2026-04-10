@@ -62,16 +62,21 @@ def get_exception_summary_for_team(team: Team) -> dict:
     }
 
 
-def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict | object]) -> bool:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
     and persist the selection to their notification settings"""
     from posthog.tasks.email_utils import auto_select_digest_project
+
+    def _exception_count(team_data: dict | object) -> int:
+        if isinstance(team_data, dict):
+            return int(team_data["exception_count"])
+        return int(team_data.exception_count)
 
     return auto_select_digest_project(
         user=user,
         team_data=team_exception_counts,
         setting_key="error_tracking_weekly_digest_project_enabled",
-        sort_key=lambda d: d["exception_count"],
+        sort_key=_exception_count,
     )
 
 

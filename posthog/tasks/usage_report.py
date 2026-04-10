@@ -53,7 +53,11 @@ from products.data_warehouse.backend.models import (
     ExternalDataJob,
     ExternalDataSchema,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from products.error_tracking.backend.facade import (
+    TeamCountContract,
+    get_issue_counts_by_team,
+    get_symbol_set_counts_by_team,
+)
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -1805,11 +1809,13 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
 
 
 def convert_team_usage_rows_to_dict(
-    rows: list[Union[dict, tuple[int, int]]],
+    rows: list[Union[dict, tuple[int, int], TeamCountContract]],
 ) -> dict[int, int]:
     team_id_map = {}
     for row in rows:
-        if isinstance(row, dict) and "team_id" in row:
+        if isinstance(row, TeamCountContract):
+            team_id_map[row.team_id] = row.total
+        elif isinstance(row, dict) and "team_id" in row:
             # Some queries return a dict with team_id and total
             team_id_map[row["team_id"]] = row["total"]
         else:
@@ -1917,18 +1923,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        "teams_with_issues_created_total": list(
-            ErrorTrackingIssue.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_symbol_sets_count": list(
-            ErrorTrackingSymbolSet.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_resolved_symbol_sets_count": list(
-            ErrorTrackingSymbolSet.objects.filter(storage_ptr__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
+        "teams_with_issues_created_total": get_issue_counts_by_team(),
+        "teams_with_symbol_sets_count": get_symbol_set_counts_by_team(),
+        "teams_with_resolved_symbol_sets_count": get_symbol_set_counts_by_team(resolved_only=True),
         "teams_with_query_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,

@@ -39,7 +39,13 @@ from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket
-from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
+from products.error_tracking.backend.facade import (
+    ErrorTrackingWeeklyDigestProjectContract,
+    auto_select_project_for_user,
+    get_issue_assignment,
+    get_org_ids_with_exceptions,
+    get_weekly_digest_projects_for_organization,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -773,28 +779,29 @@ def get_users_for_orgs_with_no_ingested_events(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> None:
-    assignment = ErrorTrackingIssueAssignment.objects.select_related("issue__team", "user", "role").get(
-        id=assignment_id
-    )
+    assignment = get_issue_assignment(assignment_id)
     assigner = User.objects.get(pk=assigner_id)
 
     if not is_email_available(with_absolute_urls=True):
         return
 
-    team = assignment.issue.team
+    team = Team.objects.get(id=assignment.issue.team_id)
     memberships_to_email = get_members_to_notify(team, NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value)
     if not memberships_to_email:
         return
 
     # Filter the memberships list to only include users assigned
-    if assignment.user:
+    if assignment.user_id:
         memberships_to_email = [
             membership
             for membership in memberships_to_email
-            if (membership.user == assignment.user and membership.user != assigner)
+            if (membership.user.id == assignment.user_id and membership.user != assigner)
         ]
-    elif assignment.role:
-        role_users = assignment.role.members.all()
+    elif assignment.role_id:
+        from ee.models.rbac.role import Role
+
+        role = Role.objects.get(id=assignment.role_id)
+        role_users = role.members.all()
         memberships_to_email = [
             membership
             for membership in memberships_to_email
@@ -1418,8 +1425,6 @@ def send_error_tracking_weekly_digest() -> None:
     Send weekly digest email per organization
     Queries ClickHouse for orgs with exceptions, then fans out per-org email tasks
     """
-    from products.error_tracking.backend.weekly_digest import get_org_ids_with_exceptions
-
     logger.info("Starting Error Tracking weekly digest task")
 
     allowed_org_ids = settings.ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS
@@ -1447,19 +1452,6 @@ def send_error_tracking_weekly_digest() -> None:
 def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest email per user in an org"""
     from posthog.models.organization import Organization
-    from posthog.tasks.email_utils import compute_week_over_week_change
-
-    from products.error_tracking.backend.weekly_digest import (
-        auto_select_project_for_user,
-        build_ingestion_failures_url,
-        get_crash_free_sessions,
-        get_daily_exception_counts,
-        get_exception_counts,
-        get_exception_summary_for_team,
-        get_new_issues_for_team,
-        get_top_issues_for_team,
-    )
-
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -1469,43 +1461,14 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         logger.warning(f"Organization {org_id} not found for Error Tracking weekly digest")
         return
 
-    all_org_teams = {t.id: t for t in Team.objects.filter(organization_id=org.id)}
-    if not all_org_teams:
+    team_digest_projects = get_weekly_digest_projects_for_organization(org.id)
+    if not team_digest_projects:
         return
 
-    # Use unfiltered counts only to determine which teams have any exceptions at all
-    unfiltered_counts = get_exception_counts(list(all_org_teams.keys()))
-    team_ids_with_exceptions = {row[0] for row in unfiltered_counts}
-    if not team_ids_with_exceptions:
-        return
+    team_digest_data = {project.team_id: project for project in team_digest_projects}
+    teams_by_id = Team.objects.in_bulk(team_digest_data.keys())
 
-    # Pre-compute per-team digest data only for teams that have exceptions
-    team_digest_data: dict[int, dict] = {}
-    for team_id in team_ids_with_exceptions:
-        team = all_org_teams.get(team_id)
-        if not team:
-            continue
-
-        counts = get_exception_summary_for_team(team)
-        if not counts or counts["exception_count"] == 0:
-            continue
-
-        team_digest_data[team_id] = {
-            "team": team,
-            "exception_count": counts["exception_count"],
-            "exception_change": compute_week_over_week_change(
-                counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
-            ),
-            "ingestion_failure_count": counts["ingestion_failure_count"],
-            "top_issues": get_top_issues_for_team(team),
-            "new_issues": get_new_issues_for_team(team),
-            "daily_counts": get_daily_exception_counts(team),
-            "crash_free": get_crash_free_sessions(team),
-            "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
-            "ingestion_failures_url": build_ingestion_failures_url(team_id),
-        }
-
-    excluded_project_count = len(all_org_teams) - len(team_digest_data)
+    excluded_project_count = Team.objects.filter(organization_id=org.id).count() - len(team_digest_data)
 
     all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
@@ -1533,10 +1496,12 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             user.refresh_from_db(fields=["partial_notification_settings"])
 
         # Build per-user list of enabled teams
-        user_team_sections = []
+        user_team_sections: list[ErrorTrackingWeeklyDigestProjectContract] = []
         disabled_team_names = []
         for team_id, data in team_digest_data.items():
-            team = data["team"]
+            team = teams_by_id.get(team_id)
+            if team is None:
+                continue
             user_permissions = UserPermissions(user).team(team)
             if user_permissions.effective_membership_level_for_parent_membership(org, membership) is None:
                 continue
@@ -1544,12 +1509,12 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             if should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value, team_id):
                 user_team_sections.append(data)
             else:
-                disabled_team_names.append(team.name)
+                disabled_team_names.append(data.team_name)
 
         if not user_team_sections:
             continue
 
-        user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
+        user_team_sections.sort(key=lambda d: d.exception_count, reverse=True)
 
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
         message = EmailMessage(

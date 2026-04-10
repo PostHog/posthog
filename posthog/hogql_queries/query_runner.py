@@ -644,10 +644,16 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ErrorTrackingQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+    if kind in (
+        "ErrorTrackingQuery",
+        "ErrorTrackingIssueCorrelationQuery",
+        "ErrorTrackingSimilarIssuesQuery",
+        "ErrorTrackingBreakdownsQuery",
+    ):
+        from products.error_tracking.backend.facade.query_dispatch import build_query_runner
 
-        return ErrorTrackingQueryRunner(
+        return build_query_runner(
+            kind=kind,
             query=query,
             team=team,
             timings=timings,
@@ -659,45 +665,6 @@ def get_query_runner(
         from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 
         return DocumentEmbeddingsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "ErrorTrackingIssueCorrelationQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
-            ErrorTrackingIssueCorrelationQueryRunner,
-        )
-
-        return ErrorTrackingIssueCorrelationQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "ErrorTrackingSimilarIssuesQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
-            ErrorTrackingSimilarIssuesQueryRunner,
-        )
-
-        return ErrorTrackingSimilarIssuesQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "ErrorTrackingBreakdownsQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
-            ErrorTrackingBreakdownsQueryRunner,
-        )
-
-        return ErrorTrackingBreakdownsQueryRunner(
             query=query,
             team=team,
             timings=timings,

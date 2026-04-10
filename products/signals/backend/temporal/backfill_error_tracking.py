@@ -31,30 +31,23 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
     from posthog.schema import DateRange, ErrorTrackingQuery
 
     from posthog.models import Team
-    from posthog.sync import database_sync_to_async
 
-    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+    from products.error_tracking.backend.facade import aquery_issues
 
     team = await Team.objects.aget(id=input.team_id)
 
-    def _run_query():
-        runner = ErrorTrackingQueryRunner(
-            team=team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                orderBy="first_seen",
-                orderDirection="DESC",
-                volumeResolution=1,
-                limit=100,
-                useQueryV2=False,
-                withFirstEvent=True,
-                withAggregations=False,
-            ),
-        )
-        return runner.calculate()
-
-    response = await database_sync_to_async(_run_query)()
+    query = ErrorTrackingQuery(
+        kind="ErrorTrackingQuery",
+        dateRange=DateRange(),
+        orderBy="first_seen",
+        orderDirection="DESC",
+        volumeResolution=1,
+        limit=100,
+        useQueryV2=False,
+        withFirstEvent=True,
+        withAggregations=False,
+    )
+    response = await aquery_issues(team, query)
 
     issues: list[ErrorTrackingIssueData] = []
     for result in response.results:

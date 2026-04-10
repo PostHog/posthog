@@ -8,7 +8,6 @@ from posthog.hogql import ast
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     build_event_where_exprs,
     build_select_expressions,
@@ -17,6 +16,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     order_direction,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.presentation.issues import ErrorTrackingIssuePreviewSerializer
 
 
 class ErrorTrackingQueryV1Builder:

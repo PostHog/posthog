@@ -63,11 +63,10 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
         from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
         from products.logs.backend.logs_query_runner import LogsQueryRunner
 
         hogql_filters = HogQLFilters()
-        if isinstance(runner, ErrorTrackingQueryRunner):
+        if kind == "ErrorTrackingQuery":
             hogql_filters = runner._builder.hogql_filters()
         elif isinstance(runner, LogsQueryRunner):
             hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)

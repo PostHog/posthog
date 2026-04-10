@@ -10,7 +10,10 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS
 
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.facade import (
+    ErrorTrackingIssueFingerprintContract,
+    iter_issue_fingerprints_created_between,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -45,18 +48,10 @@ class Command(BaseCommand):
         team_id = options["team_id"]
 
         # Fetch the fingerprints
-        fingerprints = (
-            ErrorTrackingIssueFingerprintV2.objects.filter(
-                team_id=team_id,
-                created_at__gte=fingerprint_start_date,
-                created_at__lte=fingerprint_end_date,
-            )
-            .order_by("created_at")
-            .iterator()
-        )
+        fingerprints = iter_issue_fingerprints_created_between(team_id, fingerprint_start_date, fingerprint_end_date)
 
         # Iterate through the fingerprints in batches of 100 at a time
-        batch: list[ErrorTrackingIssueFingerprintV2] = []
+        batch: list[ErrorTrackingIssueFingerprintContract] = []
         for fingerprint in fingerprints:
             batch.append(fingerprint)
             if len(batch) == 100:
@@ -76,7 +71,7 @@ class Command(BaseCommand):
         KafkaProducer().flush(5 * 60)
 
 
-def create_embedding_events(batch: list[ErrorTrackingIssueFingerprintV2]):
+def create_embedding_events(batch: list[ErrorTrackingIssueFingerprintContract]):
     logger.info(f"Creating embedding events for {len(batch)} fingerprints")
     # Go to clickhouse to fetch an event for each fingerprint
     event_query = """
@@ -115,7 +110,7 @@ def create_embedding_events(batch: list[ErrorTrackingIssueFingerprintV2]):
     return new_fingerprint_events
 
 
-def create_new_fingerprint_event(fingerprint: ErrorTrackingIssueFingerprintV2, properties):
+def create_new_fingerprint_event(fingerprint: ErrorTrackingIssueFingerprintContract, properties):
     exception_list = []
     for exception in properties["$exception_list"]:
         data = {

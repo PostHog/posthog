@@ -18,7 +18,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade.api import has_resolved_issues
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -112,7 +112,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        return has_resolved_issues(self.team)
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
