@@ -96,6 +96,7 @@ class TestSlackImageOutbound(SimpleTestCase):
         payload = _read_image_bytes_for_slack_upload(1, "https://example.com/test.png")
         assert payload is None
 
+    @patch("products.conversations.backend.tasks.resolve_slack_avatar_by_email", return_value=None)
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
@@ -106,6 +107,7 @@ class TestSlackImageOutbound(SimpleTestCase):
         mock_read_bytes: MagicMock,
         mock_upload_image: MagicMock,
         mock_team_get: MagicMock,
+        _mock_avatar: MagicMock,
     ) -> None:
         fake_client = MagicMock()
         mock_get_client.return_value = fake_client
@@ -140,6 +142,45 @@ class TestSlackImageOutbound(SimpleTestCase):
         fake_client.chat_postMessage.assert_called_once()
         mock_upload_image.assert_called_once()
 
+    @patch(
+        "products.conversations.backend.tasks.resolve_slack_avatar_by_email",
+        return_value="https://avatars.slack-edge.com/agent_72.jpg",
+    )
+    @patch("products.conversations.backend.tasks.Team.objects.get")
+    @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
+    @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
+    @patch("products.conversations.backend.tasks.get_slack_client")
+    def test_post_reply_to_slack_sets_icon_url_from_slack_avatar(
+        self,
+        mock_get_client: MagicMock,
+        mock_read_bytes: MagicMock,
+        mock_upload_image: MagicMock,
+        mock_team_get: MagicMock,
+        _mock_avatar: MagicMock,
+    ) -> None:
+        fake_client = MagicMock()
+        mock_get_client.return_value = fake_client
+        mock_read_bytes.return_value = b"image-bytes"
+        fake_team = MagicMock()
+        fake_team.id = 1
+        mock_team_get.return_value = fake_team
+
+        post_reply_to_slack(
+            ticket_id="ticket-avatar",
+            team_id=1,
+            content="Hello",
+            rich_content=None,
+            author_name="Alice Smith",
+            author_email="alice@example.com",
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        call_kwargs = fake_client.chat_postMessage.call_args[1]
+        assert call_kwargs["icon_url"] == "https://avatars.slack-edge.com/agent_72.jpg"
+        assert call_kwargs["username"] == "Alice Smith"
+
+    @patch("products.conversations.backend.tasks.resolve_slack_avatar_by_email", return_value=None)
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
@@ -150,6 +191,7 @@ class TestSlackImageOutbound(SimpleTestCase):
         mock_read_bytes: MagicMock,
         mock_upload_image: MagicMock,
         mock_team_get: MagicMock,
+        _mock_avatar: MagicMock,
     ) -> None:
         fake_client = MagicMock()
         mock_get_client.return_value = fake_client
