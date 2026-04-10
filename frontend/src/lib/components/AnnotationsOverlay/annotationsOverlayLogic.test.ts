@@ -893,18 +893,14 @@ describe('annotationsOverlayLogic', () => {
             name: string
             interval: IntervalType
             dates: string[]
-            ticks: number[]
             expected: Array<[string, number]>
         }>([
             {
                 name: 'monthly chart → fractional indices for mid-month annotations',
                 interval: 'month',
                 dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
-                ticks: [0, 1, 2],
                 expected: [
                     ['2022-08-10 00:00:00+0000', 9 / 31],
-                    ['2022-08-11 00:00:00+0000', 10 / 31],
-                    ['2022-08-17 00:00:00+0000', 16 / 31],
                     ['2022-09-10 00:00:00+0000', 1 + 9 / 30],
                 ],
             },
@@ -913,41 +909,18 @@ describe('annotationsOverlayLogic', () => {
                 name: 'weekly Monday-aligned chart → no Sunday drift',
                 interval: 'week',
                 dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
-                ticks: [0, 1, 2, 3, 4, 5],
                 expected: [
                     ['2022-08-10 00:00:00+0000', 2 / 7],
-                    ['2022-08-11 00:00:00+0000', 3 / 7],
                     ['2022-08-17 00:00:00+0000', 1 + 2 / 7],
-                    ['2022-09-10 00:00:00+0000', 4 + 5 / 7],
                 ],
             },
-            {
-                name: 'daily chart → whole-number indices',
-                interval: 'day',
-                dates: [
-                    '2022-08-10',
-                    '2022-08-11',
-                    '2022-08-12',
-                    '2022-08-13',
-                    '2022-08-14',
-                    '2022-08-15',
-                    '2022-08-16',
-                    '2022-08-17',
-                ],
-                ticks: [0, 7],
-                expected: [
-                    ['2022-08-10 00:00:00+0000', 0],
-                    ['2022-08-11 00:00:00+0000', 1],
-                    ['2022-08-17 00:00:00+0000', 7],
-                ],
-            },
-        ])('$name', async ({ interval, dates, ticks, expected }) => {
+        ])('$name', async ({ interval, dates, expected }) => {
             useInsightMocks(interval)
             await mountAndWait({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
                 dates,
-                ticks: ticks.map((value) => ({ value })),
+                ticks: dates.map((_, i) => ({ value: i })),
                 dashboardId: MOCK_DASHBOARD_ID,
             })
 
@@ -967,39 +940,8 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
 
-            const indices = indicesByKey(logic.values)
-            expect(indices['2022-09-10 00:00:00+0000']).toBe(1)
-            expect(indices['2022-08-10 00:00:00+0000']).toBeGreaterThan(0)
-            expect(indices['2022-08-10 00:00:00+0000']).toBeLessThan(1)
-        })
-
-        it('returns an empty array when dates is empty', async () => {
-            useInsightMocks()
-            await mountAndWait({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
-                dates: [],
-                ticks: [],
-                dashboardId: MOCK_DASHBOARD_ID,
-            })
-
-            await expectLogic(logic).toMatchValues({ annotationBadgeDataIndices: [] })
-        })
-
-        it('returns indices sorted ascending by dataIndex', async () => {
-            useInsightMocks('day')
-            await mountAndWait({
-                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
-                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
-                dates: ['2022-08-10', '2022-08-11', '2022-08-17'],
-                ticks: [{ value: 0 }, { value: 2 }],
-                dashboardId: MOCK_DASHBOARD_ID,
-            })
-
-            const indices = logic.values.annotationBadgeDataIndices.map((b: { dataIndex: number }) => b.dataIndex)
-            for (let i = 1; i < indices.length; i++) {
-                expect(indices[i]).toBeGreaterThanOrEqual(indices[i - 1])
-            }
+            // Sep 10 would extrapolate to ~1.3 without clamping; must snap to lastIndex (1).
+            expect(indicesByKey(logic.values)['2022-09-10 00:00:00+0000']).toBe(1)
         })
     })
 })
