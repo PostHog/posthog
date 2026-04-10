@@ -118,6 +118,21 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
+            elif level in (
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
+                # UTM-only levels: no platform data available at these granularities.
+                # Set all grouping fields to empty so the CTE produces a single empty group.
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
             else:
                 # Campaign level (default) — include campaign, id, source, match_key
                 select_columns.extend(

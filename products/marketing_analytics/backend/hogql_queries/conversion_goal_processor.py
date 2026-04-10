@@ -67,6 +67,8 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("campaign", "utm_campaign", "utm_campaign_name"),
     TrackedField("source", "utm_source", "utm_source_name"),
     TrackedField("medium", "utm_medium", "utm_medium_name"),
+    TrackedField("content", "utm_content", "utm_content_name"),
+    TrackedField("term", "utm_term", "utm_term_name"),
     TrackedField("referring_domain", "$referring_domain", None, "$direct"),
     TrackedField("gclid", "$gclid"),
     TrackedField("fbclid", "$fbclid"),
@@ -1418,6 +1420,29 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by = [source_expr]
+        elif level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            # UTM-only levels: group by the respective UTM field
+            utm_field_map = {
+                MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
+                MarketingAnalyticsDrillDownLevel.CONTENT: "content",
+                MarketingAnalyticsDrillDownLevel.TERM: "term",
+            }
+            utm_expr = field_exprs[utm_field_map[level]]
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [utm_expr]
         else:
             # Campaign level (default)
             # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
@@ -1576,6 +1601,25 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by = [source_expr]
+        elif level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            utm_field_map = {
+                MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
+                MarketingAnalyticsDrillDownLevel.CONTENT: "content",
+                MarketingAnalyticsDrillDownLevel.TERM: "term",
+            }
+            utm_expr = field_exprs[utm_field_map[level]]
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [utm_expr]
         else:
             # Campaign level (default)
             select_columns = [

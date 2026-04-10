@@ -152,6 +152,13 @@ class MarketingAnalyticsConfig:
             return [self.campaign_field]
         elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
             return [self.source_field]
+        elif self.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            # UTM-only levels: single field group by (repurpose campaign_field)
+            return [self.campaign_field]
         else:
             # Campaign level (default) — group by campaign name, id, and source
             return [self.campaign_field, self.id_field, self.source_field]

@@ -150,8 +150,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         campaign_alias = self.config.get_campaign_column_alias()
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # Channel/source levels have a single grouping column with dynamic alias
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            # Single grouping column levels have a single join condition
             join_condition: ast.Expr = ast.CompareOperation(
                 left=ast.Field(chain=["current_period", campaign_alias]),
                 op=ast.CompareOperationOp.Eq,
@@ -305,9 +311,15 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
-            if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-                # At channel/source level, FULL OUTER JOIN on campaign_name (holds channel_type/source)
-                # so organic channels with only conversions also appear
+            if level in (
+                MarketingAnalyticsDrillDownLevel.CHANNEL,
+                MarketingAnalyticsDrillDownLevel.SOURCE,
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
+                # At single-grouping levels, FULL OUTER JOIN on campaign_name (holds the grouping value)
+                # so rows with only conversions also appear
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(
                     expr=ast.CompareOperation(

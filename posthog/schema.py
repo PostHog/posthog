@@ -2648,6 +2648,9 @@ class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
     CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
