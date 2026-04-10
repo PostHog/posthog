@@ -132,6 +132,9 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
             },
         },
         "kind": "deployable",
+        # Stripe validates allowed_updates client-side before calling update_service.
+        # Without this, `stripe projects update` rejects plan changes.
+        "allowed_updates": ["service_ref"],
     }
 
 
