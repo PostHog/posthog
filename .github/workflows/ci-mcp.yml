@@ -47,6 +47,13 @@ jobs:
                         - 'common/mosaic/**'
                         # Code generation tooling
                         - 'tools/openapi-codegen/**'
+                        # Integration tests run docker compose for services
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        # Persons DB migrations (sqlx migrate run in integration tests)
+                        - 'rust/persons_migrations/**'
+                        # ClickHouse UDF copied in integration test setup
+                        - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'

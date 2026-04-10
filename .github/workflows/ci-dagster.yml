@@ -70,7 +70,10 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
-                        - frontend/public/email/*
+                        # Database init scripts used by docker compose
+                        - 'docker/postgres-init-scripts/**'
+                        # Persons DB migrations (sqlx migrate run)
+                        - 'rust/persons_migrations/**'
                         - pyproject.toml
                         - uv.lock
 
