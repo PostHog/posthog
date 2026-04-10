@@ -271,19 +271,20 @@ class Task(DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] | None = None
-        if slack_thread_url or slack_thread_context:
-            extra_state = {}
-            if slack_thread_url:
-                extra_state["slack_thread_url"] = slack_thread_url
-            if slack_thread_context:
-                extra_state["interaction_origin"] = "slack"
+        extra_state: dict[str, str] = {}
+        if slack_thread_url:
+            extra_state["slack_thread_url"] = slack_thread_url
+        if slack_thread_context:
+            extra_state["interaction_origin"] = "slack"
 
         if sandbox_env is not None:
-            extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+        if origin_product == Task.OriginProduct.SIGNAL_REPORT and signal_report_id:
+            extra_state["run_source"] = "signal_report"
+            extra_state["signal_report_id"] = signal_report_id
+
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(

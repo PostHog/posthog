@@ -143,12 +143,21 @@ Defined in `backend/temporal/summary.py`.
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
    - Persists `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success
-6. **Apply the decision**:
+6. **Conditional coding-task auto-start** (inside `run_agentic_report_activity`)
+   - Runs only for **immediately actionable** reports
+   - Requires a latest research `priority_judgment`
+   - Requires the report priority to meet the team-configured `SignalAutonomyConfig.minimum_autostart_priority` threshold (`P0` = highest severity)
+   - Requires a non-empty `suggested_reviewers` list and at least one reviewer whose GitHub login resolves to a PostHog user in `SignalAutonomyConfig.opted_in_user_ids`
+   - Skips auto-start entirely if the report already has any linked Task (`Task.signal_report_id = report_id`)
+   - Starts a Tasks coding run via `Task.create_and_run(...)` with `origin_product=signal_report`
+   - Persists a `task_run` artefact on the report with `{task_id, task_run_id, repository, title}`
+   - This `task_run` artefact is intentionally **not** part of agentic artefact cleanup, so it survives later re-research runs for the same report
+7. **Apply the decision**:
    - If **not actionable** → `reset_report_to_potential_activity` (weight resets to 0, status becomes `potential`)
    - If **requires human input** → `mark_report_pending_input_activity`
    - If **immediately actionable** → `mark_report_ready_activity`
-7. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
-8. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
+8. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
+9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
 
 On any unhandled exception, the workflow marks the report `failed` and re-raises.
 
@@ -180,6 +189,8 @@ On re-promotion:
 - **Repo selection** reuses the previous `repo_selection` artefact when possible
 - **Agentic research** reconstructs previous findings / actionability / priority from artefacts and reuses prior work signal-by-signal when still valid
 - **Agentic artefacts** from the previous run are deleted and replaced atomically before writing the new run’s artefacts
+- **`task_run` artefacts are not deleted** on re-promotion; they are historical records of auto-started coding runs
+- **Auto-start is deduplicated per report** by checking for any existing linked `Task` before creating a new one
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
@@ -320,6 +331,7 @@ JSON artefacts attached to reports. Used for video segments, safety / actionabil
 | `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}` |
 | `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "..."}`                                                                                        |
 | `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time |
+| `task_run`               | `{"task_id": "...", "task_run_id": "...", "repository": "owner/repo", "title": "..."}`                                                         |
 
 Notes:
 
@@ -327,6 +339,23 @@ Notes:
 - Agentic report persistence deletes and replaces only the artefact types owned by the agentic path (`repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, `suggested_reviewers`). `safety_judgment` is written separately by the safety judge.
 
 **Indexes:** `(report)` (`signals_sig_report__idx`)
+
+### `SignalAutonomyConfig`
+
+Per-team singleton config that controls whether Signals research can auto-start a Tasks coding run.
+
+| Field                        | Type            | Description                                                                            |
+| ---------------------------- | --------------- | -------------------------------------------------------------------------------------- |
+| `team`                       | OneToOne → Team | Owning team                                                                            |
+| `minimum_autostart_priority` | CharField       | Minimum severity threshold for auto-start (`P0`–`P4`, where `P0` is highest)           |
+| `opted_in_user_ids`          | ArrayField(Int) | PostHog user IDs allowed to trigger auto-start when they appear as suggested reviewers |
+
+Notes:
+
+- The row is auto-created as a team extension
+- `minimum_autostart_priority` defaults to `P0`
+- `opted_in_user_ids` defaults to an empty list
+- API validation restricts opted-in users to members of the team’s organization
 
 ### `SignalSourceConfig`
 
@@ -479,6 +508,26 @@ Important side effects:
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
 - Disabling a clustering config cancels the clustering workflow
+
+#### `SignalAutonomyViewSet`
+
+Team-scoped Signals autonomy endpoint set. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`).
+
+| Method | Path                                | Description                                                  |
+| ------ | ----------------------------------- | ------------------------------------------------------------ |
+| GET    | `/signal_autonomy/level/`           | Return the team’s current `minimum_autostart_priority`       |
+| POST   | `/signal_autonomy/level/`           | Update `minimum_autostart_priority`                          |
+| GET    | `/signal_autonomy/users/`           | Return the team’s current opted-in users                     |
+| POST   | `/signal_autonomy/users/`           | Add one org-member PostHog user ID to the opt-in list        |
+| DELETE | `/signal_autonomy/users/{user_id}/` | Remove one opted-in PostHog user ID from the autonomy config |
+
+Validation rules:
+
+- `minimum_autostart_priority` must be one of `P0`–`P4`
+- `POST /signal_autonomy/users/` accepts a single PostHog `user_id`
+- Added users must be members of the team’s organization
+- `DELETE /signal_autonomy/users/{user_id}/` is idempotent
+- User responses include both raw `opted_in_user_ids` and resolved `opted_in_users`
 
 #### `SignalReportViewSet`
 

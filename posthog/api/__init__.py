@@ -302,6 +302,7 @@ projects_router.register(r"signal_reports", signals.SignalReportViewSet, "projec
 projects_router.register(
     r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
 )
+projects_router.register(r"signal_autonomy", signals.SignalAutonomyViewSet, "project_signal_autonomy", ["team_id"])
 projects_router.register(
     r"signal_processing", signals.SignalProcessingViewSet, "project_signal_processing", ["team_id"]
 )

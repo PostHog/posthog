@@ -1,9 +1,14 @@
+import logging
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
+
+logger = logging.getLogger(__name__)
 
 
 class SignalSourceConfig(UUIDModel):
@@ -56,6 +61,31 @@ class SignalSourceConfig(UUIDModel):
                 fields=["team", "source_product", "source_type"], name="unique_team_source_product_type"
             )
         ]
+
+
+class SignalAutonomyConfig(models.Model):
+    class Priority(models.TextChoices):
+        P0 = "P0", "P0"
+        P1 = "P1", "P1"
+        P2 = "P2", "P2"
+        P3 = "P3", "P3"
+        P4 = "P4", "P4"
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="signal_autonomy_config",
+    )
+    minimum_autostart_priority = models.CharField(max_length=2, choices=Priority.choices, default=Priority.P0)
+    opted_in_user_ids = ArrayField(models.PositiveIntegerField(), default=list, blank=True)
+
+    class Meta:
+        verbose_name = "Signal autonomy config"
+        verbose_name_plural = "Signal autonomy configs"
+
+
+register_team_extension_signal(SignalAutonomyConfig, logger=logger)
 
 
 class InvalidStatusTransition(Exception):
@@ -226,6 +256,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        TASK_RUN = "task_run"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

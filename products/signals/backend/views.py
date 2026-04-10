@@ -50,6 +50,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
     InvalidStatusTransition,
+    SignalAutonomyConfig,
     SignalReport,
     SignalReportArtefact,
     SignalSourceConfig,
@@ -59,6 +60,10 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
 )
 from products.signals.backend.serializers import (
+    SignalAutonomyAddUserSerializer,
+    SignalAutonomyConfigSerializer,
+    SignalAutonomyLevelSerializer,
+    SignalAutonomyUserPathSerializer,
     SignalReportArtefactSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
@@ -283,6 +288,108 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.exception(
                     "Failed to trigger data import sync for %s schema %s", config.source_product, schema.id
                 )
+
+
+class SignalAutonomyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if view.action in ("level", "users"):
+            if request.method == "GET":
+                return ["task:read"]
+            if request.method == "POST":
+                return ["task:write"]
+        return None
+
+    def _get_config(self) -> SignalAutonomyConfig:
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        return get_or_create_team_extension(self.team, SignalAutonomyConfig)
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
+
+    @extend_schema(exclude=True)
+    @action(detail=False, methods=["get", "post"], url_path="level")
+    def level(self, request: Request, *args, **kwargs) -> Response:
+        config = self._get_config()
+
+        if request.method == "GET":
+            return Response(
+                {
+                    "minimum_autostart_priority": config.minimum_autostart_priority,
+                }
+            )
+
+        serializer = SignalAutonomyLevelSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        serializer.update(config, serializer.validated_data)
+
+        return Response(
+            {
+                "minimum_autostart_priority": config.minimum_autostart_priority,
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(detail=False, methods=["get", "post"], url_path="users")
+    def users(self, request: Request, *args, **kwargs) -> Response:
+        config = self._get_config()
+
+        if request.method == "GET":
+            return Response(
+                {
+                    "opted_in_user_ids": config.opted_in_user_ids or [],
+                    "opted_in_users": SignalAutonomyConfigSerializer(
+                        config, context=self.get_serializer_context()
+                    ).data["opted_in_users"],
+                }
+            )
+
+        serializer = SignalAutonomyAddUserSerializer(
+            data=request.data,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user_id_to_add = serializer.validated_data["user_id"]
+        existing_user_ids = config.opted_in_user_ids or []
+        if user_id_to_add not in existing_user_ids:
+            config.opted_in_user_ids = [*existing_user_ids, user_id_to_add]
+            config.save(update_fields=["opted_in_user_ids"])
+
+        return Response(
+            {
+                "opted_in_user_ids": config.opted_in_user_ids or [],
+                "opted_in_users": SignalAutonomyConfigSerializer(config, context=self.get_serializer_context()).data[
+                    "opted_in_users"
+                ],
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(detail=False, methods=["delete"], url_path=r"users/(?P<user_id>[^/.]+)", required_scopes=["task:write"])
+    def delete_user(self, request: Request, user_id: str, *args, **kwargs) -> Response:
+        config = self._get_config()
+        serializer = SignalAutonomyUserPathSerializer(
+            data={"user_id": user_id},
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user_id_to_remove = serializer.validated_data["user_id"]
+        existing_user_ids = config.opted_in_user_ids or []
+        updated_user_ids = [
+            existing_user_id for existing_user_id in existing_user_ids if existing_user_id != user_id_to_remove
+        ]
+
+        if updated_user_ids != existing_user_ids:
+            config.opted_in_user_ids = updated_user_ids
+            config.save(update_fields=["opted_in_user_ids"])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema_view(

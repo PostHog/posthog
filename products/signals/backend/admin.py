@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import SignalReport, SignalReportArtefact
+from .models import SignalAutonomyConfig, SignalReport, SignalReportArtefact
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -67,3 +67,23 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
+
+
+@admin.register(SignalAutonomyConfig)
+class SignalAutonomyConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "team_link",
+        "minimum_autostart_priority",
+        "opted_in_user_ids",
+    )
+    list_select_related = ("team", "team__organization")
+    search_fields = ("team__name", "team__organization__name")
+    readonly_fields = ("team",)
+
+    @admin.display(description="Team")
+    def team_link(self, config: SignalAutonomyConfig):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[config.team.pk]),
+            config.team.name,
+        )
