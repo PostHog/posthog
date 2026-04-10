@@ -64,7 +64,7 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
     ):
         async with get_client(team_id=inputs.team_id) as client:
             result = await client.read_query(query, query_params)
-            condition_count = result[0][0] if result else 0
+            condition_count = int(result.strip()) if result.strip() else 0
 
     already_backfilled = condition_count >= len(inputs.condition_hashes)
     return EventDateCheckResult(date=inputs.date, already_backfilled=already_backfilled)
@@ -171,7 +171,7 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
         )
 
         # Compute the daily time ranges to process (most recent first for faster value delivery)
-        now = temporalio.workflow.unsafe.now()
+        now = temporalio.workflow.now()
         day_ranges: list[tuple[dt.datetime, dt.datetime]] = []
         for day_offset in range(inputs.days_to_backfill):
             day_end = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)

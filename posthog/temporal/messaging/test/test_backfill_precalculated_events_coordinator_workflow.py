@@ -69,7 +69,7 @@ class TestCheckDayAlreadyBackfilledActivity:
         )
 
         mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=[[2]])  # 2 conditions found
+        mock_client.read_query = AsyncMock(return_value=b"2\n")  # 2 conditions found
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -91,7 +91,7 @@ class TestCheckDayAlreadyBackfilledActivity:
         )
 
         mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=[[1]])  # Only 1 of 2 conditions found
+        mock_client.read_query = AsyncMock(return_value=b"1\n")  # Only 1 of 2 conditions found
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -113,7 +113,7 @@ class TestCheckDayAlreadyBackfilledActivity:
         )
 
         mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=[[0]])
+        mock_client.read_query = AsyncMock(return_value=b"0\n")
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
