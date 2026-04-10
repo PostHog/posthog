@@ -335,7 +335,7 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
 
         Mirrors the step filtering logic from FunnelBase._get_funnel_person_step_condition
         """
-        conditions = []
+        conditions: list[ast.Expr] = []
 
         # Filter by step
         # NOTE: step_reached is 0-indexed and includes exposure as step 0
