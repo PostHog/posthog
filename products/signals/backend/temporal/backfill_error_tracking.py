@@ -30,28 +30,24 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
     """Fetch the 100 most recent error tracking issues ordered by first seen."""
     from posthog.schema import DateRange, ErrorTrackingQuery
 
-    from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
-    from posthog.sync import database_sync_to_async
+
+    from products.error_tracking.backend.facade import aquery_issues
 
     team = await Team.objects.aget(id=input.team_id)
 
-    def _run_query():
-        query = ErrorTrackingQuery(
-            kind="ErrorTrackingQuery",
-            dateRange=DateRange(),
-            orderBy="first_seen",
-            orderDirection="DESC",
-            volumeResolution=1,
-            limit=100,
-            useQueryV2=False,
-            withFirstEvent=True,
-            withAggregations=False,
-        )
-        runner = get_query_runner(query=query, team=team)
-        return runner.calculate()
-
-    response = await database_sync_to_async(_run_query)()
+    query = ErrorTrackingQuery(
+        kind="ErrorTrackingQuery",
+        dateRange=DateRange(),
+        orderBy="first_seen",
+        orderDirection="DESC",
+        volumeResolution=1,
+        limit=100,
+        useQueryV2=False,
+        withFirstEvent=True,
+        withAggregations=False,
+    )
+    response = await aquery_issues(team, query)
 
     issues: list[ErrorTrackingIssueData] = []
     for result in response.results:

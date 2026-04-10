@@ -26,6 +26,8 @@ from .contracts import (
 )
 
 if TYPE_CHECKING:
+    from posthog.schema import ErrorTrackingQuery, ErrorTrackingQueryResponse
+
     from posthog.models.user import User
 
 
@@ -127,6 +129,25 @@ async def aget_issue_first_event(team: Team | int, issue_id: str) -> dict | None
     from posthog.sync import database_sync_to_async
 
     return await database_sync_to_async(get_issue_first_event)(team, issue_id)
+
+
+def query_issues(team: Team | int, query: ErrorTrackingQuery) -> ErrorTrackingQueryResponse:
+    """Run an ErrorTrackingQuery through the canonical dispatch and return the typed response.
+
+    This is the sanctioned cross-product entry point for issue query execution. Callers
+    should not import product-internal runner classes directly.
+    """
+    from posthog.hogql_queries.query_runner import get_query_runner
+
+    team_instance = team if isinstance(team, Team) else Team.objects.get(id=team)
+    runner = get_query_runner(query, team_instance)
+    return runner.calculate()
+
+
+async def aquery_issues(team: Team | int, query: ErrorTrackingQuery) -> ErrorTrackingQueryResponse:
+    from posthog.sync import database_sync_to_async
+
+    return await database_sync_to_async(query_issues)(team, query)
 
 
 def has_resolved_issues(team: Team | int) -> bool:
