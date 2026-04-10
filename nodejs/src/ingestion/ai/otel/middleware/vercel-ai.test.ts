@@ -94,6 +94,25 @@ describe('vercel-ai middleware', () => {
                 expect(key).not.toBe('operation.name')
                 expect(key).not.toBe('resource.name')
             }
+
+            expect(event.distinct_id).toBe('user-1')
+            expect(event.properties!['functionId']).toBe('my-func')
+            expect(event.properties!['posthog_distinct_id']).toBe('user-1')
+            expect(event.properties!['provider']).toBeUndefined()
+        })
+
+        it('promotes PostHog-specific telemetry metadata only', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_session_id': 'session-123',
+                'ai.telemetry.metadata.org_id': 'org-456',
+                'ai.telemetry.metadata.country_code': 'FR',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_session_id']).toBe('session-123')
+            expect(event.properties!['org_id']).toBeUndefined()
+            expect(event.properties!['country_code']).toBeUndefined()
         })
     })
 

@@ -148,7 +148,25 @@ function process(event: PluginEvent, next: () => void): void {
         delete props['ai.toolCall.result']
     }
 
-    // Strip Vercel-specific telemetry metadata and request headers
+    if (props['ai.telemetry.functionId'] !== undefined && props['functionId'] === undefined) {
+        props['functionId'] = props['ai.telemetry.functionId']
+    }
+
+    const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
+    if (props['posthog_distinct_id'] === undefined && posthogDistinctId !== undefined) {
+        props['posthog_distinct_id'] = posthogDistinctId
+    }
+    if (typeof posthogDistinctId === 'string' && posthogDistinctId !== '') {
+        event.distinct_id = posthogDistinctId
+    }
+
+    const aiSessionId = props['ai.telemetry.metadata.$ai_session_id']
+    if (props['$ai_session_id'] === undefined && aiSessionId !== undefined) {
+        props['$ai_session_id'] = aiSessionId
+    }
+
+    // Strip Vercel-specific telemetry metadata and request headers after preserving
+    // the PostHog identifiers we rely on for event linkage and session grouping.
     for (const key of Object.keys(props)) {
         if (key.startsWith('ai.telemetry.metadata.')) {
             delete props[key]
