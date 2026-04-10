@@ -93,7 +93,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
-        flag: FEATURE_FLAGS.ERROR_TRACKING_SPIKE_ALERTING,
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,

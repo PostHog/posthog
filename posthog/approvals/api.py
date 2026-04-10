@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -44,6 +45,7 @@ class ChangeRequestFilterSet(django_filters.FilterSet):
         fields: list[str] = []
 
 
+@extend_schema(tags=["platform_features"])
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "approvals"
     scope_object_write_actions = ["approve", "reject", "cancel"]
@@ -157,6 +159,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         )
 
 
+@extend_schema(tags=["platform_features"])
 class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "approvals"
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")

@@ -1561,6 +1561,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "experiment_recalculation_time",
                     "default_experiment_confidence_level",
                     "default_experiment_stats_method",
+                    "experiment_precomputation_enabled",
                 ]
 
         team = self.get_object()
