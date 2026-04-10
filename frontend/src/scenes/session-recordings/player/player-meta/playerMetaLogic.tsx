@@ -36,7 +36,7 @@ import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
-import { SessionSummaryContent } from './types'
+import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
@@ -133,6 +133,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
+        setSummarizationProgress: (progress: SummarizationProgress | null) => ({ progress }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
@@ -154,6 +155,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 summarizeSession: () => true,
                 setSessionSummaryContent: () => false,
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        summarizationProgress: [
+            null as SummarizationProgress | null,
+            {
+                summarizeSession: () => null,
+                setSummarizationProgress: (_, { progress }) => progress,
+                setSessionSummaryContent: () => null,
+                setSessionSummaryLoading: (state, { isLoading }) => (isLoading ? state : null),
             },
         ],
         isPropertyPopoverOpen: [
@@ -480,6 +490,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
                                 actions.setSessionSummaryLoading(false)
+                                return
+                            }
+                            // Incremental progress updates from the video-based flow
+                            if (event === 'session-summary-progress') {
+                                actions.setSummarizationProgress(JSON.parse(data))
                                 return
                             }
                             const parsedData = JSON.parse(data)

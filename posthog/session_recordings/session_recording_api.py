@@ -20,7 +20,6 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -94,7 +93,7 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_video_stream
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
@@ -1400,20 +1399,18 @@ class SessionRecordingViewSet(
         )
 
     def _generate_video_based_summary(self, session_id: str, user: User) -> Generator[str, None, None]:
-        """Execute video-based summarization and yield result as SSE event."""
+        """Stream video-based summarization progress events and final summary to the client.
 
+        Progress events (``session-summary-progress``) carry the workflow's
+        current phase, a step counter, and — while the rasterizer is running —
+        fine-grained frame progress read from Temporal activity heartbeats.
+        """
         try:
-            summary_result = async_to_sync(execute_summarize_session)(
+            yield from execute_summarize_session_video_stream(
                 session_id=session_id,
                 user=user,
                 team=self.team,
-                video_validation_enabled="full",
             )
-            yield serialize_to_sse_event(
-                event_label="session-summary-stream",
-                event_data=json.dumps(summary_result),
-            )
-
         except Exception as e:
             # Capture detailed exception server-side while returning a generic error to the client
             capture_exception(e)

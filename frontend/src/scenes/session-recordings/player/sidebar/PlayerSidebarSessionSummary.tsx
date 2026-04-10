@@ -22,6 +22,7 @@ import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lem
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -36,6 +37,7 @@ import {
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
     SessionSummaryContent,
+    SummarizationProgress,
 } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
@@ -76,6 +78,66 @@ const isValidMetaNumber = (value: unknown): value is number => typeof value === 
 
 interface SegmentMetaProps {
     meta: SegmentMeta | null | undefined
+}
+
+const PHASE_LABELS: Record<string, string> = {
+    fetching_data: 'Fetching session data',
+    preparing_video: 'Preparing video',
+    rendering_video: 'Rendering video',
+    uploading_to_gemini: 'Uploading video for analysis',
+    analyzing_segments: 'Analyzing video segments',
+    consolidating: 'Consolidating analysis',
+    generating_embeddings: 'Generating embeddings',
+    saving_summary: 'Saving summary',
+    cleanup: 'Cleaning up',
+}
+
+function getPhaseLabel(phase: string): string {
+    return PHASE_LABELS[phase] ?? phase.replace(/_/g, ' ')
+}
+
+function SummarizationProgressView({ progress }: { progress: SummarizationProgress }): JSX.Element {
+    const totalSteps = progress.total_steps || 1
+    const baseStep = Math.min(progress.step, totalSteps)
+
+    // Compute a 0-1 fraction for the sub-step so the bar keeps moving during long phases
+    let subStepFraction = 0
+    let detail: string | null = null
+    if (progress.phase === 'rendering_video' && progress.rasterizer?.frame_progress) {
+        const { frame, estimatedTotalFrames } = progress.rasterizer.frame_progress
+        if (estimatedTotalFrames > 0) {
+            subStepFraction = Math.min(frame / estimatedTotalFrames, 1)
+            detail = `${frame} / ${estimatedTotalFrames} frames`
+        } else {
+            detail = `${frame} frames`
+        }
+    } else if (progress.phase === 'analyzing_segments' && progress.segments_total > 0) {
+        subStepFraction = Math.min(progress.segments_completed / progress.segments_total, 1)
+        detail = `${progress.segments_completed} / ${progress.segments_total} segments`
+    }
+
+    const percent = ((baseStep + subStepFraction) / totalSteps) * 100
+
+    return (
+        <div className="flex flex-col gap-2 py-1">
+            <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                    <Spinner />
+                    <span>
+                        {getPhaseLabel(progress.phase)}
+                        {detail ? <span className="text-muted-alt">&nbsp;({detail})</span> : null}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-muted-alt text-xs">
+                        Step {Math.min(baseStep + 1, totalSteps)} of {totalSteps}
+                    </span>
+                    <LoadingTimer operation={progress.phase} />
+                </div>
+            </div>
+            <LemonProgress percent={percent} />
+        </div>
+    )
 }
 
 function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
@@ -717,12 +779,14 @@ function LoadSessionSummaryButton(): JSX.Element {
 
 export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummary, sessionSummaryLoading, summarizationProgress } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="rounded border bg-surface-primary px-2 py-1">
             {sessionSummaryLoading ? (
-                <>
+                summarizationProgress ? (
+                    <SummarizationProgressView progress={summarizationProgress} />
+                ) : (
                     <div className="flex items-center justify-between">
                         <div>
                             Researching the session... <Spinner />
@@ -731,7 +795,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
                             <LoadingTimer />
                         </div>
                     </div>
-                </>
+                )
             ) : sessionSummary ? (
                 <SessionSummary />
             ) : (
