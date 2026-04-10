@@ -154,6 +154,30 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_error": {
+            "description": "The error message from a failed AI event.",
+            "examples": [
+                "Rate limit exceeded",
+                "Invalid API key"
+            ],
+            "label": "AI Error (LLM)"
+        },
+        "$ai_error_normalized": {
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": [
+                "rate_limit_exceeded",
+                "invalid_api_key"
+            ],
+            "label": "AI Error Normalized (LLM)"
+        },
+        "$ai_error_type": {
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": [
+                "RateLimitError",
+                "AuthenticationError"
+            ],
+            "label": "AI Error Type (LLM)"
+        },
         "$ai_evaluation_allows_na": {
             "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
             "examples": [
@@ -288,6 +312,14 @@
             ],
             "label": "AI input tokens (LLM)"
         },
+        "$ai_is_error": {
+            "description": "Whether this AI event resulted in an error.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "AI Is Error (LLM)"
+        },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [
@@ -414,6 +446,15 @@
             ],
             "label": "AI Span Name (LLM)"
         },
+        "$ai_stop_reason": {
+            "description": "The reason the LLM stopped generating tokens. Provider-specific values such as 'stop', 'end_turn', 'tool_use', 'length', 'max_tokens', 'STOP', 'SAFETY', etc.",
+            "examples": [
+                "stop",
+                "end_turn",
+                "tool_use"
+            ],
+            "label": "AI stop reason (LLM)"
+        },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
             "examples": [
@@ -487,6 +528,14 @@
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Trace ID (LLM)"
+        },
+        "$ai_trace_name": {
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": [
+                "summarize_text",
+                "chat_completion"
+            ],
+            "label": "AI Trace Name (LLM)"
         },
         "$ai_web_search_cost_usd": {
             "description": "The cost in USD of web searches performed during the LLM API request.",
@@ -2894,6 +2943,30 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_error": {
+            "description": "The error message from a failed AI event.",
+            "examples": [
+                "Rate limit exceeded",
+                "Invalid API key"
+            ],
+            "label": "AI Error (LLM)"
+        },
+        "$ai_error_normalized": {
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": [
+                "rate_limit_exceeded",
+                "invalid_api_key"
+            ],
+            "label": "AI Error Normalized (LLM)"
+        },
+        "$ai_error_type": {
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": [
+                "RateLimitError",
+                "AuthenticationError"
+            ],
+            "label": "AI Error Type (LLM)"
+        },
         "$ai_evaluation_allows_na": {
             "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
             "examples": [
@@ -3028,6 +3101,14 @@
             ],
             "label": "AI input tokens (LLM)"
         },
+        "$ai_is_error": {
+            "description": "Whether this AI event resulted in an error.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "AI Is Error (LLM)"
+        },
         "$ai_latency": {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [
@@ -3154,6 +3235,15 @@
             ],
             "label": "AI Span Name (LLM)"
         },
+        "$ai_stop_reason": {
+            "description": "The reason the LLM stopped generating tokens. Provider-specific values such as 'stop', 'end_turn', 'tool_use', 'length', 'max_tokens', 'STOP', 'SAFETY', etc.",
+            "examples": [
+                "stop",
+                "end_turn",
+                "tool_use"
+            ],
+            "label": "AI stop reason (LLM)"
+        },
         "$ai_stream": {
             "description": "Whether the response from the LLM API was streamed.",
             "examples": [
@@ -3227,6 +3317,14 @@
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Trace ID (LLM)"
+        },
+        "$ai_trace_name": {
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": [
+                "summarize_text",
+                "chat_completion"
+            ],
+            "label": "AI Trace Name (LLM)"
         },
         "$ai_web_search_cost_usd": {
             "description": "The cost in USD of web searches performed during the LLM API request.",

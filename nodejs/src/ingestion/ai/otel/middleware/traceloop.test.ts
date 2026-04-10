@@ -204,6 +204,8 @@ describe('traceloop middleware', () => {
             expect(event.properties!['llm.usage.total_tokens']).toBeUndefined()
             expect(event.properties!['llm.response.finish_reason']).toBeUndefined()
             expect(event.properties!['llm.response.stop_reason']).toBeUndefined()
+            // stop_reason takes priority over finish_reason
+            expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
         })
     })
 })

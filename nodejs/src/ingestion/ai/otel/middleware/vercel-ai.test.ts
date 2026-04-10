@@ -94,6 +94,7 @@ describe('vercel-ai middleware', () => {
                 expect(key).not.toBe('operation.name')
                 expect(key).not.toBe('resource.name')
             }
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
         })
     })
 
