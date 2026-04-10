@@ -53,10 +53,7 @@ done
 USE_NVME=false
 if [ -n "$NVME_DEV" ]; then
     log "Found NVMe instance store: $NVME_DEV ($(lsblk -no SIZE "$NVME_DEV"))"
-    # -O ^has_journal + lazy init: ephemeral store, we don't care about crash
-    # consistency, and skipping the journal speeds up metadata-heavy workloads
-    # (docker image extraction, cargo build, tar pack).
-    mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
+    mkfs.ext4 -F -L nvme-docker "$NVME_DEV"
     mkdir -p /mnt/nvme
     mount "$NVME_DEV" /mnt/nvme
     chown ubuntu:ubuntu /mnt/nvme
@@ -123,30 +120,12 @@ fi
 log "Repo at $(sudo -u ubuntu git rev-parse --short HEAD) ($(sudo -u ubuntu git rev-parse --abbrev-ref HEAD))"
 
 log "Building database cache (this takes ~10-15 min)..."
-# Skip pre-building the Rust workspace during cache-init — the output (cargo
-# target dir, ~4GB) is stripped before archiving anyway (see below), so the
-# pre-build would just waste ~5-10 min of builder time. First rust service
-# start on the sandbox will trigger a fresh build in the background after
-# mprocs launches.
-sudo -u ubuntu sg docker -c "SANDBOX_SKIP_CARGO_PREBUILD=1 python3 bin/sandbox rebuild-cache"
+sudo -u ubuntu sg docker -c "python3 bin/sandbox rebuild-cache"
 log "Database cache built"
 
 log "Archiving Docker data..."
 log "Docker data size: $(du -sh /var/lib/docker | cut -f1)"
 systemctl stop docker.socket docker
-
-# Drop the cargo target dir from the archive. We don't have time on the hot
-# path to extract ~4GB of small .o/.rmeta/.rlib files over a 350 MB/s NVMe,
-# and the rust services aren't on the critical path for backend health
-# anyway — they compile from scratch (~2-5 min) once mprocs starts them.
-# Keep the _data/ directory and volume metadata intact so Docker doesn't get
-# confused on restore; only the contents are removed.
-CARGO_VOLUME=/var/lib/docker/volumes/sandbox-cargo-target/_data
-if [ -d "$CARGO_VOLUME" ]; then
-    log "Cargo target size before clear: $(du -sh "$CARGO_VOLUME" | cut -f1)"
-    find "$CARGO_VOLUME" -mindepth 1 -delete
-    log "Cargo target cleared. Docker data size now: $(du -sh /var/lib/docker | cut -f1)"
-fi
 
 # Write archive to NVMe if available (EBS root is only 40GB)
 if [ "$USE_NVME" = true ]; then

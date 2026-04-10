@@ -162,10 +162,7 @@ else
     log "Found NVMe instance store: $NVME_DEV"
     log "NVMe device size: $(lsblk -no SIZE "$NVME_DEV")"
 
-    # -O ^has_journal + lazy init: ephemeral store, crash consistency doesn't
-    # matter and skipping the journal speeds up metadata-heavy workloads
-    # (tar extract of the cache archive, cargo builds in mprocs).
-    mkfs.ext4 -F -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
+    mkfs.ext4 -F -L nvme-docker "$NVME_DEV"
     mkdir -p /mnt/nvme
     mount "$NVME_DEV" /mnt/nvme
     chown ubuntu:ubuntu /mnt/nvme
