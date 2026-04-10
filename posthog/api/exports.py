@@ -159,7 +159,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             heatmap_url = export_context["heatmap_url"]
             parsed = urlparse.urlparse(heatmap_url)
             is_relative_path = not parsed.scheme and not parsed.netloc
-            # Relative paths are resolved by the browser in the exporter context, 
+            # Relative paths are resolved by the browser in the exporter context,
             # not fetched by the server — SSRF validation doesn't apply
             if not is_relative_path:
                 ok, err = is_url_allowed(heatmap_url)

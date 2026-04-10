@@ -202,9 +202,10 @@ def _export_to_png(
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
             parsed = urlparse(heatmap_url)
-            # Relative paths (no scheme and no netloc) are resolved by the browser
-            # in the exporter context, not fetched by the server — SSRF validation doesn't apply
-            if parsed.scheme or parsed.netloc:
+            is_relative_path = not parsed.scheme and not parsed.netloc
+            # Relative paths are resolved by the browser in the exporter context,
+            # not fetched by the server — SSRF validation doesn't apply
+            if not is_relative_path:
                 ok, err = is_url_allowed(heatmap_url)
                 if not ok:
                     raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
