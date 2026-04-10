@@ -1,15 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region, UserType } from '~/types'
 
 import type { impersonationNoticeLogicType } from './impersonationNoticeLogicType'
-
-const REGION_DOMAINS: Record<Region, string> = {
-    [Region.US]: 'us.posthog.com',
-    [Region.EU]: 'eu.posthog.com',
-}
 
 export interface ImpersonationTicketContext {
     ticketId: string
@@ -21,7 +17,7 @@ function adminLoginUrlForTicket(context: ImpersonationTicketContext): string | n
     if (!context.region) {
         return null
     }
-    const domain = REGION_DOMAINS[context.region]
+    const domain = CLOUD_HOSTNAMES[context.region]
     return `https://${domain}/admin/posthog/user/?q=${encodeURIComponent(context.email)}`
 }
 

@@ -109,6 +109,10 @@
         }
     }
 
+    &--login-as &__minimized-icon {
+        color: var(--success);
+    }
+
     &--read-only &__minimized-icon {
         color: var(--warning);
     }

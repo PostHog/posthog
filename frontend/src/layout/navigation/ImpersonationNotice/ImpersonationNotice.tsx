@@ -193,14 +193,20 @@ export function ImpersonationNotice(): JSX.Element | null {
                 <div className="ImpersonationNotice__sidebar">
                     <IconDragHandle className="ImpersonationNotice__drag-handle" />
                 </div>
-                {!showLoginAs && isMinimized && (
-                    <Tooltip title="Signed in as a customer - click to expand">
+                {isMinimized && (
+                    <Tooltip
+                        title={
+                            showLoginAs
+                                ? 'Staff actions - click to expand'
+                                : 'Signed in as a customer - click to expand'
+                        }
+                    >
                         <div className="ImpersonationNotice__minimized-content" onClick={maximize}>
                             <IconWarning className="ImpersonationNotice__minimized-icon" />
                         </div>
                     </Tooltip>
                 )}
-                {(showLoginAs || !isMinimized) && (
+                {!isMinimized && (
                     <div className="ImpersonationNotice__main">
                         <div className="ImpersonationNotice__header">
                             <IconWarning className="ImpersonationNotice__warning-icon" />
@@ -217,9 +223,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                                     <LemonButton size="xsmall" icon={<IconEllipsis />} />
                                 </LemonMenu>
                             )}
-                            {!showLoginAs && (
-                                <LemonButton size="xsmall" icon={<IconCollapse />} onClick={handleMinimize} />
-                            )}
+                            <LemonButton size="xsmall" icon={<IconCollapse />} onClick={handleMinimize} />
                         </div>
                         <div className="ImpersonationNotice__content">
                             {showLoginAs ? (

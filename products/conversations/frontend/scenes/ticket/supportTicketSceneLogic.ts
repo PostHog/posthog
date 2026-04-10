@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
+import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
@@ -27,11 +28,10 @@ function regionFromUrl(url?: string): Region | undefined {
     if (url) {
         try {
             const hostname = new URL(url).hostname
-            if (hostname === 'eu.posthog.com' || hostname.endsWith('.eu.posthog.com')) {
-                return Region.EU
-            }
-            if (hostname === 'us.posthog.com' || hostname.endsWith('.us.posthog.com')) {
-                return Region.US
+            for (const [region, domain] of Object.entries(CLOUD_HOSTNAMES)) {
+                if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+                    return region as Region
+                }
             }
         } catch {
             // ignore malformed URLs
