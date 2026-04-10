@@ -16,9 +16,8 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
-// The backend rejects `heatmap_url` values without an http(s) scheme (SSRF validation).
-// For screenshot-type heatmaps the in-app `screenshotUrl` is a same-origin API path, so we
-// resolve it to an absolute URL here before sending it to the export pipeline.
+// Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
+// SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
 export function resolveHeatmapExportUrl(
     type: HeatmapType,
     screenshotUrl: string | null,
