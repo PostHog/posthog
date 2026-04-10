@@ -32,25 +32,22 @@
 @source "../../blocks/src";
 
 /*
- * Base layer — universal resets the primitives depend on.
+ * Base layer — the one universal reset the primitives genuinely need.
  *
- * The `* { @apply border-border outline-ring/50 }` rule is load-bearing:
- * primitives like Accordion, Card, and Input write plain `border` (no
- * color modifier) expecting the default border color to resolve to
+ * `* { @apply border-border outline-ring/50 }` is load-bearing: primitives
+ * like Accordion, Card, and Input write plain `border` (no colour
+ * modifier) expecting the default border colour to resolve to
  * `--color-border`. Without this reset, Tailwind v4 falls back to
- * `border-color: currentColor`, which is text-colored (black in light,
+ * `border-color: currentColor`, which is text-coloured (black in light,
  * white in dark) and breaks every bordered component visually.
  *
- * `body { @apply bg-background text-foreground }` paints the page
- * background + text color so consumers that don't wrap their app in an
- * explicit theme container still get the correct default surface.
+ * Deliberately NOT setting `body { bg-background text-foreground }`. The
+ * consumer owns their page chrome — quill is a library, not an app
+ * shell. Apps that want quill to own the full page surface can opt in
+ * explicitly with `<body className="bg-background text-foreground">`.
  */
 @layer base {
     * {
         @apply border-border outline-ring/50;
-    }
-
-    body {
-        @apply bg-background text-foreground;
     }
 }

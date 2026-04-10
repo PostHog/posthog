@@ -101,9 +101,7 @@ function MyPage() {
 }
 ```
 
-The full component catalogue:
-
-Accordion · Badge · Button · ButtonGroup · Card · CardGroup · Checkbox · Chip · Collapsible · Combobox · Command · ContextMenu · Dialog · Drawer · DropdownMenu · Empty · Field · Input · InputGroup · Item · Kbd · Label · Menubar · Popover · Progress · RadioGroup · Resizable · ScrollArea · Select · Separator · Skeleton · SkeletonText · Slider · Spinner · Switch · Tabs · Textarea · Toggle · ToggleGroup · Tooltip
+See the [Storybook](#development) for the full component catalogue, props, and live variants — it's the source of truth and always matches what's shipped.
 
 ## Using the design tokens directly
 
