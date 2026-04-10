@@ -61,6 +61,17 @@ services:
                         path /flags/*
                     }
 
+                    @surveys {
+                        path /surveys
+                        path /surveys/
+                        path /api/surveys
+                        path /api/surveys/
+                    }
+
+                    @remote-config {
+                        path /array/*
+                    }
+
                     @webhooks {
                         path /public/webhooks
                         path /public/webhooks/
@@ -100,6 +111,14 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
+                    }
+
+                    handle @surveys {
+                        reverse_proxy hypercache-server:3002
+                    }
+
+                    handle @remote-config {
+                        reverse_proxy hypercache-server:3002
                     }
 
                     handle @webhooks {
@@ -377,6 +396,24 @@ services:
             RUST_LOG: 'info'
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
+
+    hypercache-server:
+        image: ghcr.io/posthog/posthog/hypercache-server:master
+        build:
+            context: rust/
+            args:
+                BIN: hypercache-server
+        restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3002/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
+        environment:
+            REDIS_URL: 'redis://redis7:6379/'
+            ADDRESS: '0.0.0.0:3002'
+            RUST_LOG: 'info'
 
     plugins:
         command: node nodejs/dist/index.js

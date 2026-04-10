@@ -476,6 +476,14 @@ services:
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
 
+    hypercache-server:
+        extends:
+            file: docker-compose.base.yml
+            service: hypercache-server
+        depends_on:
+            redis7:
+                condition: service_healthy
+
     # Temporal containers
     elasticsearch:
         extends:
