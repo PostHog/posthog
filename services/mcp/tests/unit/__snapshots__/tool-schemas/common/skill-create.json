@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allowed_tools": {
+            "description": "List of pre-approved tools the skill may use."
+        },
+        "body": {
+            "description": "The SKILL.md instruction content (markdown).",
+            "type": "string"
+        },
+        "compatibility": {
+            "description": "Environment requirements (intended product, system packages, network access, etc.).",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "description": {
+            "description": "What this skill does and when to use it. Max 1024 characters.",
+            "maxLength": 1024,
+            "type": "string"
+        },
+        "license": {
+            "description": "License name or reference to a bundled license file.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "metadata": {
+            "description": "Arbitrary key-value metadata."
+        },
+        "name": {
+            "description": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name", "description", "body"],
+    "type": "object"
+}
