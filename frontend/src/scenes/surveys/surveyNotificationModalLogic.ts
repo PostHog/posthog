@@ -32,6 +32,7 @@ export type SurveyQuestionForNotification = {
 
 export interface SurveyNotificationForm {
     destination: DestinationKey
+    onlyCompletedResponses: boolean
     slackIntegrationId: number | null
     slackChannel: string | null
     slackMessage: string
@@ -75,10 +76,8 @@ export function getDefaultSurveyMessage(questions: SurveyQuestionForNotification
         .slice(0, MAX_EXAMPLE_QUESTIONS)
 
     return [
-        '*New survey response*',
-        `Survey: *${SURVEY_NAME_TOKEN}*`,
-        `Respondent: ${RESPONDENT_NAME_TOKEN}`,
-        `Email: ${RESPONDENT_EMAIL_TOKEN}`,
+        `*New response on ${SURVEY_NAME_TOKEN}*`,
+        `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`,
         ...(exampleQuestions.length > 0
             ? ['', '*Responses*', ...exampleQuestions.map((question, index) => getQuestionLine(question, index))]
             : []),
@@ -179,6 +178,7 @@ function buildSurveyNotificationForm(survey: Survey): SurveyNotificationForm {
 
     return {
         destination: 'slack',
+        onlyCompletedResponses: true,
         slackIntegrationId: null,
         slackChannel: null,
         slackMessage: defaultMessage,
@@ -322,7 +322,7 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId),
+        filters: getSurveyNotificationFilters(surveyId, form.onlyCompletedResponses),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
