@@ -188,6 +188,62 @@ class TestGetJsContent(SimpleTestCase):
         assert len(content) > 0  # falls back to disk
 
 
+class TestSourceObservers(SimpleTestCase):
+    def setUp(self):
+        _reset_caches()
+        self._disk_patcher = patch(
+            "posthog.models.js_snippet_versioning._get_disk_js_content", return_value="mock-disk-js-content"
+        )
+        self._disk_patcher.start()
+
+    def tearDown(self):
+        self._disk_patcher.stop()
+        cache.delete(REDIS_POINTER_MAP_KEY)
+        _reset_caches()
+
+    def test_get_js_content_reports_memory_source(self):
+        sv._js_content_cache["1.358.0"] = "memory-js-content"
+        observed: list[str] = []
+
+        content = get_js_content("1.358.0", source_observer=observed.append)
+
+        assert content == "memory-js-content"
+        assert observed == ["memory"]
+
+    def test_get_js_content_reports_redis_source(self):
+        cache.set(f"{REDIS_JS_KEY_PREFIX}:1.358.0", "cached-js-content", 3600)
+        observed: list[str] = []
+
+        try:
+            content = get_js_content("1.358.0", source_observer=observed.append)
+            assert content == "cached-js-content"
+            assert observed == ["redis"]
+        finally:
+            cache.delete(f"{REDIS_JS_KEY_PREFIX}:1.358.0")
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_read")
+    def test_resolve_version_reports_s3_recovery_source(self, mock_read):
+        manifest = _make_manifest(
+            versions=["1.358.0"],
+            pointers={"1": "1.358.0", "1.358": "1.358.0"},
+        )
+        mock_read.return_value = json.dumps(manifest)
+        observed: list[str] = []
+
+        assert resolve_version("1", manifest_source_observer=observed.append) == "1.358.0"
+        assert observed == ["s3_recovery"]
+
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    @patch("posthog.models.js_snippet_versioning.s3_read", return_value=None)
+    def test_resolve_version_reports_negative_cache_source(self, _mock_read):
+        assert resolve_version("1") is None
+
+        observed: list[str] = []
+        assert resolve_version("1", manifest_source_observer=observed.append) is None
+        assert observed == ["negative_cache"]
+
+
 class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.js_snippet_versioning.s3_head")

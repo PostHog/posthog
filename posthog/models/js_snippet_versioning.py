@@ -5,6 +5,7 @@ import time
 import hashlib
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NotRequired, Optional, TypedDict
 
@@ -70,6 +71,14 @@ def s3_head(key: str) -> bool:
     except Exception as e:
         capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "head", "key": key})
         raise ObjectStorageError("head failed") from e
+
+
+SourceObserver = Callable[[str], None]
+
+
+def _observe_source(source_observer: Optional[SourceObserver], source: str) -> None:
+    if source_observer is not None:
+        source_observer(source)
 
 
 # Disk fallback: the array.js shipped with the current deploy
@@ -231,7 +240,7 @@ def _get_redis_key(version: str) -> str:
     return f"{REDIS_JS_KEY_PREFIX}:{version}"
 
 
-def get_js_content(version: Optional[str]) -> str:
+def get_js_content(version: Optional[str], *, source_observer: Optional[SourceObserver] = None) -> str:
     """
     Fetch JS content for a resolved exact version.
 
@@ -242,15 +251,18 @@ def get_js_content(version: Optional[str]) -> str:
     4. Disk (frontend/dist/array.js from current deploy)
     """
     if version is None:
+        _observe_source(source_observer, "disk")
         return _get_disk_js_content()
 
     if not _EXACT_VERSION_RE.match(version):
         logger.warning("Invalid resolved version, falling back to disk", version=version)
+        _observe_source(source_observer, "disk")
         return _get_disk_js_content()
 
     # 1. In-process LRU cache (immutable content, bounded size)
     cached_content = _content_cache_get(version)
     if cached_content is not None:
+        _observe_source(source_observer, "memory")
         return cached_content
 
     # 2. Try Redis
@@ -258,6 +270,7 @@ def get_js_content(version: Optional[str]) -> str:
     cached = cache.get(redis_key)
     if cached is not None:
         _content_cache_put(version, cached)
+        _observe_source(source_observer, "redis")
         return cached
 
     # 3. Try S3
@@ -267,12 +280,14 @@ def get_js_content(version: Optional[str]) -> str:
         if content is not None:
             cache.set(redis_key, content, REDIS_JS_CONTENT_TTL)
             _content_cache_put(version, content)
+            _observe_source(source_observer, "s3")
             return content
     except ObjectStorageError:
         logger.exception("Failed to read JS content from S3", version=version)
 
     # 4. Disk fallback
     logger.warning("Falling back to disk JS content", version=version)
+    _observe_source(source_observer, "disk")
     return _get_disk_js_content()
 
 
@@ -302,7 +317,7 @@ def _recover_manifest_from_s3() -> Optional[CachedManifest]:
         return None
 
 
-def _get_manifest() -> Optional[CachedManifest]:
+def _get_manifest(*, source_observer: Optional[SourceObserver] = None) -> Optional[CachedManifest]:
     """Get version manifest from in-process cache -> Redis -> S3.
 
     Returns None (with disk fallback) when the manifest can't be loaded.
@@ -314,19 +329,24 @@ def _get_manifest() -> Optional[CachedManifest]:
 
     if _cached_manifest is not None and _cached_manifest.is_fresh:
         if isinstance(_cached_manifest, _ManifestMiss):
+            _observe_source(source_observer, "negative_cache")
             return None
+        _observe_source(source_observer, "memory")
         return _cached_manifest
 
+    redis_error = False
     try:
         raw = cache.get(REDIS_POINTER_MAP_KEY)
     except Exception as e:
         logger.exception("Failed to read manifest from Redis")
         capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "redis_key": REDIS_POINTER_MAP_KEY})
         raw = None
+        redis_error = True
 
     if raw is not None:
         try:
             _cached_manifest = CachedManifest.from_json(raw)
+            _observe_source(source_observer, "redis")
             return _cached_manifest
         except Exception as e:
             capture_exception(
@@ -338,9 +358,11 @@ def _get_manifest() -> Optional[CachedManifest]:
         recovered = _recover_manifest_from_s3()
         if recovered is not None:
             _cached_manifest = recovered
+            _observe_source(source_observer, "s3_recovery")
             return _cached_manifest
 
     _cached_manifest = _ManifestMiss(cached_at=time.time())
+    _observe_source(source_observer, "redis_error" if redis_error else "miss")
     return None
 
 
@@ -467,7 +489,12 @@ def sync_manifest_from_s3() -> VersionManifest:
     return manifest
 
 
-def resolve_version(requested_version: Optional[str], *, strict: bool = False) -> Optional[str]:
+def resolve_version(
+    requested_version: Optional[str],
+    *,
+    strict: bool = False,
+    manifest_source_observer: Optional[SourceObserver] = None,
+) -> Optional[str]:
     """
     Resolve a requested version to a concrete version string.
 
@@ -487,7 +514,7 @@ def resolve_version(requested_version: Optional[str], *, strict: bool = False) -
     if not settings.POSTHOG_JS_S3_BUCKET:
         return None
 
-    manifest = _get_manifest()
+    manifest = _get_manifest(source_observer=manifest_source_observer)
     if manifest is None:
         return None
 

@@ -1,6 +1,8 @@
 import copy
 import json
 import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, NamedTuple, Optional
 
 from django.conf import settings
@@ -92,6 +94,23 @@ class ArrayJSMetadata(NamedTuple):
     requested_version: str  # The snippet version pin (e.g. "1", "1.358") for Cache-Tag
     resolved_version: Optional[str]  # Exact version the request resolved to (e.g. "1.360.1")
     config: dict  # Pre-loaded config — pass to build_array_js_content to avoid a second cache read
+
+
+@dataclass
+class ArrayJSObservers:
+    config_source: Optional[Callable[[str], None]] = None
+    manifest_source: Optional[Callable[[str], None]] = None
+    js_content_source: Optional[Callable[[str], None]] = None
+
+
+@dataclass
+class ArrayJSPreparedResponse:
+    metadata: Optional[ArrayJSMetadata]
+    not_modified: bool = False
+
+    @property
+    def is_missing(self) -> bool:
+        return self.metadata is None
 
 
 class RemoteConfig(UUIDTModel):
@@ -420,10 +439,11 @@ class RemoteConfig(UUIDTModel):
         return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        # source tells us where the result came from ("redis", "s3", or None).
+    def _get_config_via_cache_with_source(cls, token: str) -> tuple[dict | None, str]:
+        # source tells us where the result came from ("redis", "s3", or "db").
         # When data is None, source disambiguates: a cache hit returning None means
-        # the team was explicitly cached as missing, while no source means a true cache miss.
+        # the team was explicitly cached as missing, while "db" means a true cache miss
+        # that resolved to a missing team in the fallback loader.
         data, source = cls.get_hypercache().get_from_cache_with_source(token)
 
         if data is None:
@@ -431,12 +451,18 @@ class RemoteConfig(UUIDTModel):
                 REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
             else:
                 REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if source in ("redis", "s3"):
+        elif source in ("redis", "s3"):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
         else:
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
+
+        return data, source
+
+    @classmethod
+    def _get_config_via_cache(cls, token: str) -> dict:
+        data, _source = cls._get_config_via_cache_with_source(token)
+        if data is None:
+            raise cls.DoesNotExist()
         return data
 
     @staticmethod
@@ -500,26 +526,75 @@ class RemoteConfig(UUIDTModel):
         config = cls._get_config_via_cache(token)
         return cls._build_config_js(config, token, request=request)
 
+    @staticmethod
+    def _compute_array_js_metadata_from_config(
+        config: dict,
+        *,
+        manifest_source_observer: Optional[Callable[[str], None]] = None,
+    ) -> ArrayJSMetadata:
+        sdk_version = config.get("sdkVersion", {})
+        requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
+
+        # ETag derived from inputs (resolved version + config hash) rather than
+        # hashing the full ~200KB response body.
+        resolved = resolve_version(requested, manifest_source_observer=manifest_source_observer)
+        etag_version = resolved or get_disk_js_hash()
+        config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
+        etag = f'"{etag_version}:{config_hash}"'
+
+        return ArrayJSMetadata(etag=etag, requested_version=requested, resolved_version=resolved, config=config)
+
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.compute_array_js_metadata")
-    def compute_array_js_metadata(cls, token: str) -> ArrayJSMetadata:
+    def compute_array_js_metadata(
+        cls,
+        token: str,
+        *,
+        manifest_source_observer: Optional[Callable[[str], None]] = None,
+    ) -> ArrayJSMetadata:
         """Compute an ETag for the array.js response without building it.
 
         Returns metadata including the pre-loaded config. Pass this to
         build_array_js_content to build the response without a second cache read.
         """
         config = cls._get_config_via_cache(token)
-        sdk_version = config.get("sdkVersion", {})
-        requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
+        return cls._compute_array_js_metadata_from_config(
+            config,
+            manifest_source_observer=manifest_source_observer,
+        )
 
-        # ETag derived from inputs (resolved version + config hash) rather than
-        # hashing the full ~200KB response body.
-        resolved = resolve_version(requested)
-        etag_version = resolved or get_disk_js_hash()
-        config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
-        etag = f'"{etag_version}:{config_hash}"'
+    @classmethod
+    def prepare_array_js_response(
+        cls,
+        token: str,
+        *,
+        if_none_match: Optional[str] = None,
+        observers: Optional[ArrayJSObservers] = None,
+    ) -> ArrayJSPreparedResponse:
+        """Prepare the domain-level array.js response state for a request.
 
-        return ArrayJSMetadata(etag=etag, requested_version=requested, resolved_version=resolved, config=config)
+        This owns config lookup, source observation, version resolution, and
+        the conditional GET decision so the API view only has to translate the
+        result into HTTP responses and request-level metrics.
+        """
+        config, config_source = cls._get_config_via_cache_with_source(token)
+
+        if config is None:
+            if observers and observers.config_source:
+                observers.config_source("missing")
+            return ArrayJSPreparedResponse(metadata=None)
+
+        if observers and observers.config_source:
+            observers.config_source(config_source)
+
+        metadata = cls._compute_array_js_metadata_from_config(
+            config,
+            manifest_source_observer=observers.manifest_source if observers else None,
+        )
+        return ArrayJSPreparedResponse(
+            metadata=metadata,
+            not_modified=if_none_match == metadata.etag,
+        )
 
     @classmethod
     @tracer.start_as_current_span("RemoteConfig.build_array_js_content")
@@ -529,6 +604,7 @@ class RemoteConfig(UUIDTModel):
         config: dict,
         resolved_version: Optional[str] = None,
         request: Optional[HttpRequest] = None,
+        js_content_source_observer: Optional[Callable[[str], None]] = None,
     ) -> str:
         """Build the full array.js + config JS response body.
 
@@ -536,7 +612,7 @@ class RemoteConfig(UUIDTModel):
         a redundant cache read. resolved_version is the exact version string
         (e.g. "1.360.1") from ArrayJSMetadata.
         """
-        array_js = get_js_content(resolved_version)
+        array_js = get_js_content(resolved_version, source_observer=js_content_source_observer)
         config_js = cls._build_config_js(config, token, request=request, resolved_version=resolved_version)
         return f"""{config_js}\n\n{array_js}"""
 

@@ -4,13 +4,44 @@ from django.conf import settings
 from django.http import Http404, HttpResponse, JsonResponse
 
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import ArrayJSObservers, RemoteConfig
+
+ARRAY_JS_CONFIG_SOURCE_COUNTER = Counter(
+    "posthog_array_js_config_source",
+    "Origin config source used to serve /array/{token}/array.js.",
+    labelnames=["source"],
+)
+
+ARRAY_JS_CONTENT_SOURCE_COUNTER = Counter(
+    "posthog_array_js_content_source",
+    "Origin JS artifact source used to serve /array/{token}/array.js.",
+    labelnames=["source"],
+)
+
+ARRAY_JS_MANIFEST_SOURCE_COUNTER = Counter(
+    "posthog_array_js_manifest_source",
+    "Manifest source used while resolving snippet versions for /array/{token}/array.js.",
+    labelnames=["source"],
+)
 
 tracer = trace.get_tracer(__name__)
+
+
+def _observe_array_js_config_source(source: str) -> None:
+    ARRAY_JS_CONFIG_SOURCE_COUNTER.labels(source=source).inc()
+
+
+def _observe_array_js_content_source(source: str) -> None:
+    ARRAY_JS_CONTENT_SOURCE_COUNTER.labels(source=source).inc()
+
+
+def _observe_array_js_manifest_source(source: str) -> None:
+    ARRAY_JS_MANIFEST_SOURCE_COUNTER.labels(source=source).inc()
 
 
 def add_vary_headers(response):
@@ -113,16 +144,32 @@ class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
     @tracer.start_as_current_span("RemoteConfig.ArrayJSAPIView.get")
     def get(self, request, token: str, *args, **kwargs):
         token = self.check_token(token)
-
-        try:
-            meta = RemoteConfig.compute_array_js_metadata(token)
-        except RemoteConfig.DoesNotExist:
+        observers = ArrayJSObservers(
+            config_source=_observe_array_js_config_source,
+            manifest_source=_observe_array_js_manifest_source,
+            js_content_source=_observe_array_js_content_source,
+        )
+        prepared = RemoteConfig.prepare_array_js_response(
+            token,
+            if_none_match=request.META.get("HTTP_IF_NONE_MATCH"),
+            observers=observers,
+        )
+        if prepared.is_missing:
             raise Http404()
 
-        if request.META.get("HTTP_IF_NONE_MATCH") == meta.etag:
+        meta = prepared.metadata
+        assert meta is not None
+
+        if prepared.not_modified:
             response = HttpResponse(status=304)
             return add_cache_headers(response, token, meta.etag, snippet_version=meta.requested_version)
 
-        content = RemoteConfig.build_array_js_content(token, meta.config, meta.resolved_version, request=request)
+        content = RemoteConfig.build_array_js_content(
+            token,
+            meta.config,
+            meta.resolved_version,
+            request=request,
+            js_content_source_observer=observers.js_content_source,
+        )
         response = HttpResponse(content, content_type="application/javascript")
         return add_cache_headers(response, token, meta.etag, snippet_version=meta.requested_version)
