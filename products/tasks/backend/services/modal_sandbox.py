@@ -8,6 +8,7 @@ import logging
 import tempfile
 from collections.abc import Iterable
 from functools import lru_cache
+from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -20,6 +21,7 @@ import modal
 import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
@@ -33,7 +35,12 @@ from products.tasks.backend.services.agentsh import (
     generate_policy_yaml,
 )
 from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
-from products.tasks.backend.services.sandbox import wait_for_health_check
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    SandboxProvisionDiagnostics,
+    capture_modal_output_if_debug,
+    summarize_modal_output,
+)
+from products.tasks.backend.services.sandbox import WORKING_DIR, SandboxBase, wait_for_health_check
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -47,13 +54,25 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+
+# Modal region mapping based on cloud deployment
+MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
+    "EU": "eu-central-1",
+    "US": "us-east-1",
+}
+DEFAULT_MODAL_REGION = "us-east-1"
+
+
+def _get_modal_region() -> str:
+    return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
 LOCAL_BUILT_SKILLS_PATH = Path("products/posthog_ai/dist/skills")
 LOCAL_SOURCE_SKILLS_PATHS = (Path(".agents/skills"), Path("products/posthog_ai/skills"))
 LOCAL_MODAL_DOCKERFILES = {
@@ -199,7 +218,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox:
+class ModalSandbox(SandboxBase):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.
@@ -210,6 +229,7 @@ class ModalSandbox:
     _sandbox: modal.Sandbox
     _app: modal.App
     _sandbox_url: str | None
+    provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
 
@@ -219,6 +239,7 @@ class ModalSandbox:
         self._sandbox = sandbox
         self._app = type(self)._get_app_for_template(config.template)
         self._sandbox_url = sandbox_url
+        self.provision_diagnostics = None
 
     @property
     def sandbox_url(self) -> str | None:
@@ -270,6 +291,8 @@ class ModalSandbox:
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
+            region = _get_modal_region()
+
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
@@ -277,6 +300,7 @@ class ModalSandbox:
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
                 "memory": int(config.memory_gb * 1024),
+                "region": region,
                 "verbose": True,
             }
 
@@ -284,19 +308,24 @@ class ModalSandbox:
                 create_kwargs["secrets"] = secrets
 
             try:
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
             except Exception as e:
                 if not used_snapshot_image:
                     raise
                 logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
                 capture_exception(e)
                 create_kwargs["image"] = base_image
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
 
             sandbox = cls(sandbox=sb, config=config)
+            if modal_output is not None:
+                sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -467,31 +496,6 @@ class ModalSandbox:
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
-
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
-        )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -715,12 +719,6 @@ class ModalSandbox:
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

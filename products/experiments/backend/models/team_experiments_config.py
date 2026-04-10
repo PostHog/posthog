@@ -35,5 +35,10 @@ class TeamExperimentsConfig(models.Model):
         help_text="Default statistical method for new experiments in this environment.",
     )
 
+    experiment_precomputation_enabled = models.BooleanField(
+        default=False,
+        help_text="Whether to precompute experiment exposure data for faster query execution.",
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)
