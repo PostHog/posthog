@@ -561,8 +561,6 @@ export const surveyLogic = kea<surveyLogicType>([
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
         startResultsRequery: true,
         markResultsRequeryCompleted: true,
-        openSurveyNotificationModal: true,
-        closeSurveyNotificationModal: true,
         toggleSurveyNotificationEnabled: (notificationId: string, enabled: boolean) => ({
             notificationId,
             enabled,
@@ -1308,13 +1306,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        surveyNotificationModalOpen: [
-            false,
-            {
-                openSurveyNotificationModal: () => true,
-                closeSurveyNotificationModal: () => false,
             },
         ],
         surveyMissing: [

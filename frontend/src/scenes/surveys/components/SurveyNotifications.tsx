@@ -6,6 +6,7 @@ import { LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyNotificationModalLogic } from 'scenes/surveys/surveyNotificationModalLogic'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
@@ -43,8 +44,10 @@ export function SurveyNotifications({
     buttonFullWidth = false,
 }: SurveyNotificationsProps): JSX.Element {
     const logic = surveyLogic({ id: surveyId })
+    const notificationModalLogic = surveyNotificationModalLogic({ surveyId })
     const { survey, surveyNotifications, surveyNotificationsLoading } = useValues(logic)
-    const { toggleSurveyNotificationEnabled, openSurveyNotificationModal } = useActions(logic)
+    const { toggleSurveyNotificationEnabled } = useActions(logic)
+    const { openDialog } = useActions(notificationModalLogic)
 
     const isUnsavedSurvey = survey.id === NEW_SURVEY.id
 
@@ -93,7 +96,7 @@ export function SurveyNotifications({
                 type="secondary"
                 size="small"
                 icon={<IconPlus />}
-                onClick={openSurveyNotificationModal}
+                onClick={openDialog}
                 fullWidth={buttonFullWidth}
                 data-attr="survey-new-notification"
                 disabledReason={isUnsavedSurvey ? 'Save the survey before adding notifications.' : undefined}

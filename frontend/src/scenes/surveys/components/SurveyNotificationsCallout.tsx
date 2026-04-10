@@ -5,11 +5,13 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyNotificationModalLogic } from 'scenes/surveys/surveyNotificationModalLogic'
 
 export function SurveyNotificationsCallout({ surveyId }: { surveyId: string }): JSX.Element | null {
     const logic = surveyLogic({ id: surveyId })
+    const notificationModalLogic = surveyNotificationModalLogic({ surveyId })
     const { survey, surveyNotifications, surveyNotificationsLoading } = useValues(logic)
-    const { openSurveyNotificationModal } = useActions(logic)
+    const { openDialog } = useActions(notificationModalLogic)
 
     const shouldShow =
         survey.id !== NEW_SURVEY.id &&
@@ -32,7 +34,7 @@ export function SurveyNotificationsCallout({ surveyId }: { surveyId: string }): 
                         survey-specific message without leaving this page.
                     </div>
                 </div>
-                <LemonButton type="primary" size="small" icon={<IconBell />} onClick={openSurveyNotificationModal}>
+                <LemonButton type="primary" size="small" icon={<IconBell />} onClick={openDialog}>
                     Set up notifications
                 </LemonButton>
             </div>
