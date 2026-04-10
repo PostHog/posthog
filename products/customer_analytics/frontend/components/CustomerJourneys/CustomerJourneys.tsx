@@ -40,7 +40,7 @@ export function CustomerJourneys(): JSX.Element {
                     <Spinner />
                 </div>
             ) : activeJourneyFullQuery ? (
-                <Query query={activeJourneyFullQuery} readOnly />
+                <Query query={activeJourneyFullQuery} />
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
