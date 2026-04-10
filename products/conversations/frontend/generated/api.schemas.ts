@@ -12,9 +12,9 @@
  * `in_progress` - In progress
  * `canceling` - Canceling
  */
-export type Status782EnumApi = (typeof Status782EnumApi)[keyof typeof Status782EnumApi]
+export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
 
-export const Status782EnumApi = {
+export const ConversationStatusApi = {
     Idle: 'idle',
     InProgress: 'in_progress',
     Canceling: 'canceling',
@@ -85,9 +85,9 @@ export interface UserBasicApi {
  * `deep_research` - Deep research
  * `slack` - Slack
  */
-export type Type95dEnumApi = (typeof Type95dEnumApi)[keyof typeof Type95dEnumApi]
+export type ConversationTypeApi = (typeof ConversationTypeApi)[keyof typeof ConversationTypeApi]
 
-export const Type95dEnumApi = {
+export const ConversationTypeApi = {
     Assistant: 'assistant',
     ToolCall: 'tool_call',
     DeepResearch: 'deep_research',
@@ -96,7 +96,7 @@ export const Type95dEnumApi = {
 
 export interface ConversationMinimalApi {
     readonly id: string
-    readonly status: Status782EnumApi
+    readonly status: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -107,7 +107,7 @@ export interface ConversationMinimalApi {
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: Type95dEnumApi
+    readonly type: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -191,7 +191,7 @@ export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
 
 export interface ConversationApi {
     readonly id: string
-    readonly status: Status782EnumApi
+    readonly status: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -202,7 +202,7 @@ export interface ConversationApi {
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: Type95dEnumApi
+    readonly type: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -244,7 +244,7 @@ export type PatchedConversationApiPendingApprovalsItem = { [key: string]: unknow
 
 export interface PatchedConversationApi {
     readonly id?: string
-    readonly status?: Status782EnumApi
+    readonly status?: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -255,7 +255,7 @@ export interface PatchedConversationApi {
     readonly created_at?: string | null
     /** @nullable */
     readonly updated_at?: string | null
-    readonly type?: Type95dEnumApi
+    readonly type?: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable

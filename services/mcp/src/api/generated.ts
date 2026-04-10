@@ -7771,10 +7771,10 @@ export namespace Schemas {
     * `in_progress` - In progress
     * `canceling` - Canceling
      */
-    export type Status782Enum = typeof Status782Enum[keyof typeof Status782Enum];
+    export type ConversationStatus = typeof ConversationStatus[keyof typeof ConversationStatus];
 
 
-    export const Status782Enum = {
+    export const ConversationStatus = {
       Idle: 'idle',
       InProgress: 'in_progress',
       Canceling: 'canceling',
@@ -7786,10 +7786,10 @@ export namespace Schemas {
     * `deep_research` - Deep research
     * `slack` - Slack
      */
-    export type Type95dEnum = typeof Type95dEnum[keyof typeof Type95dEnum];
+    export type ConversationType = typeof ConversationType[keyof typeof ConversationType];
 
 
-    export const Type95dEnum = {
+    export const ConversationType = {
       Assistant: 'assistant',
       ToolCall: 'tool_call',
       DeepResearch: 'deep_research',
@@ -7798,7 +7798,7 @@ export namespace Schemas {
 
     export interface Conversation {
       readonly id: string;
-      readonly status: Status782Enum;
+      readonly status: ConversationStatus;
       /**
        * Title of the conversation.
        * @nullable
@@ -7809,7 +7809,7 @@ export namespace Schemas {
       readonly created_at: string | null;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly type: Type95dEnum;
+      readonly type: ConversationType;
       /**
        * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
        * @nullable
@@ -7839,7 +7839,7 @@ export namespace Schemas {
 
     export interface ConversationMinimal {
       readonly id: string;
-      readonly status: Status782Enum;
+      readonly status: ConversationStatus;
       /**
        * Title of the conversation.
        * @nullable
@@ -7850,7 +7850,7 @@ export namespace Schemas {
       readonly created_at: string | null;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly type: Type95dEnum;
+      readonly type: ConversationType;
       /**
        * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
        * @nullable
@@ -22665,7 +22665,7 @@ export namespace Schemas {
 
     export interface PatchedConversation {
       readonly id?: string;
-      readonly status?: Status782Enum;
+      readonly status?: ConversationStatus;
       /**
        * Title of the conversation.
        * @nullable
@@ -22676,7 +22676,7 @@ export namespace Schemas {
       readonly created_at?: string | null;
       /** @nullable */
       readonly updated_at?: string | null;
-      readonly type?: Type95dEnum;
+      readonly type?: ConversationType;
       /**
        * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
        * @nullable
