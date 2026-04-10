@@ -6631,6 +6631,44 @@ export namespace Schemas {
       batch_export: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type BatchImportCreatedBy = { [key: string]: unknown } | null | null;
+
+    /**
+     * * `completed` - Completed
+    * `failed` - Failed
+    * `paused` - Paused
+    * `running` - Running
+     */
+    export type BatchImportStatusEnum = typeof BatchImportStatusEnum[keyof typeof BatchImportStatusEnum];
+
+
+    export const BatchImportStatusEnum = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Paused: 'paused',
+      Running: 'running',
+    } as const;
+
+    /**
+     * Serializer for BatchImport model
+     */
+    export interface BatchImport {
+      readonly id: string;
+      readonly team_id: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly state: unknown | null;
+      /** @nullable */
+      readonly created_by: BatchImportCreatedBy;
+      status?: BatchImportStatusEnum;
+      /** @nullable */
+      readonly display_status_message: string | null;
+      import_config: unknown;
+    }
+
     export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
 
 
@@ -6942,6 +6980,65 @@ export namespace Schemas {
     }
 
     /**
+     * * `error` - error
+    * `warning` - warning
+     */
+    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+
+
+    export const UtmIssueSeverityEnum = {
+      Error: 'error',
+      Warning: 'warning',
+    } as const;
+
+    export interface UtmIssue {
+      /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
+      field: string;
+      /** Issue severity level
+
+    * `error` - error
+    * `warning` - warning */
+      severity: UtmIssueSeverityEnum;
+      /** Human-readable description of the issue */
+      message: string;
+    }
+
+    export interface CampaignAuditResult {
+      /** Campaign name from the ad platform */
+      campaign_name: string;
+      /** Campaign ID from the ad platform */
+      campaign_id: string;
+      /** Integration source name (e.g. google, meta) */
+      source_name: string;
+      /** Total spend for this campaign in the period */
+      spend: number;
+      /** Total clicks for this campaign */
+      clicks: number;
+      /** Total impressions for this campaign */
+      impressions: number;
+      /** Whether matching UTM pageview events were found */
+      has_utm_events: boolean;
+      /** Number of matching UTM pageview events */
+      event_count: number;
+      /** List of detected UTM configuration issues */
+      issues: UtmIssue[];
+    }
+
+    /**
+     * * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped
+     */
+    export type CampaignMatchEnum = typeof CampaignMatchEnum[keyof typeof CampaignMatchEnum];
+
+
+    export const CampaignMatchEnum = {
+      None: 'none',
+      Auto: 'auto',
+      Mapped: 'mapped',
+    } as const;
+
+    /**
      * Supporting evidence
      */
     export type CapabilityStateEvidence = {[key: string]: unknown};
@@ -7030,6 +7127,32 @@ export namespace Schemas {
        */
       max_selections?: number | null;
     }
+
+    /**
+     * * `marketing` - Marketing
+    * `transactional` - Transactional
+     */
+    export type CategoryTypeEnum = typeof CategoryTypeEnum[keyof typeof CategoryTypeEnum];
+
+
+    export const CategoryTypeEnum = {
+      Marketing: 'marketing',
+      Transactional: 'transactional',
+    } as const;
+
+    /**
+     * * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both
+     */
+    export type CdcTableModeEnum = typeof CdcTableModeEnum[keyof typeof CdcTableModeEnum];
+
+
+    export const CdcTableModeEnum = {
+      Consolidated: 'consolidated',
+      CdcOnly: 'cdc_only',
+      Both: 'both',
+    } as const;
 
     export type ChangeRequestApprovalsItem = {[key: string]: unknown};
 
@@ -7299,6 +7422,11 @@ export namespace Schemas {
       yAxisAtZero?: boolean | null;
     }
 
+    export interface CheckDatabaseNameResponse {
+      name: string;
+      available: boolean;
+    }
+
     export type ClickhouseEventProperties = {[key: string]: unknown};
 
     /**
@@ -7371,6 +7499,142 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * * `hdbscan` - hdbscan
+    * `kmeans` - kmeans
+     */
+    export type ClusteringMethodEnum = typeof ClusteringMethodEnum[keyof typeof ClusteringMethodEnum];
+
+
+    export const ClusteringMethodEnum = {
+      Hdbscan: 'hdbscan',
+      Kmeans: 'kmeans',
+    } as const;
+
+    export type ClusteringRunRequestEventFiltersItem = {[key: string]: unknown};
+
+    /**
+     * * `none` - none
+    * `l2` - l2
+     */
+    export type EmbeddingNormalizationEnum = typeof EmbeddingNormalizationEnum[keyof typeof EmbeddingNormalizationEnum];
+
+
+    export const EmbeddingNormalizationEnum = {
+      None: 'none',
+      L2: 'l2',
+    } as const;
+
+    /**
+     * * `none` - none
+    * `umap` - umap
+    * `pca` - pca
+     */
+    export type DimensionalityReductionMethodEnum = typeof DimensionalityReductionMethodEnum[keyof typeof DimensionalityReductionMethodEnum];
+
+
+    export const DimensionalityReductionMethodEnum = {
+      None: 'none',
+      Umap: 'umap',
+      Pca: 'pca',
+    } as const;
+
+    /**
+     * * `umap` - umap
+    * `pca` - pca
+    * `tsne` - tsne
+     */
+    export type VisualizationMethodEnum = typeof VisualizationMethodEnum[keyof typeof VisualizationMethodEnum];
+
+
+    export const VisualizationMethodEnum = {
+      Umap: 'umap',
+      Pca: 'pca',
+      Tsne: 'tsne',
+    } as const;
+
+    /**
+     * Serializer for clustering workflow request parameters.
+     */
+    export interface ClusteringRunRequest {
+      /**
+       * Number of days to look back for traces
+       * @minimum 1
+       * @maximum 90
+       */
+      lookback_days?: number;
+      /**
+       * Maximum number of traces to sample for clustering
+       * @minimum 20
+       * @maximum 10000
+       */
+      max_samples?: number;
+      /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
+
+    * `none` - none
+    * `l2` - l2 */
+      embedding_normalization?: EmbeddingNormalizationEnum;
+      /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
+
+    * `none` - none
+    * `umap` - umap
+    * `pca` - pca */
+      dimensionality_reduction_method?: DimensionalityReductionMethodEnum;
+      /**
+       * Target dimensions for dimensionality reduction (ignored if method is 'none')
+       * @minimum 2
+       * @maximum 500
+       */
+      dimensionality_reduction_ndims?: number;
+      /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
+
+    * `hdbscan` - hdbscan
+    * `kmeans` - kmeans */
+      clustering_method?: ClusteringMethodEnum;
+      /**
+       * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+       * @minimum 0.02
+       * @maximum 0.5
+       */
+      min_cluster_size_fraction?: number;
+      /**
+       * HDBSCAN min_samples parameter (higher = more conservative clustering)
+       * @minimum 1
+       * @maximum 100
+       */
+      hdbscan_min_samples?: number;
+      /**
+       * Minimum number of clusters to try for k-means
+       * @minimum 2
+       * @maximum 50
+       */
+      kmeans_min_k?: number;
+      /**
+       * Maximum number of clusters to try for k-means
+       * @minimum 2
+       * @maximum 100
+       */
+      kmeans_max_k?: number;
+      /**
+       * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+       * @maxLength 50
+       */
+      run_label?: string;
+      /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
+
+    * `umap` - umap
+    * `pca` - pca
+    * `tsne` - tsne */
+      visualization_method?: VisualizationMethodEnum;
+      /** Property filters to scope which traces are included in clustering (PostHog standard format) */
+      event_filters?: ClusteringRunRequestEventFiltersItem[];
+      /**
+       * If provided, use this clustering job's analysis_level and event_filters instead of request params
+       * @nullable
+       */
+      clustering_job_id?: string | null;
     }
 
     export interface CodeInviteRedeemRequest {
@@ -7516,6 +7780,33 @@ export namespace Schemas {
       Light: 'light',
       Dark: 'dark',
     } as const;
+
+    /**
+     * * `private` - Private (only visible to creator)
+    * `shared` - Shared with team
+     */
+    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+
+
+    export const VisibilityEnum = {
+      Private: 'private',
+      Shared: 'shared',
+    } as const;
+
+    export interface ColumnConfiguration {
+      readonly id: string;
+      /** @maxLength 255 */
+      context_key: string;
+      columns?: string[];
+      /** @maxLength 255 */
+      name?: string;
+      filters?: unknown;
+      visibility?: VisibilityEnum;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
 
     export interface Comment {
       readonly id: string;
@@ -7881,6 +8172,97 @@ export namespace Schemas {
       name?: string;
     }
 
+    export interface CopyFlagsRequest {
+      /** Key of the feature flag to copy */
+      feature_flag_key: string;
+      /** Source project ID to copy the flag from */
+      from_project: number;
+      /**
+       * List of target project IDs to copy the flag to
+       * @maxItems 50
+       */
+      target_project_ids: number[];
+      /** Whether to also copy scheduled changes for this flag */
+      copy_schedule?: boolean;
+    }
+
+    export interface CopyFlagsSuccessItem {
+      /** ID of the created feature flag */
+      id: number;
+      /** Key of the feature flag */
+      key: string;
+      /** Name of the feature flag */
+      name: string;
+      /** Whether the flag is active */
+      active: boolean;
+      /** Team ID the flag was copied to */
+      team_id: number;
+    }
+
+    export interface CopyFlagsResult {
+      /** Project ID (present on failure) */
+      project_id?: number;
+      /** Error message (present on failure) */
+      error_message?: string;
+    }
+
+    export interface CopyFlagsResponse {
+      /** List of successfully copied flags */
+      success: CopyFlagsSuccessItem[];
+      /** List of failed copy attempts */
+      failed: CopyFlagsResult[];
+    }
+
+    /**
+     * * `acquisition` - Acquisition
+    * `activation` - Activation
+    * `monetization` - Monetization
+    * `expansion` - Expansion
+    * `referral` - Referral
+    * `retention` - Retention
+    * `churn` - Churn
+    * `reactivation` - Reactivation
+     */
+    export type CoreEventCategoryEnum = typeof CoreEventCategoryEnum[keyof typeof CoreEventCategoryEnum];
+
+
+    export const CoreEventCategoryEnum = {
+      Acquisition: 'acquisition',
+      Activation: 'activation',
+      Monetization: 'monetization',
+      Expansion: 'expansion',
+      Referral: 'referral',
+      Retention: 'retention',
+      Churn: 'churn',
+      Reactivation: 'reactivation',
+    } as const;
+
+    export interface CoreEvent {
+      readonly id: string;
+      /**
+       * Display name for this core event
+       * @maxLength 255
+       */
+      name: string;
+      /** Optional description */
+      description?: string;
+      /** Lifecycle category for this core event
+
+    * `acquisition` - Acquisition
+    * `activation` - Activation
+    * `monetization` - Monetization
+    * `expansion` - Expansion
+    * `referral` - Referral
+    * `retention` - Retention
+    * `churn` - Churn
+    * `reactivation` - Reactivation */
+      category: CoreEventCategoryEnum;
+      /** Filter configuration - event, action, or data warehouse node */
+      filter: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface CreateGroup {
       /**
        * @minimum -2147483648
@@ -8131,6 +8513,26 @@ export namespace Schemas {
       scope: CustomerProfileConfigScopeEnum;
       content?: unknown | null;
       sidebar?: unknown | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface Dag {
+      readonly id: string;
+      /**
+       * Human-readable name for this DAG
+       * @maxLength 2048
+       */
+      name: string;
+      /** Optional description of the DAG's purpose */
+      description?: string;
+      /**
+       * Sync frequency string (e.g. '24hour', '7day')
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -8393,6 +8795,43 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    /**
+     * * `Cancelled` - Cancelled
+    * `Completed` - Completed
+    * `Failed` - Failed
+    * `Running` - Running
+     */
+    export type DataModelingJobStatusEnum = typeof DataModelingJobStatusEnum[keyof typeof DataModelingJobStatusEnum];
+
+
+    export const DataModelingJobStatusEnum = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      Failed: 'Failed',
+      Running: 'Running',
+    } as const;
+
+    export interface DataModelingJob {
+      readonly id: string;
+      /** @nullable */
+      readonly saved_query_id: string | null;
+      readonly status: DataModelingJobStatusEnum;
+      readonly rows_materialized: number;
+      /** @nullable */
+      readonly error: string | null;
+      readonly created_at: string;
+      readonly last_run_at: string;
+      /** @nullable */
+      readonly workflow_id: string | null;
+      /** @nullable */
+      readonly workflow_run_id: string | null;
+      /**
+       * Total rows expected to be materialized
+       * @nullable
+       */
+      readonly rows_expected: number | null;
     }
 
     export type DataTableNodeKind = typeof DataTableNodeKind[keyof typeof DataTableNodeKind];
@@ -11864,6 +12303,20 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface DataWarehouseModelPath {
+      readonly id: string;
+      path: string;
+      team: number;
+      /** @nullable */
+      table?: string | null;
+      /** @nullable */
+      saved_query?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type DataWarehouseSavedQueryColumnsItem = {[key: string]: unknown};
 
     /**
@@ -11975,6 +12428,25 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+    }
+
+    export interface DataWarehouseSavedQueryDraft {
+      readonly id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** HogQL query draft */
+      query?: unknown;
+      /** @nullable */
+      saved_query_id?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /**
+       * view history id that the draft branched from
+       * @maxLength 255
+       * @nullable
+       */
+      edited_history_id?: string | null;
     }
 
     export interface DataWarehouseSavedQueryFolder {
@@ -12460,6 +12932,11 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface DeprovisionWarehouseResponse {
+      status: string;
+      team: string;
+    }
+
     /**
      * * `text` - text
     * `html` - html
@@ -12828,6 +13305,18 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface Edge {
+      readonly id: string;
+      readonly source_id: string;
+      readonly target_id: string;
+      dag: string;
+      readonly dag_name: string;
+      properties?: unknown;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
 
 
@@ -12856,6 +13345,13 @@ export namespace Schemas {
       tag_name: string;
       /** @nullable */
       text?: string | null;
+    }
+
+    export interface EmailTemplate {
+      subject?: string;
+      text?: string;
+      html?: string;
+      design?: unknown;
     }
 
     export interface EndExperiment {
@@ -13443,10 +13939,10 @@ export namespace Schemas {
     * `Boolean` - Boolean
     * `Duration` - Duration
      */
-    export type EnterprisePropertyDefinitionPropertyTypeEnum = typeof EnterprisePropertyDefinitionPropertyTypeEnum[keyof typeof EnterprisePropertyDefinitionPropertyTypeEnum];
+    export type PropertyType549Enum = typeof PropertyType549Enum[keyof typeof PropertyType549Enum];
 
 
-    export const EnterprisePropertyDefinitionPropertyTypeEnum = {
+    export const PropertyType549Enum = {
       DateTime: 'DateTime',
       String: 'String',
       Numeric: 'Numeric',
@@ -13468,7 +13964,7 @@ export namespace Schemas {
       readonly updated_by: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events: boolean | null;
-      property_type?: EnterprisePropertyDefinitionPropertyTypeEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyType549Enum | BlankEnum | NullEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at: string | null;
@@ -14513,6 +15009,54 @@ export namespace Schemas {
       readonly expires_after: string | null;
       /** @nullable */
       readonly exception: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ExternalDataSchemaTable = {[key: string]: unknown} | null | null;
+
+    export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
+
+
+    export const SyncTypeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+      Append: 'append',
+      Webhook: 'webhook',
+      Cdc: 'cdc',
+    } as const;
+
+    export interface ExternalDataSchema {
+      readonly id: string;
+      readonly name: string;
+      /** @nullable */
+      readonly label: string | null;
+      /** @nullable */
+      readonly table: ExternalDataSchemaTable;
+      should_sync?: boolean;
+      /** @nullable */
+      readonly last_synced_at: string | null;
+      /**
+       * The latest error that occurred when syncing this schema.
+       * @nullable
+       */
+      readonly latest_error: string | null;
+      readonly incremental: boolean;
+      /** @nullable */
+      readonly status: string | null;
+      readonly sync_type: SyncTypeEnum | null;
+      /** @nullable */
+      readonly incremental_field: string | null;
+      /** @nullable */
+      readonly incremental_field_type: string | null;
+      /** @nullable */
+      readonly sync_frequency: string | null;
+      /** @nullable */
+      readonly sync_time_of_day: string | null;
+      /** @nullable */
+      readonly description: string | null;
+      readonly cdc_table_mode: CdcTableModeEnum;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -15592,10 +16136,10 @@ export namespace Schemas {
     * `warning` - Warning
     * `info` - Info
      */
-    export type SeverityEnum = typeof SeverityEnum[keyof typeof SeverityEnum];
+    export type HealthIssueSeverityEnum = typeof HealthIssueSeverityEnum[keyof typeof HealthIssueSeverityEnum];
 
 
-    export const SeverityEnum = {
+    export const HealthIssueSeverityEnum = {
       Critical: 'critical',
       Warning: 'warning',
       Info: 'info',
@@ -15616,7 +16160,7 @@ export namespace Schemas {
     export interface HealthIssue {
       readonly id: string;
       readonly kind: string;
-      readonly severity: SeverityEnum;
+      readonly severity: HealthIssueSeverityEnum;
       readonly status: HealthIssueStatusEnum;
       dismissed?: boolean;
       readonly payload: unknown;
@@ -15866,20 +16410,94 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
+
+    export type HogFlowTemplateVariablesItem = {[key: string]: string};
+
+    /**
+     * * `team` - Only team
+    * `organization` - Organization
+    * `global` - Global
+     */
+    export type HogFlowTemplateScopeEnum = typeof HogFlowTemplateScopeEnum[keyof typeof HogFlowTemplateScopeEnum];
+
+
+    export const HogFlowTemplateScopeEnum = {
+      Team: 'team',
+      Organization: 'organization',
+      Global: 'global',
+    } as const;
+
+    /**
+     * Custom action serializer for templates that skips input validation
+    (since templates should have default/empty values).
+     */
+    export interface HogFlowTemplateAction {
+      id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      on_error?: OnErrorEnum | NullEnum | null;
+      created_at?: number;
+      updated_at?: number;
+      filters?: HogFunctionFilters | null;
+      /** @maxLength 100 */
+      type: string;
+      config: unknown;
+      output_variable?: unknown | null;
+    }
+
+    /**
+     * Serializer for creating hog flow templates.
+    Validates and sanitizes the workflow before creating it as a template.
+     */
+    export interface HogFlowTemplate {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      /**
+       * @maxLength 8201
+       * @nullable
+       */
+      image_url?: string | null;
+      tags?: string[];
+      scope: HogFlowTemplateScopeEnum;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: HogFlowTemplateCreatedBy;
+      readonly updated_at: string;
+      trigger?: unknown;
+      trigger_masking?: HogFlowMasking | null;
+      conversion?: unknown | null;
+      exit_condition?: ExitConditionEnum;
+      edges?: unknown;
+      actions: HogFlowTemplateAction[];
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      abort_action?: string | null;
+      variables?: HogFlowTemplateVariablesItem[];
+    }
+
+    /**
      * * `hog` - hog
     * `liquid` - liquid
      */
-    export type InputsItemTemplatingEnum = typeof InputsItemTemplatingEnum[keyof typeof InputsItemTemplatingEnum];
+    export type Templating186Enum = typeof Templating186Enum[keyof typeof Templating186Enum];
 
 
-    export const InputsItemTemplatingEnum = {
+    export const Templating186Enum = {
       Hog: 'hog',
       Liquid: 'liquid',
     } as const;
 
     export interface InputsItem {
       value?: unknown;
-      templating?: InputsItemTemplatingEnum;
+      templating?: Templating186Enum;
       readonly bytecode: readonly unknown[];
       readonly order: number;
       readonly transpiled: unknown;
@@ -17172,10 +17790,10 @@ export namespace Schemas {
     * `pinterest-ads` - Pinterest Ads
     * `stripe` - Stripe
      */
-    export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
+    export type KindBa9Enum = typeof KindBa9Enum[keyof typeof KindBa9Enum];
 
 
-    export const IntegrationKindEnum = {
+    export const KindBa9Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -17212,7 +17830,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: IntegrationKindEnum;
+      kind: KindBa9Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -18333,6 +18951,181 @@ export namespace Schemas {
     }
 
     /**
+     * * `feedback` - Feedback
+    * `missing_capability` - Missing capability
+     */
+    export type MCPAnalyticsSubmissionKindEnum = typeof MCPAnalyticsSubmissionKindEnum[keyof typeof MCPAnalyticsSubmissionKindEnum];
+
+
+    export const MCPAnalyticsSubmissionKindEnum = {
+      Feedback: 'feedback',
+      MissingCapability: 'missing_capability',
+    } as const;
+
+    export interface MCPAnalyticsSubmission {
+      /** Unique identifier for this submission. */
+      readonly id: string;
+      /** Whether this submission is general feedback or a missing capability report.
+
+    * `feedback` - Feedback
+    * `missing_capability` - Missing capability */
+      readonly kind: MCPAnalyticsSubmissionKindEnum;
+      /** The user's goal in plain language. */
+      goal: string;
+      /** The core feedback or missing capability request. */
+      summary: string;
+      /** Feedback category when present. Empty for submissions that do not use categories. */
+      readonly category: string;
+      /**
+       * Whether the missing capability blocked progress. Null when not provided.
+       * @nullable
+       */
+      readonly blocked: boolean | null;
+      /** The tool the user tried before submitting this feedback, if known. */
+      readonly attempted_tool: string;
+      /** MCP client name captured alongside the submission when available. */
+      readonly mcp_client_name: string;
+      /** MCP client version captured alongside the submission when available. */
+      readonly mcp_client_version: string;
+      /** MCP protocol version captured alongside the submission when available. */
+      readonly mcp_protocol_version: string;
+      /** MCP transport captured alongside the submission when available. */
+      readonly mcp_transport: string;
+      /** MCP session identifier captured alongside the submission when available. */
+      readonly mcp_session_id: string;
+      /** MCP trace identifier captured alongside the submission when available. */
+      readonly mcp_trace_id: string;
+      /** When this submission was created. */
+      readonly created_at: string;
+      /** When this submission was last updated. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other
+     */
+    export type MCPFeedbackCreateCategoryEnum = typeof MCPFeedbackCreateCategoryEnum[keyof typeof MCPFeedbackCreateCategoryEnum];
+
+
+    export const MCPFeedbackCreateCategoryEnum = {
+      Results: 'results',
+      Usability: 'usability',
+      Bug: 'bug',
+      Docs: 'docs',
+      Other: 'other',
+    } as const;
+
+    export interface MCPFeedbackCreate {
+      /**
+       * The tool the user tried before leaving feedback, if known.
+       * @maxLength 200
+       */
+      attempted_tool?: string;
+      /**
+       * MCP client name, for example Claude Desktop or Cursor.
+       * @maxLength 200
+       */
+      mcp_client_name?: string;
+      /**
+       * Version string for the MCP client when available.
+       * @maxLength 100
+       */
+      mcp_client_version?: string;
+      /**
+       * MCP protocol version negotiated for the session when available.
+       * @maxLength 50
+       */
+      mcp_protocol_version?: string;
+      /**
+       * Transport used for the MCP session, for example streamable_http or sse.
+       * @maxLength 50
+       */
+      mcp_transport?: string;
+      /**
+       * Stable MCP session identifier when available.
+       * @maxLength 200
+       */
+      mcp_session_id?: string;
+      /**
+       * Trace identifier for the surrounding MCP workflow when available.
+       * @maxLength 200
+       */
+      mcp_trace_id?: string;
+      /**
+       * The user's intended outcome when using MCP.
+       * @maxLength 500
+       */
+      goal: string;
+      /**
+       * Concrete feedback about the MCP experience, tool result, or workflow friction.
+       * @maxLength 5000
+       */
+      feedback: string;
+      /** High-level category for the feedback.
+
+    * `results` - Results
+    * `usability` - Usability
+    * `bug` - Bug
+    * `docs` - Docs
+    * `other` - Other */
+      category?: MCPFeedbackCreateCategoryEnum;
+    }
+
+    export interface MCPMissingCapabilityCreate {
+      /**
+       * The tool the user tried before leaving feedback, if known.
+       * @maxLength 200
+       */
+      attempted_tool?: string;
+      /**
+       * MCP client name, for example Claude Desktop or Cursor.
+       * @maxLength 200
+       */
+      mcp_client_name?: string;
+      /**
+       * Version string for the MCP client when available.
+       * @maxLength 100
+       */
+      mcp_client_version?: string;
+      /**
+       * MCP protocol version negotiated for the session when available.
+       * @maxLength 50
+       */
+      mcp_protocol_version?: string;
+      /**
+       * Transport used for the MCP session, for example streamable_http or sse.
+       * @maxLength 50
+       */
+      mcp_transport?: string;
+      /**
+       * Stable MCP session identifier when available.
+       * @maxLength 200
+       */
+      mcp_session_id?: string;
+      /**
+       * Trace identifier for the surrounding MCP workflow when available.
+       * @maxLength 200
+       */
+      mcp_trace_id?: string;
+      /**
+       * The user's intended outcome when using MCP.
+       * @maxLength 500
+       */
+      goal: string;
+      /**
+       * Capability, tool, or workflow support that is currently missing.
+       * @maxLength 5000
+       */
+      missing_capability: string;
+      /** Whether the missing capability blocked the user's progress. */
+      blocked?: boolean;
+    }
+
+    /**
      * * `api_key` - API Key
     * `oauth` - OAuth
      */
@@ -18379,6 +19172,86 @@ export namespace Schemas {
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
     }
 
+    /**
+     * * `1` - event
+    * `2` - person
+    * `3` - group
+    * `4` - session
+     */
+    export type PropertyDefinitionTypeEnum = typeof PropertyDefinitionTypeEnum[keyof typeof PropertyDefinitionTypeEnum];
+
+
+    export const PropertyDefinitionTypeEnum = {
+      Number1: 1,
+      Number2: 2,
+      Number3: 3,
+      Number4: 4,
+    } as const;
+
+    export interface PropertyDefinition {
+      readonly id: string;
+      readonly name: string;
+      readonly property_type: PropertyType549Enum | NullEnum | null;
+      readonly type: PropertyDefinitionTypeEnum;
+    }
+
+    /**
+     * * `BACKFILL` - Backfill
+    * `READY` - Ready
+    * `ERROR` - Error
+     */
+    export type MaterializedColumnSlotStateEnum = typeof MaterializedColumnSlotStateEnum[keyof typeof MaterializedColumnSlotStateEnum];
+
+
+    export const MaterializedColumnSlotStateEnum = {
+      Backfill: 'BACKFILL',
+      Ready: 'READY',
+      Error: 'ERROR',
+    } as const;
+
+    export interface MaterializedColumnSlot {
+      readonly id: string;
+      team: number;
+      property_definition: string;
+      readonly property_definition_details: PropertyDefinition;
+      property_type: PropertyType549Enum;
+      /**
+       * @minimum 0
+       * @maximum 32767
+       */
+      slot_index: number;
+      state?: MaterializedColumnSlotStateEnum;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      backfill_temporal_workflow_id?: string | null;
+      /** @nullable */
+      error_message?: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `pending` - Pending
+    * `completed` - Completed
+    * `skipped` - Skipped
+     */
+    export type ScrapingStatusEnum = typeof ScrapingStatusEnum[keyof typeof ScrapingStatusEnum];
+
+
+    export const ScrapingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface MaxCoreMemory {
+      readonly id: string;
+      text: string;
+      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
+    }
+
     export type MembershipLevelEnum = typeof MembershipLevelEnum[keyof typeof MembershipLevelEnum];
 
 
@@ -18410,6 +19283,22 @@ export namespace Schemas {
       resume_payload?: unknown | null;
     }
 
+    export interface MessageCategory {
+      readonly id: string;
+      /** @maxLength 64 */
+      key: string;
+      /** @maxLength 128 */
+      name: string;
+      description?: string;
+      public_description?: string;
+      category_type?: CategoryTypeEnum;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      deleted?: boolean;
+    }
+
     /**
      * Serializer for appending a message to an existing conversation without triggering AI processing.
      */
@@ -18424,6 +19313,42 @@ export namespace Schemas {
       label: string;
       score: number;
       scores: MessageSentimentScores;
+    }
+
+    export interface MessageTemplateContent {
+      templating?: Templating186Enum;
+      email?: EmailTemplate | null;
+    }
+
+    export interface MessageTemplate {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+      content?: MessageTemplateContent;
+      readonly created_by: UserBasic;
+      /** @maxLength 24 */
+      type?: string;
+      /** @nullable */
+      message_category?: string | null;
+      deleted?: boolean;
+    }
+
+    /**
+     * * `viewed` - viewed
+     */
+    export type MetricNameEnum = typeof MetricNameEnum[keyof typeof MetricNameEnum];
+
+
+    export const MetricNameEnum = {
+      Viewed: 'viewed',
+    } as const;
+
+    export interface MetalyticsCreateRequest {
+      metric_name: MetricNameEnum;
+      instance_id: string;
     }
 
     /**
@@ -18459,6 +19384,16 @@ export namespace Schemas {
       readonly last_seen_at: string | null;
     }
 
+    /**
+     * * `FeatureFlag` - feature flag
+     */
+    export type ModelNameEnum = typeof ModelNameEnum[keyof typeof ModelNameEnum];
+
+
+    export const ModelNameEnum = {
+      FeatureFlag: 'FeatureFlag',
+    } as const;
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -18477,6 +19412,48 @@ export namespace Schemas {
       Full: 'full',
       Custom: 'custom',
     } as const;
+
+    /**
+     * * `table` - Table
+    * `view` - View
+    * `matview` - Mat View
+    * `endpoint` - Endpoint
+     */
+    export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
+
+
+    export const NodeTypeEnum = {
+      Table: 'table',
+      View: 'view',
+      Matview: 'matview',
+      Endpoint: 'endpoint',
+    } as const;
+
+    export interface Node {
+      readonly id: string;
+      /** @maxLength 2048 */
+      name: string;
+      type?: NodeTypeEnum;
+      dag: string;
+      readonly dag_name: string;
+      /** @maxLength 1024 */
+      description?: string;
+      /** @nullable */
+      readonly saved_query_id: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly upstream_count: number;
+      readonly downstream_count: number;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** @nullable */
+      readonly last_run_status: string | null;
+      /** @nullable */
+      readonly user_tag: string | null;
+      /** @nullable */
+      readonly sync_interval: string | null;
+    }
 
     export interface Notebook {
       /** UUID of the notebook. */
@@ -18538,6 +19515,28 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NotificationEvent {
+      id: string;
+      /** @nullable */
+      team_id: number | null;
+      notification_type: string;
+      priority: string;
+      title: string;
+      body: string;
+      read: boolean;
+      /** @nullable */
+      read_at: string | null;
+      /** @nullable */
+      resource_type: string | null;
+      resource_id: string;
+      source_url: string;
+      /** @nullable */
+      source_type: string | null;
+      /** @nullable */
+      source_id: string | null;
+      created_at: string;
     }
 
     export interface NumericScoreDefinitionConfig {
@@ -18925,6 +19924,15 @@ export namespace Schemas {
       results: BatchExportRun[];
     }
 
+    export interface PaginatedBatchImportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BatchImport[];
+    }
+
     export interface PaginatedChangeRequestList {
       count: number;
       /** @nullable */
@@ -18958,6 +19966,15 @@ export namespace Schemas {
       results: Cohort[];
     }
 
+    export interface PaginatedColumnConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ColumnConfiguration[];
+    }
+
     export interface PaginatedCommentList {
       /** @nullable */
       next?: string | null;
@@ -18973,6 +19990,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Conversation[];
+    }
+
+    export interface PaginatedCoreEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CoreEvent[];
     }
 
     export interface PaginatedCustomerJourneyList {
@@ -18991,6 +20017,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
+    }
+
+    export interface PaginatedDAGList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
@@ -19018,6 +20053,32 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
+    }
+
+    export interface PaginatedDataModelingJobList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataModelingJob[];
+    }
+
+    export interface PaginatedDataWarehouseModelPathList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataWarehouseModelPath[];
+    }
+
+    export interface PaginatedDataWarehouseSavedQueryDraftList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataWarehouseSavedQueryDraft[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryMinimalList {
@@ -19063,6 +20124,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: EarlyAccessFeature[];
+    }
+
+    export interface PaginatedEdgeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Edge[];
     }
 
     export interface PaginatedElementList {
@@ -19117,6 +20187,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
+    }
+
+    export interface PaginatedErrorTrackingExternalReferenceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingExternalReference[];
     }
 
     export interface PaginatedErrorTrackingFingerprintList {
@@ -19245,6 +20324,15 @@ export namespace Schemas {
       results: ExportedAsset[];
     }
 
+    export interface PaginatedExternalDataSchemaList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExternalDataSchema[];
+    }
+
     export interface PaginatedExternalDataSourceConnectionOptionList {
       count: number;
       /** @nullable */
@@ -19352,6 +20440,15 @@ export namespace Schemas {
       results: HogFlowSchedule[];
     }
 
+    export interface PaginatedHogFlowTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowTemplate[];
+    }
+
     export interface PaginatedHogFunctionMinimalList {
       count: number;
       /** @nullable */
@@ -19442,6 +20539,15 @@ export namespace Schemas {
       results: LogsView[];
     }
 
+    export interface PaginatedMCPAnalyticsSubmissionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPAnalyticsSubmission[];
+    }
+
     export interface PaginatedMCPServerInstallationList {
       count: number;
       /** @nullable */
@@ -19451,6 +20557,51 @@ export namespace Schemas {
       results: MCPServerInstallation[];
     }
 
+    export interface PaginatedMaterializedColumnSlotList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MaterializedColumnSlot[];
+    }
+
+    export interface PaginatedMaxCoreMemoryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMessageCategoryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MessageCategory[];
+    }
+
+    export interface PaginatedMessageTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MessageTemplate[];
+    }
+
+    export interface PaginatedNodeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Node[];
+    }
+
     export interface PaginatedNotebookMinimalList {
       count: number;
       /** @nullable */
@@ -19458,6 +20609,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
+    }
+
+    export interface PaginatedNotificationEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
@@ -19521,6 +20681,23 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PauseStateResponse {
+      /**
+       * The timestamp the pipeline is paused until, or null if not paused/not running.
+       * @nullable
+       */
+      paused_until: string | null;
+    }
+
+    export interface PaginatedPauseStateResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PauseStateResponse[];
     }
 
     /**
@@ -19717,6 +20894,60 @@ export namespace Schemas {
       results: ProjectSecretAPIKey[];
     }
 
+    export interface QueryTabState {
+      readonly id: string;
+      /** 
+                Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+                and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+                ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+                for a user.
+                 */
+      state?: unknown | null;
+    }
+
+    export interface PaginatedQueryTabStateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: QueryTabState[];
+    }
+
+    /**
+     * * `manual-options` - manual-options
+    * `auto-discovery` - auto-discovery
+     */
+    export type QuickFilterTypeEnum = typeof QuickFilterTypeEnum[keyof typeof QuickFilterTypeEnum];
+
+
+    export const QuickFilterTypeEnum = {
+      ManualOptions: 'manual-options',
+      AutoDiscovery: 'auto-discovery',
+    } as const;
+
+    export interface QuickFilter {
+      readonly id: string;
+      /** @maxLength 200 */
+      name: string;
+      /** @maxLength 500 */
+      property_name: string;
+      type?: QuickFilterTypeEnum;
+      options?: unknown | null;
+      readonly contexts: readonly string[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedQuickFilterList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: QuickFilter[];
+    }
+
     /**
      * * `none` - none
     * `api_key` - api_key
@@ -19891,6 +21122,80 @@ export namespace Schemas {
       results: SandboxEnvironmentList[];
     }
 
+    /**
+     * * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly
+     */
+    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+
+
+    export const RecurrenceIntervalEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    export interface ScheduledChange {
+      readonly id: number;
+      readonly team_id: number;
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
+      record_id: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
+      model_name: ModelNameEnum;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+      payload: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+      scheduled_at: string;
+      /** @nullable */
+      executed_at?: string | null;
+      /**
+       * Return the safely formatted failure reason instead of raw data.
+       * @nullable
+       */
+      readonly failure_reason: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+      is_recurring?: boolean;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
+      /** @nullable */
+      readonly last_executed_at: string | null;
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
+      end_date?: string | null;
+    }
+
+    export interface PaginatedScheduledChangeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ScheduledChange[];
+    }
+
     export interface PaginatedSchemaPropertyGroupList {
       count: number;
       /** @nullable */
@@ -19945,6 +21250,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionGroupSummaryMinimal[];
+    }
+
+    export interface PaginatedSessionRecordingExternalReferenceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SessionRecordingExternalReference[];
     }
 
     export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
@@ -20555,6 +21869,19 @@ export namespace Schemas {
       results: Table[];
     }
 
+    export interface TaggedItem {
+      readonly tag: string;
+    }
+
+    export interface PaginatedTaggedItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaggedItem[];
+    }
+
     export interface PaginatedTaskList {
       count: number;
       /** @nullable */
@@ -21070,6 +22397,101 @@ export namespace Schemas {
     }
 
     /**
+     * * `onboarding` - Onboarding
+    * `product_intent` - Product Intent
+    * `used_by_colleagues` - Used by Colleagues
+    * `used_similar_products` - Used Similar Products
+    * `used_on_separate_team` - Used on Separate Team
+    * `new_product` - New Product
+    * `sales_led` - Sales Led
+     */
+    export type ReasonEnum = typeof ReasonEnum[keyof typeof ReasonEnum];
+
+
+    export const ReasonEnum = {
+      Onboarding: 'onboarding',
+      ProductIntent: 'product_intent',
+      UsedByColleagues: 'used_by_colleagues',
+      UsedSimilarProducts: 'used_similar_products',
+      UsedOnSeparateTeam: 'used_on_separate_team',
+      NewProduct: 'new_product',
+      SalesLed: 'sales_led',
+    } as const;
+
+    export interface UserProductList {
+      readonly id: string;
+      readonly product_path: string;
+      enabled?: boolean;
+      readonly reason: ReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly reason_text: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedUserProductListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserProductList[];
+    }
+
+    export interface ViewLink {
+      readonly id: string;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @maxLength 400 */
+      source_table_name: string;
+      /** @maxLength 400 */
+      source_table_key: string;
+      /** @maxLength 400 */
+      joining_table_name: string;
+      /** @maxLength 400 */
+      joining_table_key: string;
+      /** @maxLength 400 */
+      field_name: string;
+      configuration?: unknown | null;
+    }
+
+    export interface PaginatedViewLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ViewLink[];
+    }
+
+    export interface WebAnalyticsFilterPreset {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      deleted?: boolean;
+      filters?: unknown;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
+    }
+
+    export interface PaginatedWebAnalyticsFilterPresetList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WebAnalyticsFilterPreset[];
+    }
+
+    /**
      * Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
      */
     export interface WebExperimentsAPI {
@@ -21334,6 +22756,28 @@ export namespace Schemas {
       offset_hour?: number | null;
     }
 
+    /**
+     * @nullable
+     */
+    export type PatchedBatchImportCreatedBy = { [key: string]: unknown } | null | null;
+
+    /**
+     * Serializer for BatchImport model
+     */
+    export interface PatchedBatchImport {
+      readonly id?: string;
+      readonly team_id?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly state?: unknown | null;
+      /** @nullable */
+      readonly created_by?: PatchedBatchImportCreatedBy;
+      status?: BatchImportStatusEnum;
+      /** @nullable */
+      readonly display_status_message?: string | null;
+      import_config?: unknown;
+    }
+
     export interface PatchedClusteringJob {
       readonly id?: string;
       /** @maxLength 100 */
@@ -21387,6 +22831,21 @@ export namespace Schemas {
       readonly experiment_set?: readonly number[];
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
+    }
+
+    export interface PatchedColumnConfiguration {
+      readonly id?: string;
+      /** @maxLength 255 */
+      context_key?: string;
+      columns?: string[];
+      /** @maxLength 255 */
+      name?: string;
+      filters?: unknown;
+      visibility?: VisibilityEnum;
+      /** @nullable */
+      readonly created_by?: number | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedComment {
@@ -21458,6 +22917,32 @@ export namespace Schemas {
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
     }
 
+    export interface PatchedCoreEvent {
+      readonly id?: string;
+      /**
+       * Display name for this core event
+       * @maxLength 255
+       */
+      name?: string;
+      /** Optional description */
+      description?: string;
+      /** Lifecycle category for this core event
+
+    * `acquisition` - Acquisition
+    * `activation` - Activation
+    * `monetization` - Monetization
+    * `expansion` - Expansion
+    * `referral` - Referral
+    * `retention` - Retention
+    * `churn` - Churn
+    * `reactivation` - Reactivation */
+      category?: CoreEventCategoryEnum;
+      /** Filter configuration - event, action, or data warehouse node */
+      filter?: unknown;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedCustomerJourney {
       readonly id?: string;
       insight?: number;
@@ -21477,6 +22962,26 @@ export namespace Schemas {
       scope?: CustomerProfileConfigScopeEnum;
       content?: unknown | null;
       sidebar?: unknown | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDAG {
+      readonly id?: string;
+      /**
+       * Human-readable name for this DAG
+       * @maxLength 2048
+       */
+      name?: string;
+      /** Optional description of the DAG's purpose */
+      description?: string;
+      /**
+       * Sync frequency string (e.g. '24hour', '7day')
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      readonly node_count?: number;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -21700,6 +23205,25 @@ export namespace Schemas {
       readonly expires_at?: string | null;
     }
 
+    export interface PatchedDataWarehouseSavedQueryDraft {
+      readonly id?: string;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** HogQL query draft */
+      query?: unknown;
+      /** @nullable */
+      saved_query_id?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /**
+       * view history id that the draft branched from
+       * @maxLength 255
+       * @nullable
+       */
+      edited_history_id?: string | null;
+    }
+
     export interface PatchedDataWarehouseSavedQueryFolder {
       readonly id?: string;
       /**
@@ -21848,6 +23372,18 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+    }
+
+    export interface PatchedEdge {
+      readonly id?: string;
+      readonly source_id?: string;
+      readonly target_id?: string;
+      dag?: string;
+      readonly dag_name?: string;
+      properties?: unknown;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedElement {
@@ -22008,7 +23544,7 @@ export namespace Schemas {
       readonly updated_by?: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events?: boolean | null;
-      property_type?: EnterprisePropertyDefinitionPropertyTypeEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyType549Enum | BlankEnum | NullEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at?: string | null;
@@ -22038,6 +23574,15 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingExternalReference {
+      readonly id?: string;
+      readonly integration?: ErrorTrackingExternalReferenceIntegration;
+      integration_id?: number;
+      config?: unknown;
+      issue?: string;
+      readonly external_url?: string;
     }
 
     /**
@@ -22267,6 +23812,43 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    /**
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaTable = {[key: string]: unknown} | null | null;
+
+    export interface PatchedExternalDataSchema {
+      readonly id?: string;
+      readonly name?: string;
+      /** @nullable */
+      readonly label?: string | null;
+      /** @nullable */
+      readonly table?: PatchedExternalDataSchemaTable;
+      should_sync?: boolean;
+      /** @nullable */
+      readonly last_synced_at?: string | null;
+      /**
+       * The latest error that occurred when syncing this schema.
+       * @nullable
+       */
+      readonly latest_error?: string | null;
+      readonly incremental?: boolean;
+      /** @nullable */
+      readonly status?: string | null;
+      readonly sync_type?: SyncTypeEnum | null;
+      /** @nullable */
+      readonly incremental_field?: string | null;
+      /** @nullable */
+      readonly incremental_field_type?: string | null;
+      /** @nullable */
+      readonly sync_frequency?: string | null;
+      /** @nullable */
+      readonly sync_time_of_day?: string | null;
+      /** @nullable */
+      readonly description?: string | null;
+      readonly cdc_table_mode?: CdcTableModeEnum;
+    }
+
     export type PatchedExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
 
     /**
@@ -22402,7 +23984,7 @@ export namespace Schemas {
     export interface PatchedHealthIssue {
       readonly id?: string;
       readonly kind?: string;
-      readonly severity?: SeverityEnum;
+      readonly severity?: HealthIssueSeverityEnum;
       readonly status?: HealthIssueStatusEnum;
       dismissed?: boolean;
       readonly payload?: unknown;
@@ -22468,6 +24050,47 @@ export namespace Schemas {
       readonly abort_action?: string | null;
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
+
+    export type PatchedHogFlowTemplateVariablesItem = {[key: string]: string};
+
+    /**
+     * Serializer for creating hog flow templates.
+    Validates and sanitizes the workflow before creating it as a template.
+     */
+    export interface PatchedHogFlowTemplate {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      /**
+       * @maxLength 8201
+       * @nullable
+       */
+      image_url?: string | null;
+      tags?: string[];
+      scope?: HogFlowTemplateScopeEnum;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: PatchedHogFlowTemplateCreatedBy;
+      readonly updated_at?: string;
+      trigger?: unknown;
+      trigger_masking?: HogFlowMasking | null;
+      conversion?: unknown | null;
+      exit_condition?: ExitConditionEnum;
+      edges?: unknown;
+      actions?: HogFlowTemplateAction[];
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      abort_action?: string | null;
+      variables?: PatchedHogFlowTemplateVariablesItem[];
     }
 
     /**
@@ -22683,7 +24306,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      kind?: KindBa9Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -22816,6 +24439,93 @@ export namespace Schemas {
       display_name?: string;
       description?: string;
       is_enabled?: boolean;
+    }
+
+    export interface PatchedMaterializedColumnSlot {
+      readonly id?: string;
+      team?: number;
+      property_definition?: string;
+      readonly property_definition_details?: PropertyDefinition;
+      property_type?: PropertyType549Enum;
+      /**
+       * @minimum 0
+       * @maximum 32767
+       */
+      slot_index?: number;
+      state?: MaterializedColumnSlotStateEnum;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      backfill_temporal_workflow_id?: string | null;
+      /** @nullable */
+      error_message?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
+    export interface PatchedMaxCoreMemory {
+      readonly id?: string;
+      text?: string;
+      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
+    }
+
+    export interface PatchedMessageCategory {
+      readonly id?: string;
+      /** @maxLength 64 */
+      key?: string;
+      /** @maxLength 128 */
+      name?: string;
+      description?: string;
+      public_description?: string;
+      category_type?: CategoryTypeEnum;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      deleted?: boolean;
+    }
+
+    export interface PatchedMessageTemplate {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      content?: MessageTemplateContent;
+      readonly created_by?: UserBasic;
+      /** @maxLength 24 */
+      type?: string;
+      /** @nullable */
+      message_category?: string | null;
+      deleted?: boolean;
+    }
+
+    export interface PatchedNode {
+      readonly id?: string;
+      /** @maxLength 2048 */
+      name?: string;
+      type?: NodeTypeEnum;
+      dag?: string;
+      readonly dag_name?: string;
+      /** @maxLength 1024 */
+      description?: string;
+      /** @nullable */
+      readonly saved_query_id?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly upstream_count?: number;
+      readonly downstream_count?: number;
+      /** @nullable */
+      readonly last_run_at?: string | null;
+      /** @nullable */
+      readonly last_run_status?: string | null;
+      /** @nullable */
+      readonly user_tag?: string | null;
+      /** @nullable */
+      readonly sync_interval?: string | null;
     }
 
     export interface PatchedNotebook {
@@ -23282,6 +24992,30 @@ export namespace Schemas {
       scopes?: string[];
     }
 
+    export interface PatchedQueryTabState {
+      readonly id?: string;
+      /** 
+                Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+                and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+                ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+                for a user.
+                 */
+      state?: unknown | null;
+    }
+
+    export interface PatchedQuickFilter {
+      readonly id?: string;
+      /** @maxLength 200 */
+      name?: string;
+      /** @maxLength 500 */
+      property_name?: string;
+      type?: QuickFilterTypeEnum;
+      options?: unknown | null;
+      readonly contexts?: readonly string[];
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
@@ -23335,6 +25069,55 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedScheduledChange {
+      readonly id?: number;
+      readonly team_id?: number;
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
+      record_id?: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
+      model_name?: ModelNameEnum;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+      payload?: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+      scheduled_at?: string;
+      /** @nullable */
+      executed_at?: string | null;
+      /**
+       * Return the safely formatted failure reason instead of raw data.
+       * @nullable
+       */
+      readonly failure_reason?: string | null;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      readonly updated_at?: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+      is_recurring?: boolean;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      /**
+       * @maxLength 100
+       * @nullable
+       */
+      cron_expression?: string | null;
+      /** @nullable */
+      readonly last_executed_at?: string | null;
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
+      end_date?: string | null;
     }
 
     export interface PatchedSchemaPropertyGroup {
@@ -23428,6 +25211,38 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+    }
+
+    /**
+     * Get provider-specific metadata (e.g. repository for GitHub, project for Jira)
+     */
+    export type PatchedSessionRecordingExternalReferenceMetadata = {[key: string]: string};
+
+    /**
+     * Read-only serializer for Integration info embedded in external references
+     */
+    export interface SessionRecordingExternalReferenceIntegration {
+      readonly id: number;
+      readonly kind: KindBa9Enum;
+      readonly display_name: string;
+    }
+
+    /**
+     * Serializer for linking session recordings to external issue trackers.
+    Reuses error tracking's integration infrastructure
+     */
+    export interface PatchedSessionRecordingExternalReference {
+      readonly id?: string;
+      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      integration_id?: number;
+      config?: unknown;
+      session_recording_id?: string;
+      readonly external_url?: string;
+      readonly title?: string;
+      /** Get the external issue ID (e.g., POST-123) from the issue tracker */
+      readonly issue_id?: string;
+      /** Get provider-specific metadata (e.g. repository for GitHub, project for Jira) */
+      readonly metadata?: PatchedSessionRecordingExternalReferenceMetadata;
     }
 
     export type PatchedSessionRecordingPlaylistRecordingsCounts = {[key: string]: {[key: string]: number | boolean | null}};
@@ -24695,6 +26510,52 @@ export namespace Schemas {
       audio?: string;
     }
 
+    export interface PatchedUserProductList {
+      readonly id?: string;
+      readonly product_path?: string;
+      enabled?: boolean;
+      readonly reason?: ReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly reason_text?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedViewLink {
+      readonly id?: string;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @maxLength 400 */
+      source_table_name?: string;
+      /** @maxLength 400 */
+      source_table_key?: string;
+      /** @maxLength 400 */
+      joining_table_name?: string;
+      /** @maxLength 400 */
+      joining_table_key?: string;
+      /** @maxLength 400 */
+      field_name?: string;
+      configuration?: unknown | null;
+    }
+
+    export interface PatchedWebAnalyticsFilterPreset {
+      readonly id?: string;
+      readonly short_id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      deleted?: boolean;
+      filters?: unknown;
+      readonly last_modified_at?: string;
+      readonly last_modified_by?: UserBasic;
+    }
+
     /**
      * Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
      */
@@ -24720,6 +26581,18 @@ export namespace Schemas {
                 },
             } */
       variants?: unknown;
+    }
+
+    export interface PauseResponse {
+      /** Always 'paused'. */
+      status: string;
+      /** The timestamp the pipeline is paused until. */
+      paused_until: string;
+    }
+
+    export interface PauseUntilRequest {
+      /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+      timestamp: string;
     }
 
     export interface PersonBulkDeleteRequest {
@@ -25186,6 +27059,16 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    export interface ProvisionWarehouseRequest {
+      /** Name for the new database */
+      database_name: string;
+    }
+
+    export interface ProvisionWarehouseResponse {
+      status: string;
+      team: string;
     }
 
     /**
@@ -28065,6 +29948,11 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface ResetPasswordResponse {
+      username: string;
+      password: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
        * Human-readable queue name.
@@ -28276,6 +30164,20 @@ export namespace Schemas {
       /** The key of the variant to ship to 100% of users. */
       variant_key: string;
     }
+
+    /**
+     * * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped
+     */
+    export type SourceMatchEnum = typeof SourceMatchEnum[keyof typeof SourceMatchEnum];
+
+
+    export const SourceMatchEnum = {
+      None: 'none',
+      Auto: 'auto',
+      Mapped: 'mapped',
+    } as const;
 
     export interface SummaryBullet {
       text: string;
@@ -29273,6 +31175,13 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface UnpauseResponse {
+      /** Always 'unpaused'. */
+      status: string;
+      /** Whether the workflow was actually paused at the time of the call. */
+      was_paused: boolean;
+    }
+
     /**
      * The release condition to evaluate
      */
@@ -29293,6 +31202,88 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UtmEvent {
+      /** UTM campaign value from pageview events */
+      utm_campaign: string;
+      /** UTM source value from pageview events */
+      utm_source: string;
+      /** Number of pageview events with this UTM combination */
+      event_count: number;
+      /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
+
+    * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped */
+      campaign_match: CampaignMatchEnum;
+      /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
+
+    * `none` - none
+    * `auto` - auto
+    * `mapped` - mapped */
+      source_match: SourceMatchEnum;
+      /**
+       * Name of the matched campaign, if any
+       * @nullable
+       */
+      matched_campaign: string | null;
+    }
+
+    export interface UtmAuditResponse {
+      /** Total number of campaigns with spend */
+      total_campaigns: number;
+      /** Number of campaigns with UTM issues */
+      campaigns_with_issues: number;
+      /** Number of campaigns without issues */
+      campaigns_without_issues: number;
+      /** Total spend on campaigns with UTM issues */
+      total_spend_at_risk: number;
+      /** Audit results per campaign */
+      results: CampaignAuditResult[];
+      /** All UTM events with match status */
+      all_utm_events: UtmEvent[];
+    }
+
+    export interface ViewLinkValidation {
+      /** @maxLength 255 */
+      joining_table_name: string;
+      /** @maxLength 255 */
+      joining_table_key: string;
+      /** @maxLength 255 */
+      source_table_name: string;
+      /** @maxLength 255 */
+      source_table_key: string;
+    }
+
+    /**
+     * * `pending` - pending
+    * `provisioning` - provisioning
+    * `ready` - ready
+    * `failed` - failed
+    * `deleting` - deleting
+    * `deleted` - deleted
+     */
+    export type WarehouseStatusResponseStateEnum = typeof WarehouseStatusResponseStateEnum[keyof typeof WarehouseStatusResponseStateEnum];
+
+
+    export const WarehouseStatusResponseStateEnum = {
+      Pending: 'pending',
+      Provisioning: 'provisioning',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleting: 'deleting',
+      Deleted: 'deleted',
+    } as const;
+
+    export interface WarehouseStatusResponse {
+      team_name: string;
+      state: WarehouseStatusResponseStateEnum;
+      status_message: string;
+      /** @nullable */
+      ready_at: string | null;
+      /** @nullable */
+      failed_at: string | null;
     }
 
     export interface _DateRange {
@@ -29670,6 +31661,29 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsDataModelingJobsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null;
+    };
+
+    export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
     export type EnvironmentsDatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -29844,6 +31858,21 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -29971,6 +32000,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsHeatmapsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsHogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -30876,6 +32916,17 @@ export namespace Schemas {
       Webhook: 'webhook',
     } as const;
 
+    export type EnvironmentsUserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsWarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -30888,6 +32939,36 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsWarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsWarehouseViewLinksListParams = {
     /**
      * Number of results to return per page.
      */
@@ -30932,7 +33013,40 @@ export namespace Schemas {
     state?: string[];
     };
 
+    export type ColumnConfigurationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -30976,6 +33090,39 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataModelingDagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataModelingEdgesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DataModelingNodesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
@@ -30988,6 +33135,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -31374,6 +33532,53 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MarketingAnalyticsUtmAuditRetrieveParams = {
+    /**
+     * Start date for the audit period
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the audit period
+     * @minLength 1
+     * @nullable
+     */
+    date_to?: string | null;
+    };
+
+    export type MaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -31415,6 +33620,61 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MessagingCategoriesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type MessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type NotificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -31424,6 +33684,30 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WebAnalyticsFilterPresetsListParams = {
+    created_by?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    short_id?: string;
     };
 
     export type WebVitalsRetrieveParams = {
@@ -32296,6 +34580,29 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataModelingJobsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null;
+    };
+
+    export type DataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
     export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -32574,6 +34881,21 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type ExternalDataSourcesListParams = {
@@ -32867,6 +35189,17 @@ export namespace Schemas {
     };
 
     export type HeatmapsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -33385,6 +35718,42 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type ManagedMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * * `completed` - Completed
+    * `failed` - Failed
+    * `paused` - Paused
+    * `running` - Running
+     */
+    status?: ManagedMigrationsListStatus;
+    };
+
+    export type ManagedMigrationsListStatus = typeof ManagedMigrationsListStatus[keyof typeof ManagedMigrationsListStatus];
+
+
+    export const ManagedMigrationsListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Paused: 'paused',
+      Running: 'running',
+    } as const;
+
     export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
@@ -33896,6 +36265,17 @@ export namespace Schemas {
      */
     export type QueryLogRetrieve200 = {[key: string]: unknown};
 
+    export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SandboxListParams = {
     /**
      * Number of results to return per page.
@@ -33916,6 +36296,25 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ScheduledChangesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+     */
+    model_name?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by the ID of a specific feature flag.
+     */
+    record_id?: string;
     };
 
     export type SchemaPropertyGroupsListParams = {
@@ -33954,6 +36353,17 @@ export namespace Schemas {
     };
 
     export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34061,6 +36471,17 @@ export namespace Schemas {
     date_to?: string;
     };
 
+    export type TagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type TasksListParams = {
     /**
      * Filter by creator user ID
@@ -34153,6 +36574,17 @@ export namespace Schemas {
     window_days?: number;
     };
 
+    export type UserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
@@ -34205,6 +36637,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type WarehouseModelPathsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type WarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -34217,6 +36660,36 @@ export namespace Schemas {
     };
 
     export type WarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type WarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type WarehouseViewLinksListParams = {
     /**
      * Number of results to return per page.
      */

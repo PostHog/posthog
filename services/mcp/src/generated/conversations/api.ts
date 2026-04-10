@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 3 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -71,12 +71,3 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
-
-export const ConversationsTicketsSuggestReplyCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this ticket.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})

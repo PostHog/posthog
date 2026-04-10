@@ -414,12 +414,29 @@ export interface TicketApi {
     readonly channel_source: ChannelSourceEnumApi
     readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
+    /** Ticket status: new, open, pending, on_hold, or resolved
+
+* `new` - New
+* `open` - Open
+* `pending` - Pending
+* `on_hold` - On hold
+* `resolved` - Resolved */
     status?: TicketStatusEnumApi
+    /** Ticket priority: low, medium, or high. Null if unset.
+
+* `low` - Low
+* `medium` - Medium
+* `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
     readonly assignee: TicketAssignmentApi
+    /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /** Whether the ticket was resolved by AI */
     ai_resolved?: boolean
-    /** @nullable */
+    /**
+     * Reason the ticket was escalated from AI to human
+     * @nullable
+     */
     escalation_reason?: string | null
     readonly created_at: string
     readonly updated_at: string
@@ -433,7 +450,10 @@ export interface TicketApi {
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
-    /** @nullable */
+    /**
+     * SLA deadline set via workflows. Null means no SLA.
+     * @nullable
+     */
     sla_due_at?: string | null
     /** @nullable */
     readonly slack_channel_id: string | null
@@ -470,12 +490,29 @@ export interface PatchedTicketApi {
     readonly channel_source?: ChannelSourceEnumApi
     readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
+    /** Ticket status: new, open, pending, on_hold, or resolved
+
+* `new` - New
+* `open` - Open
+* `pending` - Pending
+* `on_hold` - On hold
+* `resolved` - Resolved */
     status?: TicketStatusEnumApi
+    /** Ticket priority: low, medium, or high. Null if unset.
+
+* `low` - Low
+* `medium` - Medium
+* `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
     readonly assignee?: TicketAssignmentApi
+    /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /** Whether the ticket was resolved by AI */
     ai_resolved?: boolean
-    /** @nullable */
+    /**
+     * Reason the ticket was escalated from AI to human
+     * @nullable
+     */
     escalation_reason?: string | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -489,7 +526,10 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
-    /** @nullable */
+    /**
+     * SLA deadline set via workflows. Null means no SLA.
+     * @nullable
+     */
     sla_due_at?: string | null
     /** @nullable */
     readonly slack_channel_id?: string | null
