@@ -30,6 +30,8 @@ CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
+DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
+JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -480,8 +482,9 @@ def create_workspace(
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
         parameters[GIT_EMAIL_PARAMETER] = git_email
-    if dotfiles_uri:
-        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
+    parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri or ""
+    parameters[DOTFILES_BRANCH_PARAMETER] = ""
+    parameters[JETBRAINS_IDES_PARAMETER] = "[]"
 
     args = [
         "coder",

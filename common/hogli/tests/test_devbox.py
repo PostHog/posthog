@@ -254,6 +254,9 @@ class TestWorkspaceCreation:
                 "claude_oauth_token": "oauth-token",
                 "git_name": "PostHog Engineer",
                 "git_email": "test-user@example.com",
+                "dotfiles_uri": "",
+                "dotfiles_branch": "",
+                "jetbrains_ides": "[]",
             },
             "verbose": True,
         }
@@ -278,7 +281,7 @@ class TestWorkspaceCreation:
 
         assert captured["parameters"]["dotfiles_uri"] == "https://github.com/user/dotfiles"
 
-    def test_create_workspace_omits_dotfiles_uri_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_workspace_defaults_dotfiles_params_when_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         def fake_run_with_rich_parameters(
@@ -291,7 +294,9 @@ class TestWorkspaceCreation:
 
         coder.create_workspace("devbox-test-user", 100, verbose=True)
 
-        assert "dotfiles_uri" not in captured["parameters"]
+        assert captured["parameters"]["dotfiles_uri"] == ""
+        assert captured["parameters"]["dotfiles_branch"] == ""
+        assert captured["parameters"]["jetbrains_ides"] == "[]"
 
 
 class TestResolveWorkspaceName:
@@ -954,7 +959,7 @@ class TestSetupClaudeToken:
         devbox_cli.maybe_configure_claude_token(None)
         assert "configured" in output.getvalue()
 
-    def test_shows_explanation_before_confirm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_shows_explanation_before_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(keychain, "read", lambda service: None)
         monkeypatch.setattr(keychain, "is_supported", lambda: True)
 
@@ -962,7 +967,7 @@ class TestSetupClaudeToken:
 
         output = StringIO()
         monkeypatch.setattr(click, "echo", lambda msg="", **kw: output.write(msg + "\n"))
-        monkeypatch.setattr(click, "confirm", lambda *a, **kw: False)
+        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "")
         devbox_cli.maybe_configure_claude_token(None)
         text = output.getvalue()
         assert "Claude Code (optional)" in text
