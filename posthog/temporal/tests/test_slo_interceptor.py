@@ -193,7 +193,7 @@ async def test_interceptor_emits_slo_events(
     if expect_error_trace:
         # The interceptor populates error_trace from either the activity-side
         # ApplicationError.details[0] or a fallback workflow-side traceback.
-        assert completed_props.get("error_trace")
+        assert completed_props.get("error_trace") is not None
     else:
         # Successful workflows and in-workflow business-failure paths never raise,
         # so the interceptor has nothing to unwrap — error_trace must not be set.

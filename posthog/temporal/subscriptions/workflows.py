@@ -208,6 +208,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             non_user_errors = [e for e in asset_errors if not is_user_query_error_type(e.exception_class)]
             if inputs.slo and non_user_errors:
                 inputs.slo.outcome = SloOutcome.FAILURE
+                distinct_classes = sorted({e.exception_class for e in non_user_errors})
+                inputs.slo.completion_properties.setdefault("error_type", "PartialExportFailure")
+                inputs.slo.completion_properties.setdefault(
+                    "error_message",
+                    f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
+                )
 
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
@@ -235,9 +241,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            # Workflow-level failure: the SLO interceptor populates
-            # error_type / error_message / error_trace when we re-raise.
-            # asset_errors stays for per-insight partial failures only.
             caught_error = e
             # Defer the re-raise until after the finally block — see note below.
 
@@ -255,17 +258,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Enrich SLO completion context with subscription-specific details.
-            # asset_errors captures per-insight fan-out failures (independent of
-            # whether the workflow itself succeeded); workflow-level errors go
-            # through the interceptor's error_type/error_message/error_trace.
+            # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
                 inputs.slo.completion_properties.update(
                     {
                         "assets_with_content": assets_with_content,
                         "total_assets": total_assets,
                         "asset_errors": [
-                            {"error_type": e.exception_class, "error_trace": e.error_trace} for e in asset_errors
+                            {"error_type": e.exception_class, "error_trace": e.error_trace}
+                            for e in asset_errors
+                            if not is_user_query_error_type(e.exception_class)
                         ],
                     }
                 )

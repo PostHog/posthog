@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Optional
 
-from posthog.temporal.common.errors import unwrap_temporal_cause
+from posthog.temporal.common.errors import resolve_error_trace, unwrap_temporal_cause
 
 
 @dataclasses.dataclass
@@ -24,9 +24,7 @@ class ExportAssetResult:
 
 
 def extract_error_details(exc: BaseException) -> ExportError | None:
-    """Build an ``ExportError`` from a failed activity exception, or ``None`` if there's nothing to attach."""
     cause = unwrap_temporal_cause(exc)
     if cause is None or not cause.type:
         return None
-    error_trace = cause.details[0] if cause.details and isinstance(cause.details[0], str) else ""
-    return ExportError(exception_class=cause.type, error_trace=error_trace)
+    return ExportError(exception_class=cause.type, error_trace=resolve_error_trace(exc))

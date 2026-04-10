@@ -45,10 +45,7 @@ class ExportAssetWorkflow(PostHogWorkflow):
                 retry_policy=EXPORT_RETRY_POLICY,
             )
         except Exception as e:
-            # User-query failures aren't an SLO breach — reclassify as SUCCESS
-            # before re-raising so the interceptor records the correct outcome.
-            # (error_type, error_message, and error_trace are populated by the
-            # interceptor via its shared unwrap logic.)
+            # User-query failures aren't an SLO breach -> reclassify as SUCCESS
             if inputs.slo and is_user_query_error_type(resolve_exception_class(e)):
                 inputs.slo.outcome = SloOutcome.SUCCESS
             raise
