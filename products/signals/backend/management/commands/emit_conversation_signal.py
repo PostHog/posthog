@@ -128,6 +128,10 @@ class Command(BaseCommand):
         self.stdout.write(f"  extra: {output.extra}")
         self.stdout.write("")
 
+        if dry_run:
+            self.stdout.write(self.style.WARNING("Dry run — not emitting signal"))
+            return
+
         if not skip_llm:
             self.stdout.write("Running LLM pipeline (summarization + actionability)...")
             outputs = asyncio.run(self._run_llm_pipeline(config, outputs))
@@ -139,10 +143,6 @@ class Command(BaseCommand):
             preview = output.description[:500] + ("..." if len(output.description) > 500 else "")
             self.stdout.write(f"    {preview}")
             self.stdout.write("")
-
-        if dry_run:
-            self.stdout.write(self.style.WARNING("Dry run — not emitting signal"))
-            return
 
         self.stdout.write("Emitting signal...")
         asyncio.run(
