@@ -13,15 +13,15 @@ import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
 import {
-    dashboardTemplateChooserLogic,
     DashboardTemplateChooserExperimentVariant,
-    DashboardTemplateChooserLogicProps,
-} from './dashboardTemplateChooserLogic'
+    resolveDashboardTemplateChooserExperimentVariant,
+} from './dashboardTemplateChooserExperiment'
+import { dashboardTemplateChooserLogic, DashboardTemplateChooserLogicProps } from './dashboardTemplateChooserLogic'
 import { TemplateItem } from './DashboardTemplateItem'
 import { DashboardTemplateItemSkeleton } from './DashboardTemplateItemSkeleton'
 import { DashboardTemplateProps } from './dashboardTemplatesLogic'
 
-export type { DashboardTemplateChooserExperimentVariant } from './dashboardTemplateChooserLogic'
+export type { DashboardTemplateChooserExperimentVariant } from './dashboardTemplateChooserExperiment'
 
 const gridClass = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4'
 
@@ -248,9 +248,9 @@ function NewLayoutVariant(
 
 export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const v = featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
-    const variant: DashboardTemplateChooserExperimentVariant =
-        v === 'simple' || v === 'new' || v === 'control' ? v : 'new'
+    const variant = resolveDashboardTemplateChooserExperimentVariant(
+        featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
+    )
 
     switch (variant) {
         case 'simple':

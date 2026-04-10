@@ -6,11 +6,10 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType } from '~/types'
 
+import type { DashboardTemplateChooserExperimentVariant } from './dashboardTemplateChooserExperiment'
 import type { dashboardTemplateChooserLogicType } from './dashboardTemplateChooserLogicType'
 import { runBlankDashboardFlow, runDashboardTemplateClickFlow } from './dashboardTemplateCreationFlows'
 import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemplatesLogic'
-
-export type DashboardTemplateChooserExperimentVariant = 'control' | 'simple' | 'new'
 
 export type DashboardTemplateChooserLogicProps = DashboardTemplateProps & {
     experimentVariant: DashboardTemplateChooserExperimentVariant

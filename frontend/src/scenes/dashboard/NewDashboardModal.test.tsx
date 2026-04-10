@@ -19,7 +19,7 @@ jest.mock('kea', () => ({
 
 jest.mock('@posthog/lemon-ui', () => ({
     LemonButton: ({ children, ...props }: any) => <button {...props}>{children}</button>,
-    LemonInput: ({ value, onChange, ...props }: any) => (
+    LemonInput: ({ value, onChange, fullWidth: _fullWidth, ...props }: any) => (
         <input value={value} onChange={(event) => onChange?.(event.target.value)} {...props} />
     ),
     LemonLabel: ({ children }: any) => <label>{children}</label>,
