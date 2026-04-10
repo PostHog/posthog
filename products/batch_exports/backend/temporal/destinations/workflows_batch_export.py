@@ -251,7 +251,9 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         # TODO: The consumer should be refactored.
         tg = asyncio.TaskGroup()
         async with aiohttp.ClientSession(
-            trust_env=True,
+            # The batch exports API resolves to a local address which our proxy blocks,
+            # so we disable it.
+            trust_env=False,  # nosemgrep: aiohttp-missing-trust-env
             connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
         ) as session:
             consumer = WorkflowsConsumer(
