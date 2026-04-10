@@ -74,7 +74,7 @@ class TestTogetherListModels:
         "products.llm_analytics.backend.llm.providers.together.openai.OpenAI",
         side_effect=Exception("API error"),
     )
-    def test_list_models_error_returns_recommended(self, _mock_openai):
+    def test_list_models_error_returns_empty(self, _mock_openai):
         assert TogetherAdapter.list_models("together-test-key") == []
 
     @patch("products.llm_analytics.backend.llm.providers.together.openai.OpenAI")
