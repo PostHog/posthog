@@ -183,11 +183,8 @@ Use this file as a backlog. Check things off as they land.
       `./index.css`, `./colors.css`, plus three granular `theme-*.css`
       entries. Great DS libraries have **one**. Every "here's another way"
       paragraph is a sign the library isn't opinionated enough yet. Once
-      #6 and #7 land, this collapses to:
-      `css
-  @import 'tailwindcss';
-  @import '@posthog/quill';
-  `
+      #6 and #7 land, this collapses to a two-line setup
+      (`@import 'tailwindcss';` followed by `@import '@posthog/quill';`).
       **Fix:** rewrite the README around a single import story. Move
       granular controls to an "Advanced" section at the bottom.
 
@@ -212,17 +209,12 @@ Use this file as a backlog. Check things off as they land.
       looks broken" class of bug.
 
 - [ ] **21. Pack-and-install smoke test**
-      `bash
-      pnpm --filter @posthog/quill pack
-
-  # install into a temp app
-
-  # import { Button } and render
-
-  `Runs in CI. Catches every`exports`resolution failure, missing
-   `dist` file, missing peer dep, and "works in the monorepo but
-  breaks on npm" bug. This is the single most valuable test for a
-  library that ships to external consumers.
+      Run `pnpm --filter @posthog/quill pack`, install the resulting
+      tarball into a disposable temp app, and render `<Button />`. Hook
+      it up in CI. Catches every `exports` resolution failure, missing
+      `dist` file, missing peer dep, and "works in the monorepo but
+      breaks on npm" bug. This is the single most valuable test for a
+      library that ships to external consumers.
 
 - [ ] **22. Acceptance test: the `Code` consumer's `quill.css` shrinks**
       Pick an absolute line count target for the consumer file after
