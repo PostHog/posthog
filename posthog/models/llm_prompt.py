@@ -16,8 +16,8 @@ def normalize_prompt_to_string(value: Any) -> str:
         return value
     try:
         return json.dumps(value, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(value)
+    except Exception:
+        return ""
 
 
 class LLMPrompt(UUIDModel):
