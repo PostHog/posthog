@@ -15459,6 +15459,45 @@ export namespace Schemas {
       readonly is_used_in_replay_settings: boolean;
     }
 
+    export interface FeatureFlagConditionPropertyAnalysis {
+      /** Property key */
+      key: string;
+      /** Comparison operator */
+      operator: string;
+      /** Expected property value */
+      value: unknown;
+      /** Property type (person, group, etc.) */
+      type: string;
+      /** Actual property value from user */
+      actual_value: unknown | null;
+      /** Whether this property condition matched */
+      matched: boolean;
+      /** Human-readable explanation of the match result */
+      explanation: string;
+    }
+
+    export interface FeatureFlagConditionAnalysis {
+      /** Index of this condition in the feature flag */
+      index: number;
+      /** Whether this condition was the one that matched */
+      matched: boolean;
+      /** Overall result for this condition (matches, no_match) */
+      result: string;
+      /** Human-readable explanation of why this condition matched/didn't match */
+      explanation: string;
+      /** Rollout percentage for this condition */
+      rollout_percentage: number;
+      /** Whether this condition matched properties but was excluded due to rollout */
+      rollout_excluded: boolean;
+      /**
+       * Variant associated with this condition
+       * @nullable
+       */
+      variant: string | null;
+      /** Analysis of each property in this condition */
+      properties: FeatureFlagConditionPropertyAnalysis[];
+    }
+
     /**
      * * `cohort` - cohort
     * `person` - person
@@ -15883,6 +15922,45 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export interface FeatureFlagTestEvaluationRequest {
+      /** User distinct ID to test against (mutually exclusive with person_id) */
+      distinct_id?: string;
+      /** Person ID to test against (mutually exclusive with distinct_id) */
+      person_id?: string;
+      /**
+       * Optional timestamp to evaluate flag at a specific point in time (ISO format)
+       * @nullable
+       */
+      timestamp?: string | null;
+      /** Groups for feature flag evaluation (JSON object string) */
+      groups?: string;
+    }
+
+    /**
+     * Person properties at the time of evaluation (for historical evaluations)
+     */
+    export type FeatureFlagTestEvaluationResponsePersonProperties = {[key: string]: unknown};
+
+    export interface FeatureFlagTestEvaluationResponse {
+      /** Feature flag key */
+      flag_key: string;
+      /** The evaluated value of the feature flag (boolean or variant key string) */
+      result: unknown;
+      /** The reason for the evaluation result */
+      reason: string;
+      /**
+       * The index of the condition that matched, if applicable
+       * @nullable
+       */
+      condition_index: number | null;
+      /** Payload associated with the flag result, if any */
+      payload: unknown | null;
+      /** Person properties at the time of evaluation (for historical evaluations) */
+      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /** Detailed analysis of each condition in the feature flag */
+      conditions: FeatureFlagConditionAnalysis[];
     }
 
     export interface FileSystem {
