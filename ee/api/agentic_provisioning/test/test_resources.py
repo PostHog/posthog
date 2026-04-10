@@ -1,5 +1,7 @@
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.personal_api_key import PersonalAPIKey
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
@@ -145,6 +147,23 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         stripe_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
         assert stripe_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
+
+    @parameterized.expand(
+        [
+            ("with_name", {"project_name": "My SaaS App"}, "My SaaS App"),
+            ("without_name", None, None),
+        ]
+    )
+    def test_create_resource_project_name(self, _name, config, expected_name):
+        original_name = self.team.name
+        token = self._get_bearer_token()
+        data: dict = {"service_id": "analytics"}
+        if config is not None:
+            data["configuration"] = config
+        res = self._post_signed_with_bearer("/api/agentic/provisioning/resources", data=data, token=token)
+        assert res.status_code == 200
+        self.team.refresh_from_db()
+        assert self.team.name == (expected_name or original_name)
 
     def test_get_resource_does_not_include_personal_api_key(self):
         token = self._get_bearer_token()

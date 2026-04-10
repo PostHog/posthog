@@ -129,6 +129,16 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
         "id": ANALYTICS_SERVICE_ID,
         "description": description,
         "categories": ALL_CATEGORIES,
+        "configuration_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Name for the PostHog project",
+                },
+            },
+            "additionalProperties": False,
+        },
         "pricing": {
             "type": "component",
             "component": {
@@ -348,9 +358,14 @@ def _handle_new_user(
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    org_name = configuration.get("organization_name") or f"Stripe ({email})"
+
     try:
         organization, team, user = User.objects.bootstrap(
-            organization_name=f"Stripe ({email})",
+            organization_name=org_name,
             email=email,
             password=None,
             first_name=first_name,
@@ -727,6 +742,12 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
         spt_token = payment_credentials.get("stripe_payment_token")
         if spt_token:
             return _activate_billing_with_spt(team, user, spt_token)
+    logger.info(
+        "stripe_app.spt_not_received",
+        team_id=team.id,
+        has_payment_credentials=payment_credentials is not None,
+        payment_credentials_type=payment_credentials.get("type") if isinstance(payment_credentials, dict) else None,
+    )
     return None
 
 
@@ -786,6 +807,14 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+
+    configuration = request.data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+    project_name = configuration.get("project_name")
+    if project_name:
+        team.name = project_name
+        team.save(update_fields=["name"])
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
