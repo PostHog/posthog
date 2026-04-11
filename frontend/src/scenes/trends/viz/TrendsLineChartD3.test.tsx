@@ -188,7 +188,11 @@ describe('TrendsLineChartD3', () => {
             expect(personsModal.get()).not.toBeInTheDocument()
         })
 
-        it('multi-series: clicking the Spike row shows only Spike actors', async () => {
+        it.each([
+            ['Spike', ['spike-fan@example.com']],
+            ['Bramble', ['bramble-fan@example.com']],
+            ['Thistle', ['thistle-fan@example.com']],
+        ] as const)('multi-series: clicking the %s row shows only %s actors', async (breakdown, expectedActors) => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
@@ -198,10 +202,10 @@ describe('TrendsLineChartD3', () => {
             })
 
             await chart.clickAtIndex(2)
-            await chart.clickTooltipRow('Spike')
+            await chart.clickTooltipRow(breakdown)
 
             await waitFor(() => {
-                expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
+                expect(personsModal.actorNames()).toEqual(expectedActors)
             })
         })
     })

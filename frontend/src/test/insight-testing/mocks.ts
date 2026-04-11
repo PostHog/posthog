@@ -29,7 +29,10 @@ export interface QueryBody {
 
 export interface MockResponse {
     match: (query: QueryBody) => boolean
-    response: TrendsQueryResponse | ((query: QueryBody) => TrendsQueryResponse)
+    response:
+        | TrendsQueryResponse
+        | ActorsQueryResponse
+        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse)
 }
 
 /** Build an ActorsQueryResponse shaped like the server response, with one row
