@@ -793,6 +793,21 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 2
         assert response.results[0]["data"] == [0, 1, 1, 0, 0, 0, 0, 0, 0, 0]
 
+    def test_stickiness_criteria_null_value_defaults_to_one(self):
+        query = self._get_query(
+            date_from="2020-01-12",
+            date_to="2020-01-20",
+            filters=StickinessFilter(**{"stickinessCriteria": {"operator": "gte", "value": 1}}),
+        )
+        runner = StickinessQueryRunner(team=self.team, query=query)
+
+        # Simulate a null value reaching the backend (e.g. from a malformed API request)
+        runner.query.stickinessFilter.stickinessCriteria.value = None  # type: ignore
+
+        having = runner._having_clause()
+        # Should default to 1 instead of crashing
+        assert "1" in str(having)
+
     def test_filter_test_accounts(self):
         self._create_test_events()
 

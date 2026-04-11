@@ -2,7 +2,15 @@ import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/
 import { isValidRE2 } from 'lib/utils/regexp'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node } from '~/queries/schema/schema-general'
+import {
+    BreakdownFilter,
+    CompareFilter,
+    DataNode,
+    FunnelPathsFilter,
+    HogQLVariable,
+    InsightQueryNode,
+    Node,
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -289,21 +297,33 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
 }
 
 /**
+ * At runtime, query objects may carry fields from a prior insight type
+ * (e.g. breakdownFilter left over from Trends on a StickinessQuery).
+ * This intersection type makes those leaked fields visible to TypeScript
+ * so we can delete them without `as any`.
+ */
+type InsightQueryNodeWithLeakedFields = InsightQueryNode & {
+    breakdownFilter?: BreakdownFilter
+    compareFilter?: CompareFilter
+    funnelPathsFilter?: FunnelPathsFilter
+}
+
+/**
  * Removes fields that are not supported by the target query kind.
  * This prevents state from leaking when switching between insight types
  * (e.g. breakdownFilter persisting from Trends when switching to Stickiness).
  */
 export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQueryNode => {
-    const cleaned = { ...query }
+    const cleaned: InsightQueryNodeWithLeakedFields = { ...query }
 
-    if (!isInsightQueryWithBreakdown(cleaned)) {
-        delete (cleaned as any).breakdownFilter
+    if (!isInsightQueryWithBreakdown(query)) {
+        delete cleaned.breakdownFilter
     }
-    if (!isInsightQueryWithCompare(cleaned)) {
-        delete (cleaned as any).compareFilter
+    if (!isInsightQueryWithCompare(query)) {
+        delete cleaned.compareFilter
     }
-    if (!isPathsQuery(cleaned)) {
-        delete (cleaned as any).funnelPathsFilter
+    if (!isPathsQuery(query)) {
+        delete cleaned.funnelPathsFilter
     }
 
     return cleaned

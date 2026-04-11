@@ -46,7 +46,7 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
                 onBlur={() => {
-                    if (!stickinessCriteria?.value) {
+                    if (stickinessCriteria?.value == null) {
                         updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value: 1 } })
                     }
                 }}
