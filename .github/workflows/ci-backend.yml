@@ -312,7 +312,7 @@ jobs:
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
-                    db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
+                    db redis7 clickhouse keeper kafka objectstorage feature-flags \
                     temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
