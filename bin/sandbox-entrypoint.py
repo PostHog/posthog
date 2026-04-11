@@ -40,15 +40,9 @@ WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
-# Gate file that claude-wait.sh polls before exec'ing claude. Touched as soon
-# as Python deps + hogli symlink are ready — by design claude starts *while*
-# node/rust/migrations are still running so the user can plan and edit code
-# against the warming sandbox. Setup failures after this point are surfaced
-# via the tmux status line (STATUS_FILE) and by keeping the setup window
-# alive as a bash shell with a visible traceback.
-PYTHON_READY = Path("/tmp/sandbox-python-ready")
-
 # Coarse phase label surfaced in the tmux status line (polled every 2s).
+# Setup failures are surfaced here and by keeping the setup window alive as a
+# bash shell with a visible traceback.
 STATUS_FILE = Path("/tmp/sandbox-status")
 
 # ---------------------------------------------------------------------------
@@ -328,10 +322,6 @@ def install_python_deps() -> None:
     phrocs_link = WORKSPACE / "bin/phrocs"
     if not phrocs_link.exists():
         phrocs_link.symlink_to("/usr/local/bin/phrocs")
-    # Unblock claude-wait.sh. Migrations / node deps / cargo may still be
-    # running in sibling threads — that's intentional: we want claude usable
-    # for planning and edits while the rest of setup finishes.
-    PYTHON_READY.touch()
 
 
 def install_node_deps() -> None:
@@ -597,20 +587,17 @@ def user_phase() -> None:
     """PID 1 of the app container.
 
     Lean: set up env, install the GeoIP symlink, launch a detached tmux server
-    with a claude window (spinner → real claude once Python is ready) and a
-    setup window (runs run_setup() and then spawns phrocs), then block on a
-    has-session poll loop to keep PID 1 alive.
+    with a claude window and a setup window (runs run_setup() and then spawns
+    phrocs), then block on a has-session poll loop to keep PID 1 alive.
     """
     _setup_user_env()
     install_geoip()
 
-    # Clear stale PYTHON_READY from a prior boot so claude-wait.sh spins on
-    # the fresh one instead of immediately exec'ing claude against a
-    # still-installing environment. STATUS_FILE is overwritten below.
-    PYTHON_READY.unlink(missing_ok=True)
     _write_status("booting")
 
-    # Window 0: claude (via the spinner launcher)
+    # Window 0: claude (launched immediately; it may briefly see "hogli: not
+    #   found" if a tool call races with uv sync, but typical warm boots are
+    #   fast enough that this rarely bites)
     # Window 1: setup (runs run_setup(); spawns phrocs window on completion)
     # Both use the sandbox-scoped tmux server + conf file.
     tmux = ["tmux", "-L", "sandbox"]
@@ -623,9 +610,11 @@ def user_phase() -> None:
             "-d",
             "-s",
             "posthog",
+            "-c",
+            "/workspace",
             "-n",
             "claude",
-            "/usr/local/bin/claude-wait.sh",
+            "claude",
         ]
     )
     # Keep the claude pane alive across claude crashes (pairs with the
@@ -673,10 +662,10 @@ def run_setup() -> None:
     phrocs window, and then exec's into an interactive login shell so the
     window stays usable with full scrollback.
 
-    Claude is already running in window 0 by this point (unblocked by
-    install_python_deps touching PYTHON_READY early). If anything here
-    raises, we write "SETUP FAILED" to the status line — visible in every
-    window's tmux status bar — and drop into a bash shell with the traceback
+    Claude is already running in window 0 by this point — we want the user to
+    be able to plan and edit code against the warming sandbox. If anything
+    here raises, we write "SETUP FAILED" to the status line (visible in every
+    window's tmux status bar) and drop into a bash shell with the traceback
     on screen so the user can diagnose without losing the tmux window.
     """
     _setup_user_env()

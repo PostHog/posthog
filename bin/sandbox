@@ -782,13 +782,12 @@ def _populate_workspace_volume(
     # protocol.file.allow=always is the CVE-2022-39253 unlock for file://.
     script = r"""
         set -e
-        git init /workspace
+        git init -q -b "$BRANCH" /workspace
         cd /workspace
         GIT_OPTS="-c safe.directory=/host-git -c protocol.file.allow=always -c uploadpack.allowAnySHA1InWant=true"
         # shellcheck disable=SC2086
         git $GIT_OPTS fetch --depth=50 --no-tags file:///host-git "$BRANCH_SHA"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
-        git symbolic-ref HEAD "refs/heads/$BRANCH"
         git reset --hard
         if [ -n "$BASE_SHA" ]; then
             # shellcheck disable=SC2086
@@ -1296,7 +1295,11 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     existing = registry.get(branch)
     if existing:
         error(f"Sandbox already exists for branch '{branch}' on port {existing.port}")
-        print(f"Use 'sandbox start {branch}' to start it, or 'sandbox rm {branch}' first.")
+        existing_container = f"{project_name(existing.slug)}-app-1"
+        if _container_running(existing_container):
+            print(f"It's already running — use 'sandbox shell {branch}' to attach, or 'sandbox rm {branch}' first.")
+        else:
+            print(f"Use 'sandbox start {branch}' to start it, or 'sandbox rm {branch}' first.")
         sys.exit(1)
 
     # Everything up to registry.allocate() is side-effect-free on the sandbox
@@ -1362,10 +1365,6 @@ def cmd_start(branch: str) -> None:
         info(f"Docker profiles: {', '.join(profiles)}")
     compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
 
-    # Don't clear entrypoint sentinels here — user_phase clears them on every
-    # real boot, and `up -d` is a no-op on an already-running container, so
-    # wiping /tmp/sandbox-python-ready out from under a live claude would be
-    # a correctness bug.
     container = f"{project}-app-1"
     health_url = f"http://localhost:{entry.port}/_health"
     _attach_with_health_poll(container, health_url)
@@ -1382,6 +1381,15 @@ def cmd_stop(branch: str) -> None:
     success("Sandbox stopped. Volumes preserved.")
 
 
+def _container_running(container: str) -> bool:
+    result = run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", container],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def _unpushed_commits_summary(container: str) -> str | None:
     """Short `git log` of commits on any local branch not on any remote.
 
@@ -1389,12 +1397,7 @@ def _unpushed_commits_summary(container: str) -> str | None:
     --branches rather than HEAD catches unpushed work on branches the user
     isn't currently on.
     """
-    inspect = run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", container],
-        check=False,
-        capture=True,
-    )
-    if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+    if not _container_running(container):
         return None
 
     result = run(
