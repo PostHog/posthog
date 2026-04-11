@@ -186,7 +186,8 @@ describe('stripUnsupportedQueryFields', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
                 breakdownFilter: { breakdown: '$browser' },
             },
-            { breakdownFilter: undefined },
+            {},
+            ['breakdownFilter'],
         ],
         [
             'strips breakdownFilter from LifecycleQuery',
@@ -195,7 +196,8 @@ describe('stripUnsupportedQueryFields', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
                 breakdownFilter: { breakdown: '$browser' },
             },
-            { breakdownFilter: undefined },
+            {},
+            ['breakdownFilter'],
         ],
         [
             'strips breakdownFilter from PathsQuery',
@@ -204,7 +206,8 @@ describe('stripUnsupportedQueryFields', () => {
                 pathsFilter: { includeEventTypes: [] },
                 breakdownFilter: { breakdown: '$browser' },
             },
-            { breakdownFilter: undefined },
+            {},
+            ['breakdownFilter'],
         ],
         [
             'preserves breakdownFilter on TrendsQuery',
@@ -214,6 +217,7 @@ describe('stripUnsupportedQueryFields', () => {
                 breakdownFilter: { breakdown: '$browser' },
             },
             { breakdownFilter: { breakdown: '$browser' } },
+            [],
         ],
         [
             'preserves breakdownFilter on FunnelsQuery',
@@ -226,6 +230,7 @@ describe('stripUnsupportedQueryFields', () => {
                 breakdownFilter: { breakdown: '$browser' },
             },
             { breakdownFilter: { breakdown: '$browser' } },
+            [],
         ],
         [
             'preserves breakdownFilter on RetentionQuery',
@@ -235,6 +240,7 @@ describe('stripUnsupportedQueryFields', () => {
                 breakdownFilter: { breakdown: '$browser' },
             },
             { breakdownFilter: { breakdown: '$browser' } },
+            [],
         ],
         [
             'strips compareFilter from FunnelsQuery',
@@ -246,7 +252,8 @@ describe('stripUnsupportedQueryFields', () => {
                 ],
                 compareFilter: { compare: true },
             },
-            { compareFilter: undefined },
+            {},
+            ['compareFilter'],
         ],
         [
             'strips compareFilter from LifecycleQuery',
@@ -255,7 +262,8 @@ describe('stripUnsupportedQueryFields', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
                 compareFilter: { compare: true },
             },
-            { compareFilter: undefined },
+            {},
+            ['compareFilter'],
         ],
         [
             'preserves compareFilter on TrendsQuery',
@@ -265,6 +273,7 @@ describe('stripUnsupportedQueryFields', () => {
                 compareFilter: { compare: true },
             },
             { compareFilter: { compare: true } },
+            [],
         ],
         [
             'preserves compareFilter on StickinessQuery',
@@ -274,6 +283,7 @@ describe('stripUnsupportedQueryFields', () => {
                 compareFilter: { compare: true },
             },
             { compareFilter: { compare: true } },
+            [],
         ],
         [
             'strips funnelPathsFilter from TrendsQuery',
@@ -282,7 +292,8 @@ describe('stripUnsupportedQueryFields', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
                 funnelPathsFilter: { funnelSource: {} },
             },
-            { funnelPathsFilter: undefined },
+            {},
+            ['funnelPathsFilter'],
         ],
         [
             'preserves funnelPathsFilter on PathsQuery',
@@ -292,6 +303,7 @@ describe('stripUnsupportedQueryFields', () => {
                 funnelPathsFilter: { funnelSource: {} },
             },
             { funnelPathsFilter: { funnelSource: {} } },
+            [],
         ],
         [
             'preserves all supported fields on TrendsQuery',
@@ -302,16 +314,14 @@ describe('stripUnsupportedQueryFields', () => {
                 compareFilter: { compare: true },
             },
             { breakdownFilter: { breakdown: '$browser' }, compareFilter: { compare: true } },
+            [],
         ],
-    ])('%s', (_name, input, expectedFields) => {
+    ])('%s', (_name, input, expectedPresent, expectedAbsent) => {
         const result = stripUnsupportedQueryFields(input as InsightQueryNode)
 
-        for (const [field, expectedValue] of Object.entries(expectedFields)) {
-            if (expectedValue === undefined) {
-                expect(result).not.toHaveProperty(field)
-            } else {
-                expect((result as Record<string, unknown>)[field]).toEqual(expectedValue)
-            }
+        expect(result).toEqual(expect.objectContaining(expectedPresent))
+        for (const field of expectedAbsent) {
+            expect(result).not.toHaveProperty(field)
         }
     })
 
