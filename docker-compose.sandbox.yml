@@ -127,6 +127,8 @@ services:
             - ${SANDBOX_CLAUDE_AUTH}:/tmp/claude-auth:ro
             - ${SANDBOX_CLAUDE_JSON:-/dev/null}:/tmp/claude-auth.json:ro
             - ${SANDBOX_HOST_GITCONFIG:-/dev/null}:/tmp/host-gitconfig:ro
+            - ${SANDBOX_HOST_GIT_SIGNINGKEY:-/dev/null}:/tmp/host-git-signingkey:ro
+            - ${SANDBOX_HOST_ALLOWED_SIGNERS:-/dev/null}:/tmp/host-allowed-signers:ro
             - ${SANDBOX_SSH_AUTHORIZED_KEYS:-/dev/null}:/tmp/sandbox-authorized-keys:ro
             # Forwarded SSH agent. Host path resolved by bin/sandbox.
             - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent

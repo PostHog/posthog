@@ -462,6 +462,64 @@ def _ensure_jetbrains() -> None:
     _setup_jetbrains(wanted)
 
 
+def _git_signing_key_file() -> str:
+    """Stage the host's SSH signing public key for bind-mounting into the sandbox.
+
+    Reads ``user.signingkey`` from the host gitconfig. If it points at a real
+    ``.pub`` file (the common case: Secretive, 1Password, or a classic
+    ``~/.ssh/*.pub``), the file contents are staged to a stable path under
+    REGISTRY_DIR so compose can bind-mount them at a known location inside
+    the container. If the config value is already a literal key string (less
+    common but git supports it), we stage that string as a file so the
+    container-side handling is uniform.
+
+    Returns the host path to bind-mount, or ``/dev/null`` if no signing key
+    is configured or the referenced file can't be read.
+    """
+    result = run(
+        ["git", "config", "--global", "--get", "user.signingkey"],
+        check=False,
+        capture=True,
+    )
+    signing_key_val = result.stdout.strip() if result.returncode == 0 else ""
+    if not signing_key_val:
+        return "/dev/null"
+
+    # Case 1: it's a filesystem path — read the .pub file contents.
+    candidate = Path(signing_key_val).expanduser()
+    if candidate.is_file():
+        key_data = candidate.read_text().strip()
+    else:
+        # Case 2: it's already a literal key string (e.g. ``ssh-ed25519 ...``).
+        key_data = signing_key_val
+
+    if not key_data:
+        return "/dev/null"
+
+    staged = REGISTRY_DIR / "git-signing-key.pub"
+    staged.write_text(key_data + "\n")
+    return str(staged)
+
+
+def _git_allowed_signers_file() -> str:
+    """Resolve the host's git ssh allowedSignersFile for bind-mounting.
+
+    Used by ``git verify-commit`` / ``git log --show-signature``; not needed
+    to *create* signed commits but cheap to propagate. Returns the host path
+    if it exists, otherwise ``/dev/null``.
+    """
+    result = run(
+        ["git", "config", "--global", "--get", "gpg.ssh.allowedSignersFile"],
+        check=False,
+        capture=True,
+    )
+    val = result.stdout.strip() if result.returncode == 0 else ""
+    if not val:
+        return "/dev/null"
+    candidate = Path(val).expanduser()
+    return str(candidate) if candidate.is_file() else "/dev/null"
+
+
 def _host_ssh_auth_sock() -> str:
     """Resolve the host-side path to bind-mount as /ssh-agent in the sandbox.
 
@@ -476,6 +534,104 @@ def _host_ssh_auth_sock() -> str:
     if platform.system() == "Darwin":
         return "/run/host-services/ssh-auth.sock"
     return os.environ.get("SSH_AUTH_SOCK", "")
+
+
+def _check_macos_ssh_agent_launchd() -> None:
+    """Advisory: warn if launchd's SSH_AUTH_SOCK doesn't match the login shell.
+
+    OrbStack inherits its environment from launchd when launched from the
+    dock, so its SSH agent proxy at /run/host-services/ssh-auth.sock forwards
+    to whatever SSH_AUTH_SOCK launchd was carrying at OrbStack launch time. If
+    the user has configured Secretive or 1Password in their shell profile but
+    never propagated that value into launchd, the sandbox will talk to the
+    stock macOS ssh-agent rather than their real signing agent, so any
+    commits that rely on commit.gpgsign will fail inside the sandbox.
+
+    Non-blocking: print the mismatch, offer an interactive fix (launchctl
+    setenv + LaunchAgent plist), and continue either way. The user still has
+    to quit and relaunch OrbStack themselves for the change to reach running
+    containers — we can't do that without killing any in-flight sandboxes.
+    """
+    if platform.system() != "Darwin":
+        return
+
+    launchd_val = run(
+        ["launchctl", "getenv", "SSH_AUTH_SOCK"],
+        check=False,
+        capture=True,
+    ).stdout.strip()
+
+    shell = os.environ.get("SHELL", "/bin/bash")
+    shell_val = run(
+        [shell, "-lc", "echo $SSH_AUTH_SOCK"],
+        check=False,
+        capture=True,
+    ).stdout.strip()
+
+    # Nothing to propagate if the login shell has no agent configured, and
+    # nothing to warn about if they already match.
+    if not shell_val or shell_val == launchd_val:
+        return
+
+    warn("Your login shell and launchd disagree about SSH_AUTH_SOCK.")
+    print(f"  Shell ({shell}): {shell_val}")
+    print(f"  launchd:         {launchd_val or '(unset — defaults to stock macOS ssh-agent)'}")
+    print()
+    print("OrbStack inherits SSH_AUTH_SOCK from launchd when launched from the")
+    print("dock, so the sandbox will talk to a different SSH agent than your")
+    print("terminal does. If you use Secretive or 1Password for commit signing,")
+    print("signed commits inside the sandbox will fail.")
+    print()
+    answer = input("Fix this now (launchctl setenv + LaunchAgent plist)? [y/N] ").strip().lower()
+    if answer not in ("y", "yes"):
+        return
+
+    _install_ssh_agent_launchagent(shell_val)
+
+
+def _install_ssh_agent_launchagent(socket_path: str) -> None:
+    """Propagate the shell's SSH_AUTH_SOCK into launchd now and at every login.
+
+    Writes ~/Library/LaunchAgents/com.posthog.sandbox.ssh-auth-sock.plist,
+    updates the current launchd session via `launchctl setenv`, and reloads
+    the plist so it reapplies on next login. OrbStack itself must still be
+    relaunched manually to pick up the new value.
+    """
+    plist_path = Path.home() / "Library/LaunchAgents/com.posthog.sandbox.ssh-auth-sock.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(
+        textwrap.dedent(f"""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Label</key>
+                <string>com.posthog.sandbox.ssh-auth-sock</string>
+                <key>ProgramArguments</key>
+                <array>
+                    <string>/bin/launchctl</string>
+                    <string>setenv</string>
+                    <string>SSH_AUTH_SOCK</string>
+                    <string>{socket_path}</string>
+                </array>
+                <key>RunAtLoad</key>
+                <true/>
+            </dict>
+            </plist>
+            """)
+    )
+
+    # Apply to the current launchd session so an OrbStack relaunched after
+    # this point inherits the new value without the user having to log out.
+    run(["launchctl", "setenv", "SSH_AUTH_SOCK", socket_path], check=False)
+
+    # Register the plist for next login. Unload first to keep re-runs
+    # idempotent — `launchctl load` fails if the label is already registered.
+    run(["launchctl", "unload", str(plist_path)], check=False, capture=True)
+    run(["launchctl", "load", "-w", str(plist_path)], check=False)
+
+    success(f"Wrote {plist_path} and updated launchd session.")
+    warn("Quit and relaunch OrbStack for this to take effect inside the sandbox.")
 
 
 def _compose_env(port: int) -> dict[str, str]:
@@ -501,6 +657,12 @@ def _compose_env(port: int) -> dict[str, str]:
         "SANDBOX_HOST_GITCONFIG": str(_host_gitconfig)
         if (_host_gitconfig := Path.home() / ".gitconfig").is_file()
         else "/dev/null",
+        # SSH signing public key — staged to REGISTRY_DIR so the sandbox can
+        # rewrite user.signingkey to a path that exists inside the container.
+        "SANDBOX_HOST_GIT_SIGNINGKEY": _git_signing_key_file(),
+        # gpg.ssh.allowedSignersFile — mirrored into the sandbox user's home
+        # so `git verify-commit` works the same way as on the host.
+        "SANDBOX_HOST_ALLOWED_SIGNERS": _git_allowed_signers_file(),
         # Host-side source for the /ssh-agent bind mount — resolves to the
         # OrbStack/Docker Desktop magic path on macOS, $SSH_AUTH_SOCK on Linux,
         # or empty (falls back to /dev/null in compose) when no agent exists.
@@ -1074,6 +1236,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
 
     _ensure_host_branch(branch, base_branch)
     _warn_if_host_dirty(branch)
+    _check_macos_ssh_agent_launchd()
 
     intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
     entry = registry.allocate(branch, slug, intents=intents)
