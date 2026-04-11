@@ -659,11 +659,31 @@ def diff_state(
                 )
                 continue
 
-            # Default kind/expression changes → MODIFY COLUMN
+            # Default kind/expression changes → MODIFY COLUMN.
+            # Comparison must be semantically equivalent, not strict-string, because
+            # ClickHouse normalizes function identifiers to lowercase in `system.columns`
+            # (e.g. `now('UTC')`) while YAML often writes them uppercase (`NOW('UTC')`).
+            # A naive string compare triggers a spurious ALTER MODIFY COLUMN that
+            # rewrites the entire column — catastrophic on large tables.
+            #
+            # Normalize by lowercasing + collapsing whitespace. Kind is always an
+            # uppercase enum (DEFAULT / MATERIALIZED / ALIAS) so that part is case-stable.
             desired_default = f"{desired_col.default_kind} {desired_col.default_expression}".strip()
             current_default = f"{current_col.default_kind} {current_col.default_expression}".strip()
 
-            if desired_default and desired_default != current_default:
+            def _normalize_default(s: str) -> str:
+                # Lowercase the whole expression for case-insensitive function name
+                # comparison, then collapse runs of whitespace. String literals
+                # (single-quoted) are lowercased too but that's fine because CH
+                # stores them with their original casing and system.columns returns
+                # them unchanged — so YAML literals need to match CH's casing exactly
+                # anyway. In practice the only function-name casing mismatch is the
+                # NOW/now variant which is what this normalization protects against.
+                import re as _re
+
+                return _re.sub(r"\s+", " ", s.strip().lower())
+
+            if desired_default and _normalize_default(desired_default) != _normalize_default(current_default):
                 kind = desired_col.default_kind or "DEFAULT"
                 modify_clause = f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}"
                 alters.append(
