@@ -235,14 +235,38 @@ class Reviewer:
 
         posthog_kwargs: dict = {}
         if _POSTHOG_AI_AVAILABLE:
+            # Unique reviewer usernames, sanitized — labels and title are
+            # author-controlled so we sanitize them too (cheap insurance
+            # against weird unicode landing in analytics).
+            reviewers = sorted({_sanitize_untrusted(r["user"], max_len=50) for r in pr.reviews if r.get("user")})
+            safe_labels = [_sanitize_untrusted(label, max_len=100) for label in pr.labels]
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
                 "posthog_properties": {
                     "ai_product": "stamphog",
                     "stamphog_pr_number": pr.number,
+                    "stamphog_pr_title": _sanitize_untrusted(pr.title, max_len=200),
                     "stamphog_repo": pr.repo,
                     "stamphog_author": pr.author,
+                    "stamphog_labels": safe_labels,
+                    "stamphog_draft": pr.draft,
+                    "stamphog_mergeable_state": pr.mergeable_state,
+                    "stamphog_base_sha": pr.base_sha,
+                    "stamphog_head_sha": pr.head_sha,
+                    "stamphog_files_changed": len(pr.files),
+                    "stamphog_lines_added": pr.lines_added,
+                    "stamphog_lines_deleted": pr.lines_deleted,
+                    "stamphog_lines_total": pr.lines_total,
+                    "stamphog_has_new_files": pr.has_new_files,
+                    "stamphog_reviewers": reviewers,
+                    "stamphog_reviews_count": len(pr.reviews),
+                    "stamphog_inline_comments_count": len(pr.review_comments),
                     "stamphog_tier": classification.get("tier", ""),
+                    "stamphog_t1_subclass": classification.get("t1_subclass", ""),
+                    "stamphog_breadth": classification.get("breadth", ""),
+                    "stamphog_commit_type": classification.get("commit_type") or "",
+                    "stamphog_deny_categories": classification.get("deny_categories", []),
+                    "stamphog_author_on_owning_team": classification.get("author_on_owning_team"),
                     "stamphog_verdict": gate_context.get("gate_verdict", ""),
                 },
             }

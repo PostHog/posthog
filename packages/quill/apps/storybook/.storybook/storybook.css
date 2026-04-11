@@ -1,13 +1,25 @@
+/*
+ * Storybook acts as the first-party consumer of @posthog/quill. It imports
+ * the pre-compiled stylesheet from the published package surface — no
+ * @source directives pointing at primitives/components/blocks source, no
+ * shadcn/tailwind.css, no tw-animate-css. This matches what a real
+ * downstream app installs and proves the pre-compile pipeline works.
+ *
+ * Storybook's own Tailwind pipeline is still active so classes used in
+ * Storybook-specific stories (Tokens/Colors, Tokens/Typography, etc.) and
+ * in co-located primitives/components/blocks *.stories.tsx files are
+ * generated on top of the pre-compiled quill.css. Those files are NOT
+ * part of the quill runtime surface, so they are deliberately kept out of
+ * the library's @source scan.
+ */
+
 @import 'tailwindcss';
-@import 'shadcn/tailwind.css';
-@import '@posthog/quill-tokens/color-system.css';
-@import '@posthog/quill-tokens/tailwind.css';
+@import '@posthog/quill/styles.css';
 @import '@fontsource-variable/inter';
-@import 'tw-animate-css';
-@source "../../../packages/primitives/src/**/*.{ts,tsx}";
-@source "../../../packages/components/src/**/*.{ts,tsx}";
-@source "../../../packages/blocks/src/**/*.{ts,tsx}";
 @source "../stories/**/*.{ts,tsx}";
+@source "../../../packages/primitives/src/**/*.stories.{ts,tsx}";
+@source "../../../packages/components/src/**/*.stories.{ts,tsx}";
+@source "../../../packages/blocks/src/**/*.stories.{ts,tsx}";
 
 /* Disable animations during visual regression tests */
 body.storybook-test-runner *,

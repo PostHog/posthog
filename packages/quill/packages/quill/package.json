@@ -1,19 +1,20 @@
 {
-    "name": "@posthog/quill-primitives",
+    "name": "@posthog/quill",
     "version": "0.1.0-alpha.0",
-    "private": true,
-    "description": "Internal workspace package (private, not published). The lowest layer of the quill design system — unstyled Base UI primitives wrapped with quill's Tailwind classes (Button, Card, Dialog, Input, Popover, Combobox, etc.). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
+    "description": "PostHog's unified design system — primitives, components, and blocks with a pre-compiled stylesheet.",
     "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/PostHog/posthog.git",
-        "directory": "packages/quill/packages/primitives"
+        "directory": "packages/quill/packages/quill"
     },
     "files": [
         "dist"
     ],
     "type": "module",
-    "sideEffects": false,
+    "sideEffects": [
+        "*.css"
+    ],
     "main": "./dist/index.cjs",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -24,14 +25,21 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./styles.css": "./dist/quill.css",
+        "./theme.css": "./dist/theme.css",
         "./package.json": "./package.json"
     },
+    "publishConfig": {
+        "access": "public"
+    },
     "scripts": {
-        "build": "vite build"
+        "build": "tsx scripts/build-css.ts && vite build",
+        "build:css": "tsx scripts/build-css.ts",
+        "build:css:watch": "tailwindcss --input ./src/index.css --output ./dist/quill.css --watch",
+        "build:js": "vite build"
     },
     "dependencies": {
         "@base-ui/react": "^1.0.0",
-        "@posthog/quill-tokens": "workspace:^",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
@@ -41,16 +49,23 @@
         "vaul": "^1.1.2"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:",
-        "@tailwindcss/vite": "^4.1.17",
-        "@types/react": "^19.2.14",
-        "@types/react-dom": "^19.2.3",
-        "@vitejs/plugin-react": "^5.1.1",
+        "@posthog/quill-blocks": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
+        "@posthog/quill-primitives": "workspace:*",
+        "@posthog/quill-tokens": "workspace:*",
+        "@tailwindcss/cli": "^4.1.17",
+        "shadcn": "^4.0.2",
+        "tailwindcss": "^4.1.17",
+        "tsx": "^4.19.0",
+        "tw-animate-css": "^1.4.0",
         "vite": "^6.3.5",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {
         "react": "^19.0.0",
         "react-dom": "^19.0.0"
+    },
+    "engines": {
+        "node": ">=20"
     }
 }
