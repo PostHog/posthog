@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
+use uuid::Uuid;
+
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -49,7 +51,7 @@ impl Outcome {
 /// Backend-agnostic trait for introspecting per-event publish results.
 pub trait SinkResult: Send + Sync {
     /// Correlation key -- the originating event's UUID.
-    fn key(&self) -> &str;
+    fn key(&self) -> Uuid;
 
     fn outcome(&self) -> Outcome;
 

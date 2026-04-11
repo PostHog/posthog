@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use crate::v1::context::Context;
 use crate::v1::sinks::Destination;
 
@@ -5,7 +7,11 @@ use crate::v1::sinks::Destination;
 /// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
 /// resolves `destination()` to a concrete backend target using its own config.
 pub trait Event: Send + Sync {
-    /// UUID of the originating event -- correlation key for mapping results back.
+    /// Pre-parsed UUID for result correlation. Copy, zero alloc.
+    fn uuid(&self) -> Uuid;
+
+    /// UUID of the originating event as a string -- zero-cost &str reference
+    /// for use inside the Sink implementations' event publishing loop.
     fn uuid_key(&self) -> &str;
 
     /// Whether this event should be published. Events returning false are
