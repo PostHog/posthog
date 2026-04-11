@@ -39,6 +39,18 @@ export function LLMAnalyticsTraces(): JSX.Element {
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
+    const { setDateRange: setLazyLoaderDateRange } = useActions(traceMessagesLazyLoaderLogic)
+
+    const tracesDateFrom = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_from ?? null) : null
+    const tracesDateTo = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_to ?? null) : null
+    // Push the traces table's current date range into the lazy loader so its
+    // HogQL query scopes the event scan to the same window (critical for
+    // perf — the loader's `$ai_trace_id IN (...)` lookup otherwise has to
+    // scan every partition). `setDateRange` also wipes the message cache, so
+    // widening or shifting the range re-fetches with the new bounds.
+    useEffect(() => {
+        setLazyLoaderDateRange({ dateFrom: tracesDateFrom, dateTo: tracesDateTo })
+    }, [tracesDateFrom, tracesDateTo, setLazyLoaderDateRange])
 
     return (
         <div data-attr="llm-trace-table">

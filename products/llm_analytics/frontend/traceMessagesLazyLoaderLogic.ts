@@ -19,6 +19,11 @@ export interface TraceMessages {
     lastOutputFallback: unknown
 }
 
+export interface TraceMessagesDateRange {
+    dateFrom: string | null
+    dateTo: string | null
+}
+
 const BATCH_MAX_SIZE = 100
 const BATCH_DEBOUNCE_MS = 0
 /**
@@ -56,6 +61,7 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
 
     actions({
         ensureTraceMessagesLoaded: (traceIds: string[]) => ({ traceIds }),
+        setDateRange: (dateRange: TraceMessagesDateRange) => ({ dateRange }),
         markTraceIdsLoading: (traceIds: string[]) => ({ traceIds }),
         loadTraceMessagesBatchSuccess: (results: Record<string, TraceMessages>, requestedTraceIds: string[]) => ({
             results,
@@ -68,6 +74,12 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
         messagesByTraceId: [
             {} as Record<string, TraceMessages | null>,
             {
+                // Clear the cache on date range change. Since our HogQL query
+                // filters events by timestamp, the argMin/argMax results for a
+                // given trace ID depend on the active date window and would
+                // otherwise be served stale after the user widens or shifts
+                // the range.
+                setDateRange: () => ({}),
                 loadTraceMessagesBatchSuccess: (state, { results, requestedTraceIds }) => {
                     const next = { ...state }
                     for (const traceId of requestedTraceIds) {
@@ -93,6 +105,7 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
         loadingTraceIds: [
             new Set<string>(),
             {
+                setDateRange: () => new Set<string>(),
                 markTraceIdsLoading: (state, { traceIds }) => {
                     const next = new Set(state)
                     for (const traceId of traceIds) {
@@ -116,6 +129,13 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                     }
                     return next
                 },
+            },
+        ],
+
+        dateRange: [
+            { dateFrom: null, dateTo: null } as TraceMessagesDateRange,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
     }),
@@ -160,6 +180,7 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                     return
                 }
 
+                const { dateFrom, dateTo } = values.dateRange
                 const chunks = chunk(requestedTraceIds, BATCH_MAX_SIZE)
 
                 await Promise.allSettled(
@@ -186,13 +207,15 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                             // resolves to empty messages after unwrap). Picker code on the
                             // frontend decides which to render.
                             //
-                            // We intentionally do NOT filter by date range. The trace ID
-                            // IN (...) clause is selective enough on its own, and matching
-                            // the trace query runner's ±10 minute boundary buffer would
-                            // add complexity for a marginal perf benefit. Skipping the
-                            // date filter also means the cached per-trace preview is
-                            // stable across date-range changes in the UI — `argMin/argMax`
-                            // over the same trace ID always returns the same events.
+                            // We pass the same date range the traces tab is using via
+                            // `{filters}` so ClickHouse can use the `(team_id, toDate(timestamp), event)`
+                            // primary key to bound the scan. Without a timestamp filter,
+                            // the query would have to scan every partition for the team
+                            // since `$ai_trace_id` lives inside the JSON `properties`
+                            // column and isn't part of the sort key. The `setDateRange`
+                            // reducer clears `messagesByTraceId` on range change so we
+                            // never serve stale argMin/argMax results from a different
+                            // window.
                             const query: HogQLQuery = {
                                 kind: NodeKind.HogQLQuery,
                                 query: `
@@ -223,8 +246,15 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     FROM events
                                     WHERE event IN ('$ai_trace', '$ai_generation')
                                       AND properties.$ai_trace_id IN (${idList})
+                                      AND {filters}
                                     GROUP BY trace_id
                                 `,
+                                filters: {
+                                    dateRange: {
+                                        date_from: dateFrom || null,
+                                        date_to: dateTo || null,
+                                    },
+                                },
                             }
 
                             const response = await api.query(query)
