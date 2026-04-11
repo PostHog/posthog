@@ -209,10 +209,7 @@ services:
             - clickhouse-data:/var/lib/clickhouse
             # Shared cache volume for ClickHouse BACKUP/RESTORE
             - db-cache:/cache/chbackup
-            # Config from the sandbox workspace volume (read-only — sandbox
-            # ClickHouse never writes these). These rely on the workspace
-            # volume being populated before `compose up`; bin/sandbox runs a
-            # one-shot git clone container to do that.
+            # Directory subpath mounts (supported). Populated before compose up.
             - type: volume
               source: workspace
               target: /idl
@@ -227,46 +224,34 @@ services:
                   subpath: docker/clickhouse/docker-entrypoint-initdb.d
             - type: volume
               source: workspace
-              target: /etc/clickhouse-server/config.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/config.xml
-            - type: volume
-              source: workspace
-              target: /etc/clickhouse-server/config.d/default.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/config.d/default.xml
-            - type: volume
-              source: workspace
-              target: /etc/clickhouse-server/config.d/dev-memory.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/config.d/dev-memory.xml
-            - type: volume
-              source: workspace
-              target: /etc/clickhouse-server/config.d/sandbox-backup.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/config.d/sandbox-backup.xml
-            - type: volume
-              source: workspace
-              target: /etc/clickhouse-server/users.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/users-dev.xml
-            - type: volume
-              source: workspace
-              target: /etc/clickhouse-server/user_defined_function.xml
-              read_only: true
-              volume:
-                  subpath: docker/clickhouse/user_defined_function.xml
-            - type: volume
-              source: workspace
               target: /var/lib/clickhouse/user_scripts
               read_only: true
               volume:
                   subpath: posthog/user_scripts
+            # Individual ClickHouse config files can't be volume-subpath mounted:
+            # volume subpaths must be directories (files are undocumented and
+            # fail for targets that already exist in the image — e.g. config.xml
+            # and users.xml). Instead, mount docker/clickhouse as a directory
+            # and copy the files into place in an entrypoint wrapper below.
+            - type: volume
+              source: workspace
+              target: /sandbox-configs
+              read_only: true
+              volume:
+                  subpath: docker/clickhouse
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                set -e
+                cp /sandbox-configs/config.xml                   /etc/clickhouse-server/config.xml
+                cp /sandbox-configs/users-dev.xml                /etc/clickhouse-server/users.xml
+                cp /sandbox-configs/user_defined_function.xml   /etc/clickhouse-server/user_defined_function.xml
+                cp /sandbox-configs/config.d/default.xml         /etc/clickhouse-server/config.d/default.xml
+                cp /sandbox-configs/config.d/dev-memory.xml      /etc/clickhouse-server/config.d/dev-memory.xml
+                cp /sandbox-configs/config.d/sandbox-backup.xml  /etc/clickhouse-server/config.d/sandbox-backup.xml
+                exec /entrypoint.sh "$@"
+            - --
         depends_on:
             - kafka
             - zookeeper

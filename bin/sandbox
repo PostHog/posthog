@@ -659,8 +659,10 @@ def _warn_if_host_dirty(branch: str) -> None:
     head = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True).stdout.strip()
     if head != branch:
         return
+    # Untracked files (??) are usually scratch — only warn on modified/staged
+    # tracked files, which is where stale state in the sandbox would bite.
     status = run(["git", "status", "--porcelain"], capture=True).stdout
-    dirty_lines = [line for line in status.splitlines() if line.strip()]
+    dirty_lines = [line for line in status.splitlines() if line.strip() and not line.startswith("??")]
     if not dirty_lines:
         return
     warn(f"Host has uncommitted changes on '{branch}' that WILL NOT be in the sandbox:")
