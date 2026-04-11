@@ -63,7 +63,7 @@ export function handleTrendsLineChartClick(seriesKey: string, dataIndex: number,
                 resolvedDateRange={deps.resolvedDateRange ?? undefined}
                 timezone={deps.timezone}
                 weekStartDay={deps.weekStartDay ?? undefined}
-                date={day?.toString() || ''}
+                date={day}
             />
         </>
     )

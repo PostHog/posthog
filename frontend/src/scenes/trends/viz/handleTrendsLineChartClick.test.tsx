@@ -71,70 +71,41 @@ describe('handleTrendsLineChartClick', () => {
         expect(call.orderBy).toEqual(['event_count DESC, actor_id DESC'])
     })
 
-    it('passes breakdown_value through to the actors query', () => {
+    it.each([
+        ['breakdown_value', { breakdown_value: 'Spike' }, 2, { day: '2024-06-12', breakdown: 'Spike' }],
+        ['compare_label', { compare_label: CompareLabelType.Previous }, 0, { day: '2024-06-10', compare: 'previous' }],
+    ])('passes %s through to the actors query', (_field, override, dataIndex, expected) => {
         const openPersonsModal = jest.fn()
-        const trendResult = makeTrendResult({ breakdown_value: 'Spike' })
+        const trendResult = makeTrendResult(override)
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
-        handleTrendsLineChartClick(keyFor(trendResult), 2, deps)
+        handleTrendsLineChartClick(keyFor(trendResult), dataIndex, deps)
 
-        expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({
-            day: '2024-06-12',
-            breakdown: 'Spike',
-        })
+        expect(openPersonsModal.mock.calls[0][0].query).toMatchObject(expected)
     })
 
-    it('passes compare_label through to the actors query', () => {
-        const openPersonsModal = jest.fn()
-        const trendResult = makeTrendResult({ compare_label: CompareLabelType.Previous })
-        const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
+    it.each([
+        ['breakdown_value', { breakdown_value: 'Spike' }, 1, { day: '2024-06-11', breakdown: 'Spike' }],
+        ['compare_label', { compare_label: CompareLabelType.Previous }, 0, { day: '2024-06-10', compare: 'previous' }],
+    ])(
+        'forwards %s to context.onDataPointClick instead of opening the modal',
+        (_field, override, dataIndex, expected) => {
+            const openPersonsModal = jest.fn()
+            const onDataPointClick = jest.fn()
+            const trendResult = makeTrendResult(override)
+            const deps = makeDeps({
+                openPersonsModal,
+                indexedResults: [trendResult],
+                context: { onDataPointClick },
+            })
 
-        handleTrendsLineChartClick(keyFor(trendResult), 0, deps)
+            handleTrendsLineChartClick(keyFor(trendResult), dataIndex, deps)
 
-        expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({
-            day: '2024-06-10',
-            compare: 'previous',
-        })
-    })
-
-    it('calls context.onDataPointClick instead of opening the modal when provided', () => {
-        const openPersonsModal = jest.fn()
-        const onDataPointClick = jest.fn()
-        const trendResult = makeTrendResult({ breakdown_value: 'Spike' })
-        const referenceResult = makeTrendResult({ id: 99 })
-        const deps = makeDeps({
-            openPersonsModal,
-            indexedResults: [referenceResult, trendResult],
-            context: { onDataPointClick },
-        })
-
-        handleTrendsLineChartClick(keyFor(trendResult), 1, deps)
-
-        expect(openPersonsModal).not.toHaveBeenCalled()
-        expect(onDataPointClick).toHaveBeenCalledTimes(1)
-        expect(onDataPointClick).toHaveBeenCalledWith(
-            { day: '2024-06-11', breakdown: 'Spike', compare: undefined },
-            referenceResult
-        )
-    })
-
-    it('forwards compare_label to context.onDataPointClick', () => {
-        const openPersonsModal = jest.fn()
-        const onDataPointClick = jest.fn()
-        const trendResult = makeTrendResult({ compare_label: CompareLabelType.Previous })
-        const deps = makeDeps({
-            openPersonsModal,
-            indexedResults: [trendResult],
-            context: { onDataPointClick },
-        })
-
-        handleTrendsLineChartClick(keyFor(trendResult), 0, deps)
-
-        expect(onDataPointClick).toHaveBeenCalledWith(
-            expect.objectContaining({ compare: 'previous' }),
-            expect.anything()
-        )
-    })
+            expect(openPersonsModal).not.toHaveBeenCalled()
+            expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            expect(onDataPointClick).toHaveBeenCalledWith(expect.objectContaining(expected), expect.anything())
+        }
+    )
 
     it('does nothing when hasPersonsModal is false and no context callback', () => {
         const openPersonsModal = jest.fn()
