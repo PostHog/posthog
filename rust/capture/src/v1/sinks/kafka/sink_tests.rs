@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rdkafka::error::RDKafkaErrorCode;
+use uuid::Uuid;
 
 use crate::config::CaptureMode;
 use crate::v1::context::Context;
@@ -21,6 +22,7 @@ use super::sink::KafkaSink;
 
 struct FakeEvent {
     uuid: String,
+    parsed_uuid: Uuid,
     publish: bool,
     destination: Destination,
     partition_key: String,
@@ -32,6 +34,7 @@ impl FakeEvent {
     fn ok(uuid: &str) -> Self {
         Self {
             uuid: uuid.to_string(),
+            parsed_uuid: Uuid::new_v4(),
             publish: true,
             destination: Destination::AnalyticsMain,
             partition_key: format!("phc_test:{uuid}"),
@@ -57,6 +60,10 @@ impl FakeEvent {
 }
 
 impl Event for FakeEvent {
+    fn uuid(&self) -> Uuid {
+        self.parsed_uuid
+    }
+
     fn uuid_key(&self) -> &str {
         &self.uuid
     }
@@ -279,7 +286,7 @@ async fn single_event_success() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::Success);
     assert!(results[0].cause().is_none());
     assert!(results[0].elapsed().is_some());
@@ -307,8 +314,8 @@ async fn non_publishable_events_skipped() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].key(), "evt-1");
-    assert_eq!(results[1].key(), "evt-3");
+    assert_eq!(results[0].key(), e1.parsed_uuid);
+    assert_eq!(results[1].key(), e3.parsed_uuid);
     assert_eq!(h.producer.record_count(), 2);
 }
 
@@ -368,7 +375,7 @@ async fn send_error_retriable_queue_full() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::RetriableError);
     assert_eq!(results[0].cause(), Some("queue_full"));
     assert_eq!(h.producer.record_count(), 0);
@@ -395,7 +402,7 @@ async fn queue_full_retry_succeeds_after_drain() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::Success);
     assert_eq!(h.producer.record_count(), 1);
 }
@@ -420,7 +427,7 @@ async fn queue_full_retry_exhausted() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::RetriableError);
     assert_eq!(results[0].cause(), Some("queue_full"));
     assert_eq!(h.producer.record_count(), 0);
@@ -488,7 +495,7 @@ async fn ack_error_retriable_delivery_cancelled() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::RetriableError);
     assert_eq!(results[0].cause(), Some("delivery_cancelled"));
     assert!(results[0].elapsed().is_some());
@@ -537,7 +544,7 @@ async fn produce_timeout_single() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::Timeout);
     assert_eq!(results[0].cause(), Some("timeout"));
 }
@@ -575,7 +582,7 @@ async fn serialization_failure() {
     let results = h.sink.publish_batch(&h.ctx, &events).await;
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), "evt-1");
+    assert_eq!(results[0].key(), event.parsed_uuid);
     assert_eq!(results[0].outcome(), Outcome::FatalError);
     assert_eq!(results[0].cause(), Some("serialization_failed"));
     assert!(
@@ -606,12 +613,15 @@ async fn mixed_batch_success_and_serialize_error() {
     // appears first in the results vec (pushed during Phase 1), while evt-1
     // and evt-3 are appended during Phase 2 (ack drain). Order among the
     // ack results may vary, so collect into maps.
-    let by_key: HashMap<&str, _> = results.iter().map(|r| (r.key(), r)).collect();
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
 
-    assert_eq!(by_key["evt-1"].outcome(), Outcome::Success);
-    assert_eq!(by_key["evt-2"].outcome(), Outcome::FatalError);
-    assert_eq!(by_key["evt-2"].cause(), Some("serialization_failed"));
-    assert_eq!(by_key["evt-3"].outcome(), Outcome::Success);
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::Success);
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::FatalError);
+    assert_eq!(
+        by_key[&e2.parsed_uuid].cause(),
+        Some("serialization_failed")
+    );
+    assert_eq!(by_key[&e3.parsed_uuid].outcome(), Outcome::Success);
 
     // Only the two successful events were enqueued
     assert_eq!(h.producer.record_count(), 2);

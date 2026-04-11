@@ -8,6 +8,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use metrics::{counter, histogram};
 use tracing::Level;
+use uuid::Uuid;
 
 use crate::config::CaptureMode;
 use crate::v1::context::Context;
@@ -71,7 +72,7 @@ fn reject_publishable(
         .into_iter()
         .map(|e| -> Box<dyn SinkResult> {
             Box::new(KafkaResult::err(
-                e.uuid_key().to_string(),
+                e.uuid(),
                 KafkaSinkError::SinkUnavailable,
                 enqueued_at,
             ))
@@ -119,7 +120,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         // DeliveryFuture is a oneshot receiver (pure I/O wait, no CPU work), so
         // single-task polling is strictly cheaper than spawning real tasks.
         let mut pending = FuturesUnordered::new();
-        let mut enqueued_keys: Vec<String> = Vec::new();
+        let mut enqueued_keys: Vec<Uuid> = Vec::new();
 
         // Reusable buffers — cleared each iteration, amortised to zero allocs
         // after the first event.
@@ -132,7 +133,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 continue;
             }
 
-            let uuid_key = event.uuid_key().to_string();
+            let uuid = event.uuid();
 
             let topic = match self.config.kafka.topic_for(event.destination()) {
                 Some(t) => t,
@@ -151,7 +152,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 )
                 .increment(1);
                 results.push(Box::new(KafkaResult::err(
-                    uuid_key,
+                    uuid,
                     KafkaSinkError::SerializationFailed(e),
                     enqueued_at,
                 )));
@@ -203,11 +204,10 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                             )
                             .increment(1);
                         }
-                        let key = uuid_key.clone();
-                        enqueued_keys.push(uuid_key);
+                        enqueued_keys.push(uuid);
                         pending.push(async move {
                             let result = ack_future.await;
-                            (key, Utc::now(), result)
+                            (uuid, Utc::now(), result)
                         });
                         break;
                     }
@@ -239,7 +239,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                             "attempt" => attempt.clone(),
                         )
                         .increment(1);
-                        results.push(Box::new(KafkaResult::err(uuid_key, sink_err, enqueued_at)));
+                        results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
                         break;
                     }
                 }
@@ -253,12 +253,12 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         // The message still completes in librdkafka (or times out via
         // message.timeout.ms); we just stop waiting for the ack.
         let deadline = tokio::time::Instant::now() + self.config.produce_timeout;
-        let mut resolved_keys: HashSet<String> = HashSet::new();
+        let mut resolved_keys: HashSet<Uuid> = HashSet::new();
 
         loop {
             match tokio::time::timeout_at(deadline, pending.next()).await {
-                Ok(Some((uuid_key, completed_at, ack))) => {
-                    resolved_keys.insert(uuid_key.clone());
+                Ok(Some((uuid, completed_at, ack))) => {
+                    resolved_keys.insert(uuid);
                     match ack {
                         Ok(()) => {
                             counter!(
@@ -283,8 +283,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                                 .record(secs.as_secs_f64());
                             }
                             results.push(Box::new(
-                                KafkaResult::ok(uuid_key, enqueued_at)
-                                    .with_completed_at(completed_at),
+                                KafkaResult::ok(uuid, enqueued_at).with_completed_at(completed_at),
                             ));
                         }
                         Err(e) => {
@@ -300,7 +299,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                             )
                             .increment(1);
                             results.push(Box::new(
-                                KafkaResult::err(uuid_key, sink_err, enqueued_at)
+                                KafkaResult::err(uuid, sink_err, enqueued_at)
                                     .with_completed_at(completed_at),
                             ));
                         }
@@ -329,9 +328,9 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             )
             .increment(timed_out_keys.len() as u64);
             let gave_up_at = Utc::now();
-            for uuid_key in timed_out_keys {
+            for uuid in timed_out_keys {
                 results.push(Box::new(
-                    KafkaResult::err(uuid_key, KafkaSinkError::Timeout, enqueued_at)
+                    KafkaResult::err(uuid, KafkaSinkError::Timeout, enqueued_at)
                         .with_completed_at(gave_up_at),
                 ));
             }
