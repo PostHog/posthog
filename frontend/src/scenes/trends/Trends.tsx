@@ -3,7 +3,6 @@ import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -14,8 +13,6 @@ import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
-import { TrendsLineChartD3 } from './viz/TrendsLineChartD3'
-
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
@@ -35,7 +32,6 @@ interface Props {
 export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
-    const hogChartsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_HOG_CHARTS')
 
     const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
@@ -51,9 +47,6 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsBar ||
             display === ChartDisplayType.ActionsUnstackedBar
         ) {
-            if (hogChartsEnabled) {
-                return <TrendsLineChartD3 context={context} />
-            }
             return (
                 <ActionsLineGraph
                     showPersonsModal={showPersonsModal}

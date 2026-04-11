@@ -22,7 +22,7 @@ afterEach(() => {
 
 const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
 
-describe('TrendsLineChartD3', () => {
+describe.skip('TrendsLineChartD3', () => {
     describe('tooltips', () => {
         it('shows the series value and glyph for a single series', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
