@@ -153,6 +153,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
+    [Scene.ChartBench]: { projectBased: true, name: 'Chart benchmark' },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.DebugQuery]: { projectBased: true },
 
@@ -902,6 +903,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.chartBench()]: [Scene.ChartBench, 'chartBench'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
