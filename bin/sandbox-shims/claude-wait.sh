@@ -1,11 +1,12 @@
 #!/bin/bash
 # Launcher used by the sandbox tmux "claude" window.
 #
-# On cold boot, Python deps aren't ready for a few seconds; during that window
-# we show a banner and spin on the /tmp/sandbox-python-ready sentinel. Once
-# Python is ready, every Python-family tool (python, ruff, hogli, manage.py)
-# works — the 90% of first-session tool calls. pnpm/cargo may still be
-# installing for another ~60s; that's an accepted trade-off.
+# On cold boot, python deps take ~15-30s; during that window we show a banner
+# and spin on the /tmp/sandbox-python-ready sentinel. Once python is ready,
+# every python-family tool (python, ruff, hogli, manage.py) works — the 90%
+# of first-session tool calls. pnpm/cargo/migrations may still be running for
+# another ~60s, and if any of those fail the tmux status line shows
+# "!! SETUP FAILED — see window 1". Claude is live regardless.
 set -e
 cd /workspace
 

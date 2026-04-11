@@ -20,10 +20,6 @@ Startup modes, all dispatched from the bottom of this file:
      Used by `bin/sandbox create` to populate shared cache volumes before
      snapshotting the databases. Skips sshd and claude-auth in the root phase
      since they're not needed for a one-off build.
-
-The SANDBOX_LEGACY_BOOT=1 env var reverts user phase to the pre-claude-in-tmux
-flow (dependency install → exec tmux running phrocs) as an in-place escape
-hatch while the new boot sequence bakes.
 """
 
 from __future__ import annotations
@@ -33,7 +29,9 @@ import sys
 import stat
 import time
 import shutil
+import traceback
 import subprocess
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from textwrap import dedent
@@ -42,8 +40,12 @@ WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
-# Gate file that claude-wait.sh polls before exec'ing claude — touched once
-# Python deps are installed and the hogli symlink is in place.
+# Gate file that claude-wait.sh polls before exec'ing claude. Touched as soon
+# as Python deps + hogli symlink are ready — by design claude starts *while*
+# node/rust/migrations are still running so the user can plan and edit code
+# against the warming sandbox. Setup failures after this point are surfaced
+# via the tmux status line (STATUS_FILE) and by keeping the setup window
+# alive as a bash shell with a visible traceback.
 PYTHON_READY = Path("/tmp/sandbox-python-ready")
 
 # Coarse phase label surfaced in the tmux status line (polled every 2s).
@@ -296,17 +298,28 @@ def root_phase() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_captured(label: str, cmd: list[str], **kwargs) -> None:
+    """Run a subprocess capturing output; dump it only on failure.
+
+    Keeps the tmux window clean when the three parallel installs run — on
+    success nothing extra is printed, on failure the full stdout+stderr is
+    surfaced so the user doesn't have to dig in container logs.
+    """
+    result = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    if result.returncode == 0:
+        return
+    info(f"ERROR: {label} failed:")
+    for line in (result.stdout or "").strip().splitlines():
+        info(f"  {line}")
+    for line in (result.stderr or "").strip().splitlines():
+        info(f"  {line}")
+    raise subprocess.CalledProcessError(result.returncode, cmd)
+
+
 def install_python_deps() -> None:
     info("Started: uv sync...")
     _write_status("installing python deps")
-    result = subprocess.run(["uv", "sync", "--no-editable"], capture_output=True, text=True)
-    if result.returncode != 0:
-        info("ERROR: uv sync failed:")
-        for line in (result.stdout or "").strip().splitlines():
-            info(f"  {line}")
-        for line in (result.stderr or "").strip().splitlines():
-            info(f"  {line}")
-        raise subprocess.CalledProcessError(result.returncode, result.args)
+    _run_captured("uv sync", ["uv", "sync", "--no-editable"])
     info("Finished: uv sync.")
     # Make hogli available — normally done by flox on-activate.sh.
     hogli_link = Path("/cache/python/bin/hogli")
@@ -315,7 +328,9 @@ def install_python_deps() -> None:
     phrocs_link = WORKSPACE / "bin/phrocs"
     if not phrocs_link.exists():
         phrocs_link.symlink_to("/usr/local/bin/phrocs")
-    # Signal claude-wait.sh that Python-family tools are usable.
+    # Unblock claude-wait.sh. Migrations / node deps / cargo may still be
+    # running in sibling threads — that's intentional: we want claude usable
+    # for planning and edits while the rest of setup finishes.
     PYTHON_READY.touch()
 
 
@@ -324,7 +339,8 @@ def install_node_deps() -> None:
     _write_status("installing node deps")
     # CI=1 suppresses interactive prompts. --no-frozen-lockfile is needed
     # because the sandbox branch may have different dependencies than the cache.
-    run(
+    _run_captured(
+        "pnpm install",
         ["pnpm", "install", "--no-frozen-lockfile"],
         env={**os.environ, "CI": "1"},
     )
@@ -335,7 +351,7 @@ def fetch_rust_crates() -> None:
     """Pre-fetch Rust crate sources so concurrent cargo builds don't race."""
     info("Started: cargo fetch...")
     _write_status("fetching rust crates")
-    run(["cargo", "fetch"], cwd=str(WORKSPACE / "rust"))
+    _run_captured("cargo fetch", ["cargo", "fetch"], cwd=str(WORKSPACE / "rust"))
     info("Finished: cargo fetch.")
 
 
@@ -415,7 +431,7 @@ def generate_mprocs_config() -> None:
         lines.append("procs: {}")
         config_file.write_text("\n".join(lines) + "\n")
 
-    subprocess.run(["hogli", "dev:generate"], capture_output=True)
+    _run_captured("hogli dev:generate", ["hogli", "dev:generate"])
 
 
 def _read_jetbrains_data_dir_name() -> str:
@@ -558,34 +574,16 @@ def _setup_user_env() -> None:
     run(["git", "config", "--global", "url.git@github.com:.pushInsteadOf", "https://github.com/"])
 
 
-def legacy_user_phase() -> None:
-    """Pre-claude-in-tmux boot path, preserved behind SANDBOX_LEGACY_BOOT=1.
+def _run_parallel(tasks: dict[str, Callable[[], None]]) -> None:
+    """Run the named tasks in parallel, re-raising the first failure.
 
-    Install deps, migrate, generate demo data, and exec tmux running phrocs in
-    a single-window session. Kept for one release cycle as an in-place revert
-    for the new two-window boot; will be removed in a follow-up once stable.
+    The raise exits the enclosing ThreadPoolExecutor context manager; remaining
+    tasks keep running until the pool's shutdown(wait=True) joins them, but
+    their results are ignored. The first-failure message is logged so the
+    surviving background output in the tmux window is easier to scan.
     """
-    _setup_user_env()
-
-    install_geoip()
-    create_kafka_topics()
-
-    # Run dependency installs in parallel.
-    # Migrations and demo data are chained after Python deps (uv ~1.5s)
-    # so they overlap with the slower pnpm/cargo installs.
-    # On subsequent boots phrocs migration processes handle any new
-    # migrations (usually a fast no-op).
-    def install_python_and_migrate() -> None:
-        install_python_deps()
-        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-        ensure_demo_data()
-
     with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(install_python_and_migrate): "python deps + migrations",
-            pool.submit(install_node_deps): "node deps",
-            pool.submit(fetch_rust_crates): "rust crates",
-        }
+        futures = {pool.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(futures):
             name = futures[future]
             try:
@@ -593,22 +591,6 @@ def legacy_user_phase() -> None:
             except Exception as e:
                 print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
                 raise
-
-    # generate_mprocs_config needs the hogli symlink created by install_python_deps.
-    generate_mprocs_config()
-    # setup_jetbrains_background uses os.fork(), which is unsafe inside a
-    # ThreadPoolExecutor, so it runs after the pool is closed.
-    try:
-        setup_jetbrains_background()
-    except Exception as e:
-        # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
-        print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
-
-    info("Starting PostHog via mprocs in tmux...")
-    lock = WORKSPACE / "bin/start.lock"
-    lock.unlink(missing_ok=True)
-
-    os.execvp("tmux", ["tmux", "-L", "sandbox", "new-session", "-s", "posthog", "bin/start --phrocs"])
 
 
 def user_phase() -> None:
@@ -619,10 +601,6 @@ def user_phase() -> None:
     setup window (runs run_setup() and then spawns phrocs), then block on a
     has-session poll loop to keep PID 1 alive.
     """
-    if os.environ.get("SANDBOX_LEGACY_BOOT") == "1":
-        legacy_user_phase()
-        return
-
     _setup_user_env()
     install_geoip()
 
@@ -694,64 +672,75 @@ def run_setup() -> None:
     config, kicks off JetBrains registration in the background, spawns the
     phrocs window, and then exec's into an interactive login shell so the
     window stays usable with full scrollback.
+
+    Claude is already running in window 0 by this point (unblocked by
+    install_python_deps touching PYTHON_READY early). If anything here
+    raises, we write "SETUP FAILED" to the status line — visible in every
+    window's tmux status bar — and drop into a bash shell with the traceback
+    on screen so the user can diagnose without losing the tmux window.
     """
     _setup_user_env()
     _write_status("setup starting")
 
-    # Kafka is health-gated by compose so this is safe to run synchronously
-    # early. ~700ms on a warm broker.
-    create_kafka_topics()
-
-    def install_python_and_migrate() -> None:
-        install_python_deps()
-        _write_status("running migrations")
-        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-        _write_status("seeding demo data")
-        ensure_demo_data()
-
-    with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(install_python_and_migrate): "python deps + migrations",
-            pool.submit(install_node_deps): "node deps",
-            pool.submit(fetch_rust_crates): "rust crates",
-        }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
-                raise
-
-    # generate_mprocs_config needs the hogli symlink created by install_python_deps.
-    generate_mprocs_config()
-
-    # setup_jetbrains_background os.fork()s internally, so it runs after the
-    # ThreadPoolExecutor is closed. Its child redirects stdio to a log file
-    # so late writes don't scribble over this window's bash prompt.
     try:
-        setup_jetbrains_background()
-    except Exception as e:
-        # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
-        print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
+        # Kafka is health-gated by compose so this is safe to run synchronously
+        # early. ~700ms on a warm broker.
+        create_kafka_topics()
 
-    lock = WORKSPACE / "bin/start.lock"
-    lock.unlink(missing_ok=True)
+        def install_python_and_migrate() -> None:
+            install_python_deps()
+            _write_status("running migrations")
+            run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+            _write_status("seeding demo data")
+            ensure_demo_data()
 
-    _write_status("sandbox ready")
+        _run_parallel(
+            {
+                "python deps + migrations": install_python_and_migrate,
+                "node deps": install_node_deps,
+                "rust crates": fetch_rust_crates,
+            }
+        )
 
-    # Hand off to phrocs in its own window. Creating the window from inside
-    # the setup window (rather than the claude window or a detached tmux call)
-    # keeps the tmux command chain simple and predictable.
-    run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+        # generate_mprocs_config needs the hogli symlink created by install_python_deps.
+        generate_mprocs_config()
 
-    print(  # noqa: T201
-        "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
-        flush=True,
-    )
+        # setup_jetbrains_background os.fork()s internally, so it runs after the
+        # ThreadPoolExecutor is closed. Its child redirects stdio to a log file
+        # so late writes don't scribble over this window's bash prompt.
+        try:
+            setup_jetbrains_background()
+        except Exception as e:
+            # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
+            print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
+
+        lock = WORKSPACE / "bin/start.lock"
+        lock.unlink(missing_ok=True)
+
+        _write_status("sandbox ready")
+
+        # Hand off to phrocs in its own window. Creating the window from inside
+        # the setup window (rather than the claude window or a detached tmux call)
+        # keeps the tmux command chain simple and predictable.
+        run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+
+        print(  # noqa: T201
+            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+            flush=True,
+        )
+    except Exception:
+        traceback.print_exc()
+        _write_status("!! SETUP FAILED — see window 1")
+        print(  # noqa: T201
+            "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
+            "\n!!! claude is still running in window 0 against whatever managed to come up."
+            "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
+            flush=True,
+        )
 
     # Leave this window as a usable login shell with full scrollback so the
-    # user can inspect the setup logs or run ad-hoc commands.
+    # user can inspect the setup logs or run ad-hoc commands — same path for
+    # both success and failure, so the window is always recoverable.
     os.execvp("bash", ["bash", "-l"])
 
 
@@ -778,10 +767,7 @@ def cache_init_phase() -> None:
     def build_rust() -> None:
         info("Pre-building Rust workspace...")
         try:
-            run(
-                ["cargo", "build", "--workspace"],
-                cwd=str(WORKSPACE / "rust"),
-            )
+            run(["cargo", "build", "--workspace"], cwd=str(WORKSPACE / "rust"))
             info("Finished: cargo build.")
         except subprocess.CalledProcessError as e:
             # Non-fatal: even a partial build warms the cargo cache for subsequent
@@ -790,21 +776,15 @@ def cache_init_phase() -> None:
             # for debugging.
             info(f"Rust pre-build failed (exit {e.returncode}), continuing (cargo cache still warmed).")
 
-    # Run all three cache-warming streams in parallel. Python path is usually
-    # the critical path (migrations on a fresh DB take several minutes).
-    with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(install_python_and_migrate): "python + migrations + demo data",
-            pool.submit(install_node_deps): "node deps",
-            pool.submit(build_rust): "rust build",
+    # Python path is usually the critical path (migrations on a fresh DB take
+    # several minutes) so we want node + rust overlapping with it.
+    _run_parallel(
+        {
+            "python + migrations + demo data": install_python_and_migrate,
+            "node deps": install_node_deps,
+            "rust build": build_rust,
         }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
-                raise
+    )
 
     info("Cache init complete.")
 
