@@ -462,62 +462,55 @@ def _ensure_jetbrains() -> None:
     _setup_jetbrains(wanted)
 
 
-def _git_signing_key_file() -> str:
-    """Stage the host's SSH signing public key for bind-mounting into the sandbox.
+def _host_git_config_file(key: str) -> str:
+    """Resolve a host git config value to an existing file path, or ``/dev/null``.
 
-    Reads ``user.signingkey`` from the host gitconfig. If it points at a real
-    ``.pub`` file (the common case: Secretive, 1Password, or a classic
-    ``~/.ssh/*.pub``), the file contents are staged to a stable path under
-    REGISTRY_DIR so compose can bind-mount them at a known location inside
-    the container. If the config value is already a literal key string (less
-    common but git supports it), we stage that string as a file so the
-    container-side handling is uniform.
-
-    Returns the host path to bind-mount, or ``/dev/null`` if no signing key
-    is configured or the referenced file can't be read.
+    Used for config keys whose values are paths we want to bind-mount into
+    the sandbox — ``user.signingkey`` and ``gpg.ssh.allowedSignersFile``. If
+    the key is unset, or the value isn't a real file (e.g. user.signingkey
+    holds a literal key string, or the file was moved), returns ``/dev/null``
+    so compose skips the mount cleanly.
     """
     result = run(
-        ["git", "config", "--global", "--get", "user.signingkey"],
-        check=False,
-        capture=True,
-    )
-    signing_key_val = result.stdout.strip() if result.returncode == 0 else ""
-    if not signing_key_val:
-        return "/dev/null"
-
-    # Case 1: it's a filesystem path — read the .pub file contents.
-    candidate = Path(signing_key_val).expanduser()
-    if candidate.is_file():
-        key_data = candidate.read_text().strip()
-    else:
-        # Case 2: it's already a literal key string (e.g. ``ssh-ed25519 ...``).
-        key_data = signing_key_val
-
-    if not key_data:
-        return "/dev/null"
-
-    staged = REGISTRY_DIR / "git-signing-key.pub"
-    staged.write_text(key_data + "\n")
-    return str(staged)
-
-
-def _git_allowed_signers_file() -> str:
-    """Resolve the host's git ssh allowedSignersFile for bind-mounting.
-
-    Used by ``git verify-commit`` / ``git log --show-signature``; not needed
-    to *create* signed commits but cheap to propagate. Returns the host path
-    if it exists, otherwise ``/dev/null``.
-    """
-    result = run(
-        ["git", "config", "--global", "--get", "gpg.ssh.allowedSignersFile"],
+        ["git", "config", "--global", "--get", key],
         check=False,
         capture=True,
     )
     val = result.stdout.strip() if result.returncode == 0 else ""
     if not val:
         return "/dev/null"
-    candidate = Path(val).expanduser()
-    return str(candidate) if candidate.is_file() else "/dev/null"
+    path = Path(val).expanduser()
+    return str(path) if path.is_file() else "/dev/null"
+
+
+def _check_host_git_signing() -> None:
+    """Advisory: warn if the host's signing config references missing files.
+
+    Called once from ``cmd_create``. If ``user.signingkey`` or
+    ``gpg.ssh.allowedSignersFile`` is set to a path that doesn't exist on
+    disk, signing inside the sandbox won't work, and the failure would
+    otherwise be an opaque git error at commit time. Literal key strings
+    in ``user.signingkey`` (which git supports via the ``key::`` prefix or
+    bare ``ssh-*``/``ecdsa-*`` tokens) are fine — they don't reference a
+    file and the copied host gitconfig handles them natively.
+    """
+    checks = (
+        ("user.signingkey", True),  # allow literal key strings
+        ("gpg.ssh.allowedSignersFile", False),
+    )
+    for key, allow_literal in checks:
+        result = run(
+            ["git", "config", "--global", "--get", key],
+            check=False,
+            capture=True,
+        )
+        val = result.stdout.strip() if result.returncode == 0 else ""
+        if not val:
+            continue
+        if allow_literal and val.startswith(("ssh-", "ecdsa-", "sk-", "key::")):
+            continue
+        if not Path(val).expanduser().is_file():
+            warn(f"Host git config {key}={val!r} — file not found; signing inside the sandbox will fail.")
 
 
 def _host_ssh_auth_sock() -> str:
@@ -547,6 +540,12 @@ def _check_macos_ssh_agent_launchd() -> None:
     stock macOS ssh-agent rather than their real signing agent, so any
     commits that rely on commit.gpgsign will fail inside the sandbox.
 
+    Source of truth for "what the user intended" is whatever their own login
+    shell has at ``$SSH_AUTH_SOCK`` — i.e. what a fresh terminal window would
+    see. We shell out to ``$SHELL -lc`` so the user's rc files run, and take
+    the last non-empty line of stdout to defend against rc files that print
+    banners above our probe.
+
     Non-blocking: print the mismatch, offer an interactive fix (launchctl
     setenv + LaunchAgent plist), and continue either way. The user still has
     to quit and relaunch OrbStack themselves for the change to reach running
@@ -555,22 +554,25 @@ def _check_macos_ssh_agent_launchd() -> None:
     if platform.system() != "Darwin":
         return
 
+    shell = os.environ.get("SHELL", "/bin/bash")
+    probe = run(
+        [shell, "-lc", "echo $SSH_AUTH_SOCK"],
+        check=False,
+        capture=True,
+    )
+    # Last non-empty line: rc files may echo banners above our probe.
+    shell_lines = [ln for ln in probe.stdout.splitlines() if ln.strip()]
+    shell_val = shell_lines[-1].strip() if shell_lines else ""
+    if not shell_val:
+        return  # Nothing to compare against; can't tell if anything is wrong.
+
     launchd_val = run(
         ["launchctl", "getenv", "SSH_AUTH_SOCK"],
         check=False,
         capture=True,
     ).stdout.strip()
 
-    shell = os.environ.get("SHELL", "/bin/bash")
-    shell_val = run(
-        [shell, "-lc", "echo $SSH_AUTH_SOCK"],
-        check=False,
-        capture=True,
-    ).stdout.strip()
-
-    # Nothing to propagate if the login shell has no agent configured, and
-    # nothing to warn about if they already match.
-    if not shell_val or shell_val == launchd_val:
+    if shell_val == launchd_val:
         return
 
     warn("Your login shell and launchd disagree about SSH_AUTH_SOCK.")
@@ -653,12 +655,14 @@ def _install_ssh_agent_launchagent(socket_path: str) -> None:
 
     # Apply to the current launchd session so an OrbStack relaunched after
     # this point inherits the new value without the user having to log out.
-    run(["launchctl", "setenv", "SSH_AUTH_SOCK", socket_path], check=False)
+    run(["launchctl", "setenv", "SSH_AUTH_SOCK", socket_path])
 
     # Register the plist for next login. Unload first to keep re-runs
-    # idempotent — `launchctl load` fails if the label is already registered.
+    # idempotent — the unload is expected to fail on fresh installs (nothing
+    # to unload), which is why it alone is check=False. The load is the real
+    # operation; it must succeed.
     run(["launchctl", "unload", str(plist_path)], check=False, capture=True)
-    run(["launchctl", "load", "-w", str(plist_path)], check=False)
+    run(["launchctl", "load", "-w", str(plist_path)])
 
     success(f"Wrote {plist_path} and updated launchd session.")
     warn("Quit and relaunch OrbStack for this to take effect inside the sandbox.")
@@ -687,12 +691,11 @@ def _compose_env(port: int) -> dict[str, str]:
         "SANDBOX_HOST_GITCONFIG": str(_host_gitconfig)
         if (_host_gitconfig := Path.home() / ".gitconfig").is_file()
         else "/dev/null",
-        # SSH signing public key — staged to REGISTRY_DIR so the sandbox can
-        # rewrite user.signingkey to a path that exists inside the container.
-        "SANDBOX_HOST_GIT_SIGNINGKEY": _git_signing_key_file(),
-        # gpg.ssh.allowedSignersFile — mirrored into the sandbox user's home
-        # so `git verify-commit` works the same way as on the host.
-        "SANDBOX_HOST_ALLOWED_SIGNERS": _git_allowed_signers_file(),
+        # Host paths referenced by git signing config, bind-mounted read-only
+        # into the sandbox. The entrypoint rewrites the copied gitconfig to
+        # point at the in-container mount paths.
+        "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
+        "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
         # Host-side source for the /ssh-agent bind mount — resolves to the
         # OrbStack/Docker Desktop magic path on macOS, $SSH_AUTH_SOCK on Linux,
         # or empty (falls back to /dev/null in compose) when no agent exists.
@@ -1268,6 +1271,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     _warn_if_host_dirty(branch)
     _check_macos_ssh_agent_launchd()
     _check_ssh_agent_has_keys()
+    _check_host_git_signing()
 
     intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
     entry = registry.allocate(branch, slug, intents=intents)

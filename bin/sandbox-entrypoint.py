@@ -227,48 +227,37 @@ def copy_claude_auth(uid: int, gid: int) -> None:
 
 
 def copy_host_gitconfig(uid: int, gid: int) -> None:
-    """Copy the host ~/.gitconfig and SSH signing material into the sandbox home.
+    """Copy the host ~/.gitconfig into the sandbox home and rewrite signing paths.
 
-    Mounted read-only at /tmp/host-gitconfig by compose (or /dev/null when
-    the host has no gitconfig). Copying rather than mounting means the file
-    is writable inside the sandbox, so `git config --global` keeps working
-    for sandbox-specific overrides without leaking back to the host.
+    The host gitconfig is mounted read-only at /tmp/host-gitconfig (or /dev/null
+    when the host has none); we copy rather than mount in place so that
+    `git config --global` still works inside the sandbox for per-sandbox
+    overrides without leaking back to the host.
 
-    Also handles two host-absolute paths that the copied gitconfig typically
-    references but that don't exist inside the container: the SSH signing
-    public key and the allowed_signers file.
+    The host gitconfig typically references two more files by absolute host
+    path — ``user.signingkey`` (the SSH signing .pub file) and
+    ``gpg.ssh.allowedSignersFile`` — neither of which exists inside the
+    container. Compose bind-mounts the real host files at fixed in-container
+    paths, and we rewrite the copied gitconfig to point at those.
     """
     src = Path("/tmp/host-gitconfig")
-    # /dev/null fallback: S_ISREG is false, so we just skip.
-    if not src.is_file() or src.stat().st_size == 0:
+    if not src.is_file():
         return
     dst = SANDBOX_HOME / ".gitconfig"
     shutil.copy2(src, dst)
     run(["chown", f"{uid}:{gid}", str(dst)])
 
-    # user.signingkey on the host is typically an absolute path to a .pub
-    # file (Secretive container dir, ~/.ssh, etc.) that doesn't exist inside
-    # the sandbox. Place the staged key under the sandbox user's ~/.ssh and
-    # rewrite the gitconfig to point at the in-container path.
-    signingkey_src = Path("/tmp/host-git-signingkey")
-    if signingkey_src.is_file() and signingkey_src.stat().st_size > 0:
-        ssh_dir = SANDBOX_HOME / ".ssh"
-        ssh_dir.mkdir(parents=True, exist_ok=True)
-        signingkey_dst = ssh_dir / "signing_key.pub"
-        shutil.copy2(signingkey_src, signingkey_dst)
-        signingkey_dst.chmod(0o644)
-        run(["chown", f"{uid}:{gid}", str(signingkey_dst)])
-        run(["git", "config", "--file", str(dst), "user.signingkey", str(signingkey_dst)])
-
-    # gpg.ssh.allowedSignersFile on the host usually points at
-    # ~/.gitallowedsigners, whose tilde expands to /tmp/sandbox-home inside
-    # the container. Mirror the file to that location so git verify-commit
-    # works the same as on the host.
-    allowed_src = Path("/tmp/host-allowed-signers")
-    if allowed_src.is_file() and allowed_src.stat().st_size > 0:
-        allowed_dst = SANDBOX_HOME / ".gitallowedsigners"
-        shutil.copy2(allowed_src, allowed_dst)
-        run(["chown", f"{uid}:{gid}", str(allowed_dst)])
+    # Rewrite config keys that reference host-absolute paths to the in-container
+    # bind-mount location. Compose mounts /dev/null when the host has no such
+    # file configured, so is_file() is the honest "did the user set this up?"
+    # check.
+    rewrites = {
+        "user.signingkey": Path("/tmp/host-git-signingkey"),
+        "gpg.ssh.allowedSignersFile": Path("/tmp/host-allowed-signers"),
+    }
+    for config_key, mount_path in rewrites.items():
+        if mount_path.is_file():
+            run(["git", "config", "--file", str(dst), config_key, str(mount_path)])
 
 
 def root_phase() -> None:
