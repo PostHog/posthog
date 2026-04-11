@@ -39,16 +39,6 @@ export function LLMAnalyticsTraces(): JSX.Element {
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
-    const { setDateRange: setLazyLoaderDateRange } = useActions(traceMessagesLazyLoaderLogic)
-
-    const tracesDateFrom = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_from ?? null) : null
-    const tracesDateTo = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_to ?? null) : null
-    // Keep the lazy loader's date window in sync with the traces table so its
-    // scoped `$ai_generation` lookup covers the same time range. The loader is
-    // unkeyed and can't connect to the per-tab shared logic instance directly.
-    useEffect(() => {
-        setLazyLoaderDateRange({ dateFrom: tracesDateFrom, dateTo: tracesDateTo })
-    }, [tracesDateFrom, tracesDateTo, setLazyLoaderDateRange])
 
     return (
         <div data-attr="llm-trace-table">
@@ -281,7 +271,7 @@ ErrorsColumn.displayName = 'ErrorsColumn'
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { ensureTraceMessagesLoaded } = useActions(traceMessagesLazyLoaderLogic)
-    const { getTraceMessages, isTraceLoading } = useValues(traceMessagesLazyLoaderLogic)
+    const { getTraceMessages } = useValues(traceMessagesLazyLoaderLogic)
 
     useEffect(() => {
         if (row.id) {
@@ -289,11 +279,15 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         }
     }, [row.id, ensureTraceMessagesLoaded])
 
-    if (isTraceLoading(row.id)) {
+    // `undefined` means "not yet fetched" — show the skeleton. `null` or an
+    // object means "fetched" (possibly with nothing to display). Checking the
+    // cached record directly avoids a one-frame `–` flash before the
+    // `loadingTraceIds` reducer catches up on the first render.
+    const messages = getTraceMessages(row.id)
+    if (messages === undefined) {
         return <LemonSkeleton className="h-4 w-40" />
     }
 
-    const messages = getTraceMessages(row.id)
     const firstInput =
         // Prefer a clean unwrap of the $ai_trace state wrapper
         pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
@@ -312,7 +306,7 @@ InputMessageColumn.displayName = 'InputMessageColumn'
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { ensureTraceMessagesLoaded } = useActions(traceMessagesLazyLoaderLogic)
-    const { getTraceMessages, isTraceLoading } = useValues(traceMessagesLazyLoaderLogic)
+    const { getTraceMessages } = useValues(traceMessagesLazyLoaderLogic)
 
     useEffect(() => {
         if (row.id) {
@@ -331,11 +325,11 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         )
     }
 
-    if (isTraceLoading(row.id)) {
+    const messages = getTraceMessages(row.id)
+    if (messages === undefined) {
         return <LemonSkeleton className="h-4 w-40" />
     }
 
-    const messages = getTraceMessages(row.id)
     const lastOutput =
         pickLastOutputMessage(messages?.lastOutput, { strict: true }) ??
         pickLastOutputMessage(messages?.lastOutputFallback) ??

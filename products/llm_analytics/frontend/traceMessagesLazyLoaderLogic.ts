@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 
@@ -19,11 +19,6 @@ export interface TraceMessages {
     lastOutputFallback: unknown
 }
 
-export interface TraceMessagesDateRange {
-    dateFrom: string | null
-    dateTo: string | null
-}
-
 const BATCH_MAX_SIZE = 100
 const BATCH_DEBOUNCE_MS = 0
 /**
@@ -32,7 +27,12 @@ const BATCH_DEBOUNCE_MS = 0
  * batch. Truncated JSON is recovered on the frontend via parsePartialJSON.
  */
 const FIELD_TRUNCATE_CHARS = 2000
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+/**
+ * Upper bound on a trace ID length before we refuse to inline it into the
+ * HogQL string. Real trace IDs are UUIDs (36 chars) or short nanoid-style
+ * tokens. This guards against pathological IDs.
+ */
+const TRACE_ID_MAX_LENGTH = 128
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -42,12 +42,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
     return chunks
 }
 
+/**
+ * Escape a trace ID for safe inlining into a single-quoted HogQL string
+ * literal. HogQL accepts both SQL-standard `''` and C-style `\'` escapes;
+ * we normalize backslashes first, then double up any embedded quotes.
+ */
+function escapeHogqlString(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "''")
+}
+
 export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'traceMessagesLazyLoaderLogic']),
 
     actions({
         ensureTraceMessagesLoaded: (traceIds: string[]) => ({ traceIds }),
-        setDateRange: (dateRange: TraceMessagesDateRange) => ({ dateRange }),
         markTraceIdsLoading: (traceIds: string[]) => ({ traceIds }),
         loadTraceMessagesBatchSuccess: (results: Record<string, TraceMessages>, requestedTraceIds: string[]) => ({
             results,
@@ -110,13 +118,6 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 },
             },
         ],
-
-        dateRange: [
-            { dateFrom: null, dateTo: null } as TraceMessagesDateRange,
-            {
-                setDateRange: (_, { dateRange }) => dateRange,
-            },
-        ],
     }),
 
     selectors({
@@ -126,142 +127,148 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 return (traceId: string) => messagesByTraceId[traceId]
             },
         ],
-        isTraceLoading: [
-            (s) => [s.loadingTraceIds],
-            (loadingTraceIds): ((traceId: string) => boolean) => {
-                return (traceId: string) => loadingTraceIds.has(traceId)
-            },
-        ],
     }),
 
-    listeners(({ actions, values }) => {
-        let pendingTraceIds = new Set<string>()
-        let batchTimer: ReturnType<typeof setTimeout> | null = null
+    listeners(({ actions, values, cache }) => ({
+        ensureTraceMessagesLoaded: ({ traceIds }) => {
+            const uncached = traceIds.filter(
+                (traceId) =>
+                    traceId && values.messagesByTraceId[traceId] === undefined && !values.loadingTraceIds.has(traceId)
+            )
 
-        return {
-            ensureTraceMessagesLoaded: ({ traceIds }) => {
-                const uncached = traceIds.filter(
-                    (traceId) =>
-                        traceId &&
-                        values.messagesByTraceId[traceId] === undefined &&
-                        !values.loadingTraceIds.has(traceId)
-                )
+            if (uncached.length === 0) {
+                return
+            }
 
-                if (uncached.length === 0) {
+            actions.markTraceIdsLoading(uncached)
+
+            const pendingTraceIds = cache.pendingTraceIds as Set<string>
+            for (const traceId of uncached) {
+                pendingTraceIds.add(traceId)
+            }
+
+            if (cache.batchTimer) {
+                return
+            }
+
+            cache.batchTimer = setTimeout(async () => {
+                const requestedTraceIds = Array.from(pendingTraceIds)
+                pendingTraceIds.clear()
+                cache.batchTimer = null
+
+                if (requestedTraceIds.length === 0) {
                     return
                 }
 
-                actions.markTraceIdsLoading(uncached)
+                const chunks = chunk(requestedTraceIds, BATCH_MAX_SIZE)
 
-                for (const traceId of uncached) {
-                    pendingTraceIds.add(traceId)
-                }
+                await Promise.allSettled(
+                    chunks.map(async (batch) => {
+                        try {
+                            // Drop pathologically long IDs and inline the rest as properly
+                            // escaped HogQL string literals. We can't use the `{traceIds}`
+                            // value placeholder here because combining `values` with
+                            // `{filters}` makes `parse_select` resolve all placeholders
+                            // eagerly against the values dict. The inline path means
+                            // escaping is our responsibility, so each ID is routed through
+                            // `escapeHogqlString`.
+                            const safeIds = batch.filter((id) => id && id.length <= TRACE_ID_MAX_LENGTH)
+                            if (safeIds.length === 0) {
+                                actions.loadTraceMessagesBatchFailure(batch)
+                                return
+                            }
+                            const idList = safeIds.map((id) => `'${escapeHogqlString(id)}'`).join(',')
+                            // Return two candidates per direction: the top-level `$ai_trace`
+                            // state (preferred when present — represents the clean
+                            // user-query / final-answer for langchain/LangGraph traces) and
+                            // the first/last `$ai_generation` payload (fallback for plain
+                            // OpenAI/Anthropic/Vercel traces, or when the state wrapper
+                            // resolves to empty messages after unwrap). Picker code on the
+                            // frontend decides which to render.
+                            //
+                            // We intentionally do NOT filter by date range. The trace ID
+                            // IN (...) clause is selective enough on its own, and matching
+                            // the trace query runner's ±10 minute boundary buffer would
+                            // add complexity for a marginal perf benefit. Skipping the
+                            // date filter also means the cached per-trace preview is
+                            // stable across date-range changes in the UI — `argMin/argMax`
+                            // over the same trace ID always returns the same events.
+                            const query: HogQLQuery = {
+                                kind: NodeKind.HogQLQuery,
+                                query: `
+                                    SELECT
+                                        properties.$ai_trace_id AS trace_id,
+                                        anyIf(
+                                            substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            event = '$ai_trace'
+                                                AND length(toString(properties.$ai_input_state)) > 0
+                                        ) AS first_input,
+                                        anyIf(
+                                            substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            event = '$ai_trace'
+                                                AND length(toString(properties.$ai_output_state)) > 0
+                                        ) AS last_output,
+                                        argMinIf(
+                                            substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            timestamp,
+                                            event = '$ai_generation'
+                                                AND length(toString(properties.$ai_input)) > 0
+                                        ) AS first_input_fallback,
+                                        argMaxIf(
+                                            substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            timestamp,
+                                            event = '$ai_generation'
+                                                AND length(toString(properties.$ai_output_choices)) > 0
+                                        ) AS last_output_fallback
+                                    FROM events
+                                    WHERE event IN ('$ai_trace', '$ai_generation')
+                                      AND properties.$ai_trace_id IN (${idList})
+                                    GROUP BY trace_id
+                                `,
+                            }
 
-                if (batchTimer) {
-                    return
-                }
+                            const response = await api.query(query)
+                            const results: Record<string, TraceMessages> = {}
 
-                batchTimer = setTimeout(async () => {
-                    const requestedTraceIds = Array.from(pendingTraceIds)
-                    pendingTraceIds = new Set()
-                    batchTimer = null
-
-                    if (requestedTraceIds.length === 0) {
-                        return
-                    }
-
-                    const { dateFrom, dateTo } = values.dateRange
-                    const chunks = chunk(requestedTraceIds, BATCH_MAX_SIZE)
-
-                    await Promise.allSettled(
-                        chunks.map(async (batch) => {
-                            try {
-                                // Inline trace IDs and truncate size instead of using {placeholder}
-                                // values. `parse_select` eagerly resolves all placeholders against
-                                // the `values` dict and errors if it encounters `{filters}`, so we
-                                // can't combine the two. IDs are filtered to the UUID shape as
-                                // defense-in-depth before inlining.
-                                const safeIds = batch.filter((id) => UUID_RE.test(id))
-                                if (safeIds.length === 0) {
-                                    actions.loadTraceMessagesBatchSuccess({}, batch)
-                                    return
-                                }
-                                const idList = safeIds.map((id) => `'${id}'`).join(',')
-                                // Return two candidates per direction: the top-level `$ai_trace`
-                                // state (preferred when present — represents the clean
-                                // user-query / final-answer for langchain/LangGraph traces) and
-                                // the first/last `$ai_generation` payload (fallback for plain
-                                // OpenAI/Anthropic/Vercel traces, or when the state wrapper
-                                // resolves to empty messages after unwrap). Picker code on the
-                                // frontend decides which to render.
-                                const query: HogQLQuery = {
-                                    kind: NodeKind.HogQLQuery,
-                                    query: `
-                                        SELECT
-                                            properties.$ai_trace_id AS trace_id,
-                                            anyIf(
-                                                substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                event = '$ai_trace'
-                                                    AND length(toString(properties.$ai_input_state)) > 0
-                                            ) AS first_input,
-                                            anyIf(
-                                                substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                event = '$ai_trace'
-                                                    AND length(toString(properties.$ai_output_state)) > 0
-                                            ) AS last_output,
-                                            argMinIf(
-                                                substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                timestamp,
-                                                event = '$ai_generation'
-                                                    AND length(toString(properties.$ai_input)) > 0
-                                            ) AS first_input_fallback,
-                                            argMaxIf(
-                                                substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                timestamp,
-                                                event = '$ai_generation'
-                                                    AND length(toString(properties.$ai_output_choices)) > 0
-                                            ) AS last_output_fallback
-                                        FROM events
-                                        WHERE event IN ('$ai_trace', '$ai_generation')
-                                          AND properties.$ai_trace_id IN (${idList})
-                                          AND {filters}
-                                        GROUP BY trace_id
-                                    `,
-                                    filters: {
-                                        dateRange: {
-                                            date_from: dateFrom || null,
-                                            date_to: dateTo || null,
-                                        },
-                                    },
-                                }
-
-                                const response = await api.query(query)
-                                const results: Record<string, TraceMessages> = {}
-
-                                for (const row of response.results || []) {
-                                    const [traceId, firstInput, lastOutput, firstInputFallback, lastOutputFallback] =
-                                        row as [string, unknown, unknown, unknown, unknown]
-                                    if (traceId) {
-                                        results[traceId] = {
-                                            firstInput: parseTruncatedJson(firstInput),
-                                            lastOutput: parseTruncatedJson(lastOutput),
-                                            firstInputFallback: parseTruncatedJson(firstInputFallback),
-                                            lastOutputFallback: parseTruncatedJson(lastOutputFallback),
-                                        }
+                            for (const row of response.results || []) {
+                                const [traceId, firstInput, lastOutput, firstInputFallback, lastOutputFallback] =
+                                    row as [string, unknown, unknown, unknown, unknown]
+                                if (traceId) {
+                                    results[traceId] = {
+                                        firstInput: parseTruncatedJson(firstInput),
+                                        lastOutput: parseTruncatedJson(lastOutput),
+                                        firstInputFallback: parseTruncatedJson(firstInputFallback),
+                                        lastOutputFallback: parseTruncatedJson(lastOutputFallback),
                                     }
                                 }
-
-                                actions.loadTraceMessagesBatchSuccess(results, batch)
-                            } catch (error) {
-                                console.warn('Error loading trace messages batch', error)
-                                actions.loadTraceMessagesBatchFailure(batch)
                             }
-                        })
-                    )
-                }, BATCH_DEBOUNCE_MS)
-            },
-        }
-    }),
+
+                            actions.loadTraceMessagesBatchSuccess(results, batch)
+                        } catch (error) {
+                            console.warn('Error loading trace messages batch', error)
+                            actions.loadTraceMessagesBatchFailure(batch)
+                        }
+                    })
+                )
+            }, BATCH_DEBOUNCE_MS)
+        },
+    })),
+
+    events(({ cache }) => ({
+        afterMount: () => {
+            cache.pendingTraceIds = new Set<string>()
+            cache.batchTimer = null
+        },
+        beforeUnmount: () => {
+            if (cache.batchTimer) {
+                clearTimeout(cache.batchTimer)
+                cache.batchTimer = null
+            }
+            if (cache.pendingTraceIds instanceof Set) {
+                cache.pendingTraceIds.clear()
+            }
+        },
+    })),
 ])
 
 /**
