@@ -119,6 +119,10 @@ def _is_kafka(engine: str) -> bool:
     return engine.lower() == "kafka"
 
 
+def _is_dictionary(engine: str) -> bool:
+    return engine.lower() == "dictionary"
+
+
 def _columns_sql(columns: list[ColumnDef]) -> str:
     parts = []
     for col in columns:
@@ -260,8 +264,26 @@ def diff_state(
     alters: list[StateDiff] = []
     recreates: list[StateDiff] = []
 
-    desired_names = set(desired.tables.keys())
-    current_names = set(current.keys())
+    # Skip Dictionary tables entirely — the desired-state YAML only declares
+    # columns/engine, not the PRIMARY KEY / SOURCE / LAYOUT / LIFETIME metadata
+    # that `CREATE DICTIONARY` requires. Legacy `migrate_clickhouse` creates
+    # these with hand-written DDL; `ch_migrate` ignores them for now and emits
+    # a warning per skipped dictionary. Revisit once the YAML schema grows
+    # Dictionary-specific fields.
+    skipped_dicts = [name for name, t in desired.tables.items() if _is_dictionary(t.engine)]
+    if skipped_dicts:
+        logger.warning(
+            "ch_migrate: skipping %d Dictionary table(s) — YAML lacks SOURCE/LAYOUT/LIFETIME, "
+            "use legacy migrate_clickhouse for dictionaries: %s",
+            len(skipped_dicts),
+            ", ".join(skipped_dicts),
+        )
+    desired_without_dicts = {
+        name: t for name, t in desired.tables.items() if not _is_dictionary(t.engine)
+    }
+
+    desired_names = set(desired_without_dicts.keys())
+    current_names = {n for n in current.keys() if not _is_dictionary(current[n].engine)}
 
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
