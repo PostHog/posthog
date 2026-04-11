@@ -37,15 +37,15 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
     )
 }
 
-export function buildTooltipContext(
+export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
-    series: Series[],
+    series: Series<Meta>[],
     labels: string[],
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
     resolveValue: ResolveValueFn
-): TooltipContext | null {
+): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
@@ -56,7 +56,7 @@ export function buildTooltipContext(
         return null
     }
 
-    const seriesData: TooltipContext['seriesData'] = []
+    const seriesData: TooltipContext<Meta>['seriesData'] = []
     const yPixels: number[] = []
     for (const s of series) {
         if (s.hidden) {
@@ -82,12 +82,12 @@ export function buildTooltipContext(
     }
 }
 
-export function buildPointClickData(
+export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
-    series: Series[],
+    series: Series<Meta>[],
     labels: string[],
     resolveValue: ResolveValueFn
-): PointClickData | null {
+): PointClickData<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }

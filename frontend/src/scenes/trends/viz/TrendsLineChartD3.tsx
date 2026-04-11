@@ -7,18 +7,28 @@ import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
+import { ActionFilter, ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
 import { TrendsTooltip } from './TrendsTooltip'
+
+export type TrendsSeriesMeta = {
+    action?: ActionFilter
+    breakdown_value?: string | number | string[]
+    compare_label?: SeriesDatum['compare_label']
+    days?: string[]
+    order?: number
+    filter?: SeriesDatum['filter']
+}
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
@@ -65,7 +75,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
-    const hogSeries: Series[] = useMemo(
+    const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? [])
                 .filter((r: IndexedTrendResult) => r.count !== 0)
@@ -111,7 +121,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const formatCompareLabel = context?.formatCompareLabel
     const renderTooltip = useCallback(
-        (ctx: TooltipContext) => (
+        (ctx: TooltipContext<TrendsSeriesMeta>) => (
             <TrendsTooltip
                 context={ctx}
                 timezone={timezone}

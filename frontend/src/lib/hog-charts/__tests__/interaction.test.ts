@@ -1,8 +1,8 @@
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../core/interaction'
-import type { ResolveValueFn, Series } from '../core/types'
+import type { ResolveValueFn } from '../core/types'
 import { dimensions, makeSeries } from '../test-helpers'
 
-const defaultResolveValue: ResolveValueFn = (s: Series, i: number): number => s.data[i]
+const defaultResolveValue: ResolveValueFn = (s, i) => s.data[i]
 
 const fakeCanvasBounds = {
     x: 0,
@@ -226,7 +226,7 @@ describe('hog-charts interaction', () => {
         it('uses the resolveValue function for both value and crossSeriesData', () => {
             const s1 = makeSeries({ key: 's1', data: [0] })
             const s2 = makeSeries({ key: 's2', data: [0] })
-            const customResolve: ResolveValueFn = (s: Series): number => (s.key === 's1' ? 111 : 222)
+            const customResolve: ResolveValueFn = (s) => (s.key === 's1' ? 111 : 222)
             const result = buildPointClickData(0, [s1, s2], ['a'], customResolve)
             expect(result?.value).toBe(111)
             expect(result?.crossSeriesData[0].value).toBe(111)
