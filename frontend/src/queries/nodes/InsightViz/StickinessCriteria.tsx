@@ -38,11 +38,16 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
             <LemonInput
                 type="number"
                 className="w-20"
-                defaultValue={currentValue}
+                value={currentValue}
                 min={1}
                 onChange={(newValue: number | undefined) => {
                     if (newValue !== undefined) {
                         updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value: newValue } })
+                    }
+                }}
+                onBlur={() => {
+                    if (!stickinessCriteria?.value) {
+                        updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value: 1 } })
                     }
                 }}
             />

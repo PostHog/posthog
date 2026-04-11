@@ -113,8 +113,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
     def _having_clause(self) -> ast.Expr:
         if not (self.query.stickinessFilter and self.query.stickinessFilter.stickinessCriteria):
             return parse_expr("count() > 0")
-        operator = self.query.stickinessFilter.stickinessCriteria.operator
-        value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
+        criteria = self.query.stickinessFilter.stickinessCriteria
+        operator = criteria.operator
+        criteria_value = criteria.value if criteria.value is not None else 1
+        value = ast.Constant(value=criteria_value)
         return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Expr:

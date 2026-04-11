@@ -54,6 +54,7 @@ import {
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { stripUnsupportedQueryFields } from '../utils/queryUtils'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -574,5 +575,5 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         }
     }
 
-    return mergedQuery as InsightQueryNode
+    return stripUnsupportedQueryFields(mergedQuery as InsightQueryNode)
 }

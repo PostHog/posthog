@@ -11,6 +11,8 @@ import {
     isHogQLQuery,
     isLifecycleQuery,
     isInsightQueryNode,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -283,5 +285,26 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
         }
     }
 
-    return cleanedQuery
+    return stripUnsupportedQueryFields(cleanedQuery)
+}
+
+/**
+ * Removes fields that are not supported by the target query kind.
+ * This prevents state from leaking when switching between insight types
+ * (e.g. breakdownFilter persisting from Trends when switching to Stickiness).
+ */
+export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQueryNode => {
+    const cleaned = { ...query }
+
+    if (!isInsightQueryWithBreakdown(cleaned)) {
+        delete (cleaned as any).breakdownFilter
+    }
+    if (!isInsightQueryWithCompare(cleaned)) {
+        delete (cleaned as any).compareFilter
+    }
+    if (!isPathsQuery(cleaned)) {
+        delete (cleaned as any).funnelPathsFilter
+    }
+
+    return cleaned
 }
