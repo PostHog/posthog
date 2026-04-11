@@ -153,6 +153,26 @@ def _generate_create_sql(
         source = table.source or ""
         sharding = table.sharding_key or "rand()"
         physical_cluster = _resolve_physical_cluster(cluster)
+
+        # Distributed tables that wrap a system.* table (or any source table
+        # whose columns should be inherited rather than redeclared) are
+        # authored in the YAML with an empty `columns: []` list. Rendering an
+        # empty column list as `(\n\n)` produces a syntax error; ClickHouse
+        # requires either a non-empty column list or an `AS <source>` clause
+        # that tells it to copy columns from the referenced table.
+        #
+        # When the YAML has zero columns, emit the `AS <source>` form. Source
+        # resolution:
+        #   - If `source` contains a dot, use it verbatim (e.g. `system.processes`).
+        #   - Otherwise, qualify it with the current database.
+        # The Distributed cluster args are unchanged from the normal path.
+        if not table.columns:
+            source_ref = source if "." in source else f"{database}.{source}"
+            return (
+                f"CREATE TABLE IF NOT EXISTS {database}.{table.name} AS {source_ref}\n"
+                f"ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
+            )
+
         return (
             f"CREATE TABLE IF NOT EXISTS {database}.{table.name}\n"
             f"(\n{cols}\n"
