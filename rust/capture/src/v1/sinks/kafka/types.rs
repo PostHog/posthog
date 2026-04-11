@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
 use rdkafka::error::RDKafkaErrorCode;
+use uuid::Uuid;
 
 use super::producer::ProduceError;
 use crate::v1::sinks::types::{Outcome, SinkResult};
@@ -98,7 +99,7 @@ impl KafkaSinkError {
 /// the error -- no explicit outcome field.
 #[derive(Debug)]
 pub struct KafkaResult {
-    uuid_key: String,
+    uuid: Uuid,
     error: Option<KafkaSinkError>,
     enqueued_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
@@ -106,9 +107,9 @@ pub struct KafkaResult {
 
 impl KafkaResult {
     #[allow(dead_code)]
-    pub(crate) fn ok(uuid_key: String, enqueued_at: DateTime<Utc>) -> Self {
+    pub(crate) fn ok(uuid: Uuid, enqueued_at: DateTime<Utc>) -> Self {
         Self {
-            uuid_key,
+            uuid,
             error: None,
             enqueued_at,
             completed_at: None,
@@ -116,9 +117,9 @@ impl KafkaResult {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn err(uuid_key: String, error: KafkaSinkError, enqueued_at: DateTime<Utc>) -> Self {
+    pub(crate) fn err(uuid: Uuid, error: KafkaSinkError, enqueued_at: DateTime<Utc>) -> Self {
         Self {
-            uuid_key,
+            uuid,
             error: Some(error),
             enqueued_at,
             completed_at: None,
@@ -138,8 +139,8 @@ impl KafkaResult {
 }
 
 impl SinkResult for KafkaResult {
-    fn key(&self) -> &str {
-        &self.uuid_key
+    fn key(&self) -> Uuid {
+        self.uuid
     }
 
     fn outcome(&self) -> Outcome {
