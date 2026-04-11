@@ -43,7 +43,6 @@ export type HogFlowFiltersProps = {
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
     buttonCopy?: string
-    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
 }
 
 /**
@@ -96,12 +95,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
     )
 }
 
-export function HogFlowPropertyFilters({
-    filtersKey,
-    filters,
-    setFilters,
-    taxonomicGroupTypes,
-}: HogFlowFiltersProps): JSX.Element {
+export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     return (
         <PropertyFilters
@@ -110,16 +104,14 @@ export function HogFlowPropertyFilters({
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
-            taxonomicGroupTypes={
-                taxonomicGroupTypes ?? [
-                    TaxonomicFilterGroupType.WorkflowVariables,
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    TaxonomicFilterGroupType.EventMetadata,
-                ]
-            }
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.WorkflowVariables,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.HogQLExpression,
+                TaxonomicFilterGroupType.EventMetadata,
+            ]}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -46,11 +45,6 @@ export function StepWaitUntilConditionConfiguration({
                         partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })
                     }
                     typeKey="workflow-wait-until-condition"
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.WorkflowVariables,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
                 />
             </div>
 
