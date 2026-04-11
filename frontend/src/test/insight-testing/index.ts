@@ -1,6 +1,11 @@
 export { getChart } from './chart-accessor'
 export type { Chart } from './chart-accessor'
-export { buildTrendsQuery, renderInsight, renderWithInsights } from './render-insight'
+export {
+    buildTrendsQuery,
+    renderInsight,
+    renderInsight as renderInsightPage,
+    renderWithInsights,
+} from './render-insight'
 export type { RenderInsightProps, RenderWithInsightsProps } from './render-insight'
 export { breakdown, chart, compare, display, getQuerySource, interval, searchAndSelect, series } from './interactions'
 export { setupInsightMocks } from './mocks'
