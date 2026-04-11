@@ -50,7 +50,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, PROJECT_ID_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
@@ -106,6 +106,7 @@ def _build_free_plan_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {"type": "free"},
         "kind": "plan",
+        "allowed_updates": [PAY_AS_YOU_GO_SERVICE_ID],
     }
 
 
@@ -116,9 +117,13 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
         "categories": ALL_CATEGORIES,
         "pricing": {
             "type": "paid",
-            "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
+            "paid": {
+                "type": "freeform",
+                "freeform": "$0/mo base, usage-based pricing. See https://posthog.com/pricing for rates.",
+            },
         },
         "kind": "plan",
+        "allowed_updates": [FREE_PLAN_SERVICE_ID],
     }
 
 
@@ -418,13 +423,18 @@ def _handle_new_user(
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
 
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        configuration = {}
+
     partner_label = (
         partner.provisioning_partner_type.capitalize() if partner and partner.provisioning_partner_type else "Stripe"
     )
+    org_name = configuration.get("organization_name") or f"{partner_label} ({email})"
 
     try:
         organization, team, user = User.objects.bootstrap(
-            organization_name=f"{partner_label} ({email})",
+            organization_name=org_name,
             email=email,
             password=None,
             first_name=first_name,
@@ -867,6 +877,43 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
         return None
 
 
+def _resolve_or_create_project_team(
+    project_id: str,
+    scoped_teams: list[int],
+    user: User,
+    configuration: dict,
+    access_token: OAuthAccessToken,
+) -> tuple[Team, list[int]]:
+    """Look up or create a team for the given project_id.
+
+    Uses a cache mapping (org_id, project_id) → team_id. If no mapping exists,
+    creates a new team in the user's org and updates the access token's scoped_teams.
+    """
+    base_team = Team.objects.get(id=scoped_teams[0])
+    org_id = str(base_team.organization_id)
+    cache_key = f"{PROJECT_ID_CACHE_PREFIX}{org_id}:{project_id}"
+
+    existing_team_id = cache.get(cache_key)
+    if existing_team_id:
+        try:
+            return Team.objects.get(id=existing_team_id), scoped_teams
+        except Team.DoesNotExist:
+            pass
+
+    project_name = configuration.get("project_name", f"Project {project_id}")
+    new_team = Team.objects.create(
+        organization=base_team.organization,
+        name=project_name,
+    )
+    cache.set(cache_key, new_team.id, timeout=None)
+
+    updated_scoped = list(scoped_teams) + [new_team.id]
+    access_token.scoped_teams = updated_scoped
+    access_token.save(update_fields=["scoped_teams"])
+
+    return new_team, updated_scoped
+
+
 # ---------------------------------------------------------------------------
 # POST /provisioning/resources
 # ---------------------------------------------------------------------------
@@ -896,22 +943,30 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event("resource_created", "error", error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
-    team_id = scoped_teams[0]
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
-        return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+    project_id = request.data.get("project_id", "")
+    configuration = request.data.get("configuration") or {}
+
+    if project_id:
+        team, scoped_teams = _resolve_or_create_project_team(
+            project_id, scoped_teams, user, configuration, access_token
+        )
+    else:
+        team_id = scoped_teams[0]
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
+            return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team.id}", resolved_service_id, timeout=None)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
     if billing_result is False:
         return Response(
             {
                 "status": "error",
-                "id": str(team_id),
+                "id": str(team.id),
                 "error": {
                     "code": "requires_payment_credentials",
                     "message": "Billing activation failed",
@@ -923,7 +978,7 @@ def provisioning_resources_create(request: Request) -> Response:
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team_id)
+    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team.id)
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -935,7 +990,7 @@ def provisioning_resources_create(request: Request) -> Response:
     return Response(
         {
             "status": "complete",
-            "id": str(team_id),
+            "id": str(team.id),
             "service_id": resolved_service_id,
             "complete": {
                 "access_configuration": access_configuration,
