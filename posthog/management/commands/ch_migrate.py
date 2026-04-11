@@ -202,30 +202,36 @@ class Command(BaseCommand):
         for ds in desired_states:
             by_cluster[ds.cluster].append(ds)
 
+        # Introspect the MIGRATIONS cluster (not the data cluster) so we see
+        # every node DDL runs on — coordinator + data + any satellite reachable
+        # from the current env. The data cluster (`posthog` / `CLICKHOUSE_CLUSTER`)
+        # is a subset and misses coordinator-only tables (Distributed wrappers,
+        # writable_* variants, MVs targeting coordinator). A single-cluster scan
+        # causes diff_state to emit spurious "to create" actions for tables
+        # that do exist but on a node outside this cluster.
+        from posthog.clickhouse.client.migration_tools import get_migrations_cluster
+        from posthog.clickhouse.migration_tools.schema_introspect import dump_schema_all_hosts
+
+        introspect_cluster = get_migrations_cluster()
+        introspect_per_host = dump_schema_all_hosts(introspect_cluster, database)
+        introspect_union: dict[str, Any] = {}
+        for _host_info, host_schema in introspect_per_host.items():
+            for tbl_name, tbl_schema in host_schema.items():
+                # First-wins union across all nodes in the migrations cluster.
+                # Replicated tables have identical DDL across replicas; for
+                # node-role-specific tables (Distributed, MV) only one node has
+                # them at all, so there's no conflict.
+                if tbl_name not in introspect_union:
+                    introspect_union[tbl_name] = tbl_schema
+
         all_diffs = []
         for cluster_name, states in by_cluster.items():
             try:
                 cluster_obj = get_cluster_by_name(cluster_name)
-                # Scan every host in the cluster, not just one. A single node
-                # doesn't see every table — `on_nodes: COORDINATOR` tables only
-                # live on the coordinator, `on_nodes: DATA` tables only on data
-                # nodes, etc. If we dump from one node we see a partial view and
-                # diff_state generates spurious "to create" actions for tables
-                # that already exist elsewhere in the cluster.
-                #
-                # Union the per-host schemas by table name. If the same table
-                # appears on multiple hosts, take the first one (they should be
-                # semantically identical — this is Replicated*, same DDL).
-                from posthog.clickhouse.migration_tools.schema_introspect import dump_schema_all_hosts
-
-                per_host = dump_schema_all_hosts(cluster_obj, database)
-                current = {}
-                for _host_info, host_schema in per_host.items():
-                    for tbl_name, tbl_schema in host_schema.items():
-                        # First-wins union — all replicas of the same table
-                        # should have identical DDL, so picking any is fine.
-                        if tbl_name not in current:
-                            current[tbl_name] = tbl_schema
+                # Use the pre-computed union from the migrations cluster scan
+                # instead of re-scanning each target cluster. Keep cluster_obj
+                # around because later code paths still need it for validation.
+                current = introspect_union
             except Exception as exc:
                 # A satellite cluster named in the YAML may be unreachable from the
                 # current runtime for several expected reasons — skip with a warning
