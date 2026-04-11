@@ -201,16 +201,33 @@ class Command(BaseCommand):
                 client = _any_client(cluster_obj)
                 current = dump_schema(client, database)
             except Exception as exc:
-                # CH error code 701 (CLUSTER_DOESNT_EXIST) surfaces when a satellite
-                # cluster named in the YAML is not present in the live stack. This is
-                # expected on dev stacks that only run a subset of clusters. Skip the
-                # ecosystem with a warning instead of crashing the whole plan.
+                # A satellite cluster named in the YAML may be unreachable from the
+                # current runtime for several expected reasons — skip with a warning
+                # instead of crashing the whole plan/apply:
+                #   - CLUSTER_DOESNT_EXIST (code 701): YAML declares a cluster the
+                #     current stack doesn't have. Common on dev stacks running a
+                #     subset of production clusters.
+                #   - Connection refused / Code: 210: satellite host not resolvable
+                #     from the current container (dev stack test harness, or the
+                #     satellite deployment not yet provisioned).
+                #   - Name or service not known: DNS failure when the satellite host
+                #     is pointed at something the runner can't resolve.
+                # In production all declared clusters are reachable, so these
+                # markers never fire. Unexpected errors still propagate.
                 exc_str = str(exc)
-                if "CLUSTER_DOESNT_EXIST" in exc_str or "not found" in exc_str.lower():
+                is_unreachable = (
+                    "CLUSTER_DOESNT_EXIST" in exc_str
+                    or "Code: 701" in exc_str
+                    or "Code: 210" in exc_str
+                    or "Connection refused" in exc_str
+                    or "Name or service not known" in exc_str
+                    or "not found" in exc_str.lower()
+                )
+                if is_unreachable:
                     ecosystem_names = ", ".join(s.ecosystem for s in states)
                     print(
                         f"Warning: skipping cluster '{cluster_name}' "
-                        f"(ecosystems: {ecosystem_names}) — not present in live ClickHouse"
+                        f"(ecosystems: {ecosystem_names}) — unreachable: {exc_str[:200]}"
                     )
                     continue
                 raise
