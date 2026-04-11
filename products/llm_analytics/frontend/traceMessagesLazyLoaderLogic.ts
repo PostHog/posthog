@@ -10,6 +10,13 @@ import { parsePartialJSON } from './utils'
 export interface TraceMessages {
     firstInput: unknown
     lastOutput: unknown
+    /**
+     * Fallback payloads drawn from the first/last `$ai_generation` on the
+     * trace, used when the preferred `$ai_trace` state wrapper is missing or
+     * resolves to an empty messages array.
+     */
+    firstInputFallback: unknown
+    lastOutputFallback: unknown
 }
 
 export interface TraceMessagesDateRange {
@@ -56,7 +63,12 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 loadTraceMessagesBatchSuccess: (state, { results, requestedTraceIds }) => {
                     const next = { ...state }
                     for (const traceId of requestedTraceIds) {
-                        next[traceId] = results[traceId] ?? { firstInput: null, lastOutput: null }
+                        next[traceId] = results[traceId] ?? {
+                            firstInput: null,
+                            lastOutput: null,
+                            firstInputFallback: null,
+                            lastOutputFallback: null,
+                        }
                     }
                     return next
                 },
@@ -175,42 +187,40 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     return
                                 }
                                 const idList = safeIds.map((id) => `'${id}'`).join(',')
-                                // Prefer the `$ai_trace` event's input/output state when the
-                                // SDK emits one (langchain/LangGraph), since it represents the
-                                // clean top-level user query and final agent response. Fall
-                                // back to the first/last `$ai_generation` for SDKs that emit
-                                // generations directly (OpenAI, Anthropic, Vercel, ...).
+                                // Return two candidates per direction: the top-level `$ai_trace`
+                                // state (preferred when present — represents the clean
+                                // user-query / final-answer for langchain/LangGraph traces) and
+                                // the first/last `$ai_generation` payload (fallback for plain
+                                // OpenAI/Anthropic/Vercel traces, or when the state wrapper
+                                // resolves to empty messages after unwrap). Picker code on the
+                                // frontend decides which to render.
                                 const query: HogQLQuery = {
                                     kind: NodeKind.HogQLQuery,
                                     query: `
                                         SELECT
                                             properties.$ai_trace_id AS trace_id,
-                                            coalesce(
-                                                anyIf(
-                                                    substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                    event = '$ai_trace'
-                                                        AND length(toString(properties.$ai_input_state)) > 0
-                                                ),
-                                                argMinIf(
-                                                    substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                    timestamp,
-                                                    event = '$ai_generation'
-                                                        AND length(toString(properties.$ai_input)) > 0
-                                                )
+                                            anyIf(
+                                                substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                event = '$ai_trace'
+                                                    AND length(toString(properties.$ai_input_state)) > 0
                                             ) AS first_input,
-                                            coalesce(
-                                                anyIf(
-                                                    substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                    event = '$ai_trace'
-                                                        AND length(toString(properties.$ai_output_state)) > 0
-                                                ),
-                                                argMaxIf(
-                                                    substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                    timestamp,
-                                                    event = '$ai_generation'
-                                                        AND length(toString(properties.$ai_output_choices)) > 0
-                                                )
-                                            ) AS last_output
+                                            anyIf(
+                                                substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                event = '$ai_trace'
+                                                    AND length(toString(properties.$ai_output_state)) > 0
+                                            ) AS last_output,
+                                            argMinIf(
+                                                substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                timestamp,
+                                                event = '$ai_generation'
+                                                    AND length(toString(properties.$ai_input)) > 0
+                                            ) AS first_input_fallback,
+                                            argMaxIf(
+                                                substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                timestamp,
+                                                event = '$ai_generation'
+                                                    AND length(toString(properties.$ai_output_choices)) > 0
+                                            ) AS last_output_fallback
                                         FROM events
                                         WHERE event IN ('$ai_trace', '$ai_generation')
                                           AND properties.$ai_trace_id IN (${idList})
@@ -229,11 +239,14 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                 const results: Record<string, TraceMessages> = {}
 
                                 for (const row of response.results || []) {
-                                    const [traceId, firstInput, lastOutput] = row as [string, unknown, unknown]
+                                    const [traceId, firstInput, lastOutput, firstInputFallback, lastOutputFallback] =
+                                        row as [string, unknown, unknown, unknown, unknown]
                                     if (traceId) {
                                         results[traceId] = {
                                             firstInput: parseTruncatedJson(firstInput),
                                             lastOutput: parseTruncatedJson(lastOutput),
+                                            firstInputFallback: parseTruncatedJson(firstInputFallback),
+                                            lastOutputFallback: parseTruncatedJson(lastOutputFallback),
                                         }
                                     }
                                 }

@@ -294,7 +294,14 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     }
 
     const messages = getTraceMessages(row.id)
-    const firstInput = pickFirstInputMessage(messages?.firstInput)
+    const firstInput =
+        // Prefer a clean unwrap of the $ai_trace state wrapper
+        pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
+        // Fall back to the first $ai_generation input when the state wrapper
+        // is missing or uses an unknown shape
+        pickFirstInputMessage(messages?.firstInputFallback) ??
+        // Last resort: dump the raw state so something shows up
+        pickFirstInputMessage(messages?.firstInput)
     if (!firstInput) {
         return <>–</>
     }
@@ -329,7 +336,10 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     }
 
     const messages = getTraceMessages(row.id)
-    const lastOutput = pickLastOutputMessage(messages?.lastOutput)
+    const lastOutput =
+        pickLastOutputMessage(messages?.lastOutput, { strict: true }) ??
+        pickLastOutputMessage(messages?.lastOutputFallback) ??
+        pickLastOutputMessage(messages?.lastOutput)
     if (!lastOutput) {
         return <>–</>
     }
@@ -356,10 +366,15 @@ function hasDisplayableContent(message: NormalizedMessage): boolean {
 /**
  * Preferred → fallback cascade for the trace input column. We prefer the first
  * actual user turn, but tolerate traces that open with a system prompt or a
- * tool-result by falling back down the list.
+ * tool-result by falling back down the list. When `strict` is true we reject
+ * unknown state-wrapper shapes (the caller will then try the generation-level
+ * fallback payload).
  */
-function pickFirstInputMessage(raw: unknown): NormalizedMessage | null {
-    const normalized = safeNormalize(raw, 'user')
+function pickFirstInputMessage(
+    raw: unknown,
+    { strict }: { strict: boolean } = { strict: false }
+): NormalizedMessage | null {
+    const normalized = safeNormalize(raw, 'user', { strict })
     if (normalized.length === 0) {
         return null
     }
@@ -384,8 +399,11 @@ function pickFirstInputMessage(raw: unknown): NormalizedMessage | null {
  * displayable message (e.g. tool_calls) so tool-calling traces still show
  * something useful instead of a dash.
  */
-function pickLastOutputMessage(raw: unknown): NormalizedMessage | null {
-    const normalized = safeNormalize(raw, 'assistant')
+function pickLastOutputMessage(
+    raw: unknown,
+    { strict }: { strict: boolean } = { strict: false }
+): NormalizedMessage | null {
+    const normalized = safeNormalize(raw, 'assistant', { strict })
     if (normalized.length === 0) {
         return null
     }
@@ -406,10 +424,12 @@ function pickLastOutputMessage(raw: unknown): NormalizedMessage | null {
  * Some SDKs emit the trace input/output as a state wrapper object rather than a
  * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
  * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
- * Unwrap the known wrappers before handing to `normalizeMessages`, which only
- * understands arrays, strings, or single-message objects.
+ * Drill into the known `.messages` key so the picker sees a clean array; for
+ * unknown wrapper shapes (agent-specific state like `{ current_step, ... }`)
+ * return `null` in strict mode so the picker can fall through to the
+ * generation-level fallback rather than dumping raw JSON.
  */
-function unwrapMessageContainer(raw: unknown): unknown {
+function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
         return raw
     }
@@ -417,15 +437,20 @@ function unwrapMessageContainer(raw: unknown): unknown {
     if (Array.isArray(obj.messages)) {
         return obj.messages
     }
-    return raw
+    return strict ? null : raw
 }
 
-function safeNormalize(raw: unknown, defaultRole: string): ReturnType<typeof normalizeMessages> {
-    if (raw == null) {
+function safeNormalize(
+    raw: unknown,
+    defaultRole: string,
+    { strict }: { strict: boolean } = { strict: false }
+): ReturnType<typeof normalizeMessages> {
+    const unwrapped = unwrapMessageContainer(raw, strict)
+    if (unwrapped == null) {
         return []
     }
     try {
-        return normalizeMessages(unwrapMessageContainer(raw), defaultRole)
+        return normalizeMessages(unwrapped, defaultRole)
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []
