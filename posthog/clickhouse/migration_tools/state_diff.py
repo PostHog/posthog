@@ -184,11 +184,47 @@ def _generate_create_sql(
     #   or when using the Replicated database engine.
     # This mirrors the pattern tracking.py uses for the tracking table itself and
     # matches the legacy PostHog ZK path convention.
-    if table.engine.startswith("Replicated"):
+    #
+    # Some MergeTree variants take additional engine arguments after the
+    # zk_path/replica pair:
+    #   - Collapsing:         ENGINE(zk, replica, sign_col)
+    #   - VersionedCollapsing: ENGINE(zk, replica, sign_col, version_col)
+    #   - Replacing:          ENGINE(zk, replica, [version_col])
+    #   - Summing:            ENGINE(zk, replica, [(summed_cols)])
+    # We auto-detect the canonical column names (`sign`, `version`) from the
+    # table's columns. The YAML always declares them explicitly (the legacy
+    # migrations that seeded the YAML use the same naming).
+    column_names = {c.name for c in table.columns}
+    engine_name = table.engine
+    engine_lower = engine_name.lower()
+
+    def _zk_args() -> str:
         zk_path = f"/clickhouse/tables/{{shard}}/{database}/{table.name}"
-        engine_call = f"{table.engine}('{zk_path}', '{{replica}}')"
+        return f"'{zk_path}', '{{replica}}'"
+
+    if engine_name.startswith("Replicated"):
+        extra_args: list[str] = []
+        if "versionedcollapsing" in engine_lower:
+            # sign + version required
+            if "sign" in column_names:
+                extra_args.append("sign")
+            if "version" in column_names:
+                extra_args.append("version")
+        elif "collapsing" in engine_lower:
+            # sign required
+            if "sign" in column_names:
+                extra_args.append("sign")
+        elif "replacing" in engine_lower and "version" in column_names:
+            # version optional — include if present
+            extra_args.append("version")
+        # Summing/Aggregating without explicit columns = OK with just zk args
+
+        if extra_args:
+            engine_call = f"{engine_name}({_zk_args()}, {', '.join(extra_args)})"
+        else:
+            engine_call = f"{engine_name}({_zk_args()})"
     else:
-        engine_call = f"{table.engine}()"
+        engine_call = f"{engine_name}()"
 
     partition = f"\nPARTITION BY {table.partition_by}" if table.partition_by else ""
     order_by = f"\nORDER BY ({', '.join(table.order_by)})" if table.order_by else ""
