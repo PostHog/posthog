@@ -4,8 +4,10 @@ Sandbox container entrypoint.
 
 Startup modes, all dispatched from the bottom of this file:
 
-  1. Root phase (UID 0): create sandbox user, configure system, bind-mount
-     node_modules onto the cache volume, then re-exec as the sandbox user.
+  1. Root phase (UID 0): create sandbox user, chown the workspace volume,
+     seed SSH config, then re-exec as the sandbox user. The workspace volume
+     is populated by bin/sandbox (shallow git clone) before `compose up`, so
+     there's no checkout or bind-mount gymnastics at container start.
   2. User phase (default): launch a detached tmux server with a claude window
      (spinner → real claude once Python deps are ready) and a setup window
      (runs run_setup() via SANDBOX_MODE=setup); PID 1 blocks on a has-session
@@ -16,8 +18,8 @@ Startup modes, all dispatched from the bottom of this file:
   4. Cache-init phase (SANDBOX_MODE=cache-init): install all deps, run
      migrations, generate demo data, pre-build the Rust workspace, then exit.
      Used by `bin/sandbox create` to populate shared cache volumes before
-     snapshotting the databases. Skips sshd/claude-auth/node_modules bind
-     mount in the root phase since they're not needed for a one-off build.
+     snapshotting the databases. Skips sshd and claude-auth in the root phase
+     since they're not needed for a one-off build.
 
 The SANDBOX_LEGACY_BOOT=1 env var reverts user phase to the pre-claude-in-tmux
 flow (dependency install → exec tmux running phrocs) as an in-place escape
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 import os
 import sys
+import stat
 import time
 import shutil
 import subprocess
@@ -141,6 +144,42 @@ def export_environment(uid: int, gid: int) -> None:
     Path("/etc/profile.d/sandbox-env.sh").write_text("\n".join(f"export {line}" for line in lines) + "\n")
 
 
+def _configure_ssh_agent_env() -> None:
+    """Set SSH_AUTH_SOCK iff /ssh-agent is a real forwarded socket.
+
+    The compose file binds the host agent (or /dev/null) onto /ssh-agent.
+    Kept out of compose ``environment:`` so docker exec sessions don't see
+    a dangling SSH_AUTH_SOCK when the fallback /dev/null mount is in effect.
+    """
+    if Path("/ssh-agent").exists() and stat.S_ISSOCK(Path("/ssh-agent").lstat().st_mode):
+        os.environ["SSH_AUTH_SOCK"] = "/ssh-agent"
+    else:
+        os.environ.pop("SSH_AUTH_SOCK", None)
+
+
+def configure_user_ssh(uid: int, gid: int) -> None:
+    """Seed the sandbox user's ~/.ssh with a GitHub-friendly client config.
+
+    Without this, the first ``git push`` over the forwarded agent can trip
+    on a host key prompt, which hangs in non-interactive tmux panes.
+    accept-new pins github.com on first contact but still fails on changed
+    keys — safer than ``StrictHostKeyChecking no``.
+    """
+    ssh_dir = SANDBOX_HOME / ".ssh"
+    ssh_dir.mkdir(parents=True, exist_ok=True)
+    config = ssh_dir / "config"
+    config.write_text(
+        dedent("""\
+            Host github.com
+                StrictHostKeyChecking accept-new
+                UserKnownHostsFile ~/.ssh/known_hosts
+            """)
+    )
+    ssh_dir.chmod(0o700)
+    config.chmod(0o600)
+    run(["chown", "-R", f"{uid}:{gid}", str(ssh_dir)])
+
+
 def start_sshd(uid: int, gid: int) -> None:
     """Start sshd if authorized keys are present."""
     keys = Path("/tmp/sandbox-authorized-keys")
@@ -187,34 +226,6 @@ def copy_claude_auth(uid: int, gid: int) -> None:
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
 
-def bind_mount_node_modules(uid: int, gid: int) -> None:
-    """Bind-mount node_modules dirs onto the /cache/node-modules volume.
-
-    This redirects pnpm I/O from the slow VirtioFS bind mount to fast ext4
-    storage inside the Docker VM.
-    """
-    log("Bind-mounting node_modules onto cache volume...")
-    cache_root = Path("/cache/node-modules")
-
-    for pkg_json in WORKSPACE.rglob("package.json"):
-        # Skip anything inside node_modules or .git
-        parts = pkg_json.parts
-        if "node_modules" in parts or ".git" in parts:
-            continue
-
-        pkg_dir = pkg_json.parent
-        rel = pkg_dir.relative_to(WORKSPACE)
-        nm = pkg_dir / "node_modules"
-        cache_dir = cache_root / rel
-
-        nm.mkdir(parents=True, exist_ok=True)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        run(["chown", f"{uid}:{gid}", str(nm)])
-        run(["mount", "--bind", str(cache_dir), str(nm)])
-
-    run(["chown", "-R", f"{uid}:{gid}", str(cache_root)])
-
-
 def root_phase() -> None:
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     gid = int(os.environ.get("SANDBOX_GID", "1000"))
@@ -225,28 +236,28 @@ def root_phase() -> None:
     (SANDBOX_HOME / ".bashrc").write_text(f"cd {WORKSPACE}\n")
     run(["chown", f"{uid}:{gid}", str(SANDBOX_HOME), "/tmp/sandbox-cache"])
 
+    # /workspace is now a per-sandbox docker volume populated by bin/sandbox
+    # with a shallow clone of the host branch — root-owned by default because
+    # git clone ran as root in the helper container. Hand ownership to the
+    # sandbox user so uv, pnpm, cargo, and the setup tmux window can write
+    # without `git config safe.directory` theater later on.
+    run(["chown", "-R", f"{uid}:{gid}", str(WORKSPACE)])
+
     create_sandbox_user(uid, gid)
 
-    # The worktree's .git file points to a host path that doesn't exist in
-    # the container. Fix it by bind-mounting a rewritten .git file that
-    # points at /repo.git (where the main repo's .git is mounted).
-    # This avoids setting GIT_DIR globally, which would poison every
-    # subprocess that runs `git` (uv sync, cargo fetch, etc.).
-    gitdir_line = (WORKSPACE / ".git").read_text().strip()
-    worktree_name = gitdir_line.rsplit("/", 1)[-1]
-    container_gitdir = f"/repo.git/worktrees/{worktree_name}"
-    patched_gitfile = Path("/tmp/sandbox-gitfile")
-    patched_gitfile.write_text(f"gitdir: {container_gitdir}\n")
-    run(["mount", "--bind", str(patched_gitfile), str(WORKSPACE / ".git")])
-
+    # Decide whether SSH_AUTH_SOCK should be set before export_environment
+    # snapshots os.environ into /etc/profile.d — that way login shells (tmux
+    # panes, `sandbox ssh`, sshd sessions) all pick up the correct state via
+    # the normal /etc/profile.d sourcing, no per-command probes needed.
+    _configure_ssh_agent_env()
     export_environment(uid, gid)
 
     # Skip steps that aren't needed for a one-off cache build (no SSH access,
-    # no IDE, no pnpm install against a throwaway worktree).
+    # no IDE, no interactive tooling).
     if os.environ.get("SANDBOX_MODE") != "cache-init":
         start_sshd(uid, gid)
+        configure_user_ssh(uid, gid)
         copy_claude_auth(uid, gid)
-        bind_mount_node_modules(uid, gid)
 
     # Re-exec as the sandbox user.
     os.execvp("gosu", ["gosu", f"{uid}:{gid}", sys.executable, __file__, *sys.argv[1:]])
@@ -485,13 +496,7 @@ def setup_jetbrains_background() -> None:
 
 
 def _setup_user_env() -> None:
-    """Shared env setup for user_phase and cache_init_phase.
-
-    Sets cache directory env vars, ensures the cargo target dir exists, chdirs
-    to /workspace, and marks the worktree as a safe git directory (the workspace
-    is a bind mount owned by the host UID, which differs from the sandbox user,
-    and Git 2.35.2+ refuses to operate in repos with mismatched ownership).
-    """
+    """Shared env setup for user_phase and cache_init_phase."""
     PROGRESS_FILE.write_text("")
     os.environ.update(
         {
@@ -505,9 +510,14 @@ def _setup_user_env() -> None:
             "npm_config_store_dir": "/cache/pnpm",
         }
     )
+    _configure_ssh_agent_env()
     Path("/cache/cargo-target").mkdir(parents=True, exist_ok=True)
     os.chdir(WORKSPACE)
-    run(["git", "config", "--global", "--add", "safe.directory", str(WORKSPACE)])
+    # pushInsteadOf (not insteadOf) leaves anonymous HTTPS fetches alone —
+    # critical for cargo deps like rust/Cargo.toml's js-source-scopes and
+    # rust/capture's axum-test-helper, which clone without an agent during
+    # cache-init.
+    run(["git", "config", "--global", "url.git@github.com:.pushInsteadOf", "https://github.com/"])
 
 
 def legacy_user_phase() -> None:
