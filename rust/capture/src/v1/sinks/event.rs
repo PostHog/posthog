@@ -10,10 +10,6 @@ pub trait Event: Send + Sync {
     /// Pre-parsed UUID for result correlation. Copy, zero alloc.
     fn uuid(&self) -> Uuid;
 
-    /// UUID of the originating event as a string -- zero-cost &str reference
-    /// for use inside the Sink implementations' event publishing loop.
-    fn uuid_key(&self) -> &str;
-
     /// Whether this event should be published. Events returning false are
     /// silently skipped by the Sink -- no `SinkResult` is returned for them.
     fn should_publish(&self) -> bool;
