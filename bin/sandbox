@@ -741,6 +741,7 @@ def _populate_workspace_volume(
     branch_sha: str,
     base_branch: str,
     base_sha: str | None,
+    origin_branch_sha: str | None = None,
 ) -> None:
     """Populate volume_name with a fresh workspace checked out to branch_sha.
 
@@ -748,6 +749,12 @@ def _populate_workspace_volume(
     inside the workspace. If base_sha is provided (i.e. branch != base_branch),
     it's fetched separately as ``refs/remotes/origin/<base_branch>`` so the
     sandbox user can ``git merge origin/<base>`` etc.
+
+    If origin_branch_sha is provided (the host knew origin/<branch> at
+    creation time), it's also injected as ``refs/remotes/origin/<branch>`` so
+    the sandbox's git has a native view of what's on origin. `sandbox destroy`
+    uses this to distinguish pushed from unpushed work — a subsequent push
+    inside the sandbox updates this ref automatically.
 
     The clone is done by SHA rather than by ref path so we don't depend on the
     host's ref layout (works whether the branch exists as a local head, a
@@ -788,11 +795,23 @@ def _populate_workspace_volume(
         # shellcheck disable=SC2086
         git $GIT_OPTS fetch --depth=50 --no-tags file:///host-git "$BRANCH_SHA"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
+        # Record the starting point. `sandbox destroy` uses this as the
+        # fallback baseline when refs/remotes/origin/<branch> does not exist
+        # (fresh-off-master branches that have never been pushed).
+        git update-ref refs/sandbox/start "$BRANCH_SHA"
         git reset --hard
         if [ -n "$BASE_SHA" ]; then
             # shellcheck disable=SC2086
             git $GIT_OPTS fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
+        fi
+        # If the host knew origin/<branch> at creation, mirror it in. A later
+        # `git push` inside the sandbox updates this ref automatically, so
+        # `sandbox destroy` can tell pushed from unpushed commits natively.
+        if [ -n "$ORIGIN_BRANCH_SHA" ]; then
+            # shellcheck disable=SC2086
+            git $GIT_OPTS fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
         git remote add origin "$ORIGIN_URL"
     """
@@ -827,6 +846,8 @@ def _populate_workspace_volume(
             f"BASE_BRANCH={base_branch}",
             "-e",
             f"BASE_SHA={base_sha or ''}",
+            "-e",
+            f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
             "-e",
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
             GIT_HELPER_IMAGE,
@@ -894,11 +915,17 @@ def _prompt_branch_choice(branch: str, local_sha: str, origin_sha: str) -> str:
         print("Please enter l, o, or a.")
 
 
-def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None]:
+def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None, str | None]:
     """Decide which commit the sandbox's <branch> should start at.
 
-    Returns (branch_sha, base_sha). base_sha is None when branch == base_branch
-    (no separate origin/<base> ref is needed in the workspace).
+    Returns (branch_sha, base_sha, origin_branch_sha).
+
+    - base_sha is None when branch == base_branch (no separate origin/<base>
+      ref is needed in the workspace).
+    - origin_branch_sha is whatever ``refs/remotes/origin/<branch>`` resolves
+      to on the host at call time, or None if that ref doesn't exist. It's
+      injected into the sandbox as ``refs/remotes/origin/<branch>`` so that
+      `sandbox destroy` can distinguish pushed from unpushed work natively.
 
     Policy — fetch has already been attempted so remote-tracking refs are
     current. Never mutates refs on the host.
@@ -927,7 +954,7 @@ def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str
         branch_sha = _resolve_base_branch_sha(base_branch)
 
     base_sha = None if branch == base_branch else _resolve_base_branch_sha(base_branch)
-    return branch_sha, base_sha
+    return branch_sha, base_sha, origin_sha
 
 
 def _warn_if_host_dirty(branch: str) -> None:
@@ -1305,7 +1332,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     # Everything up to registry.allocate() is side-effect-free on the sandbox
     # side — abort here costs nothing to clean up.
     _fetch_origin()
-    branch_sha, base_sha = _resolve_branch_for_sandbox(branch, base_branch)
+    branch_sha, base_sha, origin_branch_sha = _resolve_branch_for_sandbox(branch, base_branch)
     _warn_if_host_dirty(branch)
     _check_macos_ssh_agent_launchd()
     _check_ssh_agent_has_keys()
@@ -1337,7 +1364,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     try:
         volume = workspace_volume_name(project)
         info(f"Populating workspace volume {volume} with branch {branch}...")
-        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha)
+        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha)
 
         profiles = resolve_docker_profiles(intents)
         if profiles:
@@ -1390,37 +1417,57 @@ def _container_running(container: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
-def _unpushed_commits_summary(container: str) -> str | None:
-    """Short `git log` of commits on any local branch not on any remote.
+def _sandbox_local_work(project: str) -> tuple[str, str] | None:
+    """Return (commits_summary, dirty_summary) of unpushed work in the sandbox.
 
-    Returns None when the container isn't running (nothing to probe). Using
-    --branches rather than HEAD catches unpushed work on branches the user
-    isn't currently on.
+    Runs against the workspace volume via a throwaway alpine/git container, so
+    it works whether the sandbox is running or stopped. Returns None when the
+    volume doesn't exist or when there's nothing to report.
+
+    Commits: `git log --branches --not --remotes` iterates over every local
+    branch and excludes anything reachable from any remote-tracking ref. A
+    push inside the sandbox updates `refs/remotes/origin/<branch>`
+    automatically, so pushed commits are filtered out naturally. For new
+    branches created in the sandbox (no origin counterpart yet), we
+    additionally exclude anything reachable from `refs/sandbox/start` (the
+    starting SHA we pinned at creation) to hide pre-existing history.
+
+    Dirty: `git status --porcelain` of the current working tree.
     """
-    if not _container_running(container):
+    volume = workspace_volume_name(project)
+    if run(["docker", "volume", "inspect", volume], check=False, capture=True).returncode != 0:
         return None
 
-    result = run(
-        [
-            "docker",
-            "exec",
-            "-u",
-            f"{os.getuid()}:{os.getgid()}",
-            container,
-            "git",
-            "-C",
-            "/workspace",
-            "log",
-            "--oneline",
-            "-n",
-            "20",
-            "--branches",
-            "--not",
-            "--remotes",
-        ],
-        capture=True,
+    git_exec = [
+        "docker",
+        "run",
+        "--rm",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "-v",
+        f"{volume}:/workspace",
+        "-e",
+        "HOME=/tmp",
+        "--entrypoint",
+        "git",
+        GIT_HELPER_IMAGE,
+        "-C",
+        "/workspace",
+    ]
+
+    log_args = ["log", "--oneline", "-n", "20", "--branches", "--not", "--remotes"]
+    has_start_ref = (
+        run([*git_exec, "rev-parse", "--verify", "--quiet", "refs/sandbox/start"], check=False, capture=True).returncode
+        == 0
     )
-    return result.stdout.strip() or None
+    if has_start_ref:
+        log_args.extend(["--not", "refs/sandbox/start"])
+
+    commits = run([*git_exec, *log_args], check=False, capture=True).stdout.strip()
+    dirty = run([*git_exec, "status", "--porcelain"], check=False, capture=True).stdout.strip()
+    if not commits and not dirty:
+        return None
+    return commits, dirty
 
 
 def cmd_destroy(branch: str, *, force: bool = False) -> None:
@@ -1430,15 +1477,20 @@ def cmd_destroy(branch: str, *, force: bool = False) -> None:
     project = project_name(slug)
     port = entry.port if entry else 0
 
-    container = f"{project}-app-1"
     if not force:
-        summary = _unpushed_commits_summary(container)
-        if summary is not None:
-            warn(f"Sandbox '{project}' has unpushed commits:")
-            for line in summary.splitlines():
-                print(f"  {line}")
+        work = _sandbox_local_work(project)
+        if work is not None:
+            commits, dirty = work
+            warn(f"Sandbox '{project}' has local work that is not on origin:")
+            if commits:
+                print("  Unpushed commits:")
+                for line in commits.splitlines():
+                    print(f"    {line}")
+            if dirty:
+                print("  Uncommitted changes:")
+                for line in dirty.splitlines():
+                    print(f"    {line}")
             print()
-            print("These commits are NOT on GitHub. Destroying the sandbox will lose them.")
             answer = input("Destroy anyway? [y/N] ").strip().lower()
             if answer not in ("y", "yes"):
                 info("Aborted.")
