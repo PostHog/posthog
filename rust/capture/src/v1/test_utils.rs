@@ -127,7 +127,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
 pub fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
     events
         .into_iter()
-        .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
+        .map(|e| (Uuid::parse_str(e.event.uuid()).unwrap(), e))
         .collect()
 }
 
