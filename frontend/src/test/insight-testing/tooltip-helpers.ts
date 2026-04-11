@@ -5,21 +5,14 @@ export interface TooltipRow {
 
 export interface TooltipAccessor {
     element: HTMLElement
-    row(label: string): TooltipRow
-    expectNoRow(label: string): void
-}
-
-function availableRowLabels(tooltip: HTMLElement): string[] {
-    return Array.from(tooltip.querySelectorAll('tr'))
-        .map((r) => r.textContent?.trim())
-        .filter((t): t is string => !!t)
+    row(label: string): TooltipRow | undefined
 }
 
 export function createTooltipAccessor(element: HTMLElement): TooltipAccessor {
     return {
         element,
 
-        row(label: string): TooltipRow {
+        row(label: string): TooltipRow | undefined {
             const rows = element.querySelectorAll('tr')
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i]
@@ -36,18 +29,7 @@ export function createTooltipAccessor(element: HTMLElement): TooltipAccessor {
                     }
                 }
             }
-            throw new Error(
-                `No tooltip row containing "${label}". Rows: ${availableRowLabels(element)
-                    .map((r) => `"${r}"`)
-                    .join(', ')}`
-            )
-        },
-
-        expectNoRow(label: string) {
-            const rows = element.querySelectorAll('tr')
-            for (let i = 0; i < rows.length; i++) {
-                expect(rows[i].textContent).not.toContain(label)
-            }
+            return undefined
         },
     }
 }

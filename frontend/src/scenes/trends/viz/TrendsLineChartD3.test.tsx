@@ -29,7 +29,7 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            tooltip.row('Pageview').expectValue('134')
+            tooltip.row('Pageview')!.expectValue('134')
             expect(tooltip.element.querySelector('.graph-series-glyph')).toBeInTheDocument()
         })
 
@@ -46,8 +46,8 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            tooltip.row('Pageview').expectValue('134')
-            tooltip.row('Napped').expectValue('5')
+            tooltip.row('Pageview')!.expectValue('134')
+            tooltip.row('Napped')!.expectValue('5')
 
             const glyphs = tooltip.element.querySelectorAll('.graph-series-glyph')
             expect(glyphs.length).toBe(2)
@@ -64,7 +64,7 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            tooltip.row('Spike').expectValue('3')
+            tooltip.row('Spike')!.expectValue('3')
         })
 
         it('shows current and previous period rows in compare mode', async () => {
@@ -81,8 +81,8 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            tooltip.row('Current').expectValue('134')
-            tooltip.row('Previous').expectValue('100')
+            tooltip.row('Current')!.expectValue('134')
+            tooltip.row('Previous')!.expectValue('100')
         })
 
         it('formats values as percentages in percent stack view', async () => {
@@ -102,7 +102,7 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            const pageviewRow = tooltip.row('Pageview')
+            const pageviewRow = tooltip.row('Pageview')!
             expect(pageviewRow.element.textContent).toMatch(/%/)
         })
 
@@ -133,8 +133,8 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            tooltip.row('ActiveSeries').expectValue('3')
-            tooltip.expectNoRow('EmptySeries')
+            tooltip.row('ActiveSeries')!.expectValue('3')
+            expect(tooltip.row('EmptySeries')).toBeUndefined()
         })
 
         it('renders correctly when series has no action metadata', async () => {
@@ -147,7 +147,7 @@ describe('TrendsLineChartD3', () => {
 
             const tooltip = await chart.hoverTooltip(0)
 
-            tooltip.row('Minimal').expectValue('1')
+            tooltip.row('Minimal')!.expectValue('1')
         })
     })
 })
