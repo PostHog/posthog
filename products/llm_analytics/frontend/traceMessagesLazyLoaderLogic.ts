@@ -169,8 +169,15 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     ? [{ id: r.id, createdAtMs }]
                                     : []
                             })
+                            // Mark the dropped entries as failed upfront so they
+                            // aren't silently counted as "successfully loaded with
+                            // no data" alongside the real response.
+                            const safeIdSet = new Set(safe.map((s) => s.id))
+                            const invalidIds = batch.map((r) => r.id).filter((id) => !safeIdSet.has(id))
+                            if (invalidIds.length > 0) {
+                                actions.loadTraceMessagesBatchFailure(invalidIds)
+                            }
                             if (safe.length === 0) {
-                                actions.loadTraceMessagesBatchFailure(batch.map((r) => r.id))
                                 return
                             }
 
@@ -242,7 +249,7 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
 
                             actions.loadTraceMessagesBatchSuccess(
                                 results,
-                                batch.map((r) => r.id)
+                                safe.map((s) => s.id)
                             )
                         } catch (error) {
                             console.warn('Error loading trace messages batch', error)
