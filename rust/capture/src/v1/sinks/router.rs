@@ -114,6 +114,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use uuid::Uuid;
+
     use crate::config::CaptureMode;
     use crate::v1::context::Context;
     use crate::v1::sinks::event::Event;
@@ -129,6 +131,7 @@ mod tests {
 
     struct FakeEvent {
         uuid: String,
+        parsed_uuid: Uuid,
         publish: bool,
         destination: Destination,
     }
@@ -137,6 +140,7 @@ mod tests {
         fn ok(uuid: &str) -> Self {
             Self {
                 uuid: uuid.to_string(),
+                parsed_uuid: Uuid::new_v4(),
                 publish: true,
                 destination: Destination::AnalyticsMain,
             }
@@ -149,6 +153,10 @@ mod tests {
     }
 
     impl Event for FakeEvent {
+        fn uuid(&self) -> Uuid {
+            self.parsed_uuid
+        }
+
         fn uuid_key(&self) -> &str {
             &self.uuid
         }

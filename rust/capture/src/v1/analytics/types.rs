@@ -72,6 +72,8 @@ impl Event {
 #[derive(Debug)]
 pub struct WrappedEvent {
     pub event: Event,
+    /// Pre-parsed UUID for result correlation. Copy, zero alloc.
+    pub uuid: Uuid,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
     pub result: EventResult,
@@ -81,8 +83,12 @@ pub struct WrappedEvent {
 }
 
 impl SinkEvent for WrappedEvent {
+    fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
     fn uuid_key(&self) -> &str {
-        &self.event.uuid
+        self.event.uuid()
     }
 
     fn should_publish(&self) -> bool {
