@@ -21,7 +21,6 @@ use super::sink::KafkaSink;
 // ---------------------------------------------------------------------------
 
 struct FakeEvent {
-    uuid: String,
     parsed_uuid: Uuid,
     publish: bool,
     destination: Destination,
@@ -33,7 +32,6 @@ struct FakeEvent {
 impl FakeEvent {
     fn ok(uuid: &str) -> Self {
         Self {
-            uuid: uuid.to_string(),
             parsed_uuid: Uuid::new_v4(),
             publish: true,
             destination: Destination::AnalyticsMain,
@@ -62,10 +60,6 @@ impl FakeEvent {
 impl Event for FakeEvent {
     fn uuid(&self) -> Uuid {
         self.parsed_uuid
-    }
-
-    fn uuid_key(&self) -> &str {
-        &self.uuid
     }
 
     fn should_publish(&self) -> bool {

@@ -8,7 +8,7 @@ use crate::v1::sinks::Destination;
 /// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
 /// resolves `destination()` to a concrete backend target using its own config.
 pub trait Event: Send + Sync {
-    /// Pre-parsed UUID for result correlation. Copy, zero alloc.
+    /// Pre-parsed UUID for result correlation.
     fn uuid(&self) -> Uuid;
 
     /// Whether this event should be published. Events returning false are
