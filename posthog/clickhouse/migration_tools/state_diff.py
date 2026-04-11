@@ -334,11 +334,34 @@ def diff_state(
             len(skipped_dicts),
             ", ".join(skipped_dicts),
         )
-    desired_without_dicts = {
-        name: t for name, t in desired.tables.items() if not _is_dictionary(t.engine)
+
+    # Skip MaterializedViews whose SELECT body is the literal `SELECT ...`
+    # placeholder. The YAML baseline was generated mechanically from the live
+    # schema for some ecosystems and left the SELECT body as a sentinel for
+    # later hand-filling. Rendering it produces invalid SQL. These MVs stay
+    # managed by legacy `migrate_clickhouse` until the YAML grows real bodies.
+    def _has_placeholder_select(t: "DesiredTable") -> bool:
+        return _is_mv(t.engine) and bool(t.select) and "SELECT ..." in t.select
+
+    skipped_placeholder_mvs = [
+        name for name, t in desired.tables.items() if _has_placeholder_select(t)
+    ]
+    if skipped_placeholder_mvs:
+        logger.warning(
+            "ch_migrate: skipping %d MV(s) with placeholder SELECT body — "
+            "fill in the YAML select: field to manage these via ch_migrate: %s",
+            len(skipped_placeholder_mvs),
+            ", ".join(skipped_placeholder_mvs),
+        )
+
+    def _should_skip(name: str, t: "DesiredTable") -> bool:
+        return _is_dictionary(t.engine) or _has_placeholder_select(t)
+
+    desired_without_skipped = {
+        name: t for name, t in desired.tables.items() if not _should_skip(name, t)
     }
 
-    desired_names = set(desired_without_dicts.keys())
+    desired_names = set(desired_without_skipped.keys())
     current_names = {n for n in current.keys() if not _is_dictionary(current[n].engine)}
 
     # Tables to drop (in current but not in desired)
