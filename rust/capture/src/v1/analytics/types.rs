@@ -87,10 +87,6 @@ impl SinkEvent for WrappedEvent {
         self.uuid
     }
 
-    fn uuid_key(&self) -> &str {
-        self.event.uuid()
-    }
-
     fn should_publish(&self) -> bool {
         self.result == EventResult::Ok && self.destination != Destination::Drop
     }
@@ -502,12 +498,6 @@ mod tests {
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
         test_utils::wrapped_event(event_name, distinct_id)
-    }
-
-    #[test]
-    fn uuid_key_returns_event_uuid() {
-        let ev = ok_wrapped("$pageview", "user-1");
-        assert_eq!(ev.uuid_key(), ev.event.uuid);
     }
 
     #[test]
