@@ -102,18 +102,21 @@ export class WaitUntilEventHandler implements ActionHandler {
             return { nextAction: findContinueAction(invocation) }
         }
 
-        const subs = action.config.events.map((eventConfig) => {
-            const eventName = extractEventName(eventConfig.filters)
+        // Each config entry can have multiple events in its filters (OR within
+        // the ActionFilter UI). Create one subscription row per event name so
+        // the DB lookup by (team_id, event_name, person_id) can match any of them.
+        const subs = action.config.events.flatMap((eventConfig) => {
+            const eventNames = extractEventNames(eventConfig.filters)
             const bytecode = extractBytecode(eventConfig.filters)
-            return {
+            return eventNames.map((eventName) => ({
                 jobId: invocation.id,
                 teamId: invocation.teamId,
                 personId,
-                eventName: eventName ?? '',
+                eventName,
                 filters: eventConfig.filters ?? null,
                 bytecode,
                 expiresAt: expiresAt.toJSDate(),
-            }
+            }))
         })
 
         await this.subscriptions!.createMany(subs)
@@ -138,22 +141,22 @@ export class WaitUntilEventHandler implements ActionHandler {
 }
 
 /**
- * Extract the event name from the action filters config. The filters shape is
+ * Extract ALL event names from the action filters config. The filters shape is
  * the standard PostHog filter envelope (`{ events: [{ id, name, type }, ...] }`).
+ * A single filter entry can contain multiple events (OR logic within the ActionFilter UI).
  */
-function extractEventName(filters: any): string | null {
+function extractEventNames(filters: any): string[] {
     if (!filters || typeof filters !== 'object') {
-        return null
+        return ['']
     }
     const events = filters.events
     if (!Array.isArray(events) || events.length === 0) {
-        return null
+        return ['']
     }
-    const first = events[0]
-    if (!first || typeof first !== 'object') {
-        return null
-    }
-    return first.id ?? first.name ?? null
+    const names = events
+        .map((e: any) => (e && typeof e === 'object' ? (e.id ?? e.name ?? '') : ''))
+        .filter((name: string) => name !== '')
+    return names.length > 0 ? names : ['']
 }
 
 /**
