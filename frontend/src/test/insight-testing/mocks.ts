@@ -77,14 +77,21 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
 }
 
 /** Pull the bits of an ActorsQuery we use to look up canned actors. */
+interface ActorsQueryBodyShape {
+    source?: {
+        source?: { series?: Array<{ event?: string }> }
+        breakdown?: string | number | null
+        day?: string | number | null
+    }
+}
+
 function resolveActors(query: QueryBody): Array<{ email: string }> {
-    const actorsSource = query.source as QueryBody | undefined
-    const trendsSource = actorsSource?.source as QueryBody | undefined
-    const event = (trendsSource?.series as Array<{ event?: string }> | undefined)?.[0]?.event
+    const body = query as ActorsQueryBodyShape
+    const insightSource = body.source
     return lookupActors({
-        event,
-        breakdown: actorsSource?.breakdown as string | number | null | undefined,
-        day: actorsSource?.day as string | number | null | undefined,
+        event: insightSource?.source?.series?.[0]?.event,
+        breakdown: insightSource?.breakdown,
+        day: insightSource?.day,
     })
 }
 

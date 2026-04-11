@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { GoalLine as SchemaGoalLine, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
@@ -124,7 +124,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             timezone,
             weekStartDay,
             resolvedDateRange: insightData?.resolved_date_range ?? null,
-            querySource: querySource as TrendsQuery | null | undefined,
+            querySource,
             indexedResults: indexedResults ?? [],
             openPersonsModal,
         }),
@@ -137,6 +137,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             insightData?.resolved_date_range,
             querySource,
             indexedResults,
+            openPersonsModal,
         ]
     )
 
@@ -151,10 +152,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         (ctx: TooltipContext) => {
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
-                      const seriesKey = ctx.seriesData[datum.datasetIndex]?.series.key
-                      if (seriesKey == null) {
-                          return
-                      }
+                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
                       handleTrendsLineChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined

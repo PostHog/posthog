@@ -1,4 +1,5 @@
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { CompareLabelType, EntityTypes } from '~/types'
 
 import type { IndexedTrendResult } from '../types'
 import { handleTrendsLineChartClick, type TrendsLineChartClickDeps } from './handleTrendsLineChartClick'
@@ -10,19 +11,19 @@ function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTr
         colorIndex: 0,
         action: {
             id: '$pageview',
-            type: 'events',
+            type: EntityTypes.EVENTS,
             order: 0,
             name: '$pageview',
             days: ['2024-06-10', '2024-06-11', '2024-06-12'],
         },
         label: '$pageview',
         count: 10,
+        aggregated_value: 10,
         data: [1, 2, 3],
         labels: ['Mon', 'Tue', 'Wed'],
         days: ['2024-06-10', '2024-06-11', '2024-06-12'],
-        filter: {},
         ...overrides,
-    } as IndexedTrendResult
+    }
 }
 
 function keyFor(trendResult: IndexedTrendResult): string {
@@ -40,7 +41,7 @@ function makeDeps(overrides: Partial<TrendsLineChartClickDeps> = {}): TrendsLine
         querySource: {
             kind: NodeKind.TrendsQuery,
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-        } as TrendsQuery,
+        },
         indexedResults: [trendResult],
         openPersonsModal: jest.fn(),
         ...overrides,
@@ -85,7 +86,7 @@ describe('handleTrendsLineChartClick', () => {
 
     it('passes compare_label through to the actors query', () => {
         const openPersonsModal = jest.fn()
-        const trendResult = makeTrendResult({ compare_label: 'previous' as any })
+        const trendResult = makeTrendResult({ compare_label: CompareLabelType.Previous })
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
         handleTrendsLineChartClick(keyFor(trendResult), 0, deps)
@@ -104,14 +105,35 @@ describe('handleTrendsLineChartClick', () => {
         const deps = makeDeps({
             openPersonsModal,
             indexedResults: [referenceResult, trendResult],
-            context: { onDataPointClick } as any,
+            context: { onDataPointClick },
         })
 
         handleTrendsLineChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
         expect(onDataPointClick).toHaveBeenCalledTimes(1)
-        expect(onDataPointClick).toHaveBeenCalledWith(expect.objectContaining({ day: '2024-06-11' }), referenceResult)
+        expect(onDataPointClick).toHaveBeenCalledWith(
+            { day: '2024-06-11', breakdown: 'Spike', compare: undefined },
+            referenceResult
+        )
+    })
+
+    it('forwards compare_label to context.onDataPointClick', () => {
+        const openPersonsModal = jest.fn()
+        const onDataPointClick = jest.fn()
+        const trendResult = makeTrendResult({ compare_label: CompareLabelType.Previous })
+        const deps = makeDeps({
+            openPersonsModal,
+            indexedResults: [trendResult],
+            context: { onDataPointClick },
+        })
+
+        handleTrendsLineChartClick(keyFor(trendResult), 0, deps)
+
+        expect(onDataPointClick).toHaveBeenCalledWith(
+            expect.objectContaining({ compare: 'previous' }),
+            expect.anything()
+        )
     })
 
     it('does nothing when hasPersonsModal is false and no context callback', () => {
@@ -132,7 +154,7 @@ describe('handleTrendsLineChartClick', () => {
             openPersonsModal,
             hasPersonsModal: false,
             indexedResults: [trendResult],
-            context: { onDataPointClick } as any,
+            context: { onDataPointClick },
         })
 
         handleTrendsLineChartClick(keyFor(trendResult), 1, deps)
@@ -148,7 +170,7 @@ describe('handleTrendsLineChartClick', () => {
         const deps = makeDeps({
             openPersonsModal,
             indexedResults: [trendResult],
-            context: { onDataPointClick } as any,
+            context: { onDataPointClick },
         })
 
         expect(() => handleTrendsLineChartClick('999', 1, deps)).not.toThrow()
@@ -159,7 +181,9 @@ describe('handleTrendsLineChartClick', () => {
     it('uses trendResult.days[index] as fallback when action.days is missing', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult({
-            action: undefined as any,
+            // ActionFilter without a `days` array — the adapter should fall
+            // back to reading from the top-level trend result `days`.
+            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
             days: ['D0', 'D1', 'D2'],
         })
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
@@ -167,6 +191,25 @@ describe('handleTrendsLineChartClick', () => {
         handleTrendsLineChartClick(keyFor(trendResult), 2, deps)
 
         expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({ day: 'D2' })
+    })
+
+    it('no-ops when neither action.days nor trendResult.days can supply a day', () => {
+        const openPersonsModal = jest.fn()
+        const onDataPointClick = jest.fn()
+        const trendResult = makeTrendResult({
+            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
+            days: [],
+        })
+        const deps = makeDeps({
+            openPersonsModal,
+            indexedResults: [trendResult],
+            context: { onDataPointClick },
+        })
+
+        handleTrendsLineChartClick(keyFor(trendResult), 2, deps)
+
+        expect(openPersonsModal).not.toHaveBeenCalled()
+        expect(onDataPointClick).not.toHaveBeenCalled()
     })
 
     it('does nothing when querySource is missing and no context callback', () => {
