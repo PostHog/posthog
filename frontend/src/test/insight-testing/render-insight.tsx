@@ -51,7 +51,7 @@ export function renderWithInsights(props: RenderWithInsightsProps): ReturnType<t
     return render(props.component)
 }
 
-export interface RenderInsightPageProps {
+export interface RenderInsightProps {
     query?: TrendsQuery
     showFilters?: boolean
     mocks?: SetupMocksOptions
@@ -75,7 +75,7 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
     return <InsightViz uniqueKey={INSIGHT_TEST_KEY} query={vizQuery} setQuery={setVizQuery} />
 }
 
-export function renderInsightPage(props: RenderInsightPageProps = {}): ReturnType<typeof render> {
+export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof render> {
     setupTestEnvironment(props.mocks, props.featureFlags)
 
     return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? true} />)

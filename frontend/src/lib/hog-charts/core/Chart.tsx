@@ -52,7 +52,7 @@ export interface ChartProps {
     resolveValue?: ResolveValueFn
 }
 
-const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
+export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
 export function Chart({
     series,
