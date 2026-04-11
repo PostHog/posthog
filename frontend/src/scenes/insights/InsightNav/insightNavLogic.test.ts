@@ -656,6 +656,57 @@ describe('insightNavLogic', () => {
                     },
                 })
             })
+
+            it('preserves breakdownFilter through round-trip via unsupported type', async () => {
+                const trendsWithBreakdown: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdown: '$browser',
+                            breakdown_type: 'event',
+                        },
+                    },
+                }
+
+                // Set the trends query with a breakdown
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithBreakdown)
+                })
+
+                // Switch to Stickiness (does not support breakdowns)
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                // Stickiness should not have breakdownFilter
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.not.objectContaining({ breakdownFilter: expect.anything() }),
+                })
+
+                // Switch back to Trends — breakdownFilter should be restored
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.objectContaining({
+                        kind: 'TrendsQuery',
+                        breakdownFilter: {
+                            breakdown: '$browser',
+                            breakdown_type: 'event',
+                        },
+                    }),
+                })
+            })
         })
     })
 })

@@ -42,6 +42,7 @@ import {
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isInsightVizNode,
     isLifecycleQuery,
@@ -387,6 +388,20 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
 
     if (isLifecycleQuery(query)) {
         newCache.series = cache?.series
+    }
+
+    // Preserve type-specific fields from the old cache when the current query type
+    // doesn't support them. This way a breakdownFilter set on Trends survives a
+    // round-trip through Stickiness (which has no breakdownFilter) and is restored
+    // when the user switches back to Trends.
+    if (cache?.breakdownFilter && !isInsightQueryWithBreakdown(query)) {
+        newCache.breakdownFilter = cache.breakdownFilter
+    }
+    if (cache?.compareFilter && !isInsightQueryWithCompare(query)) {
+        newCache.compareFilter = cache.compareFilter
+    }
+    if (cache?.funnelPathsFilter && !isPathsQuery(query)) {
+        newCache.funnelPathsFilter = cache.funnelPathsFilter
     }
 
     if (isWebAnalyticsInsightQuery(query)) {
