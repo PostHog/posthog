@@ -1,18 +1,14 @@
+import logging
 from datetime import timedelta
 
+import temporalio
+import tiktoken
 from django.conf import settings
 
-import logging
-
-import tiktoken
-import temporalio
-
-from posthog.schema import SignalInput
-
 from posthog.models import Team
+from posthog.schema import SignalInput
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
-
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
