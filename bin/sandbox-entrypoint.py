@@ -373,12 +373,22 @@ def ensure_demo_data() -> None:
 
 
 def install_geoip() -> None:
-    """Symlink the GeoIP database from the Docker image into the worktree."""
-    mmdb = WORKSPACE / "share/GeoLite2-City.mmdb"
-    if mmdb.exists() or mmdb.is_symlink():
-        return
-    mmdb.parent.mkdir(parents=True, exist_ok=True)
-    mmdb.symlink_to("/share/GeoLite2-City.mmdb")
+    """Symlink the GeoIP database from the Docker image into the worktree.
+
+    Also writes the GeoLite2-City.json sidecar that bin/download-mmdb uses to
+    decide whether to re-download. Without it, bin/start's download-mmdb would
+    clobber the symlink and re-fetch 60MB from mmdbcdn on every fresh boot.
+    """
+    share = WORKSPACE / "share"
+    share.mkdir(parents=True, exist_ok=True)
+
+    mmdb = share / "GeoLite2-City.mmdb"
+    if not mmdb.exists() and not mmdb.is_symlink():
+        mmdb.symlink_to("/share/GeoLite2-City.mmdb")
+
+    sidecar = share / "GeoLite2-City.json"
+    if not sidecar.exists():
+        sidecar.write_text(f'{{ "date": "{time.strftime("%Y-%m-%d")}" }}\n')
 
 
 def create_kafka_topics() -> None:

@@ -589,6 +589,36 @@ def _check_macos_ssh_agent_launchd() -> None:
     _install_ssh_agent_launchagent(shell_val)
 
 
+def _check_ssh_agent_has_keys() -> None:
+    """Advisory: warn if the host SSH agent is reachable but holds no keys.
+
+    Catches the common first-time case where the user has ~/.ssh/id_ed25519
+    on disk (their terminal git "just works" because ssh reads the file
+    directly) but has never loaded it into ssh-agent. Inside the sandbox we
+    only forward the agent socket — the key file isn't mounted — so an empty
+    agent means `git push` fails with `Permission denied (publickey)`.
+
+    Non-blocking. `ssh-add -l` exit codes: 0 = has keys, 1 = empty agent,
+    2 = no agent at all. Only warn on 1 (the confusing case); skip 2 because
+    users without any agent probably don't push from the sandbox.
+    """
+    result = run(["ssh-add", "-l"], check=False, capture=True)
+    if result.returncode != 1:
+        return
+
+    warn("Your SSH agent is running but has no keys loaded.")
+    print("  git push inside the sandbox will fail with 'Permission denied (publickey)'")
+    print("  because we forward the agent, not your ~/.ssh key files.")
+    print()
+    if platform.system() == "Darwin":
+        print("  Fix: ssh-add --apple-use-keychain ~/.ssh/id_ed25519")
+        print("  (adjust filename if your GitHub key is named differently)")
+    else:
+        print("  Fix: ssh-add ~/.ssh/id_ed25519")
+        print("  (adjust filename if your GitHub key is named differently)")
+    print()
+
+
 def _install_ssh_agent_launchagent(socket_path: str) -> None:
     """Propagate the shell's SSH_AUTH_SOCK into launchd now and at every login.
 
@@ -1237,6 +1267,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     _ensure_host_branch(branch, base_branch)
     _warn_if_host_dirty(branch)
     _check_macos_ssh_agent_launchd()
+    _check_ssh_agent_has_keys()
 
     intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
     entry = registry.allocate(branch, slug, intents=intents)
