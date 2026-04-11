@@ -175,21 +175,44 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     return
                                 }
                                 const idList = safeIds.map((id) => `'${id}'`).join(',')
+                                // Prefer the `$ai_trace` event's input/output state when the
+                                // SDK emits one (langchain/LangGraph), since it represents the
+                                // clean top-level user query and final agent response. Fall
+                                // back to the first/last `$ai_generation` for SDKs that emit
+                                // generations directly (OpenAI, Anthropic, Vercel, ...).
                                 const query: HogQLQuery = {
                                     kind: NodeKind.HogQLQuery,
                                     query: `
                                         SELECT
                                             properties.$ai_trace_id AS trace_id,
-                                            argMin(
-                                                substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                timestamp
+                                            coalesce(
+                                                anyIf(
+                                                    substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                    event = '$ai_trace'
+                                                        AND length(toString(properties.$ai_input_state)) > 0
+                                                ),
+                                                argMinIf(
+                                                    substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                    timestamp,
+                                                    event = '$ai_generation'
+                                                        AND length(toString(properties.$ai_input)) > 0
+                                                )
                                             ) AS first_input,
-                                            argMax(
-                                                substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
-                                                timestamp
+                                            coalesce(
+                                                anyIf(
+                                                    substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                    event = '$ai_trace'
+                                                        AND length(toString(properties.$ai_output_state)) > 0
+                                                ),
+                                                argMaxIf(
+                                                    substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
+                                                    timestamp,
+                                                    event = '$ai_generation'
+                                                        AND length(toString(properties.$ai_output_choices)) > 0
+                                                )
                                             ) AS last_output
                                         FROM events
-                                        WHERE event = '$ai_generation'
+                                        WHERE event IN ('$ai_trace', '$ai_generation')
                                           AND properties.$ai_trace_id IN (${idList})
                                           AND {filters}
                                         GROUP BY trace_id

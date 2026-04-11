@@ -402,12 +402,30 @@ function pickLastOutputMessage(raw: unknown): NormalizedMessage | null {
     return normalized[normalized.length - 1]
 }
 
+/**
+ * Some SDKs emit the trace input/output as a state wrapper object rather than a
+ * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
+ * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
+ * Unwrap the known wrappers before handing to `normalizeMessages`, which only
+ * understands arrays, strings, or single-message objects.
+ */
+function unwrapMessageContainer(raw: unknown): unknown {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+        return raw
+    }
+    const obj = raw as Record<string, unknown>
+    if (Array.isArray(obj.messages)) {
+        return obj.messages
+    }
+    return raw
+}
+
 function safeNormalize(raw: unknown, defaultRole: string): ReturnType<typeof normalizeMessages> {
     if (raw == null) {
         return []
     }
     try {
-        return normalizeMessages(raw, defaultRole)
+        return normalizeMessages(unwrapMessageContainer(raw), defaultRole)
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []
