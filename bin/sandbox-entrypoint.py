@@ -4,10 +4,10 @@ Sandbox container entrypoint.
 
 Startup modes, all dispatched from the bottom of this file:
 
-  1. Root phase (UID 0): create sandbox user, chown the workspace volume,
-     seed SSH config, then re-exec as the sandbox user. The workspace volume
-     is populated by bin/sandbox (shallow git clone) before `compose up`, so
-     there's no checkout or bind-mount gymnastics at container start.
+  1. Root phase (UID 0): create sandbox user, seed SSH config, then re-exec
+     as the sandbox user. The workspace volume is populated by bin/sandbox
+     (shallow git clone, files written as the sandbox uid directly) before
+     `compose up`, so there's no checkout or chown gymnastics at boot.
   2. User phase (default): launch a detached tmux server with a claude window
      (spinner → real claude once Python deps are ready) and a setup window
      (runs run_setup() via SANDBOX_MODE=setup); PID 1 blocks on a has-session
@@ -235,13 +235,6 @@ def root_phase() -> None:
     # Start interactive shells in the workspace, not the dotfiles-only home dir.
     (SANDBOX_HOME / ".bashrc").write_text(f"cd {WORKSPACE}\n")
     run(["chown", f"{uid}:{gid}", str(SANDBOX_HOME), "/tmp/sandbox-cache"])
-
-    # /workspace is now a per-sandbox docker volume populated by bin/sandbox
-    # with a shallow clone of the host branch — root-owned by default because
-    # git clone ran as root in the helper container. Hand ownership to the
-    # sandbox user so uv, pnpm, cargo, and the setup tmux window can write
-    # without `git config safe.directory` theater later on.
-    run(["chown", "-R", f"{uid}:{gid}", str(WORKSPACE)])
 
     create_sandbox_user(uid, gid)
 

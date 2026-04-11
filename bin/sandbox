@@ -541,10 +541,38 @@ def workspace_volume_name(project: str) -> str:
 def _populate_workspace_volume(volume_name: str, branch: str, base_branch: str) -> None:
     """Populate volume_name with a shallow clone of branch, cut at base_branch.
 
+    The clone runs as the sandbox user so every file lands owned by that
+    uid — avoids a post-clone `chown -R` in the app container.
+
     When branch == base_branch the shallow-exclude would exclude the target
     itself, so we fall back to --depth 50.
     """
-    # Env vars, not argv — branch names can contain shell metacharacters.
+    uid = os.getuid()
+    gid = os.getgid()
+
+    run(["docker", "volume", "create", volume_name], capture=True)
+
+    # Chown the fresh volume's mount point so the non-root clone can write
+    # inside it. Single directory — ~instant.
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/workspace",
+            "alpine",
+            "chown",
+            f"{uid}:{gid}",
+            "/workspace",
+        ],
+        capture=True,
+    )
+
+    # --no-local forces the smart-file transport so --shallow-exclude / --depth
+    # actually take effect (the local-optimization path hardlinks everything
+    # and ignores depth). `-c safe.directory=/host-git` satisfies git's
+    # ownership check on the bind-mounted source (host uid != sandbox uid).
     script = """
         set -e
         if [ -n "$EXCLUDE_REF" ]; then
@@ -552,23 +580,32 @@ def _populate_workspace_volume(volume_name: str, branch: str, base_branch: str) 
         else
             DEPTH_ARGS="--depth 50"
         fi
-        # --no-local forces the smart-file transport so --shallow-exclude /
-        # --depth actually take effect (the local-optimization path hardlinks
-        # everything and ignores depth).
-        git clone --no-local --single-branch --branch "$BRANCH" \\
-            $DEPTH_ARGS /host-git /workspace
+        git -c safe.directory=/host-git clone --no-local --single-branch \\
+            --branch "$BRANCH" $DEPTH_ARGS /host-git /workspace
         cd /workspace
         git fetch --depth 1 /host-git \\
             "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
         git remote set-url origin "$ORIGIN_URL"
     """
 
-    run(["docker", "volume", "create", volume_name], capture=True)
     run(
         [
             "docker",
             "run",
             "--rm",
+            "--user",
+            f"{uid}:{gid}",
+            # alpine/git's entrypoint is `git` — override to run a shell script.
+            "--entrypoint",
+            "sh",
+            # HOME must be writable for git. LFS smudge is skipped: the host's
+            # .git has LFS pointers whose blobs aren't reachable here and are
+            # irrelevant for dev work (ML test fixtures). Run `git lfs pull`
+            # inside the sandbox if anyone actually needs them.
+            "-e",
+            "HOME=/tmp",
+            "-e",
+            "GIT_LFS_SKIP_SMUDGE=1",
             "-v",
             f"{HOST_GIT_DIR}:/host-git:ro",
             "-v",
@@ -582,7 +619,6 @@ def _populate_workspace_volume(volume_name: str, branch: str, base_branch: str) 
             "-e",
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
             GIT_HELPER_IMAGE,
-            "sh",
             "-c",
             script,
         ],
