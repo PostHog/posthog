@@ -1,0 +1,60 @@
+# Desired-state schema for the ingestion_warnings ecosystem.
+
+ecosystem: ingestion_warnings
+cluster: main
+
+tables:
+    sharded_ingestion_warnings:
+        engine: ReplicatedMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toHour(timestamp)'
+            - type
+            - source
+            - timestamp
+        partition_by: 'toYYYYMMDD(timestamp)'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: source
+              type: LowCardinality(String)
+            - name: type
+              type: String
+            - name: details
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+
+    writable_ingestion_warnings:
+        engine: Distributed
+        source: sharded_ingestion_warnings
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_ingestion_warnings
+
+    ingestion_warnings:
+        engine: Distributed
+        source: sharded_ingestion_warnings
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit sharded_ingestion_warnings
+
+    kafka_ingestion_warnings:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_ingestion_warnings
+            kafka_group_name: clickhouse_ingestion_warnings
+            kafka_format: JSONEachRow
+        columns: inherit sharded_ingestion_warnings
+
+    ingestion_warnings_mv:
+        engine: MaterializedView
+        source: kafka_ingestion_warnings
+        target: writable_ingestion_warnings
+        select: "SELECT team_id, source, type, details, timestamp, _timestamp, _offset, _partition FROM {{ database }}.kafka_ingestion_warnings"
+        on_nodes: INGESTION_EVENTS
+        columns: []

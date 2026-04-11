@@ -1,0 +1,26 @@
+# Desired-state schema for the llma_metrics_daily table.
+
+ecosystem: llma_metrics
+cluster: main
+
+tables:
+    llma_metrics_daily:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        order_by:
+            - team_id
+            - date
+            - metric_name
+        partition_by: 'toYYYYMM(date)'
+        columns:
+            - name: date
+              type: Date
+            - name: team_id
+              type: UInt64
+            - name: metric_name
+              type: String
+            - name: metric_value
+              type: Float64

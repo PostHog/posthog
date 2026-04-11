@@ -1,0 +1,84 @@
+# Desired-state schema for the plugin_log_entries ecosystem.
+
+ecosystem: plugin_log_entries
+cluster: main
+
+tables:
+    plugin_log_entries:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - plugin_id
+            - plugin_config_id
+            - timestamp
+        partition_by: 'toYYYYMMDD(timestamp)'
+        settings:
+            index_granularity: '512'
+        columns:
+            - name: id
+              type: UUID
+            - name: team_id
+              type: Int64
+            - name: plugin_id
+              type: Int64
+            - name: plugin_config_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: source
+              type: String
+            - name: type
+              type: String
+            - name: message
+              type: String
+            - name: instance_id
+              type: UUID
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+
+    writable_plugin_log_entries:
+        engine: Distributed
+        source: plugin_log_entries
+        sharding_key: 'rand()'
+        on_nodes: ALL
+        columns: inherit plugin_log_entries
+
+    kafka_plugin_log_entries:
+        engine: Kafka
+        on_nodes: ALL
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: plugin_log_entries
+            kafka_group_name: plugin_log_entries
+            kafka_format: JSONEachRow
+        columns:
+            - name: id
+              type: UUID
+            - name: team_id
+              type: Int64
+            - name: plugin_id
+              type: Int64
+            - name: plugin_config_id
+              type: Int64
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: source
+              type: String
+            - name: type
+              type: String
+            - name: message
+              type: String
+            - name: instance_id
+              type: UUID
+
+    plugin_log_entries_mv:
+        engine: MaterializedView
+        source: kafka_plugin_log_entries
+        target: writable_plugin_log_entries
+        select: "SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id, _timestamp, _offset FROM {{ database }}.kafka_plugin_log_entries"
+        on_nodes: ALL
+        columns: []

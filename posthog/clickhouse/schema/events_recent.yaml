@@ -1,0 +1,100 @@
+# Desired-state schema for the events_recent ecosystem.
+# Short-lived copy of recent events for fast "last N hours" queries.
+
+ecosystem: events_recent
+cluster: main
+
+tables:
+    sharded_events_recent:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - 'toStartOfHour(inserted_at)'
+            - event
+            - 'cityHash64(distinct_id)'
+            - 'cityHash64(uuid)'
+        partition_by: 'toStartOfDay(inserted_at)'
+        settings:
+            ttl_only_drop_parts: '1'
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            - name: inserted_at
+              type: "DateTime64(6, 'UTC')"
+              default_expression: 'NOW64()'
+              default_kind: DEFAULT
+
+    writable_events_recent:
+        engine: Distributed
+        source: sharded_events_recent
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_events_recent
+
+    events_recent:
+        engine: Distributed
+        source: sharded_events_recent
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_events_recent
+
+    distributed_events_recent:
+        engine: Distributed
+        source: sharded_events_recent
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_events_recent
+
+    events_recent_json_mv:
+        engine: MaterializedView
+        source: sharded_events
+        target: writable_events_recent
+        select: "SELECT ... FROM {{ database }}.sharded_events"
+        on_nodes: DATA
+        columns: []

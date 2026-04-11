@@ -1,0 +1,72 @@
+# Desired-state schema for the precalculated_person_properties ecosystem.
+
+ecosystem: precalculated_person_properties
+cluster: main
+
+tables:
+    sharded_precalculated_person_properties:
+        engine: ReplicatedReplacingMergeTree
+        sharded: true
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - condition
+            - distinct_id
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: condition
+              type: String
+            - name: matches
+              type: Bool
+            - name: source
+              type: String
+
+    writable_precalculated_person_properties:
+        engine: Distributed
+        source: sharded_precalculated_person_properties
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: COORDINATOR
+        columns: inherit sharded_precalculated_person_properties
+
+    precalculated_person_properties:
+        engine: Distributed
+        source: sharded_precalculated_person_properties
+        sharding_key: 'sipHash64(distinct_id)'
+        on_nodes: ALL
+        columns: inherit sharded_precalculated_person_properties
+
+    kafka_precalculated_person_properties:
+        engine: Kafka
+        on_nodes: INGESTION_EVENTS
+        settings:
+            kafka_broker_list: __from_settings__
+            kafka_topic_list: clickhouse_precalculated_person_properties
+            kafka_group_name: precalculated_person_properties
+            kafka_format: JSONEachRow
+            kafka_skip_broken_messages: '100'
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: condition
+              type: String
+            - name: matches
+              type: Bool
+            - name: source
+              type: String
+
+    precalculated_person_properties_mv:
+        engine: MaterializedView
+        source: kafka_precalculated_person_properties
+        target: writable_precalculated_person_properties
+        select: "SELECT team_id, distinct_id, person_id, condition, matches, source, _timestamp, _offset FROM {{ database }}.kafka_precalculated_person_properties"
+        on_nodes: INGESTION_EVENTS
+        columns: []

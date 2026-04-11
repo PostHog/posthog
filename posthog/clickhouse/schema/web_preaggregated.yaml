@@ -1,0 +1,430 @@
+# Desired-state schema for the web_preaggregated ecosystem.
+# Pre-aggregated web analytics tables for fast dashboard queries.
+
+ecosystem: web_preaggregated
+cluster: main
+
+tables:
+    web_pre_aggregated_stats:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - period_bucket
+            - host
+            - device_type
+            - pathname
+            - entry_pathname
+            - end_pathname
+            - browser
+            - os
+            - viewport_width
+            - viewport_height
+            - referring_domain
+            - utm_source
+            - utm_medium
+            - utm_campaign
+            - utm_term
+            - utm_content
+            - country_code
+            - city_name
+            - region_code
+            - region_name
+            - has_gclid
+            - has_gad_source_paid_search
+            - has_fbclid
+        partition_by: 'toYYYYMMDD(period_bucket)'
+        columns:
+            - name: period_bucket
+              type: DateTime
+            - name: team_id
+              type: UInt64
+            - name: host
+              type: String
+            - name: device_type
+              type: String
+            - name: pathname
+              type: String
+            - name: entry_pathname
+              type: String
+            - name: end_pathname
+              type: String
+            - name: browser
+              type: String
+            - name: os
+              type: String
+            - name: viewport_width
+              type: Int64
+            - name: viewport_height
+              type: Int64
+            - name: referring_domain
+              type: String
+            - name: utm_source
+              type: String
+            - name: utm_medium
+              type: String
+            - name: utm_campaign
+              type: String
+            - name: utm_term
+              type: String
+            - name: utm_content
+              type: String
+            - name: country_code
+              type: String
+            - name: city_name
+              type: String
+            - name: region_code
+              type: String
+            - name: region_name
+              type: String
+            - name: has_gclid
+              type: Bool
+            - name: has_gad_source_paid_search
+              type: Bool
+            - name: has_fbclid
+              type: Bool
+            - name: mat_metadata_backend
+              type: Nullable(String)
+            - name: persons_uniq_state
+              type: "AggregateFunction(uniq, UUID)"
+            - name: sessions_uniq_state
+              type: "AggregateFunction(uniq, String)"
+            - name: pageviews_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: mat_metadata_loggedIn
+              type: Nullable(Bool)
+
+    web_pre_aggregated_bounces:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes: DATA
+        order_by:
+            - team_id
+            - period_bucket
+            - host
+            - device_type
+            - entry_pathname
+            - end_pathname
+            - browser
+            - os
+            - viewport_width
+            - viewport_height
+            - referring_domain
+            - utm_source
+            - utm_medium
+            - utm_campaign
+            - utm_term
+            - utm_content
+            - country_code
+            - city_name
+            - region_code
+            - region_name
+            - has_gclid
+            - has_gad_source_paid_search
+            - has_fbclid
+        partition_by: 'toYYYYMMDD(period_bucket)'
+        columns:
+            - name: period_bucket
+              type: DateTime
+            - name: team_id
+              type: UInt64
+            - name: host
+              type: String
+            - name: device_type
+              type: String
+            - name: entry_pathname
+              type: String
+            - name: end_pathname
+              type: String
+            - name: browser
+              type: String
+            - name: os
+              type: String
+            - name: viewport_width
+              type: Int64
+            - name: viewport_height
+              type: Int64
+            - name: referring_domain
+              type: String
+            - name: utm_source
+              type: String
+            - name: utm_medium
+              type: String
+            - name: utm_campaign
+              type: String
+            - name: utm_term
+              type: String
+            - name: utm_content
+              type: String
+            - name: country_code
+              type: String
+            - name: city_name
+              type: String
+            - name: region_code
+              type: String
+            - name: region_name
+              type: String
+            - name: has_gclid
+              type: Bool
+            - name: has_gad_source_paid_search
+              type: Bool
+            - name: has_fbclid
+              type: Bool
+            - name: mat_metadata_backend
+              type: Nullable(String)
+            - name: persons_uniq_state
+              type: "AggregateFunction(uniq, UUID)"
+            - name: sessions_uniq_state
+              type: "AggregateFunction(uniq, String)"
+            - name: pageviews_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: bounces_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: total_session_duration_state
+              type: "AggregateFunction(sum, Int64)"
+            - name: total_session_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: mat_metadata_loggedIn
+              type: Nullable(Bool)
+
+    web_pre_aggregated_teams:
+        engine: ReplicatedReplacingMergeTree
+        sharded: false
+        on_nodes: ALL
+        order_by:
+            - team_id
+        columns:
+            - name: team_id
+              type: UInt64
+            - name: enabled_by
+              type: String
+              default_expression: "'system'"
+              default_kind: DEFAULT
+            - name: version
+              type: UInt32
+              default_expression: 'toUnixTimestamp(now())'
+              default_kind: DEFAULT
+
+    web_pre_aggregated_teams_dict:
+        engine: Dictionary
+        on_nodes: ALL
+        columns:
+            - name: team_id
+              type: UInt64
+
+    web_pre_aggregated_stats_staging:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        order_by:
+            - team_id
+            - period_bucket
+            - host
+            - device_type
+            - pathname
+            - entry_pathname
+            - end_pathname
+            - browser
+            - os
+            - viewport_width
+            - viewport_height
+            - referring_domain
+            - utm_source
+            - utm_medium
+            - utm_campaign
+            - utm_term
+            - utm_content
+            - country_code
+            - city_name
+            - region_code
+            - region_name
+            - has_gclid
+            - has_gad_source_paid_search
+            - has_fbclid
+        partition_by: 'toYYYYMMDD(period_bucket)'
+        columns:
+            - name: period_bucket
+              type: DateTime
+            - name: team_id
+              type: UInt64
+            - name: host
+              type: String
+            - name: device_type
+              type: String
+            - name: pathname
+              type: String
+            - name: entry_pathname
+              type: String
+            - name: end_pathname
+              type: String
+            - name: browser
+              type: String
+            - name: os
+              type: String
+            - name: viewport_width
+              type: Int64
+            - name: viewport_height
+              type: Int64
+            - name: referring_domain
+              type: String
+            - name: utm_source
+              type: String
+            - name: utm_medium
+              type: String
+            - name: utm_campaign
+              type: String
+            - name: utm_term
+              type: String
+            - name: utm_content
+              type: String
+            - name: country_code
+              type: String
+            - name: city_name
+              type: String
+            - name: region_code
+              type: String
+            - name: region_name
+              type: String
+            - name: has_gclid
+              type: Bool
+            - name: has_gad_source_paid_search
+              type: Bool
+            - name: has_fbclid
+              type: Bool
+            - name: mat_metadata_backend
+              type: Nullable(String)
+            - name: persons_uniq_state
+              type: "AggregateFunction(uniq, UUID)"
+            - name: sessions_uniq_state
+              type: "AggregateFunction(uniq, String)"
+            - name: pageviews_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: mat_metadata_loggedIn
+              type: Nullable(Bool)
+
+    # Production distributed tables for hourly/daily aggregations
+    web_stats_daily_distributed:
+        engine: Distributed
+        source: web_pre_aggregated_stats
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit web_pre_aggregated_stats
+
+    web_stats_hourly_distributed:
+        engine: Distributed
+        source: web_pre_aggregated_stats
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit web_pre_aggregated_stats
+
+    web_bounces_daily_distributed:
+        engine: Distributed
+        source: web_pre_aggregated_bounces
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit web_pre_aggregated_bounces
+
+    web_bounces_hourly_distributed:
+        engine: Distributed
+        source: web_pre_aggregated_bounces
+        sharding_key: 'rand()'
+        on_nodes: COORDINATOR
+        columns: inherit web_pre_aggregated_bounces
+
+    web_pre_aggregated_bounces_staging:
+        engine: ReplicatedMergeTree
+        sharded: false
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        order_by:
+            - team_id
+            - period_bucket
+            - host
+            - device_type
+            - entry_pathname
+            - end_pathname
+            - browser
+            - os
+            - viewport_width
+            - viewport_height
+            - referring_domain
+            - utm_source
+            - utm_medium
+            - utm_campaign
+            - utm_term
+            - utm_content
+            - country_code
+            - city_name
+            - region_code
+            - region_name
+            - has_gclid
+            - has_gad_source_paid_search
+            - has_fbclid
+        partition_by: 'toYYYYMMDD(period_bucket)'
+        columns:
+            - name: period_bucket
+              type: DateTime
+            - name: team_id
+              type: UInt64
+            - name: host
+              type: String
+            - name: device_type
+              type: String
+            - name: entry_pathname
+              type: String
+            - name: end_pathname
+              type: String
+            - name: browser
+              type: String
+            - name: os
+              type: String
+            - name: viewport_width
+              type: Int64
+            - name: viewport_height
+              type: Int64
+            - name: referring_domain
+              type: String
+            - name: utm_source
+              type: String
+            - name: utm_medium
+              type: String
+            - name: utm_campaign
+              type: String
+            - name: utm_term
+              type: String
+            - name: utm_content
+              type: String
+            - name: country_code
+              type: String
+            - name: city_name
+              type: String
+            - name: region_code
+              type: String
+            - name: region_name
+              type: String
+            - name: has_gclid
+              type: Bool
+            - name: has_gad_source_paid_search
+              type: Bool
+            - name: has_fbclid
+              type: Bool
+            - name: mat_metadata_backend
+              type: Nullable(String)
+            - name: persons_uniq_state
+              type: "AggregateFunction(uniq, UUID)"
+            - name: sessions_uniq_state
+              type: "AggregateFunction(uniq, String)"
+            - name: pageviews_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: bounces_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: total_session_duration_state
+              type: "AggregateFunction(sum, Int64)"
+            - name: total_session_count_state
+              type: "AggregateFunction(sum, UInt64)"
+            - name: mat_metadata_loggedIn
+              type: Nullable(Bool)

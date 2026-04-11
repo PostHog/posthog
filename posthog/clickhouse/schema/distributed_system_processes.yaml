@@ -1,0 +1,16 @@
+# Desired-state schema for the distributed_system_processes table.
+# Wraps system.processes across all cluster nodes.
+
+ecosystem: distributed_system_processes
+cluster: main
+
+tables:
+    distributed_system_processes:
+        engine: Distributed
+        source: system.processes
+        on_nodes:
+            - DATA
+            - COORDINATOR
+        settings:
+            skip_unavailable_shards: '1'
+        columns: []
