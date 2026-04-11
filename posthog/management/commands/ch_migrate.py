@@ -206,8 +206,26 @@ class Command(BaseCommand):
         for cluster_name, states in by_cluster.items():
             try:
                 cluster_obj = get_cluster_by_name(cluster_name)
-                client = _any_client(cluster_obj)
-                current = dump_schema(client, database)
+                # Scan every host in the cluster, not just one. A single node
+                # doesn't see every table — `on_nodes: COORDINATOR` tables only
+                # live on the coordinator, `on_nodes: DATA` tables only on data
+                # nodes, etc. If we dump from one node we see a partial view and
+                # diff_state generates spurious "to create" actions for tables
+                # that already exist elsewhere in the cluster.
+                #
+                # Union the per-host schemas by table name. If the same table
+                # appears on multiple hosts, take the first one (they should be
+                # semantically identical — this is Replicated*, same DDL).
+                from posthog.clickhouse.migration_tools.schema_introspect import dump_schema_all_hosts
+
+                per_host = dump_schema_all_hosts(cluster_obj, database)
+                current = {}
+                for _host_info, host_schema in per_host.items():
+                    for tbl_name, tbl_schema in host_schema.items():
+                        # First-wins union — all replicas of the same table
+                        # should have identical DDL, so picking any is fine.
+                        if tbl_name not in current:
+                            current[tbl_name] = tbl_schema
             except Exception as exc:
                 # A satellite cluster named in the YAML may be unreachable from the
                 # current runtime for several expected reasons — skip with a warning
