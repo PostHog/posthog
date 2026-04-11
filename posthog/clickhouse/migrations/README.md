@@ -1,109 +1,172 @@
-## Creating ClickHouse schema changes
+# ClickHouse migrations
 
-**Important:** ClickHouse schema changes should be created as a separate PR from application code changes. This allows for:
+This directory contains ClickHouse schema migrations for PostHog.
 
-- Independent review and testing of schema migrations
-- Safer rollout of database changes
-- Clear separation between infrastructure and application logic changes
+## How it works
 
-## About migrations
+The old migration system (`run_sql_with_exceptions`) asks you to pick from 12 node roles,
+know whether a table is sharded, remember to set `is_alter_on_replicated_table`,
+and get the execution order right for companion tables (Kafka, MV, Distributed).
+Miss any of these and your migration runs on the wrong nodes, silently.
 
-Not all migrations are intended to run on all nodes every time, because of the topologies we run. Some nodes are intended to only perform compute operations and do not contain sharded tables.
+The new system works like Terraform for ClickHouse.
+You declare the schema you want in YAML, diff it against what's actually running, and apply the difference.
 
-Some tables are meant to run only on a couple of nodes, like some Kafka tables, to prevent the whole cluster to run too many insertions in ClickHouse.
+```bash
+# Scaffold a new table ecosystem
+python manage.py ch_migrate generate --template ingestion_pipeline --table sessions_v4
 
-And, in some other cases, we want to only create one table (like a unique Kafka consumer) in one node.
+# See what would change
+python manage.py ch_migrate plan
 
-Because of the above, take the following advice into consideration when manipulating schemas for ClickHouse.
+# Do it
+python manage.py ch_migrate apply
+```
 
-### When to run a migration ONLY on a data node
+```mermaid
+graph LR
+    YAML["schema/X.yaml"] -->|plan| Diff["Diff vs live CH"]
+    Diff -->|apply| CH["ClickHouse"]
+```
 
-- When adding / updating a sharded data table
+The plan output shows every SQL statement, which hosts it targets, and the execution order.
+Review it the same way you'd review a Terraform plan before hitting apply.
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
+## Migration approaches
 
-<details>
+### Desired-state YAML (new)
 
-<summary>Example</summary>
-For example, the `sharded_events` table is a sharded table. Thus, it should only be added on data nodes.
+Schema is declared in `posthog/clickhouse/schema/*.yaml`.
+The system diffs desired state against live ClickHouse and generates a plan.
 
-Also, since to fill this table we need to consume events from Kafka, we need to run Kafka consumers on the data nodes, which would include the materialized view and the writable distributed table. So the `kafka_events_json`, `events_json_mv` and `writable_events` tables should also be added on them.
+Developer flow:
 
-</details>
+```bash
+# Generate a schema YAML from a template
+python manage.py ch_migrate generate --template ingestion_pipeline --table sessions_v4
 
-### When to run a migration on DATA nodes (non-sharded)
+# Diff desired vs current, show plan
+python manage.py ch_migrate plan
 
-- Basically when the migration does not include any of the above listed in the previous section.
-- When adding / updating a distributed table for reading
-- When adding / updating a replicated table
-- When adding / updating a view
-- When adding / updating a dictionary
-- And so on
+# Execute the plan
+python manage.py ch_migrate apply
+```
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
+### Legacy .py migrations
 
-<details>
+The numbered `.py` files (0001 through 0223) are legacy migrations
+managed by `migrate_clickhouse`.
+They are untouched and still discoverable by `ch_migrate check`.
 
-<summary>Example</summary>
+## Schema YAML format
 
-Following the previous section example, the sharded events table along with the Kafka tables, materialized views and writable distributed table would be added to the data nodes. The `distributed_events`, which is the table used for the read path, would also be added to data nodes.
+Each YAML file declares one table ecosystem:
 
-</details>
+```yaml
+ecosystem: events
+cluster: main
 
-## When to use NodeRole.INGESTION_SMALL or NodeRole.INGESTION_MEDIUM
+tables:
+  sharded_events:
+    engine: ReplicatedReplacingMergeTree
+    sharded: true
+    on_nodes: DATA
+    order_by: [team_id, 'toDate(timestamp)', event]
+    partition_by: 'toYYYYMM(timestamp)'
+    columns:
+      - name: uuid
+        type: UUID
+      - name: event
+        type: String
 
-We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. These nodes don't contain any data perse, only Kafka tables and Distributed ones, along with the materialized views that connect them.
+  writable_events:
+    engine: Distributed
+    source: sharded_events
+    on_nodes: COORDINATOR
+    columns: inherit sharded_events
 
-Use these node roles exclusively when you need to ingest data from Kafka into ClickHouse.
+  events:
+    engine: Distributed
+    source: sharded_events
+    on_nodes: ALL
+    columns: inherit sharded_events
+```
 
-When you want to pull data from Kafka into ClickHouse, you should:
+## `ch_migrate` subcommands
 
-1. Create a Kafka table.
-2. Create a writable table only on ingestion nodes. It should be a Distributed table with your data table.
-   1. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`, without using any sharding key.
-   2. If your data table is sharded, you should point it to all shards: `Distributed(..., cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="...")`, using a sharding key.
-3. Create a materialized view between Kafka table and the writable table.
+| Command     | Description                              |
+| ----------- | ---------------------------------------- |
+| `plan`      | Diff schema YAML vs live ClickHouse      |
+| `apply`     | Execute the reconciliation plan          |
+| `generate`  | Scaffold a schema YAML from a template   |
+| `drift`     | Detect per-host schema divergence        |
+| `schema`    | Dump current live schema                 |
+| `status`    | Show per-host migration tracking records |
+| `bootstrap` | Create the tracking table                |
+| `check`     | Show pending legacy migrations           |
+| `lint`      | Validate schema YAML files               |
+| `down`      | Roll back a legacy migration by number   |
 
-Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
-Example PR for sharded table: https://github.com/PostHog/posthog/issues/38668/files
+## Schema safety
 
-`Medium` tier contains 4 consumers, while `Small` tier contain just one. Depending on the throughput of the Kafka topic, you should choose the appropriate tier, in case of doubts choose `Small` and you can later upgrade to `Medium` if lag is too high.
+The diff engine respects ClickHouse ecosystem rules:
 
-## When to use NodeRole.ALL
+- DROP MV before altering source tables
+- CREATE local tables before Distributed tables
+- CREATE Kafka tables before MVs
+- ALTER all ecosystem tables when adding a column
 
-We are introducing changes to our ClickHouse topology frequently, introducing new types of nodes.
+The `lint` command checks for ecosystem completeness
+and cross-cluster targeting mismatches.
 
-Rarely, you'll need to run a migration on all nodes. In that case, you can use the `NodeRole.ALL` role. You should only use it when you're sure that the change is safe to apply to all nodes.
+## Node roles
 
-In the vast majority of cases, just follow the [previous](#when-to-run-a-migration-only-on-a-data-node) [sections](#when-to-run-a-migration-on-data-nodes-non-sharded).
+| Role             | Meaning                                         |
+| ---------------- | ----------------------------------------------- |
+| DATA             | Data storage nodes (sharded local tables)       |
+| COORDINATOR      | Coordinator nodes (writable distributed tables) |
+| ALL              | All nodes in the cluster                        |
+| INGESTION_EVENTS | Events ingestion nodes (Kafka tables, MVs)      |
+| INGESTION_SMALL  | Small ingestion pipeline nodes                  |
+| INGESTION_MEDIUM | Medium ingestion pipeline nodes                 |
+| SHUFFLEHOG       | Shufflehog nodes                                |
+| ENDPOINTS        | Endpoint nodes                                  |
+| LOGS             | Log nodes                                       |
 
-### The ON CLUSTER clause
+## FAQ
 
-**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, which may not include all target nodes.
-This may cause lots of troubles and block migrations.
+**What happens to live writes during ALTER TABLE on sharded_events?**
 
-The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
+Nothing. `ALTER ADD COLUMN` on ReplicatedMergeTree is metadata-only -- it completes in milliseconds regardless of table size.
+Writes keep going. Same behavior as the old system.
 
-### Testing
+**What about ALTER MODIFY COLUMN (type changes)?**
 
-To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
+That rewrites data parts and can take hours on large tables.
+The plan flags it with a warning. Schedule these carefully and coordinate with whoever's on-call.
 
-## Ingestion layer
+**What happens during the MV drop/recreate gap?**
 
-We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
+There's a sub-second window where Kafka messages aren't consumed by that MV.
+Kafka retains them, and the new MV picks up from the last committed offset.
+Same window the old system had.
 
-1. Create your data table in ClickHouse main cluster.
-2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`.
-3. Create a Kafka table in ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`.
-4. Create materialized view between Kafka table and writable table on ingestion nodes.
+**What if a shard fails during apply?**
 
-Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+Apply halts immediately. The tracking table records which steps succeeded on which hosts.
+Re-running is safe -- all generated SQL uses `IF NOT EXISTS` / `IF EXISTS`.
 
-**How and why?**
+**How do the 231 legacy migrations coexist?**
 
-Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
-was interfering with ingestion. This was causing delays and at the end incidents.
+They're untouched. `migrate_clickhouse` still runs them in order.
+The two systems coexist. `run_sql_with_exceptions` has a deprecation warning pointing here.
 
-We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
+**What about drift between hosts?**
 
-ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers and our new ingestion nodes.
+`ch_migrate drift` queries `system.tables` on every host across all registered clusters and compares.
+Run it before apply to check for host divergence.
+
+**How do I roll back?**
+
+Edit the schema YAML (revert your change), run `plan`, run `apply`.
+Git history of the YAML files is your rollback mechanism.
