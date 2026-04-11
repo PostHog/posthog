@@ -222,21 +222,39 @@ def _generate_create_sql(
         zk_path = f"/clickhouse/tables/{{shard}}/{database}/{table.name}"
         return f"'{zk_path}', '{{replica}}'"
 
+    def _find_column(candidates: tuple[str, ...]) -> str | None:
+        """Return the first candidate column name that exists in the table.
+
+        Legacy PostHog migrations use both `sign`/`version` and `_sign`/`_version`
+        naming — the underscore-prefixed form is common for internal/system
+        columns. Auto-detect both so engine arg rendering works regardless of
+        which convention the YAML uses.
+        """
+        for c in candidates:
+            if c in column_names:
+                return c
+        return None
+
     if engine_name.startswith("Replicated"):
         extra_args: list[str] = []
         if "versionedcollapsing" in engine_lower:
             # sign + version required
-            if "sign" in column_names:
-                extra_args.append("sign")
-            if "version" in column_names:
-                extra_args.append("version")
+            sign = _find_column(("sign", "_sign"))
+            version = _find_column(("version", "_version"))
+            if sign:
+                extra_args.append(sign)
+            if version:
+                extra_args.append(version)
         elif "collapsing" in engine_lower:
             # sign required
-            if "sign" in column_names:
-                extra_args.append("sign")
-        elif "replacing" in engine_lower and "version" in column_names:
+            sign = _find_column(("sign", "_sign"))
+            if sign:
+                extra_args.append(sign)
+        elif "replacing" in engine_lower:
             # version optional — include if present
-            extra_args.append("version")
+            version = _find_column(("version", "_version"))
+            if version:
+                extra_args.append(version)
         # Summing/Aggregating without explicit columns = OK with just zk args
 
         if extra_args:
@@ -335,13 +353,23 @@ def diff_state(
             ", ".join(skipped_dicts),
         )
 
-    # Skip MaterializedViews whose SELECT body is the literal `SELECT ...`
+    # Skip MaterializedViews whose SELECT body contains a literal `...`
     # placeholder. The YAML baseline was generated mechanically from the live
     # schema for some ecosystems and left the SELECT body as a sentinel for
-    # later hand-filling. Rendering it produces invalid SQL. These MVs stay
-    # managed by legacy `migrate_clickhouse` until the YAML grows real bodies.
+    # later hand-filling. Two variants observed in the wild:
+    #   - `SELECT ... FROM source`             (full body stubbed)
+    #   - `SELECT col1, col2, ... FROM source` (trailing cols stubbed)
+    # Both render into invalid SQL. These MVs stay managed by legacy
+    # `migrate_clickhouse` until the YAML grows real bodies. The trailing
+    # `...` in a valid SELECT list is not legal ClickHouse syntax, so this
+    # check won't accidentally skip real MVs.
     def _has_placeholder_select(t: "DesiredTable") -> bool:
-        return _is_mv(t.engine) and bool(t.select) and "SELECT ..." in t.select
+        if not _is_mv(t.engine) or not t.select:
+            return False
+        select_body = t.select
+        # `SELECT ...` at the start (F11 original) or `, ...` before FROM
+        # (person_query_log MVs discovered in 2026-04-11 reverify).
+        return "SELECT ..." in select_body or ", ..." in select_body or ",..." in select_body
 
     skipped_placeholder_mvs = [
         name for name, t in desired.tables.items() if _has_placeholder_select(t)
