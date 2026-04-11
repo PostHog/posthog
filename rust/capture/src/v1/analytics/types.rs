@@ -85,18 +85,30 @@ pub struct WrappedEvent {
 }
 
 impl SinkEvent for WrappedEvent {
+    // Pre-parsed UUID for result correlation. By the Sink stage,
+    // we know ALL well-formed incoming events have a valid UUID.
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
+    // Helps the Sink implementations filter events that were marked
+    // as ineligible for publishing in the request preprocessing step.
     fn should_publish(&self) -> bool {
         self.result == EventResult::Ok && self.destination != Destination::Drop
     }
 
+    // Resolve the storage-agnostic Destination scope for this event.
+    // The config for each Sink implementation knows how to resolve
+    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
+    // Returns the full typed header set for this event, combining per-request
+    // context fields (token, now, historical_migration) with event-owned
+    // fields. Sinks convert the returned CapturedEventHeaders to their
+    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
+    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
         // v1 decouples overflow routing from person-processing (unlike v0 where
@@ -147,6 +159,8 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
+    // Accepts a buffer that is reset by the caller in the event publish
+    // inner loop. This spares us a lot of string allocations.
     fn write_partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
         // v0 parity: only drop partition key for main/overflow analytics.
