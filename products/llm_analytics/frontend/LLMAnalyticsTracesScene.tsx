@@ -20,7 +20,7 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
-import { traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
+import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
     formatLLMCost,
@@ -268,33 +268,30 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
-const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
-    const row = record as LLMTrace
+// `undefined` = cache miss (still loading). Checking the cached record
+// directly avoids a one-frame dash flash before a separate loading reducer
+// catches up on the first render.
+function useTraceMessagesForRow(row: LLMTrace): TraceMessages | null | undefined {
     const { ensureTraceMessagesLoaded } = useActions(traceMessagesLazyLoaderLogic)
     const { getTraceMessages } = useValues(traceMessagesLazyLoaderLogic)
-
     useEffect(() => {
         if (row.id) {
             ensureTraceMessagesLoaded([{ id: row.id, createdAt: row.createdAt ?? null }])
         }
     }, [row.id, row.createdAt, ensureTraceMessagesLoaded])
+    return getTraceMessages(row.id)
+}
 
-    // `undefined` means "not yet fetched" — show the skeleton. `null` or an
-    // object means "fetched" (possibly with nothing to display). Checking the
-    // cached record directly avoids a one-frame `–` flash before the
-    // `loadingTraceIds` reducer catches up on the first render.
-    const messages = getTraceMessages(row.id)
+const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const messages = useTraceMessagesForRow(row)
     if (messages === undefined) {
         return <LemonSkeleton className="h-4 w-40" />
     }
-
+    // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
     const firstInput =
-        // Prefer a clean unwrap of the $ai_trace state wrapper
         pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
-        // Fall back to the first $ai_generation input when the state wrapper
-        // is missing or uses an unknown shape
         pickFirstInputMessage(messages?.firstInputFallback) ??
-        // Last resort: dump the raw state so something shows up
         pickFirstInputMessage(messages?.firstInput)
     if (!firstInput) {
         return <>–</>
@@ -305,14 +302,7 @@ InputMessageColumn.displayName = 'InputMessageColumn'
 
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const { ensureTraceMessagesLoaded } = useActions(traceMessagesLazyLoaderLogic)
-    const { getTraceMessages } = useValues(traceMessagesLazyLoaderLogic)
-
-    useEffect(() => {
-        if (row.id) {
-            ensureTraceMessagesLoaded([{ id: row.id, createdAt: row.createdAt ?? null }])
-        }
-    }, [row.id, row.createdAt, ensureTraceMessagesLoaded])
+    const messages = useTraceMessagesForRow(row)
 
     const errorEventFound = Array.isArray(row.events)
         ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
@@ -325,7 +315,6 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         )
     }
 
-    const messages = getTraceMessages(row.id)
     if (messages === undefined) {
         return <LemonSkeleton className="h-4 w-40" />
     }

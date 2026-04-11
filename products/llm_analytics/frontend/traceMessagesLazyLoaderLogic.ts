@@ -10,22 +10,12 @@ import { parsePartialJSON } from './utils'
 export interface TraceMessages {
     firstInput: unknown
     lastOutput: unknown
-    /**
-     * Fallback payloads drawn from the first/last `$ai_generation` on the
-     * trace, used when the preferred `$ai_trace` state wrapper is missing or
-     * resolves to an empty messages array.
-     */
+    // First/last $ai_generation payloads, used when the preferred $ai_trace
+    // state wrapper is missing or resolves to an empty messages array.
     firstInputFallback: unknown
     lastOutputFallback: unknown
 }
 
-/**
- * Pair of (id, createdAt) for a trace we want to load a preview for. The
- * `createdAt` anchors the timestamp window used in the HogQL scan so
- * ClickHouse can prune partitions using the events table's
- * `(team_id, toDate(timestamp), event, ...)` primary key, regardless of how
- * wide the user's UI date filter is.
- */
 export interface TraceLazyLoadRequest {
     id: string
     createdAt: string | null
@@ -33,23 +23,11 @@ export interface TraceLazyLoadRequest {
 
 const BATCH_MAX_SIZE = 100
 const BATCH_DEBOUNCE_MS = 0
-/**
- * Cap per raw field in characters. Enough to fit a small conversation's worth
- * of message content while bounding network payload at ~200KB per 100-row
- * batch. Truncated JSON is recovered on the frontend via parsePartialJSON.
- */
+// Cap per field in characters. Bounds network payload and ClickHouse
+// aggregation state; truncated JSON is recovered with parsePartialJSON.
 const FIELD_TRUNCATE_CHARS = 2000
-/**
- * Upper bound on a trace ID length before we refuse to inline it into the
- * HogQL string. Real trace IDs are UUIDs (36 chars) or short nanoid-style
- * tokens. This guards against pathological IDs.
- */
 const TRACE_ID_MAX_LENGTH = 128
-/**
- * Minutes to buffer each side of the min/max `createdAt` in a batch. Matches
- * `TracesQueryDateRange.CAPTURE_RANGE_MINUTES` on the backend runner, which
- * assumes a trace finishes generating within 10 minutes of its first event.
- */
+// Matches TracesQueryDateRange.CAPTURE_RANGE_MINUTES on the backend runner.
 const BATCH_WINDOW_BUFFER_MINUTES = 10
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -60,25 +38,14 @@ function chunk<T>(arr: T[], size: number): T[][] {
     return chunks
 }
 
-/**
- * Escape a trace ID for safe inlining into a single-quoted HogQL string
- * literal. HogQL accepts both SQL-standard `''` and C-style `\'` escapes;
- * we normalize backslashes first, then double up any embedded quotes.
- */
+// Escape a trace ID for safe inlining into a single-quoted HogQL string.
 function escapeHogqlString(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "''")
 }
 
-/**
- * Format a Date as the `YYYY-MM-DD HH:MM:SS` ClickHouse `toDateTime` literal
- * form in UTC, avoiding timezone / locale ambiguity.
- */
+// "2026-04-11T19:20:55.828Z" → "2026-04-11 19:20:55" (ClickHouse toDateTime format, UTC).
 function formatHogqlDateTime(d: Date): string {
-    const pad = (n: number): string => String(n).padStart(2, '0')
-    return (
-        `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-        `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
-    )
+    return d.toISOString().replace('T', ' ').slice(0, 19)
 }
 
 export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType>([
@@ -194,55 +161,33 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 await Promise.allSettled(
                     chunks.map(async (batch) => {
                         try {
-                            // Drop pathologically long IDs and traces whose createdAt
-                            // we can't parse — we need a real timestamp anchor to
-                            // build the scan window.
-                            const safe: { id: string; createdAtMs: number }[] = []
-                            for (const r of batch) {
-                                if (!r.id || r.id.length > TRACE_ID_MAX_LENGTH) {
-                                    continue
-                                }
+                            // Drop IDs that are too long to inline safely or whose
+                            // createdAt we can't parse into a scan window anchor.
+                            const safe = batch.flatMap((r) => {
                                 const createdAtMs = r.createdAt ? Date.parse(r.createdAt) : NaN
-                                if (!Number.isFinite(createdAtMs)) {
-                                    continue
-                                }
-                                safe.push({ id: r.id, createdAtMs })
-                            }
+                                return r.id && r.id.length <= TRACE_ID_MAX_LENGTH && Number.isFinite(createdAtMs)
+                                    ? [{ id: r.id, createdAtMs }]
+                                    : []
+                            })
                             if (safe.length === 0) {
                                 actions.loadTraceMessagesBatchFailure(batch.map((r) => r.id))
                                 return
                             }
 
-                            // Union window across the batch: earliest createdAt minus
-                            // the buffer to latest createdAt plus the buffer. In the
-                            // common case (a page of traces clustered in time) this
-                            // is a handful of minutes to hours wide — much narrower
-                            // than the user's UI date filter, so ClickHouse can use
-                            // the events table primary key to prune partitions
-                            // regardless of whether the user picked `-1h` or
-                            // `-30d`.
+                            // Union window across the batch (min/max createdAt ± buffer).
+                            // Stays narrow when rows are clustered in time, so ClickHouse
+                            // can prune partitions regardless of the UI date filter.
                             const bufferMs = BATCH_WINDOW_BUFFER_MINUTES * 60 * 1000
-                            let minMs = Number.POSITIVE_INFINITY
-                            let maxMs = Number.NEGATIVE_INFINITY
-                            for (const s of safe) {
-                                if (s.createdAtMs < minMs) {
-                                    minMs = s.createdAtMs
-                                }
-                                if (s.createdAtMs > maxMs) {
-                                    maxMs = s.createdAtMs
-                                }
-                            }
-                            const fromStr = formatHogqlDateTime(new Date(minMs - bufferMs))
-                            const toStr = formatHogqlDateTime(new Date(maxMs + bufferMs))
+                            const createdAtList = safe.map((s) => s.createdAtMs)
+                            const fromStr = formatHogqlDateTime(new Date(Math.min(...createdAtList) - bufferMs))
+                            const toStr = formatHogqlDateTime(new Date(Math.max(...createdAtList) + bufferMs))
 
+                            // Inlining IDs + timestamps rather than using a values dict: we
+                            // can't combine `{values}` with `{filters}`-style placeholders
+                            // because parse_select eagerly resolves all placeholders against
+                            // the values dict before find_placeholders runs. Each ID is
+                            // escaped via escapeHogqlString.
                             const idList = safe.map((s) => `'${escapeHogqlString(s.id)}'`).join(',')
-                            // Return two candidates per direction: the top-level `$ai_trace`
-                            // state (preferred when present — represents the clean
-                            // user-query / final-answer for langchain/LangGraph traces) and
-                            // the first/last `$ai_generation` payload (fallback for plain
-                            // OpenAI/Anthropic/Vercel traces, or when the state wrapper
-                            // resolves to empty messages after unwrap). Picker code on the
-                            // frontend decides which to render.
                             const query: HogQLQuery = {
                                 kind: NodeKind.HogQLQuery,
                                 query: `
@@ -319,19 +264,13 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 clearTimeout(cache.batchTimer)
                 cache.batchTimer = null
             }
-            if (cache.pendingTraces instanceof Map) {
-                cache.pendingTraces.clear()
-            }
+            cache.pendingTraces?.clear?.()
         },
     })),
 ])
 
-/**
- * Parse a JSON string that ClickHouse may have truncated mid-structure.
- * Falls back to a strict parse for safety, then the partial-JSON parser
- * which closes dangling braces/brackets/strings. If everything fails the
- * raw string is returned so the normalizer can at least show something.
- */
+// Parse ClickHouse-truncated JSON: strict parse, then partial-JSON recovery,
+// then raw string so the normalizer can still show something.
 function parseTruncatedJson(value: unknown): unknown {
     if (typeof value !== 'string') {
         return value
@@ -342,11 +281,10 @@ function parseTruncatedJson(value: unknown): unknown {
     try {
         return JSON.parse(value)
     } catch {
-        // fall through to partial parse
-    }
-    try {
-        return parsePartialJSON(value)
-    } catch {
-        return value
+        try {
+            return parsePartialJSON(value)
+        } catch {
+            return value
+        }
     }
 }
