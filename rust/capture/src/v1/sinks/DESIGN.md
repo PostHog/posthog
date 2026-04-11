@@ -1,7 +1,52 @@
 # v1/sinks design
 
-Architecture and design choices in the `v1::sinks` module --
-the destination-agnostic event publishing layer for PostHog capture.
+Architecture and design choices in the `v1::sinks` module —
+the destination-agnostic event publishing layer for PostHog capture v1.
+
+## Overview
+
+The sinks module decouples capture's request-handling pipeline from the
+specifics of _where_ events are published.
+Today the only backend is Kafka (via rdkafka); the trait boundaries are
+drawn so that future backends (WarpStream, S3, etc.) slot in without
+touching request-path code.
+
+```text
+                           ┌─────────────┐
+                           │  HTTP layer  │
+                           └──────┬───────┘
+                                  │  Vec<WrappedEvent>
+                                  ▼
+                           ┌─────────────┐
+                           │   Router     │─── resolves SinkName
+                           └──────┬───────┘
+                       ┌──────────┼──────────┐
+                       ▼          ▼          ▼
+                   ┌────────┐ ┌────────┐ ┌────────┐
+                   │KafkaSink│ │KafkaSink│ │ Future │
+                   │ (msk)  │ │(msk_alt)│ │  Sink  │
+                   └────┬───┘ └────┬───┘ └────────┘
+                        │          │
+                        ▼          ▼
+                    ┌────────┐ ┌────────┐
+                    │Producer│ │Producer│
+                    │ (msk)  │ │(msk_alt)
+                    └────────┘ └────────┘
+```
+
+Key properties:
+
+- **Storage-agnostic contracts** — `Sink`, `Event`, `SinkResult` know
+  nothing about Kafka.
+- **Multi-sink** — the `Router` maps named sinks to concrete
+  implementations, supporting concurrent dual-writes (e.g. MSK +
+  WarpStream during a migration).
+- **Per-event results** — `publish_batch` returns one `Box<dyn SinkResult>`
+  per published event, correlating outcomes back to request events by UUID.
+- **Buffer-reuse** — serialization and partition-key methods write into
+  caller-owned `String` buffers, eliminating per-event allocations.
+
+---
 
 ## Module layout
 
@@ -19,6 +64,7 @@ graph TD
     kctx["kafka/context.rs<br>KafkaContext<br>(ClientContext)"]
     kprod["kafka/producer.rs<br>KafkaProducer,<br>ProduceRecord,<br>ProduceError, SendHandle"]
     ktypes["kafka/types.rs<br>KafkaResult,<br>KafkaSinkError,<br>error_code_tag"]
+    ksink["kafka/sink.rs<br>KafkaSink (Sink impl)"]
     kmock["kafka/mock.rs<br>MockProducer"]
     ktests["kafka/sink_tests.rs<br>unit tests"]
 
@@ -33,6 +79,7 @@ graph TD
     kmod --> kctx
     kmod --> kprod
     kmod --> ktypes
+    kmod --> ksink
     kmod --> kmock
     kmod --> ktests
 
@@ -41,13 +88,13 @@ graph TD
     router --> types
 ```
 
-The module has two layers:
+Two layers:
 
-- **Top-level abstractions** (`sink.rs`, `event.rs`, `types.rs`, `router.rs`)
-  define backend-agnostic traits and routing.
-  They know nothing about Kafka.
-- **`kafka/`** implements those traits against rdkafka.
-  All Kafka-specific logic is contained here.
+- **Top-level abstractions** (`sink.rs`, `event.rs`, `types.rs`,
+  `router.rs`) — backend-agnostic traits and routing. Know nothing about
+  Kafka.
+- **`kafka/`** — implements those traits against rdkafka. All
+  Kafka-specific logic is contained here.
 
 `mod.rs` re-exports the public API:
 
@@ -83,8 +130,9 @@ pub trait Sink: Send + Sync {
 ```
 
 Each `Sink` owns its identity (`name`), accepts a batch of trait-object
-events, and returns one `Box<dyn SinkResult>` per published event.
-Skipped events produce no result entry.
+events, and returns one `Box<dyn SinkResult>` per _published_ event.
+Skipped events (not publishable, or `Destination::Drop`) produce no
+result entry.
 
 `KafkaSink<P: KafkaProducerTrait>` is currently the only implementation.
 It is generic over the producer trait so tests inject `MockProducer`
@@ -110,7 +158,7 @@ pub struct Router {
 | `available_sinks()` | Lists all configured sink names |
 | `flush()` | Flushes all sinks concurrently via `FuturesUnordered` |
 
-The `Sink` trait intentionally takes no `SinkName` parameter -- the
+The `Sink` trait intentionally takes no `SinkName` parameter — the
 Router resolves the target before calling into the sink. This keeps
 `Sink` implementations stateless with respect to routing and makes the
 single-sink case zero-cost.
@@ -118,13 +166,23 @@ single-sink case zero-cost.
 `RouterError::SinkNotFound` is returned when a caller requests a sink
 name that was not configured. This is a caller bug, not a per-event error.
 
-```mermaid
-flowchart LR
-    Caller -->|"publish_batch(SinkName, ctx, events)"| Router
-    Router -->|"lookup by name"| SinkMap["HashMap of SinkName to Sink"]
-    SinkMap -->|"publish_batch(ctx, events)"| KafkaSink
-    KafkaSink -->|"Vec of Box dyn SinkResult"| Router
-    Router -->|"Ok(results)"| Caller
+```text
+  Caller ──publish_batch(SinkName, ctx, events)──▶ Router
+                                                     │
+                                              lookup by name
+                                                     │
+                                                     ▼
+                                            HashMap<SinkName, Sink>
+                                                     │
+                                         publish_batch(ctx, events)
+                                                     │
+                                                     ▼
+                                                 KafkaSink
+                                                     │
+                                         Vec<Box<dyn SinkResult>>
+                                                     │
+                                                     ▼
+  Caller ◀───────────Ok(results)─────────────── Router
 ```
 
 ---
@@ -136,7 +194,7 @@ endpoint, `CaptureMode`, or event schema:
 
 ```rust
 pub trait Event: Send + Sync {
-    fn uuid_key(&self) -> &str;
+    fn uuid(&self) -> Uuid;
     fn should_publish(&self) -> bool;
     fn destination(&self) -> &Destination;
     fn headers(&self) -> Vec<(String, String)>;
@@ -145,12 +203,33 @@ pub trait Event: Send + Sync {
 }
 ```
 
+The analytics capture endpoint's `WrappedEvent` implements this trait
+(see [section 10](#10-analytics-event-serialization)).
+Other capture endpoints (e.g. session replay, exceptions) would provide
+their own `Event` implementations without changing any sink code.
+
 ### Buffer-reuse pattern
 
 `write_partition_key` and `serialize_into` write into caller-owned
 `String` buffers that are cleared between events. This eliminates
-per-event allocations after the first iteration -- the buffers grow to
+per-event allocations after the first iteration — the buffers grow to
 high-water mark and stay there for the entire batch.
+
+```text
+  ┌──────────────────────────────────────────────┐
+  │ publish_batch                                │
+  │                                              │
+  │   payload_buf = String::with_capacity(4096)  │
+  │   key_buf     = String::with_capacity(128)   │
+  │                                              │
+  │   for event in events:                       │
+  │       payload_buf.clear()   ◄─ no alloc      │
+  │       key_buf.clear()       ◄─ no alloc      │
+  │       event.serialize_into(ctx, &payload_buf) │
+  │       event.write_partition_key(ctx, &key_buf)│
+  │       producer.send(...)                     │
+  └──────────────────────────────────────────────┘
+```
 
 ### Skip mechanisms
 
@@ -165,13 +244,25 @@ Callers have two orthogonal ways to prevent an event from being produced:
 
 Headers are built in two layers to avoid redundant work per event:
 
-1. **Batch-level** -- `build_context_headers(ctx)` produces `token`, `now`,
-   and optionally `historical_migration`. Called once per batch.
-2. **Event-level** -- `event.headers()` returns per-event metadata.
+```text
+  ┌──────────────────────────────────────────┐
+  │ Batch-level (once per batch)             │
+  │   build_context_headers(ctx)             │
+  │   → token, now, historical_migration?    │
+  └──────────────────┬───────────────────────┘
+                     │  merged per-event
+  ┌──────────────────▼───────────────────────┐
+  │ Event-level (per event)                  │
+  │   event.headers()                        │
+  │   → distinct_id, event, uuid, timestamp, │
+  │     session_id?, force_disable_*?,       │
+  │     dlq_reason/step/timestamp? (if DLQ)  │
+  └──────────────────────────────────────────┘
+```
 
 The sink merges both into transport-specific format (e.g. Kafka
 `OwnedHeaders`) inline during the enqueue phase. There is no separate
-merge function.
+merge function — headers are appended sequentially into `OwnedHeaders`.
 
 ---
 
@@ -184,15 +275,15 @@ inspecting per-event publish outcomes:
 
 ```rust
 pub trait SinkResult: Send + Sync {
-    fn key(&self) -> &str;              // event UUID -- correlation key
-    fn outcome(&self) -> Outcome;       // Success | Timeout | RetriableError | FatalError
-    fn cause(&self) -> Option<&'static str>;  // low-cardinality metric tag
-    fn detail(&self) -> Option<Cow<'_, str>>; // human-readable error detail
+    fn key(&self) -> Uuid;                         // event UUID — correlation key
+    fn outcome(&self) -> Outcome;                  // Success | Timeout | RetriableError | FatalError
+    fn cause(&self) -> Option<&'static str>;       // low-cardinality metric tag
+    fn detail(&self) -> Option<Cow<'_, str>>;      // human-readable error detail
     fn elapsed(&self) -> Option<chrono::Duration>; // enqueue-to-ack latency
 }
 ```
 
-`publish_batch` returns `Vec<Box<dyn SinkResult>>` -- one entry per
+`publish_batch` returns `Vec<Box<dyn SinkResult>>` — one entry per
 published event. The trait-object approach keeps the `Sink` trait fully
 backend-agnostic: callers never need to know which backend produced a
 result. The per-event heap allocation is a deliberate trade-off for
@@ -217,14 +308,14 @@ pub enum Outcome {
 
 ```rust
 pub struct KafkaResult {
-    uuid_key: String,
+    uuid: Uuid,
     error: Option<KafkaSinkError>,
     enqueued_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
 }
 ```
 
-Outcome is derived from the error -- `None` means `Success`, otherwise
+Outcome is derived from the error — `None` means `Success`, otherwise
 `KafkaSinkError::outcome()` maps to the appropriate `Outcome` variant.
 
 ### KafkaSinkError
@@ -252,7 +343,7 @@ pub struct BatchSummary {
     pub retriable: usize,
     pub fatal: usize,
     pub timed_out: usize,
-    pub errors: HashMap<String, usize>,  // cause tag -> count
+    pub errors: HashMap<String, usize>,  // cause tag → count
 }
 ```
 
@@ -260,7 +351,7 @@ pub struct BatchSummary {
 classDiagram
     class SinkResult {
         <<trait>>
-        +key() str
+        +key() Uuid
         +outcome() Outcome
         +cause() Option~str~
         +detail() Option~Cow str~
@@ -268,7 +359,7 @@ classDiagram
     }
 
     class KafkaResult {
-        -uuid_key: String
+        -uuid: Uuid
         -error: Option~KafkaSinkError~
         -enqueued_at: DateTime
         -completed_at: Option~DateTime~
@@ -293,68 +384,73 @@ classDiagram
 
 ## 4. Three-phase publish pipeline
 
-`KafkaSink::publish_batch` processes events in three phases,
-returning a `Vec<Box<dyn SinkResult>>` where each entry corresponds
-1:1 to a published event.
+`KafkaSink::publish_batch` (`kafka/sink.rs`) processes events in three
+phases, returning a `Vec<Box<dyn SinkResult>>` where each entry
+corresponds 1:1 to a published event.
 
-```mermaid
-sequenceDiagram
-    participant Caller
-    participant KafkaSink
-    participant FuturesUnordered
-    participant Producer
-
-    Note over KafkaSink: Pre-flight: health gate
-    KafkaSink->>Producer: is_ready()?
-    alt not ready
-        KafkaSink-->>Caller: reject all publishable with SinkUnavailable
-    end
-
-    Note over KafkaSink: Phase 1: Enqueue (sequential)
-    KafkaSink->>KafkaSink: build_context_headers(ctx) once
-    loop each event
-        KafkaSink->>KafkaSink: should_publish? destination? topic_for?
-        alt skip
-            KafkaSink->>KafkaSink: continue (no result)
-        else publishable
-            KafkaSink->>KafkaSink: serialize_into(buf), write_partition_key(buf)
-            KafkaSink->>KafkaSink: merge headers into OwnedHeaders
-            loop enqueue retries (up to enqueue_retry_max)
-                KafkaSink->>Producer: send(ProduceRecord)
-                alt Ok(ack_future)
-                    KafkaSink->>FuturesUnordered: push async ack
-                else Err QueueFull + retries left
-                    KafkaSink->>KafkaSink: sleep(enqueue_poll_ms), retry
-                else Err final
-                    KafkaSink->>KafkaSink: results.push(KafkaResult err)
-                end
-            end
-        end
-    end
-
-    Note over KafkaSink: Phase 2: Drain acks (concurrent, with deadline)
-    loop while pending not empty
-        KafkaSink->>FuturesUnordered: timeout_at(deadline, next())
-        alt ack resolved Ok
-            KafkaSink->>KafkaSink: results.push(KafkaResult ok + completed_at)
-        else ack resolved Err
-            KafkaSink->>KafkaSink: results.push(KafkaResult err + completed_at)
-        else deadline exceeded
-            Note over KafkaSink: break to Phase 3
-        end
-    end
-
-    Note over KafkaSink: Phase 3: Sweep timed-out keys
-    KafkaSink->>KafkaSink: enqueued_keys minus resolved_keys = timed_out
-    loop timed_out keys
-        KafkaSink->>KafkaSink: results.push(KafkaResult Timeout)
-    end
-
-    KafkaSink->>KafkaSink: BatchSummary, log, metrics, health heartbeat
-    KafkaSink-->>Caller: Vec of Box dyn SinkResult
+```text
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ Pre-flight: health gate                                         │
+  │                                                                 │
+  │   producer.is_ready()?                                          │
+  │   ├── not ready → reject ALL publishable as SinkUnavailable     │
+  │   └── ready → proceed                                           │
+  └──────────────────────────┬───────────────────────────────────────┘
+                             │
+  ┌──────────────────────────▼───────────────────────────────────────┐
+  │ Phase 1: Enqueue (sequential, per-partition ordering preserved)  │
+  │                                                                 │
+  │   build_context_headers(ctx)              ◄─ once per batch     │
+  │                                                                 │
+  │   for each event:                                               │
+  │     ├── should_publish()? → skip if false                       │
+  │     ├── topic_for(destination)? → skip if Drop/None             │
+  │     ├── serialize_into(ctx, payload_buf)                        │
+  │     ├── write_partition_key(ctx, key_buf)                       │
+  │     ├── merge context + event headers → OwnedHeaders            │
+  │     └── producer.send(ProduceRecord)                            │
+  │           ├── Ok(ack_future) → push to FuturesUnordered         │
+  │           ├── Err(QueueFull) + retries left → sleep, retry      │
+  │           └── Err(final) → results.push(KafkaResult err)        │
+  └──────────────────────────┬───────────────────────────────────────┘
+                             │
+  ┌──────────────────────────▼───────────────────────────────────────┐
+  │ Phase 2: Drain acks (concurrent, bounded by produce_timeout)    │
+  │                                                                 │
+  │   deadline = now + produce_timeout                              │
+  │                                                                 │
+  │   loop:                                                         │
+  │     timeout_at(deadline, pending.next())                        │
+  │     ├── Ok(ack resolved)  → results.push(ok or err + completed) │
+  │     ├── Ok(None)          → all drained, break                  │
+  │     └── Err(deadline)     → break to Phase 3                    │
+  └──────────────────────────┬───────────────────────────────────────┘
+                             │
+  ┌──────────────────────────▼───────────────────────────────────────┐
+  │ Phase 3: Sweep timed-out keys                                   │
+  │                                                                 │
+  │   enqueued_keys ∖ resolved_keys = timed_out                     │
+  │   for each: results.push(KafkaResult::Timeout)                  │
+  │                                                                 │
+  │   (dropping remaining FuturesUnordered is safe — they are       │
+  │    oneshot::Receivers; the message still completes in            │
+  │    librdkafka via message.timeout.ms)                           │
+  └──────────────────────────┬───────────────────────────────────────┘
+                             │
+  ┌──────────────────────────▼───────────────────────────────────────┐
+  │ Post-batch: summarize, log, emit metrics, health heartbeat      │
+  │                                                                 │
+  │   BatchSummary::from_results(&results)                          │
+  │   log at DEBUG (all ok) / WARN (partial) / ERROR (full failure) │
+  │   emit capture_v1_kafka_produce_errors_total per error tag      │
+  │   if succeeded > 0 → handle.report_healthy()                    │
+  └──────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+                     Vec<Box<dyn SinkResult>>
 ```
 
-### Phase 1 -- Enqueue
+### Phase 1 — Enqueue
 
 Events are sent sequentially to preserve per-partition ordering. Two
 reusable `String` buffers (`payload_buf`, `key_buf`) are cleared and
@@ -366,7 +462,13 @@ If `producer.send()` returns `QueueFull`, the sink retries up to
 rdkafka's background thread time to drain in-flight deliveries. Metrics
 track recovery vs exhaustion via `capture_v1_kafka_queue_full_retries_total`.
 
-### Phase 2 -- Drain
+An empty partition key buffer signals the event requested no partition
+key (e.g. `force_disable_person_processing` on `AnalyticsMain`). In that
+case `None` is passed to rdkafka so it round-robins; passing `Some("")`
+would hash to a single deterministic partition via murmur2, creating a
+hot partition.
+
+### Phase 2 — Drain
 
 A `FuturesUnordered` stream is drained under a per-sink `produce_timeout`
 deadline using `tokio::time::timeout_at`. Each resolved future yields
@@ -374,11 +476,11 @@ either a success or an ack-level error, both stamped with `completed_at`
 for latency measurement.
 
 `FuturesUnordered` is chosen over `JoinSet` because the ack futures are
-`DeliveryFuture` (oneshot receivers) -- pure I/O waits with no CPU work.
+`DeliveryFuture` (oneshot receivers) — pure I/O waits with no CPU work.
 Polling them inline in a single task is strictly cheaper than spawning
 real tokio tasks.
 
-### Phase 3 -- Sweep
+### Phase 3 — Sweep
 
 Any keys in `enqueued_keys` not present in `resolved_keys` after the
 deadline are recorded as `KafkaSinkError::Timeout`.
@@ -397,7 +499,7 @@ The caller correlates results back to original events using
 | Method | HTTP response use |
 |---|---|
 | `key()` | Match result to request event by UUID |
-| `outcome()` | Map to HTTP status (Success -> 2xx, Retriable -> 503, Fatal -> 4xx) |
+| `outcome()` | Map to HTTP status (Success → 2xx, Retriable → 503, Fatal → 4xx) |
 | `cause()` | Optional error code in response body |
 | `detail()` | Optional human-readable error message |
 | `elapsed()` | Optional latency metadata |
@@ -432,27 +534,34 @@ into two maps by the `KAFKA_` sub-prefix:
 
 | Sub-prefix | Destination | Example |
 |---|---|---|
-| `KAFKA_*` | `kafka::config::Config` (Envconfig) | `KAFKA_HOSTS` -> field `hosts` |
-| everything else | Sink-level config | `PRODUCE_TIMEOUT_MS` -> `produce_timeout` |
+| `KAFKA_*` | `kafka::config::Config` (Envconfig) | `KAFKA_HOSTS` → field `hosts` |
+| everything else | Sink-level config | `PRODUCE_TIMEOUT_MS` → `produce_timeout` |
 
 This makes the transport-specific config composable: a future S3
 sink would use an `S3_` sub-prefix alongside `PRODUCE_TIMEOUT_MS`.
 
-```mermaid
-flowchart LR
-    env["Environment variables"]
-    csv["CAPTURE_V1_SINKS CSV"]
-    lsf["load_sinks_from()"]
-    lsc["load_sink_config()"]
-    sc["Config<br>produce_timeout<br>kafka: kafka::Config"]
-    sinks["Sinks<br>default: SinkName<br>configs: HashMap"]
-
-    env --> lsf
-    csv --> lsf
-    lsf -->|"per name"| lsc
-    lsc -->|"KAFKA_ keys"| sc
-    lsc -->|"sink-level keys"| sc
-    sc --> sinks
+```text
+  Environment variables
+  ─────────────────────
+        │
+        ▼
+  CAPTURE_V1_SINKS CSV ──▶ load_sinks_from()
+        │                         │
+        │                    per SinkName
+        ▼                         ▼
+  ["msk", "ws"]           load_sink_config(name, env)
+                                  │
+                    ┌─────────────┼──────────────┐
+                    │ KAFKA_* keys               │ sink-level keys
+                    ▼                            ▼
+            kafka::config::Config         produce_timeout, etc.
+                    │                            │
+                    └──────────┬─────────────────┘
+                               ▼
+                        Config { produce_timeout, kafka }
+                               │
+                               ▼
+                   Sinks { default, configs: HashMap }
 ```
 
 ### Config structs
@@ -471,11 +580,57 @@ pub struct Sinks {
 }
 ```
 
+### kafka::config::Config fields
+
+The Kafka-specific config is loaded via `Envconfig::init_from_hashmap`.
+Sensible prod defaults are set for every field so a minimal deployment
+only needs to specify hosts and topics.
+
+| Field | Default | rdkafka property | Notes |
+|---|---|---|---|
+| `hosts` | _(required)_ | `bootstrap.servers` | Comma-separated broker list |
+| `tls` | `false` | `security.protocol` | `ssl` when true |
+| `client_id` | `""` | `client.id` | Set only when non-empty |
+| `linger_ms` | `20` | `linger.ms` | Batch accumulation window |
+| `queue_mib` | `400` | `queue.buffering.max.kbytes` | Converted: MiB × 1024 → KiB |
+| `message_timeout_ms` | `30000` | `message.timeout.ms` | ~6 retry cycles at 5s socket timeout |
+| `message_max_bytes` | `1000000` | `message.max.bytes` | Per-message size limit |
+| `compression_codec` | `lz4` | `compression.codec` | `none\|gzip\|snappy\|lz4\|zstd` |
+| `acks` | `all` | `acks` | `0\|1\|-1\|all` |
+| `enable_idempotence` | `false` | `enable.idempotence` | |
+| `batch_num_messages` | `10000` | `batch.num.messages` | |
+| `batch_size` | `1000000` | `batch.size` | Bytes |
+| `metadata_refresh_interval_ms` | `5000` | `topic.metadata.refresh.interval.ms` | Fast leader discovery on failover |
+| `metadata_max_age_ms` | `15000` | `metadata.max.age.ms` | Must be ≥ 3× refresh interval |
+| `socket_timeout_ms` | `5000` | `socket.timeout.ms` | Fast dead-broker detection |
+| `statistics_interval_ms` | `10000` | `statistics.interval.ms` | Drives health heartbeat |
+| `partitioner` | `murmur2_random` | `partitioner` | v0 parity (python-kafka compat) |
+| `max_retries` | `4` | `message.send.max.retries` | Tuned for MSK failover |
+| `max_in_flight_requests` | `1000000` | `max.in.flight.requests.per.connection` | |
+| `sticky_partitioning_linger_ms` | `10` | `sticky.partitioning.linger.ms` | Keyless message distribution |
+| `enqueue_retry_max` | `3` | _(application-level)_ | QueueFull backpressure retries |
+| `enqueue_poll_ms` | `33` | _(application-level)_ | Pause between QueueFull retries |
+| `topic_main` | _(required)_ | — | Analytics main topic |
+| `topic_historical` | _(required)_ | — | Historical migration topic |
+| `topic_overflow` | _(required)_ | — | Overflow topic |
+| `topic_dlq` | _(required)_ | — | Dead letter queue topic |
+
+Topic resolution is handled by `Config::topic_for(&Destination)`:
+
+| Destination | Topic |
+|---|---|
+| `AnalyticsMain` | `topic_main` |
+| `AnalyticsHistorical` | `topic_historical` |
+| `Overflow` | `topic_overflow` |
+| `Dlq` | `topic_dlq` |
+| `Custom(t)` | `t` (passthrough) |
+| `Drop` | `None` (skip) |
+
 ### Validation
 
-`Config::validate()` enforces:
+`Config::validate()` (sink-level) enforces:
 
-- `produce_timeout >= message_timeout_ms` -- prevents ghost deliveries
+- `produce_timeout >= message_timeout_ms` — prevents ghost deliveries
   where librdkafka delivers a message after the application has already
   timed out and reported failure.
 - Delegates to `kafka::Config::validate()`.
@@ -484,10 +639,10 @@ pub struct Sinks {
 
 - Non-empty `hosts`
 - `queue_mib > 0`
-- `acks` in `{0, 1, -1, all}`
-- `compression_codec` in `{none, gzip, snappy, lz4, zstd}`
+- `acks` ∈ `{0, 1, -1, all}`
+- `compression_codec` ∈ `{none, gzip, snappy, lz4, zstd}`
 - `statistics_interval_ms > 0` (0 disables stats, breaking health heartbeat)
-- `metadata_max_age_ms >= 3x metadata_refresh_interval_ms`
+- `metadata_max_age_ms >= 3× metadata_refresh_interval_ms`
 
 `Sinks::validate()` ensures at least one sink is configured and
 delegates to each `Config::validate()`.
@@ -520,19 +675,19 @@ pub trait KafkaProducerTrait: Send + Sync {
 
 This trait abstracts the Kafka producer for testability. `KafkaProducer`
 is the real implementation wrapping `FutureProducer<KafkaContext>`;
-`MockProducer` is the test implementation (see [section 9](#9-testing)).
+`MockProducer` is the test implementation (see [section 11](#11-testing)).
 
 ### KafkaProducer
 
 Constructed by `KafkaProducer::new(sink, &KafkaConfig, handle, capture_mode)`:
 
 1. Builds a `ClientConfig` from `kafka::config::Config` fields,
-   mapping `queue_mib` to `queue.buffering.max.kbytes` (MiB -> KB).
+   mapping `queue_mib` to `queue.buffering.max.kbytes` (MiB → KiB).
 2. Creates `FutureProducer<KafkaContext>` via `create_with_context`.
 3. Performs an initial `fetch_metadata(None, 10s)` probe. On success,
    calls `handle.report_healthy()`. On failure, logs an error and
    increments `capture_v1_kafka_client_errors_total` with tag
-   `metadata_fetch_failed` -- but still returns the producer (it may
+   `metadata_fetch_failed` — but still returns the producer (it may
    recover via background metadata refresh).
 
 ### ProduceRecord and SendHandle
@@ -549,12 +704,12 @@ pub struct ProduceRecord<'a> {
 `send()` converts this to a `FutureRecord` and calls `send_result()`.
 On success it returns a `SendHandle` wrapping rdkafka's `DeliveryFuture`.
 On failure it returns the `ProduceRecord` back to the caller (enabling
-the QueueFull retry loop).
+the QueueFull retry loop without reallocating the message).
 
 `SendHandle` implements `Future` and maps rdkafka delivery outcomes:
 
-- Channel closed -> `ProduceError::DeliveryCancelled` (retriable)
-- Kafka error -> `ProduceError::Kafka { code, retriable }` or
+- Channel closed → `ProduceError::DeliveryCancelled` (retriable)
+- Kafka error → `ProduceError::Kafka { code, retriable }` or
   `ProduceError::EventTooBig` for `MessageSizeTooLarge`
 
 ### ProduceError
@@ -578,12 +733,12 @@ Fatal (non-retriable) Kafka codes: `MessageSizeTooLarge`,
 
 `lifecycle::Handle` provides a heartbeat-based health model:
 
-- `report_healthy()` -- resets the liveness timer
-- `is_healthy()` -- returns `true` if a heartbeat arrived within the
+- `report_healthy()` — resets the liveness timer
+- `is_healthy()` — returns `true` if a heartbeat arrived within the
   liveness deadline
 
 There is no explicit `report_unhealthy()`. Unhealthy state is inferred
-from **missed heartbeats** -- if no source calls `report_healthy()` within
+from **missed heartbeats** — if no source calls `report_healthy()` within
 `SINK_LIVENESS_DEADLINE` (30s), the handle is considered stalled.
 
 ### Heartbeat sources
@@ -600,32 +755,31 @@ Three independent sources feed the same `Handle`:
 
 From `constants.rs`, the worst-case detection sequence:
 
-```mermaid
-gantt
-    title Health detection timing (worst case)
-    dateFormat X
-    axisFormat %Ls
-
-    section Heartbeat
-    Last healthy heartbeat           :milestone, 0, 0
-
-    section publish_batch
-    Batch runs, produce_timeout 30s  :active, 0, 30
-
-    section stats_callback
-    Stats fires, 10s interval        :crit, 10, 20
-    Stats fires again                :crit, 20, 30
-
-    section Detection
-    Liveness deadline expires, 30s   :milestone, 30, 30
-    Health poll detects stall        :milestone, 32, 32
+```text
+  t=0s              t=10s             t=20s             t=30s    t=32s
+  │                 │                 │                 │        │
+  │  Last healthy   │  stats fires    │  stats fires    │        │
+  │  heartbeat      │  (brokers down) │  (brokers down) │        │
+  │                 │                 │                 │        │
+  ├─────────────────┼─────────────────┼─────────────────┤        │
+  │  publish_batch running for up to produce_timeout=30s│        │
+  │  (0 successes → no heartbeat)                       │        │
+  │                                                     │        │
+  │                                         liveness    │        │
+  │                                         deadline    │ health │
+  │                                         expires ────┤ poll   │
+  │                                                     │detects │
+  │                                                     │ stall  │
+  │                                                     │        │
+  │                                                     │shutdown│
+  └─────────────────────────────────────────────────────┴────────┘
 ```
 
 1. Last successful heartbeat at t=0
 2. `publish_batch` runs for up to `produce_timeout` (30s), returns with
-   0 successes -- no heartbeat
+   0 successes — no heartbeat
 3. Stats callback fires every `statistics_interval_ms` (10s) but all
-   brokers are down -- no heartbeat
+   brokers are down — no heartbeat
 4. At t=30s `SINK_LIVENESS_DEADLINE` expires
 5. Next health poll (within 2s) detects
    `stall_count >= SINK_STALL_THRESHOLD` (1)
@@ -688,11 +842,11 @@ request-level context (`path`, `attempt`).
 
 All error-related metrics use stable, low-cardinality tags derived from:
 
-- `error_code_tag()` -- maps `RDKafkaErrorCode` variants to snake_case strings
+- `error_code_tag()` — maps `RDKafkaErrorCode` variants to snake_case strings
   (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`)
-- `KafkaSinkError::as_tag()` -- sink-level tags
+- `KafkaSinkError::as_tag()` — sink-level tags
   (e.g. `sink_unavailable`, `serialization_failed`, `timeout`)
-- `ProduceError::as_tag()` -- producer-level tags
+- `ProduceError::as_tag()` — producer-level tags
   (e.g. `event_too_big`, `delivery_cancelled`)
 
 ### Structured logging
@@ -711,7 +865,181 @@ All error-related metrics use stable, low-cardinality tags derived from:
 
 ---
 
-## 9. Testing
+## 9. Destination routing and partition key resolution
+
+### Destination
+
+The `Destination` enum (`types.rs`) represents the semantic routing
+target for a processed event, _before_ any Kafka-specific topic
+resolution:
+
+```rust
+pub enum Destination {
+    AnalyticsMain,        // normal analytics events
+    AnalyticsHistorical,  // historical migration imports
+    Overflow,             // overflow-routed events
+    Dlq,                  // dead letter queue (event restriction)
+    Custom(String),       // custom topic passthrough
+    Drop,                 // do not produce
+}
+```
+
+Topic resolution happens inside `kafka::config::Config::topic_for()`,
+keeping the Sink trait unaware of topic names.
+
+### Partition key resolution (WrappedEvent)
+
+```text
+  ┌───────────────────────────────────────────────────┐
+  │ write_partition_key(ctx, buf)                      │
+  │                                                    │
+  │   force_disable_person_processing                  │
+  │   AND destination ∈ {Main, Overflow}?              │
+  │   ├── yes → return "" (empty = round-robin)        │
+  │   └── no ──┐                                       │
+  │            │                                       │
+  │   cookieless_mode?                                 │
+  │   ├── yes, capture_internal → "token:127.0.0.1"   │
+  │   ├── yes, normal           → "token:client_ip"   │
+  │   └── no                    → "token:distinct_id"  │
+  └───────────────────────────────────────────────────┘
+```
+
+Key design choices:
+
+- **Empty key = round-robin.** An empty buffer signals "no key" to the
+  sink. The sink passes `None` to rdkafka, which round-robins across
+  partitions. Passing `Some("")` would hash to a single partition via
+  murmur2, creating a hot spot.
+- **DLQ/Historical/Custom retain key** even when
+  `force_disable_person_processing` is set — only Main and Overflow
+  drop the key, matching v0 behavior.
+- **Cookieless mode** uses `token:client_ip` as partition key instead
+  of `token:distinct_id`, with IP redacted to `127.0.0.1` for
+  `capture_internal` requests.
+
+---
+
+## 10. Analytics event serialization
+
+The `v1::analytics::WrappedEvent` is the concrete `Event` implementation
+for the analytics capture endpoint. It bridges the new v1 event schema
+(`Event`, `Options`, raw `properties`) to the legacy `IngestionEvent`
+shape that downstream ingestion workers expect.
+
+### Data flow
+
+```text
+  ┌─────────────────────────┐
+  │  Inbound v1 Request     │
+  │                         │
+  │  Batch {                │
+  │    created_at,          │
+  │    historical_migration,│
+  │    batch: [Event, ...]  │
+  │  }                      │
+  └───────────┬─────────────┘
+              │ parse + validate
+              ▼
+  ┌─────────────────────────┐
+  │  WrappedEvent           │
+  │                         │
+  │  event: Event {         │      ┌───────────────────────┐
+  │    event, uuid,         │      │  Event::Options       │
+  │    distinct_id,         │      │    cookieless_mode     │
+  │    timestamp,           │      │    disable_skew_adjust │
+  │    session_id?,         │      │    product_tour_id     │
+  │    window_id?,          │      │    process_person_prof │
+  │    options ─────────────┼─────▶└───────────────────────┘
+  │    properties (RawValue)│
+  │  }                      │
+  │  uuid: Uuid (pre-parsed)│
+  │  adjusted_timestamp     │
+  │  result: EventResult    │
+  │  destination: Destination│
+  │  force_disable_*        │
+  └───────────┬─────────────┘
+              │ serialize_into(ctx, buf)
+              ▼
+  ┌──────────────────────────────┐
+  │  IngestionEvent (Kafka msg)  │
+  │                              │
+  │  uuid, distinct_id, ip,     │
+  │  token, event, timestamp,   │
+  │  now, sent_at,              │
+  │  is_cookieless_mode,        │
+  │  historical_migration,      │
+  │  data: IngestionData (JSON) │
+  │    ├── event                 │
+  │    ├── distinct_id           │
+  │    ├── uuid                  │
+  │    ├── timestamp (original)  │
+  │    └── properties (merged)   │
+  │        ├── original props    │
+  │        ├── $session_id       │
+  │        ├── $window_id        │
+  │        ├── $cookieless_mode  │
+  │        ├── $ignore_sent_at   │
+  │        ├── $product_tour_id  │
+  │        └── $process_person_* │
+  └──────────────────────────────┘
+```
+
+### Property injection (surgery)
+
+The v1 schema promotes `session_id`, `window_id`, and `Options` fields
+to typed, top-level event fields. Legacy ingestion workers expect these
+inside `event.properties` under `$`-prefixed keys.
+
+Rather than deserializing the entire properties blob (which is forwarded
+as opaque `Box<RawValue>`), `build_property_injections` performs
+string-level JSON surgery:
+
+1. Build a comma-separated fragment of `"$key":value` pairs for
+   non-`None` option fields.
+2. If the fragment is non-empty, splice it into the raw JSON object
+   just before the closing `}`.
+3. Validate the result via `RawValue::from_string`.
+
+This avoids a full `serde_json::Value` round-trip and preserves the
+original property ordering and formatting.
+
+| v1 field | Injected property key | Notes |
+|---|---|---|
+| `session_id` | `$session_id` | |
+| `window_id` | `$window_id` | |
+| `options.cookieless_mode` | `$cookieless_mode` | |
+| `options.disable_skew_adjustment` | `$ignore_sent_at` | Legacy rename |
+| `options.product_tour_id` | `$product_tour_id` | |
+| `options.process_person_profile` | `$process_person_profile` | |
+
+### IngestionEvent / IngestionData
+
+`IngestionEvent` is the Kafka message payload, field-order-compatible
+with `common_types::CapturedEvent` so downstream deserializers work
+unchanged.
+
+`IngestionData` is the double-encoded `data` field within
+`IngestionEvent`. It carries the event name, distinct_id, uuid,
+original (un-adjusted) timestamp, and the merged properties blob.
+
+Fields intentionally omitted vs the legacy `RawEvent`:
+
+| Omitted field | Reason |
+|---|---|
+| `token` | v1 uses Authorization header; downstream handles absence |
+| `offset` | Dead field; Node.js ingestion parses but never reads it |
+| `$set`/`$set_once` (top-level) | Legacy Python SDK cruft; v1 schema sends these inside `properties` |
+
+### IP redaction
+
+`capture_internal` requests (PostHog's own telemetry) have their IP
+redacted to `127.0.0.1` in both `serialize_into` (the `ip` field on
+`IngestionEvent`) and `write_partition_key` (cookieless mode).
+
+---
+
+## 11. Testing
 
 ### KafkaProducerTrait enables mock injection
 
@@ -737,7 +1065,36 @@ and `record_count()`.
 ### Test infrastructure (sink_tests.rs)
 
 `FakeEvent` implements `Event` with configurable destination, publish
-flag, and serialization. `TestHarness` / `HarnessBuilder` wrap sink
-construction with a `lifecycle::Manager` so tests can verify health
-heartbeat interactions (e.g. confirming `report_healthy()` is called
-after successful batches, and not called after failures).
+flag, partition key, payload (including injectable serialization errors),
+and headers.
+
+`TestHarness` / `HarnessBuilder` wrap sink construction with a
+`lifecycle::Manager` so tests can verify health heartbeat interactions.
+Builder options include:
+
+| Builder method | Controls |
+|---|---|
+| `produce_timeout(d)` | Per-sink ack deadline |
+| `send_error(fn)` | Inject send-path errors |
+| `send_error_count(n)` | Limit send errors to first `n` |
+| `ack_error(fn)` | Inject ack-path errors |
+| `ack_delay(d)` | Simulate slow acks / timeouts |
+| `not_ready()` | Producer health gate fails |
+| `with_liveness(deadline, poll)` | Custom liveness timing for health tests |
+| `enqueue_retry_max(n)` | QueueFull retry budget |
+| `enqueue_poll_ms(ms)` | QueueFull retry pause |
+
+### Analytics event serialization tests
+
+`v1::analytics::types` has a comprehensive test suite validating:
+
+- **Round-trip parity**: `WrappedEvent::serialize_into` output
+  deserializes as `common_types::CapturedEvent` + `RawEvent`, verifying
+  field-by-field compatibility with legacy capture.
+- **Property injection**: all option fields are correctly injected into
+  properties with `$`-prefixed keys.
+- **IP redaction**: `capture_internal` → `127.0.0.1`.
+- **Partition key × destination × person-processing matrix**: key
+  presence/absence for all combinations.
+- **Header completeness**: distinct_id, event, uuid, timestamp,
+  session_id, force_disable_*, DLQ headers.
