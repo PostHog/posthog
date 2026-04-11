@@ -60,7 +60,7 @@ async def run_ingestion_acceptance_tests() -> dict:
             asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
             timeout=config.activity_timeout_seconds,
         )
-    except TimeoutError:
+    except asyncio.TimeoutError:
         still_running = running_tests.snapshot_with_polls(client)
         send_slack_timeout_notification(config, running_tests=still_running)
         raise
