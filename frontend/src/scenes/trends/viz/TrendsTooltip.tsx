@@ -7,7 +7,7 @@ import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insig
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import type { TrendsSeriesMeta } from './TrendsLineChartD3'
+import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 
 interface TrendsTooltipProps {
     context: TooltipContext<TrendsSeriesMeta>

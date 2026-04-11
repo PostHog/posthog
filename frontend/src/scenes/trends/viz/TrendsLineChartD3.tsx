@@ -7,28 +7,19 @@ import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ActionFilter, ChartDisplayType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
-
-export type TrendsSeriesMeta = {
-    action?: ActionFilter
-    breakdown_value?: string | number | string[]
-    compare_label?: SeriesDatum['compare_label']
-    days?: string[]
-    order?: number
-    filter?: SeriesDatum['filter']
-}
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
