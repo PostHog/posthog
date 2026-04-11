@@ -91,6 +91,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
                     uuid,
                     WrappedEvent {
                         event,
+                        uuid,
                         adjusted_timestamp: Some(adjusted),
                         result: EventResult::Ok,
                         details: None,
@@ -104,6 +105,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
                     uuid,
                     WrappedEvent {
                         event,
+                        uuid,
                         adjusted_timestamp: None,
                         result: EventResult::Drop,
                         details: Some(err.tag()),

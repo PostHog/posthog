@@ -63,10 +63,11 @@ pub fn valid_event() -> Event {
 }
 
 pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
+    let uuid = Uuid::new_v4();
     WrappedEvent {
         event: Event {
             event: event_name.to_string(),
-            uuid: Uuid::new_v4().to_string(),
+            uuid: uuid.to_string(),
             distinct_id: distinct_id.to_string(),
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
             session_id: None,
@@ -74,6 +75,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
             options: default_options(),
             properties: raw_obj("{}"),
         },
+        uuid,
         adjusted_timestamp: Some(
             DateTime::parse_from_rfc3339("2026-03-19T14:29:58.123Z")
                 .unwrap()
@@ -87,10 +89,11 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
 }
 
 pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
+    let uuid = Uuid::new_v4();
     WrappedEvent {
         event: Event {
             event: "$pageview".to_string(),
-            uuid: Uuid::new_v4().to_string(),
+            uuid: uuid.to_string(),
             distinct_id: "user-1".to_string(),
             timestamp: timestamp.to_rfc3339(),
             session_id: None,
@@ -98,6 +101,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
             options: default_options(),
             properties: raw_obj("{}"),
         },
+        uuid,
         adjusted_timestamp: Some(timestamp),
         result: EventResult::Ok,
         details: None,
@@ -107,10 +111,11 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
 }
 
 pub fn malformed_wrapped_event() -> WrappedEvent {
+    let uuid = Uuid::new_v4();
     WrappedEvent {
         event: Event {
             event: String::new(),
-            uuid: Uuid::new_v4().to_string(),
+            uuid: uuid.to_string(),
             distinct_id: "user-1".to_string(),
             timestamp: "bad".to_string(),
             session_id: None,
@@ -118,6 +123,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
             options: default_options(),
             properties: raw_obj("{}"),
         },
+        uuid,
         adjusted_timestamp: None,
         result: EventResult::Drop,
         details: Some("missing_event_name"),
@@ -127,10 +133,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
 }
 
 pub fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
-    events
-        .into_iter()
-        .map(|e| (Uuid::parse_str(e.event.uuid()).unwrap(), e))
-        .collect()
+    events.into_iter().map(|e| (e.uuid, e)).collect()
 }
 
 pub fn find_by_did<'a>(

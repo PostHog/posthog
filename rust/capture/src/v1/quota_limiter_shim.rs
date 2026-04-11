@@ -269,10 +269,11 @@ mod tests {
     }
 
     fn make_event(name: &str, product_tour_id: Option<&str>) -> WrappedEvent {
+        let uuid = Uuid::now_v7();
         WrappedEvent {
             event: Event {
                 event: name.to_string(),
-                uuid: Uuid::now_v7().to_string(),
+                uuid: uuid.to_string(),
                 distinct_id: "test_user".to_string(),
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
@@ -285,6 +286,7 @@ mod tests {
                 },
                 properties: RawValue::from_string("{}".to_owned()).unwrap(),
             },
+            uuid,
             adjusted_timestamp: Some(
                 DateTime::parse_from_rfc3339("2026-03-26T12:00:00Z")
                     .unwrap()
