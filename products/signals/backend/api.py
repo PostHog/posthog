@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from django.conf import settings
 
+import logging
+
 import tiktoken
 import temporalio
 
@@ -16,8 +18,21 @@ from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
+logger = logging.getLogger(__name__)
+
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
-_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+_tiktoken_encoding: tiktoken.Encoding | None = None
+
+
+def _get_tiktoken_encoding() -> tiktoken.Encoding | None:
+    global _tiktoken_encoding
+    if _tiktoken_encoding is None:
+        try:
+            _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            logger.warning(f"Failed to initialize tiktoken encoding: {e}")
+            return None
+    return _tiktoken_encoding
 
 
 async def emit_signal(
@@ -66,7 +81,12 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(_tiktoken_encoding.encode(description))
+    enc = _get_tiktoken_encoding()
+    if enc is not None:
+        token_count = len(enc.encode(description))
+    else:
+        # Fallback: estimate ~4 chars per token
+        token_count = len(description) // 4
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
             f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
