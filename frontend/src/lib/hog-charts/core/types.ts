@@ -31,18 +31,6 @@ export interface Series<Meta = unknown> {
     meta?: Meta
 }
 
-/** A horizontal reference line drawn across the chart at a fixed y-value. */
-export interface GoalLine {
-    /** The y-axis value where the line is drawn. */
-    value: number
-    /** Optional text label displayed alongside the line. */
-    label?: string
-    /** CSS color for the line. Falls back to theme default if omitted. */
-    borderColor?: string
-    /** Which end of the line to anchor the label. Defaults to 'end'. */
-    position?: 'start' | 'end'
-}
-
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
 export interface PointClickData<Meta = unknown> {
     /** Index of the clicked series within the original series array. */
@@ -129,8 +117,6 @@ export interface ChartConfig {
     pinnableTooltip?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
-    /** Horizontal goal/reference lines to draw across the chart. */
-    goalLines?: GoalLine[]
 }
 
 export interface LineChartConfig extends ChartConfig {

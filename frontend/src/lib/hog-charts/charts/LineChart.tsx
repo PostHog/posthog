@@ -38,7 +38,7 @@ export function LineChart<Meta = unknown>({
     className,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false, goalLines } = config ?? {}
+    const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
     const hasAreaFill = useMemo(() => series.some((s) => s.fillArea), [series])
 
@@ -106,10 +106,7 @@ export function LineChart<Meta = unknown>({
             }
 
             if (showGrid) {
-                drawGrid(drawCtx, {
-                    gridColor: theme.gridColor,
-                    goalLineValues: goalLines?.map((g) => g.value),
-                })
+                drawGrid(drawCtx, { gridColor: theme.gridColor })
             }
 
             for (const s of coloredSeries) {
@@ -141,7 +138,7 @@ export function LineChart<Meta = unknown>({
                 }
             }
         },
-        [showGrid, goalLines, stackedData]
+        [showGrid, stackedData]
     )
 
     const resolveValue = useMemo(() => {

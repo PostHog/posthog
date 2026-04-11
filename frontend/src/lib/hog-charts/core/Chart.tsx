@@ -3,7 +3,6 @@ import React, { useMemo } from 'react'
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
-import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartContext } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
@@ -75,7 +74,6 @@ export function Chart<Meta = unknown>({
         showTooltip = true,
         pinnableTooltip = false,
         showCrosshair = false,
-        goalLines,
     } = config ?? {}
 
     const margins = useMemo<ChartMargins>(() => {
@@ -190,13 +188,11 @@ export function Chart<Meta = unknown>({
 
                             {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
-                            {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
+                            {children}
 
                             {tooltipCtx && showTooltip && (
                                 <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
                             )}
-
-                            {children}
                         </OverlayLayer>
                     )}
                 </div>
