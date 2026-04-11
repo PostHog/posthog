@@ -67,6 +67,14 @@ class Command(BaseCommand):
         apply_parser.add_argument("--force", action="store_true", default=False)
         apply_parser.add_argument("--yes", "-y", action="store_true", default=False, help="Skip confirmation prompt")
         apply_parser.add_argument("--cluster", type=str, default=None, help="Filter to a specific cluster")
+        apply_parser.add_argument(
+            "--continue-on-error",
+            action="store_true",
+            default=False,
+            help="Continue applying remaining steps after a failure instead of halting. "
+            "Prints a per-step failure summary at the end and still raises CommandError "
+            "if any step failed. Useful for surfacing all YAML data issues in one pass.",
+        )
 
         # generate -- scaffold schema YAML from template
         gen_parser = subparsers.add_parser("generate", help="Generate a schema YAML file from a template")
@@ -318,6 +326,9 @@ class Command(BaseCommand):
             print(reason)
             return
 
+        continue_on_error: bool = options.get("continue_on_error", False)
+        failures: list[tuple[int, str, str]] = []  # (step_index, step_name, error)
+
         try:
             steps = generate_manifest_steps(all_diffs)
             print(f"Applying {len(steps)} step(s)...\n")
@@ -327,41 +338,22 @@ class Command(BaseCommand):
                 print(f"  Step {i}: {step.comment}...", end=" ", flush=True)
                 checksum = hashlib.sha256(rendered_sql.encode()).hexdigest()
                 success = False
+                last_exc: Exception | None = None
                 for attempt in range(max_retries):
                     try:
                         execute_migration_step(cluster_obj, step, rendered_sql)
                         success = True
                         break
                     except Exception as exc:
+                        last_exc = exc
                         if attempt < max_retries - 1:
                             wait = 2**attempt
                             print(f"\n    Retry {attempt + 1}/{max_retries} in {wait}s: {exc}", flush=True)
                             time.sleep(wait)
-                        else:
-                            print(f"FAILED after {max_retries} attempts: {exc}")
-                            _record_step(
-                                client=client,
-                                record=StepRecord(
-                                    migration_number=0,
-                                    migration_name=step.comment or "reconcile",
-                                    step_index=i,
-                                    host=hostname,
-                                    node_role="*",
-                                    direction="up",
-                                    checksum=checksum,
-                                    success=False,
-                                ),
-                                database=database,
-                            )
-                            print("\nApply halted. Review the error and retry.")
-                            # Raise CommandError so the process exits non-zero.
-                            # The finally block still runs and releases the apply lock.
-                            raise CommandError(
-                                f"Apply failed on step {i} ({step.comment or 'reconcile'}): {exc}"
-                            )
 
-                if success:
-                    print("OK")
+                if not success:
+                    assert last_exc is not None
+                    print(f"FAILED after {max_retries} attempts: {last_exc}")
                     _record_step(
                         client=client,
                         record=StepRecord(
@@ -372,12 +364,51 @@ class Command(BaseCommand):
                             node_role="*",
                             direction="up",
                             checksum=checksum,
-                            success=True,
+                            success=False,
                         ),
                         database=database,
                     )
+                    failures.append((i, step.comment or "reconcile", str(last_exc)))
+
+                    if not continue_on_error:
+                        print("\nApply halted. Review the error and retry, "
+                              "or pass --continue-on-error to surface all failures.")
+                        # Raise CommandError so the process exits non-zero.
+                        # The finally block still runs and releases the apply lock.
+                        raise CommandError(
+                            f"Apply failed on step {i} ({step.comment or 'reconcile'}): {last_exc}"
+                        )
+                    # continue-on-error: keep going to the next step
+                    continue
+
+                print("OK")
+                _record_step(
+                    client=client,
+                    record=StepRecord(
+                        migration_number=0,
+                        migration_name=step.comment or "reconcile",
+                        step_index=i,
+                        host=hostname,
+                        node_role="*",
+                        direction="up",
+                        checksum=checksum,
+                        success=True,
+                    ),
+                    database=database,
+                )
         finally:
             release_apply_lock(client, database, hostname)
+
+        if failures:
+            # --continue-on-error path: print a grouped summary of every failure.
+            print(f"\n=== APPLY SUMMARY: {len(steps) - len(failures)} OK, {len(failures)} FAILED ===")
+            for idx, name, err in failures:
+                # Truncate very long CH stack traces to the first line of the exception
+                first_line = err.split("\n", 1)[0][:300]
+                print(f"  step {idx} {name}: {first_line}")
+            raise CommandError(
+                f"Apply finished with {len(failures)} failure(s) out of {len(steps)} step(s)"
+            )
 
         # Record the git commit hash of the schema that was applied
         try:
