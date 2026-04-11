@@ -494,6 +494,13 @@ def _compose_env(port: int) -> dict[str, str]:
         "SANDBOX_CLAUDE_JSON": str(_claude_json)
         if (_claude_json := Path.home() / ".claude.json").is_file()
         else "/dev/null",
+        # Host ~/.gitconfig — copied into the sandbox user's home at boot so
+        # git identity, aliases, and defaults match the host. Host-absolute
+        # paths (signing keys, credential helpers) may break inside the
+        # container; expand coverage as specific cases come up.
+        "SANDBOX_HOST_GITCONFIG": str(_host_gitconfig)
+        if (_host_gitconfig := Path.home() / ".gitconfig").is_file()
+        else "/dev/null",
         # Host-side source for the /ssh-agent bind mount — resolves to the
         # OrbStack/Docker Desktop magic path on macOS, $SSH_AUTH_SOCK on Linux,
         # or empty (falls back to /dev/null in compose) when no agent exists.

@@ -226,6 +226,23 @@ def copy_claude_auth(uid: int, gid: int) -> None:
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
 
+def copy_host_gitconfig(uid: int, gid: int) -> None:
+    """Copy the host ~/.gitconfig into the sandbox home.
+
+    Mounted read-only at /tmp/host-gitconfig by compose (or /dev/null when
+    the host has no gitconfig). Copying rather than mounting means the file
+    is writable inside the sandbox, so `git config --global` keeps working
+    for sandbox-specific overrides without leaking back to the host.
+    """
+    src = Path("/tmp/host-gitconfig")
+    # /dev/null fallback: S_ISREG is false, so we just skip.
+    if not src.is_file() or src.stat().st_size == 0:
+        return
+    dst = SANDBOX_HOME / ".gitconfig"
+    shutil.copy2(src, dst)
+    run(["chown", f"{uid}:{gid}", str(dst)])
+
+
 def root_phase() -> None:
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     gid = int(os.environ.get("SANDBOX_GID", "1000"))
@@ -251,6 +268,7 @@ def root_phase() -> None:
         start_sshd(uid, gid)
         configure_user_ssh(uid, gid)
         copy_claude_auth(uid, gid)
+        copy_host_gitconfig(uid, gid)
 
     # Re-exec as the sandbox user.
     os.execvp("gosu", ["gosu", f"{uid}:{gid}", sys.executable, __file__, *sys.argv[1:]])
