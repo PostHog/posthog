@@ -1,12 +1,13 @@
 import { RestRequest } from 'msw'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
+import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
+    lookupActors,
     lookupCompareSeries,
     lookupSeries,
     personProperties,
@@ -31,6 +32,29 @@ export interface MockResponse {
     response: TrendsQueryResponse | ((query: QueryBody) => TrendsQueryResponse)
 }
 
+/** Build an ActorsQueryResponse shaped like the server response, with one row
+ *  per canned person. Each person's display name is driven by the email
+ *  property (see `asDisplay` in scenes/persons/person-utils). */
+export function buildActorsResponse(
+    persons: Array<{ email: string; id?: string; distinctId?: string }>
+): ActorsQueryResponse {
+    return {
+        results: persons.map((p, i) => [
+            {
+                id: p.id ?? `person-${i}`,
+                distinct_ids: [p.distinctId ?? `distinct-${i}`],
+                is_identified: true,
+                properties: { email: p.email },
+                created_at: '2024-06-10T00:00:00Z',
+            },
+        ]),
+        columns: ['actor'],
+        hogql: '',
+        limit: 100,
+        offset: 0,
+    } as ActorsQueryResponse
+}
+
 function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => ({
@@ -50,6 +74,18 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
             compare_label: s.compare_label,
         })),
     } as TrendsQueryResponse
+}
+
+/** Pull the bits of an ActorsQuery we use to look up canned actors. */
+function resolveActors(query: QueryBody): Array<{ email: string }> {
+    const actorsSource = query.source as QueryBody | undefined
+    const trendsSource = actorsSource?.source as QueryBody | undefined
+    const event = (trendsSource?.series as Array<{ event?: string }> | undefined)?.[0]?.event
+    return lookupActors({
+        event,
+        breakdown: actorsSource?.breakdown as string | number | null | undefined,
+        day: actorsSource?.day as string | number | null | undefined,
+    })
 }
 
 function resolveSeriesData(query: QueryBody): SeriesData[] {
@@ -83,7 +119,12 @@ export interface SetupMocksOptions {
     eventDefinitions?: EventDefinition[]
     propertyDefinitions?: PropertyDefinition[]
     propertyValues?: Record<string, string[]>
+    /** Fully replace the default TrendsQuery + ActorsQuery responses. */
     mockResponses?: MockResponse[]
+    /** Prepend extra matchers to the default response chain. Useful when a
+     *  test wants to intercept one query kind (e.g. capture the ActorsQuery
+     *  body) without losing the default mocks for the others. */
+    additionalMockResponses?: MockResponse[]
 }
 
 // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW helper, not a React hook
@@ -92,14 +133,19 @@ export function setupInsightMocks({
     propertyDefinitions: propDefs = defaultPropDefs,
     propertyValues: propValues = defaultPropValues,
     mockResponses,
+    additionalMockResponses,
 }: SetupMocksOptions = {}): void {
-    const responses: MockResponse[] = mockResponses ?? [
+    const defaults: MockResponse[] = [
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
             response: (query) => buildTrendsResponse(resolveSeriesData(query)),
         },
-        // TODO: Add mock responses for other query types
+        {
+            match: (query) => query.kind === NodeKind.ActorsQuery,
+            response: (query) => buildActorsResponse(resolveActors(query)),
+        },
     ]
+    const responses: MockResponse[] = mockResponses ?? [...(additionalMockResponses ?? []), ...defaults]
 
     useMocks({
         get: {

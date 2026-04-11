@@ -49,6 +49,7 @@ interface TrendsTooltipProps {
     baseCurrency?: CurrencyCode
     groupTypeLabel?: string
     formatCompareLabel?: (label: string, dateLabel?: string) => string
+    onRowClick?: (datum: SeriesDatum) => void
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -67,6 +68,7 @@ export function TrendsTooltip({
     baseCurrency,
     groupTypeLabel,
     formatCompareLabel,
+    onRowClick,
 }: TrendsTooltipProps): React.ReactElement {
     // TODO: CI bands and moving-average datasets aren't yet built in the hog-charts path. When they
     // are, the bridge (or TrendsLineChartD3) will need to mark them as non-tooltip rows — legacy
@@ -138,7 +140,8 @@ export function TrendsTooltip({
                 )
             }}
             renderCount={renderCount}
-            hideInspectActorsSection
+            onRowClick={onRowClick}
+            hideInspectActorsSection={!onRowClick}
         />
     )
 }

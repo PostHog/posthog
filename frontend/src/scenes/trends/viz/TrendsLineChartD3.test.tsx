@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -16,13 +16,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+    personsModal.cleanupAll()
     cleanupJsdom()
     cleanup()
 })
 
 const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
 
-describe.skip('TrendsLineChartD3', () => {
+describe('TrendsLineChartD3', () => {
     describe('tooltips', () => {
         it('shows the series value and glyph for a single series', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
@@ -147,6 +148,51 @@ describe.skip('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(0)
 
             expect(tooltip.row('Minimal')).toContain('1')
+        })
+    })
+
+    describe('click → persons modal', () => {
+        it('single series: direct click shows the actors for the clicked day', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await chart.clickAtIndex(2)
+
+            await waitFor(() => {
+                expect(personsModal.actorNames()).toEqual(['pageview-wed-a@example.com', 'pageview-wed-b@example.com'])
+            })
+            expect(personsModal.title()).toMatch(/12 Jun/)
+        })
+
+        it('multi-series: first click pins the tooltip without opening the modal', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+
+            expect(chart.getTooltip()).toBeInTheDocument()
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('multi-series: clicking the Spike row shows only Spike actors', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+            await chart.clickTooltipRow('Spike')
+
+            await waitFor(() => {
+                expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
+            })
         })
     })
 })
