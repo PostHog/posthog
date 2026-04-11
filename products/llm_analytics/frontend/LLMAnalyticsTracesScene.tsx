@@ -39,6 +39,16 @@ export function LLMAnalyticsTraces(): JSX.Element {
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
+    const { setDateRange: setLazyLoaderDateRange } = useActions(traceMessagesLazyLoaderLogic)
+
+    const tracesDateFrom = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_from ?? null) : null
+    const tracesDateTo = isTracesQuery(tracesQuery.source) ? (tracesQuery.source.dateRange?.date_to ?? null) : null
+    // Keep the lazy loader's date window in sync with the traces table so its
+    // scoped `$ai_generation` lookup covers the same time range. The loader is
+    // unkeyed and can't connect to the per-tab shared logic instance directly.
+    useEffect(() => {
+        setLazyLoaderDateRange({ dateFrom: tracesDateFrom, dateTo: tracesDateTo })
+    }, [tracesDateFrom, tracesDateTo, setLazyLoaderDateRange])
 
     return (
         <div data-attr="llm-trace-table">

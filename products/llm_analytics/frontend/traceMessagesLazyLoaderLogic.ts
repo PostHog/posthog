@@ -1,16 +1,20 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoaderLogicType'
 import { parsePartialJSON } from './utils'
 
 export interface TraceMessages {
     firstInput: unknown
     lastOutput: unknown
+}
+
+export interface TraceMessagesDateRange {
+    dateFrom: string | null
+    dateTo: string | null
 }
 
 const BATCH_MAX_SIZE = 100
@@ -21,6 +25,7 @@ const BATCH_DEBOUNCE_MS = 0
  * batch. Truncated JSON is recovered on the frontend via parsePartialJSON.
  */
 const FIELD_TRUNCATE_CHARS = 2000
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -33,12 +38,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'traceMessagesLazyLoaderLogic']),
 
-    connect({
-        values: [llmAnalyticsSharedLogic, ['dateFilter']],
-    }),
-
     actions({
         ensureTraceMessagesLoaded: (traceIds: string[]) => ({ traceIds }),
+        setDateRange: (dateRange: TraceMessagesDateRange) => ({ dateRange }),
         markTraceIdsLoading: (traceIds: string[]) => ({ traceIds }),
         loadTraceMessagesBatchSuccess: (results: Record<string, TraceMessages>, requestedTraceIds: string[]) => ({
             results,
@@ -96,6 +98,13 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                 },
             },
         ],
+
+        dateRange: [
+            { dateFrom: null, dateTo: null } as TraceMessagesDateRange,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
     }),
 
     selectors({
@@ -149,37 +158,47 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                         return
                     }
 
-                    const { dateFrom, dateTo } = values.dateFilter
+                    const { dateFrom, dateTo } = values.dateRange
                     const chunks = chunk(requestedTraceIds, BATCH_MAX_SIZE)
 
                     await Promise.allSettled(
                         chunks.map(async (batch) => {
                             try {
+                                // Inline trace IDs and truncate size instead of using {placeholder}
+                                // values. `parse_select` eagerly resolves all placeholders against
+                                // the `values` dict and errors if it encounters `{filters}`, so we
+                                // can't combine the two. IDs are filtered to the UUID shape as
+                                // defense-in-depth before inlining.
+                                const safeIds = batch.filter((id) => UUID_RE.test(id))
+                                if (safeIds.length === 0) {
+                                    actions.loadTraceMessagesBatchSuccess({}, batch)
+                                    return
+                                }
+                                const idList = safeIds.map((id) => `'${id}'`).join(',')
                                 const query: HogQLQuery = {
                                     kind: NodeKind.HogQLQuery,
                                     query: `
                                         SELECT
                                             properties.$ai_trace_id AS trace_id,
                                             argMin(
-                                                substring(toString(properties.$ai_input), 1, {truncateChars}),
+                                                substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
                                                 timestamp
                                             ) AS first_input,
                                             argMax(
-                                                substring(toString(properties.$ai_output_choices), 1, {truncateChars}),
+                                                substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
                                                 timestamp
                                             ) AS last_output
                                         FROM events
                                         WHERE event = '$ai_generation'
-                                          AND properties.$ai_trace_id IN {traceIds}
-                                          ${dateFrom ? 'AND timestamp >= {dateFrom}' : ''}
-                                          ${dateTo ? 'AND timestamp <= {dateTo}' : ''}
+                                          AND properties.$ai_trace_id IN (${idList})
+                                          AND {filters}
                                         GROUP BY trace_id
                                     `,
-                                    values: {
-                                        traceIds: batch,
-                                        truncateChars: FIELD_TRUNCATE_CHARS,
-                                        ...(dateFrom ? { dateFrom } : {}),
-                                        ...(dateTo ? { dateTo } : {}),
+                                    filters: {
+                                        dateRange: {
+                                            date_from: dateFrom || null,
+                                            date_to: dateTo || null,
+                                        },
                                     },
                                 }
 
