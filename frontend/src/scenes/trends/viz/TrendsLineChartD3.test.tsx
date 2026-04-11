@@ -53,7 +53,7 @@ describe('TrendsLineChartD3', () => {
             expect(glyphs.length).toBe(2)
         })
 
-        it('shows breakdown values in the inverted column layout', async () => {
+        it('shows breakdown values in the tooltip', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
