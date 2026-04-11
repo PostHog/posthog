@@ -332,7 +332,7 @@ class OauthIntegration:
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 # Added services scopes to support custom objects (fixes MISSING_SCOPES 403 error)
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write crm.objects.services.write crm.schemas.services.write",
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write crm.objects.custom.write crm.schemas.custom.write",
                 additional_authorize_params={
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional
                     "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
