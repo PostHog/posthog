@@ -66,13 +66,17 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://stripe.com/callback",
                 "algorithm": "RS256",
-                "provisioning_auth_method": "hmac",
-                "provisioning_signing_secret": HMAC_SECRET,
-                "provisioning_partner_type": "stripe",
-                "provisioning_can_create_accounts": True,
-                "provisioning_can_provision_resources": True,
             },
         )
+        OAuthApplication.objects.filter(id=self.stripe_app.id).update(
+            provisioning_auth_method="hmac",
+            provisioning_signing_secret=HMAC_SECRET,
+            provisioning_partner_type="stripe",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+        self.stripe_app.refresh_from_db()
 
         self.wizard_app, _ = OAuthApplication.objects.get_or_create(
             client_id=WIZARD_CLIENT_ID,
@@ -84,12 +88,16 @@ class TestProvisioningAuthentication(APIBaseTest):
                 "redirect_uris": "http://localhost:8239/callback",
                 "algorithm": "RS256",
                 "is_first_party": True,
-                "provisioning_auth_method": "pkce",
-                "provisioning_partner_type": "wizard",
-                "provisioning_can_create_accounts": True,
-                "provisioning_can_provision_resources": True,
             },
         )
+        OAuthApplication.objects.filter(id=self.wizard_app.id).update(
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+        self.wizard_app.refresh_from_db()
 
     def _sign_body(self, body: bytes) -> str:
         ts = int(time.time())
