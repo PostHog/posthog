@@ -108,8 +108,14 @@ tables:
         engine: MaterializedView
         source: kafka_log_entries
         target: log_entries
-        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries"
-        on_nodes: ALL
+        # Target table (log_entries) lives on DATA nodes only — match its
+        # node scope. Previous YAML had `on_nodes: ALL` which caused the MV
+        # CREATE to fire on the coordinator where log_entries doesn't exist.
+        on_nodes: DATA
+        # Kafka virtual columns (_timestamp, _offset) aren't in the target
+        # table, so the MV SELECT must not output them. Removing them aligns
+        # with the target column list exactly.
+        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message FROM {{ database }}.kafka_log_entries"
         columns: []
 
     kafka_log_entries_v3:
