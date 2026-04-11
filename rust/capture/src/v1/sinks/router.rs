@@ -130,16 +130,14 @@ mod tests {
     // -- Test helpers --------------------------------------------------------
 
     struct FakeEvent {
-        uuid: String,
         parsed_uuid: Uuid,
         publish: bool,
         destination: Destination,
     }
 
     impl FakeEvent {
-        fn ok(uuid: &str) -> Self {
+        fn ok(_uuid: &str) -> Self {
             Self {
-                uuid: uuid.to_string(),
                 parsed_uuid: Uuid::new_v4(),
                 publish: true,
                 destination: Destination::AnalyticsMain,
@@ -157,9 +155,6 @@ mod tests {
             self.parsed_uuid
         }
 
-        fn uuid_key(&self) -> &str {
-            &self.uuid
-        }
         fn should_publish(&self) -> bool {
             self.publish
         }
@@ -170,7 +165,7 @@ mod tests {
             vec![]
         }
         fn write_partition_key(&self, _ctx: &Context, buf: &mut String) {
-            buf.push_str(&format!("key:{}", self.uuid));
+            buf.push_str(&format!("key:{}", self.uuid()));
         }
         fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> Result<(), String> {
             buf.push_str(r#"{"event":"test"}"#);
