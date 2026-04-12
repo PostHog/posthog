@@ -1,7 +1,7 @@
 import type { AxisFormat, ChartTheme } from 'lib/charts/types'
 export type { AxisFormat, ChartTheme }
 
-export interface Series {
+export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
     /** Human-readable name shown in tooltips and legends. */
@@ -22,8 +22,10 @@ export interface Series {
     pointRadius?: number
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
-     *  values, comparison labels, anomaly scores) without the library needing to know about them. */
-    meta?: Record<string, unknown>
+     *  values, comparison labels, anomaly scores) without the library needing to know about them.
+     *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
+     *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
+    meta?: Meta
 }
 
 /** A horizontal reference line drawn across the chart at a fixed y-value. */
@@ -39,29 +41,29 @@ export interface GoalLine {
 }
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
-export interface PointClickData {
+export interface PointClickData<Meta = unknown> {
     /** Index of the clicked series within the original series array. */
     seriesIndex: number
     /** Index along the x-axis (into the labels array) that was clicked. */
     dataIndex: number
     /** The series that was clicked. */
-    series: Series
+    series: Series<Meta>
     /** The y-value at the clicked point. */
     value: number
     /** The x-axis label at the clicked point. */
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
-    crossSeriesData: { series: Series; value: number }[]
+    crossSeriesData: { series: Series<Meta>; value: number }[]
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
-export interface TooltipContext {
+export interface TooltipContext<Meta = unknown> {
     /** Index along the x-axis that the tooltip represents. */
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
     /** One entry per visible series with its value and color at this index. */
-    seriesData: { series: Series; value: number; color: string }[]
+    seriesData: { series: Series<Meta>; value: number; color: string }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */

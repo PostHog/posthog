@@ -23,6 +23,22 @@ export const eventDefinitions: EventDefinition[] = [
         last_seen_at: friday,
         created_at: setupWeek,
     },
+    {
+        id: 'evt-003',
+        name: 'ZeroCounts',
+        description: 'Event with one empty and one active series',
+        tags: [],
+        last_seen_at: friday,
+        created_at: setupWeek,
+    },
+    {
+        id: 'evt-004',
+        name: 'Minimal',
+        description: 'Event with no action metadata',
+        tags: [],
+        last_seen_at: friday,
+        created_at: setupWeek,
+    },
 ]
 
 export const propertyDefinitions: PropertyDefinition[] = [
@@ -63,7 +79,11 @@ export interface SeriesData {
     labels?: string[]
     days?: string[]
     breakdown_value?: string | number
+    compare?: boolean
+    compare_label?: string
 }
+
+type CannedSeries = SeriesData & { labels: string[]; days: string[] }
 
 export const trendsSeries = {
     pageviews: {
@@ -71,20 +91,41 @@ export const trendsSeries = {
         data: [45, 82, 134, 210, 95],
         days,
         labels,
-    },
+    } satisfies CannedSeries,
     napped: {
         label: 'Napped',
         data: [1, 3, 5, 8, 2],
         days,
         labels,
-    },
+    } satisfies CannedSeries,
     napsByHedgehog: [
         { label: 'Spike', data: [1, 2, 3, 4, 1], days, labels, breakdown_value: 'Spike' },
         { label: 'Bramble', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Bramble' },
         { label: 'Thistle', data: [0, 1, 0, 2, 1], days, labels, breakdown_value: 'Thistle' },
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
-    ],
+    ] satisfies CannedSeries[],
+    withZeroCounts: [
+        { label: 'EmptySeries', data: [0, 0, 0, 0, 0], days, labels },
+        { label: 'ActiveSeries', data: [1, 2, 3, 2, 2], days, labels },
+    ] satisfies CannedSeries[],
+    minimal: {
+        label: 'Minimal',
+        data: [1, 1, 1, 1, 1],
+        days,
+        labels,
+    } satisfies CannedSeries,
+    pageviewsCompare: [
+        { label: '$pageview', data: [45, 82, 134, 210, 95], days, labels, compare: true, compare_label: 'current' },
+        {
+            label: '$pageview',
+            data: [30, 60, 100, 180, 70],
+            days: ['2024-06-03', '2024-06-04', '2024-06-05', '2024-06-06', '2024-06-07'],
+            labels,
+            compare: true,
+            compare_label: 'previous',
+        },
+    ] satisfies CannedSeries[],
 }
 
 // Maps (event name, optional breakdown) → canned series data.
@@ -92,6 +133,8 @@ export const trendsSeries = {
 
 interface EventSeriesConfig {
     default: SeriesData
+    /** Return multiple series for this event even without a breakdown. */
+    multi?: SeriesData[]
     breakdowns?: Record<string, SeriesData[]>
 }
 
@@ -103,6 +146,16 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
             hedgehog: trendsSeries.napsByHedgehog,
         },
     },
+    ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
+    Minimal: { default: trendsSeries.minimal },
+}
+
+/** Resolver for compare queries — returns current + previous period series. */
+export function lookupCompareSeries(eventName: string): SeriesData[] | null {
+    if (eventName === '$pageview') {
+        return trendsSeries.pageviewsCompare
+    }
+    return null
 }
 
 const fallbackSeries: SeriesData = {
@@ -119,6 +172,9 @@ export function lookupSeries(eventName: string, breakdownProperty?: string): Ser
     }
     if (breakdownProperty && config.breakdowns?.[breakdownProperty]) {
         return config.breakdowns[breakdownProperty]
+    }
+    if (config.multi) {
+        return config.multi
     }
     return [config.default]
 }

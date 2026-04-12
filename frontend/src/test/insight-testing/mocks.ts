@@ -7,6 +7,7 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
+    lookupCompareSeries,
     lookupSeries,
     personProperties,
     propertyDefinitions as defaultPropDefs,
@@ -32,11 +33,12 @@ export interface MockResponse {
 
 function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
-        results: series.map((s) => ({
+        results: series.map((s, i) => ({
             action: {
                 id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
                 type: 'events',
                 name: s.label,
+                order: s.compare ? 0 : i,
             },
             label: s.label,
             count: s.data.reduce((a, b) => a + b, 0),
@@ -44,15 +46,25 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
             labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
             days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
             breakdown_value: s.breakdown_value,
+            compare: s.compare,
+            compare_label: s.compare_label,
         })),
     } as TrendsQueryResponse
 }
 
 function resolveSeriesData(query: QueryBody): SeriesData[] {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown ?? null
+    const isCompare = !!(query as Record<string, unknown>).compareFilter
 
     return (query.series ?? []).flatMap((s) => {
-        return lookupSeries(s.event ?? s.name ?? 'Unknown', breakdownProp ?? undefined)
+        const eventName = s.event ?? s.name ?? 'Unknown'
+        if (isCompare) {
+            const compareSeries = lookupCompareSeries(eventName)
+            if (compareSeries) {
+                return compareSeries
+            }
+        }
+        return lookupSeries(eventName, breakdownProp ?? undefined)
     })
 }
 
