@@ -22,6 +22,7 @@ type keyMap struct {
 	SearchMode key.Binding
 	SearchNext key.Binding
 	SearchPrev key.Binding
+	FilterMode key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 	Backspace  key.Binding
@@ -104,6 +105,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("shift+enter"),
 			key.WithHelp("⇧↵:", "prev match"),
 		),
+		FilterMode: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f:", "filter"),
+		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q:", "quit"),
@@ -146,7 +151,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
+	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.FilterMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -157,6 +162,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.ClearLogs},
 		{k.SearchMode, k.SearchNext, k.SearchPrev},
+		{k.FilterMode},
 		{k.CopyMode, k.InfoMode, k.SetupMode},
 		{k.Quit, k.Help, k.Hedgehog},
 	}

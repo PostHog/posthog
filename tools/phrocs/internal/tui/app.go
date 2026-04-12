@@ -69,6 +69,10 @@ type Model struct {
 	searchMatches []int // line indices that contain the match
 	searchCursor  int   // index into searchMatches (current highlighted match)
 
+	// Filter mode: shows only matching lines in the viewport
+	filterMode  bool
+	filterQuery string
+
 	// Sidebar with list of processes, always visible (when not in copy mode)
 	services       []*process.Process
 	servicesCursor int
@@ -204,11 +208,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			m.reloadActiveLines()
+			if m.filterMode {
+				m.recomputeFilter()
+			}
 			if m.searchQuery != "" {
 				m.recomputeSearch()
 			}
 			// Don't auto-scroll while the user is selecting text in copy mode
-			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
 				m.viewport.GotoBottom()
 			}
 		}
@@ -282,8 +289,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.containerLines = append(m.containerLines, msg.Line)
 			lineIndex := len(m.containerLines) - 1
-			m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
-			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
+			if m.filterMode {
+				m.recomputeFilter()
+			} else {
+				m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
+			}
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
 				m.viewport.GotoBottom()
 			}
 			if m.searchQuery != "" {
@@ -302,6 +313,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var handled bool
 		if m.searchMode {
 			m, cmds, handled = m.handleSearchKey(msg, cmds)
+		} else if m.filterMode {
+			m, cmds, handled = m.handleFilterKey(msg, cmds)
 		} else if m.copyMode {
 			m, cmds, handled = m.handleCopyKey(msg, cmds)
 		} else if m.infoMode {
@@ -390,7 +403,7 @@ func (m Model) View() tea.View {
 // Returns true when sidebars should be hidden and the output pane
 // fills the full width (copy mode or any search state).
 func (m Model) isFullScreen() bool {
-	return m.copyMode || m.searchMode || m.setupMode
+	return m.copyMode || m.searchMode || m.filterMode || m.setupMode
 }
 
 func (m Model) activeProc() *process.Process {
@@ -477,6 +490,8 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	m.copyMode = false
 	m.searchMode = false
+	m.filterMode = false
+	m.filterQuery = ""
 	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 

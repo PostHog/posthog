@@ -112,6 +112,38 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []te
 	return m, cmds, true
 }
 
+func (m Model) handleFilterKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
+	switch {
+	case msg.Code == tea.KeyEscape:
+		m.filterMode = false
+		m.filterQuery = ""
+		m.reloadActiveLines()
+		m = m.applySize()
+		if m.viewportAtBottom {
+			m.viewport.GotoBottom()
+		}
+	case key.Matches(msg, m.keys.Backspace):
+		if len(m.filterQuery) > 0 {
+			runes := []rune(m.filterQuery)
+			m.filterQuery = string(runes[:len(runes)-1])
+			m.recomputeFilter()
+		}
+	default:
+		s := msg.String()
+		var ch string
+		if s == "space" {
+			ch = " "
+		} else if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+			ch = s
+		}
+		if ch != "" {
+			m.filterQuery += ch
+			m.recomputeFilter()
+		}
+	}
+	return m, cmds, true
+}
+
 func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
@@ -392,6 +424,12 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.SearchMode):
 		m.searchMode = true
 		m.clearSearch()
+		m = m.applySize()
+
+	case key.Matches(msg, m.keys.FilterMode):
+		m.filterMode = true
+		m.filterQuery = ""
+		m.recomputeFilter()
 		m = m.applySize()
 
 	case key.Matches(msg, m.keys.CopyMode):

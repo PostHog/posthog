@@ -531,6 +531,220 @@ func TestSearch_dockerIncrementalLogLineUpdatesMatches(t *testing.T) {
 	}
 }
 
+// ── Filter ────────────────────────────────────────────────────────────────────
+
+func TestFilter_enterAndExit(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	if !m.filterMode {
+		t.Error("f should enter filter mode")
+	}
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.filterMode {
+		t.Error("esc should exit filter mode")
+	}
+	if m.filterQuery != "" {
+		t.Error("esc should clear filter query")
+	}
+}
+
+func TestFilter_typeQuery(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+	if m.filterQuery != "err" {
+		t.Errorf("typed 'err', got %q", m.filterQuery)
+	}
+}
+
+func TestFilter_backspace(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyBackspace, Text: "backspace"})
+	if m.filterQuery != "e" {
+		t.Errorf("after backspace want %q, got %q", "e", m.filterQuery)
+	}
+}
+
+func TestFilter_showsOnlyMatchingLines(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"hello world", "error here", "another error", "info log"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	m = update(m, keypress('f'))
+	for _, ch := range "error" {
+		m = update(m, keypress(ch))
+	}
+	// Only 2 lines contain "error", so the viewport should have 2 lines
+	if m.viewport.TotalLineCount() != 2 {
+		t.Errorf("want 2 filtered lines, got %d", m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_noMatchShowsEmpty(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	p.AppendLine("hello world")
+	m = update(m, process.OutputMsg{Name: "backend"})
+	m = update(m, keypress('f'))
+	for _, ch := range "zzz" {
+		m = update(m, keypress(ch))
+	}
+	if m.viewport.TotalLineCount() != 0 {
+		t.Errorf("want 0 lines for no matches, got %d", m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_emptyQueryShowsAllLines(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"line 1", "line 2", "line 3"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	before := m.viewport.TotalLineCount()
+	m = update(m, keypress('f'))
+	// With empty filter query, all lines should be visible
+	if m.viewport.TotalLineCount() != before {
+		t.Errorf("empty filter should show all lines: want %d, got %d", before, m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_isFullScreen(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	if !m.isFullScreen() {
+		t.Error("filter mode should be full screen")
+	}
+}
+
+func TestFilter_liveUpdate(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	p.AppendLine("error one")
+	m = update(m, process.OutputMsg{Name: "backend"})
+	m = update(m, keypress('f'))
+	for _, ch := range "error" {
+		m = update(m, keypress(ch))
+	}
+	if m.viewport.TotalLineCount() != 1 {
+		t.Fatalf("want 1 filtered line initially, got %d", m.viewport.TotalLineCount())
+	}
+	// New matching line arrives
+	p.AppendLine("error two")
+	m = update(m, process.OutputMsg{Name: "backend"})
+	if m.viewport.TotalLineCount() != 2 {
+		t.Errorf("after new matching line: want 2 filtered lines, got %d", m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_exitRestoresAllLines(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"error one", "info two", "error three"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	before := m.viewport.TotalLineCount()
+	// Enter filter, type query
+	m = update(m, keypress('f'))
+	for _, ch := range "error" {
+		m = update(m, keypress(ch))
+	}
+	if m.viewport.TotalLineCount() >= before {
+		t.Fatal("filter should reduce visible lines")
+	}
+	// Exit filter
+	m = update(m, specialKey(tea.KeyEscape))
+	if m.viewport.TotalLineCount() != before {
+		t.Errorf("after exit, want %d lines restored, got %d", before, m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_negativeExcludesLines(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"error: crash", "debug: verbose", "info: started", "warning: slow"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	m = update(m, keypress('f'))
+	// Type "!debug"
+	m = update(m, tea.KeyPressMsg{Code: '!', Mod: tea.ModShift, Text: "!"})
+	for _, ch := range "debug" {
+		m = update(m, keypress(ch))
+	}
+	// Should show 3 lines (all except "debug: verbose")
+	if m.viewport.TotalLineCount() != 3 {
+		t.Errorf("want 3 lines excluding debug, got %d", m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_multipleNegatives(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"error: crash", "debug: verbose", "info: started", "warning: slow"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	m = update(m, keypress('f'))
+	// Type "!debug !warning" (two negative tokens separated by space)
+	for _, ch := range "!debug" {
+		if ch == '!' {
+			m = update(m, tea.KeyPressMsg{Code: '!', Mod: tea.ModShift, Text: "!"})
+		} else {
+			m = update(m, keypress(ch))
+		}
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: "space"})
+	for _, ch := range "!warning" {
+		if ch == '!' {
+			m = update(m, tea.KeyPressMsg{Code: '!', Mod: tea.ModShift, Text: "!"})
+		} else {
+			m = update(m, keypress(ch))
+		}
+	}
+	// Should show 2 lines (error + info)
+	if m.viewport.TotalLineCount() != 2 {
+		t.Errorf("want 2 lines excluding debug+warning, got %d", m.viewport.TotalLineCount())
+	}
+}
+
+func TestFilter_spaceInQuery(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	m = update(m, keypress('h'))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: "space"})
+	m = update(m, keypress('w'))
+	if m.filterQuery != "h w" {
+		t.Errorf("space in filter query: want %q, got %q", "h w", m.filterQuery)
+	}
+}
+
+func TestFilter_clearedOnProcSwitch(t *testing.T) {
+	m := readyModel(t, "alpha", "beta")
+	m = update(m, keypress('f'))
+	m = update(m, keypress('x'))
+	if m.filterQuery != "x" {
+		t.Fatal("filter query should be set")
+	}
+	// Switch to next proc
+	m = update(m, specialKey(tea.KeyEscape)) // exit filter first
+	m = update(m, keypress('j'))             // move to beta
+	if m.filterQuery != "" {
+		t.Error("filter query should be cleared on proc switch")
+	}
+	if m.filterMode {
+		t.Error("filter mode should be cleared on proc switch")
+	}
+}
+
 func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
 	m := readyDockerModel(t)
 	m.containerLines = []string{"first", "\x1b[31msecond\x1b[0m", "third"}

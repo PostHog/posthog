@@ -232,6 +232,20 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.filterMode {
+		var matchInfo string
+		if m.filterQuery == "" {
+			matchInfo = ""
+		} else {
+			count := m.viewport.TotalLineCount()
+			if count == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d lines]", count)
+			}
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("filter: %s▌%s", m.filterQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(prompt)
 	} else if m.searchMode {
 		var matchInfo string
 		if m.searchQuery == "" {
