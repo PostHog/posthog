@@ -8,7 +8,9 @@ from posthog.clickhouse.migration_tools.state_diff import (
     _is_kafka_virtual_column,
     _normalize_default,
     _normalize_interval_funcs,
+    _normalize_mv_select,
     _normalize_type,
+    _strip_redundant_parens,
     diff_state,
 )
 
@@ -485,3 +487,131 @@ class TestKafkaMVCascadePrevention:
         kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
         assert len(kafka_creates) == 1, f"Expected Kafka re-create but got: {[d.detail for d in kafka_creates]}"
         assert "cascade" in kafka_creates[0].detail.lower()
+
+
+# -- Bug A: Nested AND/OR parens in lambda bodies --
+
+
+class TestStripRedundantParens:
+    def test_outer_lambda_parens(self):
+        assert _strip_redundant_parens("-> (x + 1)") == "-> x + 1"
+
+    def test_nested_and_operand_parens(self):
+        s = "-> ((key like '$ai_%') and (key not in ('a', 'b')))"
+        result = _strip_redundant_parens(s)
+        assert "(" not in result.split("->")[1].split("not in")[0], f"Redundant parens remain: {result}"
+        assert "key like '$ai_%' and key not in" in result
+
+    def test_or_operand_parens(self):
+        s = "-> ((a > 1) or (b < 2))"
+        result = _strip_redundant_parens(s)
+        assert result == "-> a > 1 or b < 2"
+
+    def test_preserves_function_call_parens(self):
+        s = "-> toInt64(x) + 1"
+        assert _strip_redundant_parens(s) == s
+
+    def test_stable_on_already_clean(self):
+        s = "-> key like '$ai_%' and key not in ('a', 'b')"
+        assert _strip_redundant_parens(s) == s
+
+
+class TestNormalizeDefaultNestedLambdaParens:
+    def test_ch_style_vs_yaml_style(self):
+        ch = "DEFAULT mapFilter((key, _) -> ((key LIKE '$ai_%') AND (key NOT IN ('$ai_generation_id'))), m)"
+        yaml = "DEFAULT mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_generation_id'), m)"
+        assert _normalize_default(ch) == _normalize_default(yaml)
+
+    def test_triple_and(self):
+        ch = "DEFAULT mapFilter((k, v) -> ((k LIKE 'a%') AND (k NOT LIKE 'b%') AND (v != '')), m)"
+        yaml = "DEFAULT mapFilter((k, v) -> k LIKE 'a%' AND k NOT LIKE 'b%' AND v != '', m)"
+        assert _normalize_default(ch) == _normalize_default(yaml)
+
+
+# -- Bug B: MV SELECT body normalization --
+
+
+class TestNormalizeMvSelect:
+    def test_database_prefix_stripped(self):
+        ch = "SELECT event FROM posthog_test.kafka_events"
+        yaml = "SELECT event FROM kafka_events"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+    def test_keyword_case_normalized(self):
+        ch = "SELECT event FROM kafka_events WHERE team_id = 1"
+        yaml = "select event from kafka_events where team_id = 1"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+    def test_trailing_settings_stripped(self):
+        ch = "SELECT event FROM kafka_events SETTINGS max_threads = 4"
+        yaml = "SELECT event FROM kafka_events"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+    def test_whitespace_collapsed(self):
+        ch = "SELECT  event\n  FROM   kafka_events"
+        yaml = "SELECT event FROM kafka_events"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+    def test_combined_differences(self):
+        ch = "SELECT event, timestamp AS ts FROM posthog_test.kafka_events WHERE team_id = 1 SETTINGS max_threads = 4"
+        yaml = "select event, timestamp as ts from kafka_events where team_id = 1"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+    def test_multiple_db_prefixes(self):
+        ch = "SELECT a FROM posthog.t1 JOIN posthog.t2 ON t1.id = t2.id"
+        yaml = "SELECT a FROM t1 JOIN t2 ON t1.id = t2.id"
+        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+
+
+class TestDiffConvergenceMvSelect:
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_recreate_when_only_db_prefix_differs(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "events_mv": DesiredTable(
+                    name="events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM kafka_events",
+                ),
+            }
+        )
+        current = {
+            "events_mv": TableSchema(
+                name="events_mv",
+                engine="MaterializedView",
+                as_select="SELECT event FROM posthog_test.kafka_events",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_recreate_when_keyword_case_and_settings_differ(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "events_mv": DesiredTable(
+                    name="events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM kafka_events WHERE team_id = 1",
+                ),
+            }
+        )
+        current = {
+            "events_mv": TableSchema(
+                name="events_mv",
+                engine="MaterializedView",
+                as_select="SELECT event FROM posthog.kafka_events WHERE team_id = 1 SETTINGS max_threads = 4",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
